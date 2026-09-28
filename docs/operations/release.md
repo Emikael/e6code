@@ -89,7 +89,9 @@ credentials documented below:
 - `RELEASE_APP_ID`
 - `RELEASE_APP_PRIVATE_KEY`
 
-The finalize job uses them to commit and push aligned package versions to `main` as the Release App.
+The finalize job uses them to open a pull request for aligned package versions as the Release App.
+Grant the app Contents and Pull requests write access. The maintainer must approve and merge that
+pull request before the next stable release or nightly version is resolved from `main`.
 GitHub Release publication uses the repository-scoped workflow token so it has a rate-limit quota
 independent from the shared Release App installation.
 
@@ -358,14 +360,14 @@ Checklist:
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
 `v0.0.0-test.1`, classifies the run as the stable channel. It publishes `e6` with npm dist-tag
 `latest`, creates a real GitHub Release, aliases the hosted app to `latest.app.e6.codes` and
-`app.e6.codes`, and can commit a version bump to `main` in the finalize job. Do not push a test tag
+`app.e6.codes`, and can open a version bump pull request in the finalize job. Do not push a test tag
 to validate the workflow.
 
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
 validate checks and builds without shipping. To exercise the complete release graph at lower stable
 risk, manually dispatch `channel=nightly`; this still publishes a real nightly npm package, GitHub
 prerelease, desktop updater release, hosted nightly alias, and marketing site, but it does not update stable app aliases or
-commit a version bump to `main`. Only run it when a real nightly release is acceptable.
+open a version bump pull request. Only run it when a real nightly release is acceptable.
 
 Manual `channel=stable` is also a real stable-channel release. Omitting signing secrets only makes
 platform artifacts unsigned; it does not prevent publication.
