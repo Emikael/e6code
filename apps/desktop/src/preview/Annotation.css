@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--e6-font-sans);
+  --font-mono: var(--e6-font-mono);
+  --color-background: var(--e6-background);
+  --color-foreground: var(--e6-foreground);
+  --color-popover: var(--e6-popover);
+  --color-popover-foreground: var(--e6-popover-foreground);
+  --color-primary: var(--e6-primary);
+  --color-primary-foreground: var(--e6-primary-foreground);
+  --color-muted: var(--e6-muted);
+  --color-muted-foreground: var(--e6-muted-foreground);
+  --color-accent: var(--e6-accent);
+  --color-accent-foreground: var(--e6-accent-foreground);
+  --color-border: var(--e6-border);
+  --color-input: var(--e6-input);
+  --color-ring: var(--e6-ring);
+  --radius-sm: calc(var(--e6-radius) - 4px);
+  --radius-md: calc(var(--e6-radius) - 2px);
+  --radius-lg: var(--e6-radius);
+  --radius-xl: calc(var(--e6-radius) + 4px);
+  --radius-2xl: calc(var(--e6-radius) + 8px);
+}
+
+:host {
+  --e6-font-sans:
+    "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  --e6-font-mono:
+    "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --e6-radius: 0.625rem;
+  --e6-background: white;
+  --e6-foreground: oklch(0.269 0 0);
+  --e6-popover: white;
+  --e6-popover-foreground: oklch(0.269 0 0);
+  --e6-primary: oklch(0.488 0.217 264);
+  --e6-primary-foreground: white;
+  --e6-muted: rgb(0 0 0 / 4%);
+  --e6-muted-foreground: oklch(0.556 0 0);
+  --e6-accent: rgb(0 0 0 / 4%);
+  --e6-accent-foreground: oklch(0.269 0 0);
+  --e6-border: rgb(0 0 0 / 8%);
+  --e6-input: rgb(0 0 0 / 10%);
+  --e6-ring: oklch(0.488 0.217 264);
+  color: var(--e6-foreground);
+  font-family: var(--e6-font-sans);
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--e6-border);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--e6-ring) 72%, transparent);
+  outline-offset: 1px;
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "E6 App Testing"
+  short_description: "Test web and desktop in E6's Browser panel"
+  default_prompt: "Use $test-e6-app to verify the affected web or desktop flow through E6's Browser panel."

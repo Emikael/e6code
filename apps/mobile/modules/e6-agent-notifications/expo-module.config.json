@@ -1,0 +1,4 @@
+{
+  "platforms": ["android"],
+  "android": { "modules": ["expo.modules.e6agentnotifications.E6AgentNotificationsModule"] }
+}

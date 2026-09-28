@@ -1,0 +1,546 @@
+import { withLegacyBrandEnv } from "@e6tools/shared/brand";
+import * as NetService from "@e6tools/shared/Net";
+import {
+  OtlpHeadersFromString,
+  OtlpProtocol,
+  type SignalExport,
+} from "@e6tools/shared/observability";
+import { parsePersistedServerObservabilitySettings } from "@e6tools/shared/serverSettings";
+import { DesktopBackendBootstrap, PortSchema } from "@e6tools/contracts";
+import * as Config from "effect/Config";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as LogLevel from "effect/LogLevel";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+import { Argument, Flag } from "effect/unstable/cli";
+
+import { readBootstrapEnvelope } from "../bootstrap.ts";
+import * as ServerConfig from "../config.ts";
+import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+
+const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
+  Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
+  Flag.optional,
+);
+const portFlag = Flag.Int("port").pipe(
+  Flag.withSchema(PortSchema),
+  Flag.withDescription("Port for the HTTP/WebSocket server."),
+  Flag.optional,
+);
+const hostFlag = Flag.String("host").pipe(
+  Flag.withDescription("Host/interface to bind (for example 127.0.0.1, 0.0.0.0, or a Tailnet IP)."),
+  Flag.optional,
+);
+export const baseDirFlag = Flag.String("base-dir").pipe(
+  Flag.withDescription(
+    "Explicit E6 Code data directory; runtime state is stored under userdata (equivalent to E6CODE_HOME).",
+  ),
+  Flag.optional,
+);
+const devUrlFlag = Flag.String("dev-url").pipe(
+  Flag.withSchema(Schema.URLFromString),
+  Flag.withDescription("Dev web URL to proxy/redirect to (equivalent to VITE_DEV_SERVER_URL)."),
+  Flag.optional,
+);
+const noBrowserFlag = Flag.Boolean("no-browser").pipe(
+  Flag.withDescription("Disable automatic browser opening."),
+  Flag.optional,
+);
+const bootstrapFdFlag = Flag.Int("bootstrap-fd").pipe(
+  Flag.withSchema(Schema.Int),
+  Flag.withDescription("Read one-time bootstrap secrets from the given file descriptor."),
+  Flag.optional,
+);
+const autoBootstrapProjectFromCwdFlag = Flag.Boolean("auto-bootstrap-project-from-cwd").pipe(
+  Flag.withDescription(
+    "Create a project for the current working directory on startup when missing.",
+  ),
+  Flag.optional,
+);
+const logWebSocketEventsFlag = Flag.Boolean("log-websocket-events").pipe(
+  Flag.withDescription(
+    "Emit server-side logs for outbound WebSocket push traffic (equivalent to E6CODE_LOG_WS_EVENTS).",
+  ),
+  Flag.withAlias("log-ws-events"),
+  Flag.optional,
+);
+const tailscaleServeFlag = Flag.Boolean("tailscale-serve").pipe(
+  Flag.withDescription(
+    "Configure Tailscale Serve to expose this backend over HTTPS on the Tailnet.",
+  ),
+  Flag.optional,
+);
+const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
+  Flag.withSchema(PortSchema),
+  Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale-serve is enabled."),
+  Flag.optional,
+);
+
+const EnvServerConfig = Config.all({
+  logLevel: withLegacyBrandEnv("LOG_LEVEL", Config.LogLevel).pipe(Config.withDefault("Info")),
+  traceMinLevel: withLegacyBrandEnv("TRACE_MIN_LEVEL", Config.LogLevel).pipe(
+    Config.withDefault("Info"),
+  ),
+  traceTimingEnabled: withLegacyBrandEnv("TRACE_TIMING_ENABLED", Config.Boolean).pipe(
+    Config.withDefault(true),
+  ),
+  traceFile: withLegacyBrandEnv("TRACE_FILE", Config.String).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  traceMaxBytes: withLegacyBrandEnv("TRACE_MAX_BYTES", Config.Int).pipe(
+    Config.withDefault(10 * 1024 * 1024),
+  ),
+  traceMaxFiles: withLegacyBrandEnv("TRACE_MAX_FILES", Config.Int).pipe(Config.withDefault(10)),
+  traceBatchWindowMs: withLegacyBrandEnv("TRACE_BATCH_WINDOW_MS", Config.Int).pipe(
+    Config.withDefault(1_000),
+  ),
+  otlpTracesUrl: withLegacyBrandEnv("OTLP_TRACES_URL", Config.String).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  otlpMetricsUrl: withLegacyBrandEnv("OTLP_METRICS_URL", Config.String).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  otlpLogsUrl: withLegacyBrandEnv("OTLP_LOGS_URL", Config.String).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  otlpExportIntervalMs: withLegacyBrandEnv("OTLP_EXPORT_INTERVAL_MS", Config.Int).pipe(
+    Config.withDefault(10_000),
+  ),
+  otlpServiceName: withLegacyBrandEnv("OTLP_SERVICE_NAME", Config.String).pipe(
+    Config.withDefault("e6-server"),
+  ),
+  otlpHeaders: withLegacyBrandEnv("OTLP_HEADERS", (name) =>
+    Config.schema(OtlpHeadersFromString, name),
+  ).pipe(Config.option, Config.map(Option.getOrUndefined)),
+  otlpProtocol: withLegacyBrandEnv("OTLP_PROTOCOL", (name) =>
+    Config.schema(OtlpProtocol, name),
+  ).pipe(Config.withDefault("http/json")),
+  mode: withLegacyBrandEnv("MODE", (name) => Config.schema(ServerConfig.RuntimeMode, name)).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  port: withLegacyBrandEnv("PORT", Config.Port).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  host: withLegacyBrandEnv("HOST", Config.String).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  e6Home: withLegacyBrandEnv("HOME", Config.String).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  devAllowedOrigins: withLegacyBrandEnv("DEV_ALLOWED_ORIGINS", Config.String).pipe(
+    Config.withDefault(""),
+    Config.map((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  ),
+  noBrowser: withLegacyBrandEnv("NO_BROWSER", Config.Boolean).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  bootstrapFd: withLegacyBrandEnv("BOOTSTRAP_FD", Config.Int).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  autoBootstrapProjectFromCwd: withLegacyBrandEnv(
+    "AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+    Config.Boolean,
+  ).pipe(Config.option, Config.map(Option.getOrUndefined)),
+  logWebSocketEvents: withLegacyBrandEnv("LOG_WS_EVENTS", Config.Boolean).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  tailscaleServeEnabled: withLegacyBrandEnv("TAILSCALE_SERVE", Config.Boolean).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  tailscaleServePort: withLegacyBrandEnv("TAILSCALE_SERVE_PORT", Config.Port).pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+});
+
+const DevAuthTokenConfig = withLegacyBrandEnv("DEV_AUTH_TOKEN", Config.Redacted).pipe(
+  Config.map((token) => Redacted.make(Redacted.value(token).trim())),
+  Config.mapEffect((token) =>
+    Redacted.value(token).length === 0 || Redacted.value(token).length >= 32
+      ? Effect.succeed(token)
+      : Effect.fail(
+          new Config.ConfigError(
+            new Schema.SchemaError(
+              new SchemaIssue.InvalidValue({
+                message: "E6CODE_DEV_AUTH_TOKEN must contain at least 32 characters.",
+              }),
+            ),
+          ),
+        ),
+  ),
+  Config.option,
+  Config.map(Option.filter((token) => Redacted.value(token).length > 0)),
+  Config.map(Option.getOrUndefined),
+);
+
+export interface CliServerFlags {
+  readonly mode: Option.Option<ServerConfig.RuntimeMode>;
+  readonly port: Option.Option<number>;
+  readonly host: Option.Option<string>;
+  readonly baseDir: Option.Option<string>;
+  readonly cwd: Option.Option<string>;
+  readonly devUrl: Option.Option<URL>;
+  readonly noBrowser: Option.Option<boolean>;
+  readonly bootstrapFd: Option.Option<number>;
+  readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
+  readonly logWebSocketEvents: Option.Option<boolean>;
+  readonly tailscaleServeEnabled: Option.Option<boolean>;
+  readonly tailscaleServePort: Option.Option<number>;
+}
+
+export interface CliAuthLocationFlags {
+  readonly baseDir: Option.Option<string>;
+  readonly devUrl?: Option.Option<URL>;
+}
+
+export const authLocationFlags = {
+  baseDir: baseDirFlag,
+  devUrl: devUrlFlag,
+} as const;
+
+export const projectLocationFlags = {
+  baseDir: baseDirFlag,
+} as const;
+
+export const sharedServerCommandFlags = {
+  mode: modeFlag,
+  port: portFlag,
+  host: hostFlag,
+  baseDir: baseDirFlag,
+  cwd: Argument.String("cwd").pipe(
+    Argument.withDescription(
+      "Working directory for provider sessions (defaults to the current directory).",
+    ),
+    Argument.optional,
+  ),
+  devUrl: devUrlFlag,
+  noBrowser: noBrowserFlag,
+  bootstrapFd: bootstrapFdFlag,
+  autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
+  logWebSocketEvents: logWebSocketEventsFlag,
+  tailscaleServeEnabled: tailscaleServeFlag,
+  tailscaleServePort: tailscaleServePortFlag,
+} as const;
+
+const resolveOptionPrecedence = <Value>(
+  ...values: ReadonlyArray<Option.Option<Value>>
+): Option.Option<Value> => Option.firstSomeOf(values);
+
+const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const exists = yield* fs.exists(settingsPath).pipe(Effect.orElseSucceed(() => false));
+  if (!exists) {
+    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined, otlpLogsUrl: undefined };
+  }
+
+  const raw = yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
+  return parsePersistedServerObservabilitySettings(raw);
+});
+
+export const resolveServerConfig = (
+  flags: CliServerFlags,
+  cliLogLevel: Option.Option<LogLevel.LogLevel>,
+  options?: {
+    readonly startupPresentation?: ServerConfig.StartupPresentation;
+    readonly forceAutoBootstrapProjectFromCwd?: boolean;
+  },
+) =>
+  Effect.gen(function* () {
+    const { findAvailablePort } = yield* NetService.NetService;
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const env = yield* EnvServerConfig;
+    const normalizedFlags = {
+      mode: flags.mode ?? Option.none(),
+      port: flags.port ?? Option.none(),
+      host: flags.host ?? Option.none(),
+      baseDir: flags.baseDir ?? Option.none(),
+      cwd: flags.cwd ?? Option.none(),
+      devUrl: flags.devUrl ?? Option.none(),
+      noBrowser: flags.noBrowser ?? Option.none(),
+      bootstrapFd: flags.bootstrapFd ?? Option.none(),
+      autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
+      logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
+      tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
+      tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
+    } satisfies CliServerFlags;
+    const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
+    const bootstrapEnvelope =
+      bootstrapFd !== undefined
+        ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
+        : Option.none();
+    const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
+
+    const mode: ServerConfig.RuntimeMode = Option.getOrElse(
+      resolveOptionPrecedence(
+        normalizedFlags.mode,
+        Option.fromUndefinedOr(env.mode),
+        Option.fromUndefinedOr(bootstrap?.mode),
+      ),
+      () => "web",
+    );
+
+    const port = yield* Option.match(
+      resolveOptionPrecedence(
+        normalizedFlags.port,
+        Option.fromUndefinedOr(env.port),
+        Option.fromUndefinedOr(bootstrap?.port),
+      ),
+      {
+        onSome: (value) => Effect.succeed(value),
+        onNone: () => {
+          if (mode === "desktop") {
+            return Effect.succeed(ServerConfig.DEFAULT_PORT);
+          }
+          return findAvailablePort(ServerConfig.DEFAULT_PORT);
+        },
+      },
+    );
+    const devUrl = Option.getOrElse(
+      resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
+      () => undefined,
+    );
+    const devAuthToken =
+      mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
+    const explicitBaseDir = resolveOptionPrecedence(
+      normalizedFlags.baseDir,
+      Option.fromUndefinedOr(env.e6Home),
+    ).pipe(Option.filter((value) => value.trim().length > 0));
+    const baseDir = yield* resolveBaseDir(
+      Option.getOrUndefined(
+        resolveOptionPrecedence(explicitBaseDir, Option.fromUndefinedOr(bootstrap?.e6Home)),
+      ),
+    );
+    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
+    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    yield* fs.makeDirectory(cwd, { recursive: true });
+    const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
+      baseDirIsExplicit: Option.isSome(explicitBaseDir),
+    });
+    yield* ServerConfig.ensureServerDirectories(derivedPaths);
+    const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
+      derivedPaths.settingsPath,
+    );
+    const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
+    yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
+    const startupPresentation = options?.startupPresentation ?? "browser";
+    const isHeadlessStartup = startupPresentation === "headless";
+    const noBrowser = Option.getOrElse(
+      resolveOptionPrecedence(
+        isHeadlessStartup ? Option.some(true) : Option.none(),
+        normalizedFlags.noBrowser,
+        Option.fromUndefinedOr(env.noBrowser),
+        Option.fromUndefinedOr(bootstrap?.noBrowser),
+      ),
+      () => mode === "desktop",
+    );
+    const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
+    const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
+    const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
+    const resourceMonitorPath = bootstrap?.resourceMonitorPath;
+    const autoBootstrapProjectFromCwd = Option.getOrElse(
+      resolveOptionPrecedence(
+        Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
+        isHeadlessStartup ? Option.some(false) : Option.none(),
+        normalizedFlags.autoBootstrapProjectFromCwd,
+        Option.fromUndefinedOr(env.autoBootstrapProjectFromCwd),
+      ),
+      () => mode === "web",
+    );
+    const logWebSocketEvents = Option.getOrElse(
+      resolveOptionPrecedence(
+        normalizedFlags.logWebSocketEvents,
+        Option.fromUndefinedOr(env.logWebSocketEvents),
+      ),
+      () => Boolean(devUrl),
+    );
+    const tailscaleServeEnabled = Option.getOrElse(
+      resolveOptionPrecedence(
+        normalizedFlags.tailscaleServeEnabled,
+        Option.fromUndefinedOr(env.tailscaleServeEnabled),
+        Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
+      ),
+      () => false,
+    );
+    const tailscaleServePort = Option.getOrElse(
+      resolveOptionPrecedence(
+        normalizedFlags.tailscaleServePort,
+        Option.fromUndefinedOr(env.tailscaleServePort),
+        Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
+      ),
+      () => 443,
+    );
+    const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
+    const host = Option.getOrElse(
+      resolveOptionPrecedence(
+        normalizedFlags.host,
+        Option.fromUndefinedOr(env.host),
+        Option.fromUndefinedOr(bootstrap?.host),
+      ),
+      () => (mode === "desktop" ? "127.0.0.1" : undefined),
+    );
+    const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
+
+    // E6 Code's own OTLP variables name no signal, so the one answer they give
+    // is the answer for all three.
+    const signalExport: SignalExport = {
+      protocol: env.otlpProtocol,
+      headers: env.otlpHeaders,
+      exportIntervalMs: env.otlpExportIntervalMs,
+    };
+
+    const config: ServerConfig.ServerConfig["Service"] = {
+      logLevel,
+      traceMinLevel: env.traceMinLevel,
+      traceTimingEnabled: env.traceTimingEnabled,
+      traceBatchWindowMs: env.traceBatchWindowMs,
+      traceMaxBytes: env.traceMaxBytes,
+      traceMaxFiles: env.traceMaxFiles,
+      otlpTracesUrl:
+        env.otlpTracesUrl ??
+        bootstrap?.otlpTracesUrl ??
+        persistedObservabilitySettings.otlpTracesUrl,
+      otlpMetricsUrl:
+        env.otlpMetricsUrl ??
+        bootstrap?.otlpMetricsUrl ??
+        persistedObservabilitySettings.otlpMetricsUrl,
+      otlpLogsUrl:
+        env.otlpLogsUrl ?? bootstrap?.otlpLogsUrl ?? persistedObservabilitySettings.otlpLogsUrl,
+      otlpTracesExport: signalExport,
+      otlpMetricsExport: signalExport,
+      otlpLogsExport: signalExport,
+      otlpServiceName: env.otlpServiceName,
+      mode,
+      port,
+      cwd,
+      baseDir,
+      ...derivedPaths,
+      serverTracePath,
+      host,
+      staticDir,
+      devUrl,
+      ...(devAuthToken === undefined ? {} : { devAuthToken }),
+      devAllowedOrigins: env.devAllowedOrigins,
+      noBrowser,
+      startupPresentation,
+      desktopBootstrapToken,
+      desktopTelemetryFd,
+      desktopTelemetryControlFd,
+      resourceMonitorPath,
+      autoBootstrapProjectFromCwd,
+      logWebSocketEvents,
+      tailscaleServeEnabled,
+      tailscaleServePort,
+    };
+
+    return config;
+  });
+
+export const resolveCliAuthConfig = (
+  flags: CliAuthLocationFlags,
+  cliLogLevel: Option.Option<LogLevel.LogLevel>,
+) =>
+  resolveServerConfig(
+    {
+      mode: Option.none(),
+      port: Option.none(),
+      host: Option.none(),
+      baseDir: flags.baseDir,
+      cwd: Option.none(),
+      devUrl: flags.devUrl ?? Option.none(),
+      noBrowser: Option.none(),
+      bootstrapFd: Option.none(),
+      autoBootstrapProjectFromCwd: Option.none(),
+      logWebSocketEvents: Option.none(),
+      tailscaleServeEnabled: Option.none(),
+      tailscaleServePort: Option.none(),
+    },
+    cliLogLevel,
+  );
+
+const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
+
+const parseDurationInput = (value: string): Duration.Duration | null => {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+
+  const shorthand = DurationShorthandPattern.exec(trimmed);
+  const normalizedInput = shorthand?.groups
+    ? (() => {
+        const amountText = shorthand.groups.value;
+        const unitText = shorthand.groups.unit;
+        if (typeof amountText !== "string" || typeof unitText !== "string") {
+          return null;
+        }
+
+        const amount = Number.parseInt(amountText, 10);
+        if (!Number.isFinite(amount)) return null;
+
+        switch (unitText.toLowerCase()) {
+          case "ms":
+            return `${amount} millis`;
+          case "s":
+            return `${amount} seconds`;
+          case "m":
+            return `${amount} minutes`;
+          case "h":
+            return `${amount} hours`;
+          case "d":
+            return `${amount} days`;
+          case "w":
+            return `${amount} weeks`;
+          default:
+            return null;
+        }
+      })()
+    : (trimmed as Duration.Input);
+
+  if (normalizedInput === null) return null;
+
+  const decoded = Duration.fromInput(normalizedInput as Duration.Input);
+  return Option.isSome(decoded) ? decoded.value : null;
+};
+
+export const DurationFromString = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.Duration,
+    SchemaTransformation.transformEffect({
+      decode: (value) => {
+        const duration = parseDurationInput(value);
+        if (duration !== null) {
+          return Effect.succeed(duration);
+        }
+        return Effect.fail(
+          new SchemaIssue.InvalidValue({
+            message: "Invalid duration. Use values like 5m, 1h, 30d, or 15 minutes.",
+          }),
+        );
+      },
+      encode: (duration) => Effect.succeed(Duration.format(duration)),
+    }),
+  ),
+);

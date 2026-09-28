@@ -1,0 +1,12 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["E6NativeControlsModule", "E6KeyboardCommandsModule"]
+  },
+  "android": {
+    "modules": [
+      "expo.modules.e6nativecontrols.E6NativeControlsModule",
+      "expo.modules.e6nativecontrols.E6KeyboardCommandsModule"
+    ]
+  }
+}

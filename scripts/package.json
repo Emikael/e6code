@@ -1,0 +1,26 @@
+{
+  "name": "@e6tools/scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@e6tools/shared": "workspace:*",
+    "@e6tools/tailscale": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "@electron/asar": "^4.3.0",
+    "@electron/osx-sign": "2.7.0",
+    "effect": "catalog:",
+    "pngjs": "7.0.0",
+    "sharp": "0.35.4"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/pngjs": "6.0.5",
+    "typescript": "catalog:",
+    "typescript-legacy": "npm:typescript@~6.0.3",
+    "vite-plus": "catalog:"
+  }
+}

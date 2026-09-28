@@ -1,0 +1,9 @@
+src/
+pkg/
+*.AppImage
+*.pkg.tar.zst
+.SRCINFO
+e6code-bin-*.png
+e6code-bin-*-LICENSE
+e6code-nightly-bin-*.png
+e6code-nightly-bin-*-LICENSE

@@ -1,0 +1,17 @@
+{
+  "name": "@e6tools/mobile-terminal-native",
+  "version": "0.0.0",
+  "private": true,
+  "expo-module": {
+    "ios": {
+      "modules": [
+        "E6TerminalModule"
+      ]
+    },
+    "android": {
+      "modules": [
+        "expo.modules.e6terminal.E6TerminalModule"
+      ]
+    }
+  }
+}

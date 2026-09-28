@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["E6ComposerEditorModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.e6composereditor.E6ComposerEditorModule"]
+  }
+}

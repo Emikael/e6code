@@ -1,0 +1,17 @@
+{
+  "name": "@e6tools/mobile-review-diff-native",
+  "version": "0.0.0",
+  "private": true,
+  "expo-module": {
+    "ios": {
+      "modules": [
+        "E6ReviewDiffModule"
+      ]
+    },
+    "android": {
+      "modules": [
+        "expo.modules.e6reviewdiff.E6ReviewDiffModule"
+      ]
+    }
+  }
+}

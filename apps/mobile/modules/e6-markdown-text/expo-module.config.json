@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.e6markdowntext.E6MarkdownTextSelectionModule"]
+  }
+}
