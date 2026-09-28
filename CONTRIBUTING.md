@@ -43,6 +43,9 @@ If you open a 1,000+ line PR full of new features, we will probably close it qui
 
 ## If You Still Want To Open A PR
 
+Changes to `main` require a pull request, passing CI checks, and approval from Emikael.
+New commits dismiss earlier approvals.
+
 Keep it small.
 
 Explain exactly what changed.
