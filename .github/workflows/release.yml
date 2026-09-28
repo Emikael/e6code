@@ -1070,6 +1070,8 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -1117,10 +1119,11 @@ jobs:
         if: steps.update_versions.outputs.changed == 'true'
         run: vp install --lockfile-only --ignore-scripts
 
-      - name: Commit and push version bump
+      - name: Open version bump pull request
         if: steps.update_versions.outputs.changed == 'true'
         shell: bash
         env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           if git diff --quiet -- apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json pnpm-lock.yaml; then
@@ -1133,7 +1136,11 @@ jobs:
 
           git add apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json pnpm-lock.yaml
           git commit -m "chore(release): prepare $RELEASE_TAG"
-          git push origin HEAD:main
+          branch="chore/release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "HEAD:refs/heads/$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(release): prepare $RELEASE_TAG" \
+            --body "Align package versions after publishing $RELEASE_TAG."
 
   announce_discord:
     name: Announce release on Discord

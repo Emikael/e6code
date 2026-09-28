@@ -55,7 +55,7 @@ on:
           - android
           - all
       version:
-        description: "Optional build version override (blank uses app.config.ts; an override is committed before building)"
+        description: "Optional version override (use a branch other than main; propose the bump by PR)"
         required: false
         type: string
       message:
@@ -188,6 +188,10 @@ jobs:
         run: |
           if [ "$GITHUB_REF_TYPE" != "branch" ]; then
             echo "Version overrides require dispatching this workflow from a branch; received $GITHUB_REF_TYPE '$GITHUB_REF_NAME'." >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "Version overrides cannot push to protected main. Dispatch from another branch and propose the bump by PR." >&2
             exit 1
           fi
           if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then

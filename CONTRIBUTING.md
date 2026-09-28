@@ -45,6 +45,8 @@ If you open a 1,000+ line PR full of new features, we will probably close it qui
 
 Changes to `main` require a pull request, passing CI checks, and approval from Emikael.
 New commits dismiss earlier approvals.
+GitHub does not let PR authors approve their own changes, so maintainer PRs must be opened by a
+different account or GitHub App.
 
 Keep it small.
 
