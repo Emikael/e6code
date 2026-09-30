@@ -916,24 +916,26 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
-  it("answers deterministic turns locally without calling sendTurn", async () => {
-    const harness = await createHarness({
-      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
-        routeTurn: () =>
-          Effect.succeed({
-            _tag: "Deterministic",
-            text: "Hello! How can I help with your code today?",
-            route: "answer_deterministic",
-            confidence: 0.95,
-            latencyMs: 120,
-            inputTokens: 100,
+  effectIt.effect("answers deterministic turns locally without calling sendTurn", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+            routeTurn: () =>
+              Effect.succeed({
+                _tag: "Deterministic",
+                text: "Hello! How can I help with your code today?",
+                route: "answer_deterministic",
+                confidence: 0.95,
+                latencyMs: 120,
+                inputTokens: 100,
+              }),
           }),
-      }),
-    });
-    const now = "2026-01-01T00:00:00.000Z";
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-system-one-deterministic"),
         threadId: ThreadId.make("thread-1"),
@@ -946,59 +948,65 @@ describe("ProviderCommandReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
-      }),
-    );
-    await harness.drain();
-    await waitFor(() =>
-      harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
-    );
+      });
+      yield* Effect.promise(() => harness.drain());
+      yield* Effect.promise(() =>
+        waitFor(() =>
+          harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
+        ),
+      );
 
-    expect(harness.sendTurn).not.toHaveBeenCalled();
-    await waitFor(async () => {
-      const thread = (await harness.readModel()).threads.find(
+      expect(harness.sendTurn).not.toHaveBeenCalled();
+      yield* Effect.promise(() =>
+        waitFor(async () => {
+          const thread = (await harness.readModel()).threads.find(
+            (entry) => entry.id === ThreadId.make("thread-1"),
+          );
+          return (
+            thread?.activities.some(
+              (activity) => activity.kind === "systemOne.turn.answered" && activity.tone === "info",
+            ) ?? false
+          );
+        }),
+      );
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
         (entry) => entry.id === ThreadId.make("thread-1"),
       );
-      return (
-        thread?.activities.some(
-          (activity) => activity.kind === "systemOne.turn.answered" && activity.tone === "info",
-        ) ?? false
+      expect(thread?.activities).toContainEqual(
+        expect.objectContaining({
+          kind: "systemOne.turn.answered",
+          tone: "info",
+          turnId: null,
+        }),
       );
-    });
-    const thread = (await harness.readModel()).threads.find(
-      (entry) => entry.id === ThreadId.make("thread-1"),
-    );
-    expect(thread?.activities).toContainEqual(
-      expect.objectContaining({
-        kind: "systemOne.turn.answered",
-        tone: "info",
-        turnId: null,
-      }),
-    );
-    expect(harness.systemOneReceipts).toContainEqual(
-      expect.objectContaining({
-        type: "systemOne.turn.decided",
-        outcome: "deterministic",
-        route: "answer_deterministic",
-      }),
-    );
-  });
+      expect(harness.systemOneReceipts).toContainEqual(
+        expect.objectContaining({
+          type: "systemOne.turn.decided",
+          outcome: "deterministic",
+          route: "answer_deterministic",
+        }),
+      );
+    }),
+  );
 
-  it("falls back to sendTurn when the router defers to the full LLM", async () => {
-    const harness = await createHarness({
-      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
-        routeTurn: () =>
-          Effect.succeed({
-            _tag: "FullLlm",
-            reason: "needs-tools",
-            policyRoute: "needs_tools",
-            confidence: 0.9,
+  effectIt.effect("falls back to sendTurn when the router defers to the full LLM", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+            routeTurn: () =>
+              Effect.succeed({
+                _tag: "FullLlm",
+                reason: "needs-tools",
+                policyRoute: "needs_tools",
+                confidence: 0.9,
+              }),
           }),
-      }),
-    });
-    const now = "2026-01-01T00:00:00.000Z";
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-system-one-fallback"),
         threadId: ThreadId.make("thread-1"),
@@ -1011,48 +1019,50 @@ describe("ProviderCommandReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
-      }),
-    );
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    await harness.drain();
+      });
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+      yield* Effect.promise(() => harness.drain());
 
-    expect(harness.systemOneReceipts).toContainEqual(
-      expect.objectContaining({
-        type: "systemOne.turn.decided",
-        outcome: "full-llm",
-        reason: "needs-tools",
-      }),
-    );
-  });
+      expect(harness.systemOneReceipts).toContainEqual(
+        expect.objectContaining({
+          type: "systemOne.turn.decided",
+          outcome: "full-llm",
+          reason: "needs-tools",
+        }),
+      );
+    }),
+  );
 
-  it("trims context records on the fast path and still calls sendTurn", async () => {
-    const harness = await createHarness({
-      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
-        routeTurn: () =>
-          Effect.succeed({
-            _tag: "FastPath",
-            route: "fast_llm_trimmed",
-            confidence: 0.7,
-            latencyMs: 110,
-            inputTokens: 90,
+  effectIt.effect("trims context records on the fast path and still calls sendTurn", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+            routeTurn: () =>
+              Effect.succeed({
+                _tag: "FastPath",
+                route: "fast_llm_trimmed",
+                confidence: 0.7,
+                latencyMs: 110,
+                inputTokens: 90,
+              }),
           }),
-      }),
-    });
-    const now = "2026-01-01T00:00:00.000Z";
-    const records = Array.from({ length: 10 }, (_, index) => ({
-      version: 1 as const,
-      kind: "terminal" as const,
-      contextId: ComposerContextId.make(`terminal-${index}`),
-      label: `build-${index}`,
-      terminalId: `terminal-${index}`,
-      terminalLabel: "Build",
-      lineStart: 7,
-      lineEnd: 7,
-      text: "compiled successfully",
-    }));
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+      const records = Array.from({ length: 10 }, (_, index) => ({
+        version: 1 as const,
+        kind: "terminal" as const,
+        contextId: ComposerContextId.make(`terminal-${index}`),
+        label: `build-${index}`,
+        terminalId: `terminal-${index}`,
+        terminalLabel: "Build",
+        lineStart: 7,
+        lineEnd: 7,
+        text: "compiled successfully",
+      }));
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-system-one-fast-path"),
         threadId: ThreadId.make("thread-1"),
@@ -1066,22 +1076,24 @@ describe("ProviderCommandReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
-      }),
-    );
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    await waitFor(() =>
-      harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
-    );
+      });
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+      yield* Effect.promise(() =>
+        waitFor(() =>
+          harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
+        ),
+      );
 
-    expect(harness.systemOneReceipts).toContainEqual(
-      expect.objectContaining({
-        type: "systemOne.turn.decided",
-        outcome: "fast-path",
-        route: "fast_llm_trimmed",
-        droppedRecords: 2,
-      }),
-    );
-  });
+      expect(harness.systemOneReceipts).toContainEqual(
+        expect.objectContaining({
+          type: "systemOne.turn.decided",
+          outcome: "fast-path",
+          route: "fast_llm_trimmed",
+          droppedRecords: 2,
+        }),
+      );
+    }),
+  );
 
   effectIt.effect("projects inline context before sending the provider turn", () =>
     Effect.gen(function* () {

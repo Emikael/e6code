@@ -33,10 +33,9 @@ const stubAnswers = () => ({
   usage: { input_tokens: 120, output_tokens: 0 },
 });
 
-const stubBackend = (): JevBackend =>
-  ({
-    systemOne: ((_request: unknown) => Promise.resolve(stubAnswers())) as JevBackend["systemOne"],
-  }) as JevBackend;
+const stubBackend = (): JevBackend => ({
+  systemOne: () => Promise.resolve(stubAnswers()),
+});
 
 const stubLayer = (overrides?: {
   readonly createBackend?: () => JevBackend | Promise<JevBackend>;
@@ -83,14 +82,14 @@ describe("JevEngine", () => {
 
   it.live("treats 401 as key-invalid and recovers on success", () => {
     let calls = 0;
-    const flapping = {
-      systemOne: ((_request: unknown) => {
+    const flapping: JevBackend = {
+      systemOne: () => {
         calls += 1;
         return calls === 1
           ? Promise.reject(new AuthenticationError(401, { detail: "bad key" }, new Headers()))
           : Promise.resolve(stubAnswers());
-      }) as JevBackend["systemOne"],
-    } as JevBackend;
+      },
+    };
     return Effect.gen(function* () {
       const engine = yield* JevEngine;
       expect(yield* engine.classifyTurn({ lastMessage: "hello" })).toEqual({
@@ -105,12 +104,10 @@ describe("JevEngine", () => {
   });
 
   it.live("treats 403 as key-invalid", () => {
-    const denied = {
-      systemOne: ((_request: unknown) =>
-        Promise.reject(
-          new PermissionDeniedError(403, { detail: "denied" }, new Headers()),
-        )) as JevBackend["systemOne"],
-    } as JevBackend;
+    const denied: JevBackend = {
+      systemOne: () =>
+        Promise.reject(new PermissionDeniedError(403, { detail: "denied" }, new Headers())),
+    };
     return Effect.gen(function* () {
       const engine = yield* JevEngine;
       expect(yield* engine.classifyTurn({ lastMessage: "hello" })).toEqual({
@@ -129,10 +126,9 @@ describe("JevEngine", () => {
     }).pipe(
       Effect.provide(
         stubLayer({
-          createBackend: () =>
-            ({
-              systemOne: (() => Promise.reject(new Error("boom"))) as JevBackend["systemOne"],
-            }) as JevBackend,
+          createBackend: () => ({
+            systemOne: () => Promise.reject(new Error("boom")),
+          }),
         }),
       ),
     ),
@@ -146,15 +142,14 @@ describe("JevEngine", () => {
     }).pipe(
       Effect.provide(
         stubLayer({
-          createBackend: () =>
-            ({
-              systemOne: (() =>
-                Promise.resolve({
-                  model: JEV_MODEL_ID,
-                  answers: {},
-                  usage: {},
-                })) as JevBackend["systemOne"],
-            }) as JevBackend,
+          createBackend: () => ({
+            systemOne: () =>
+              Promise.resolve({
+                model: JEV_MODEL_ID,
+                answers: {},
+                usage: {},
+              }),
+          }),
         }),
       ),
     ),
@@ -171,10 +166,9 @@ describe("JevEngine", () => {
       Effect.provide(
         stubLayer({
           timeoutMs: 50,
-          createBackend: () =>
-            ({
-              systemOne: (() => new Promise(() => {})) as JevBackend["systemOne"],
-            }) as JevBackend,
+          createBackend: () => ({
+            systemOne: () => new Promise<never>(() => {}),
+          }),
         }),
       ),
     ),
@@ -183,12 +177,12 @@ describe("JevEngine", () => {
   it.live("serves repeat turns from the result cache", () => {
     let inferences = 0;
     const backend = stubBackend();
-    const counting = {
-      systemOne: ((request: unknown) => {
+    const counting: JevBackend = {
+      systemOne: (request) => {
         inferences += 1;
-        return (backend.systemOne as (request: unknown) => Promise<unknown>)(request);
-      }) as JevBackend["systemOne"],
-    } as JevBackend;
+        return backend.systemOne(request);
+      },
+    };
     return Effect.gen(function* () {
       const engine = yield* JevEngine;
       const first = yield* engine.classifyTurn({ lastMessage: "hello" });
@@ -204,12 +198,12 @@ describe("JevEngine", () => {
   it.live("evicts the oldest cached answers past the limit", () => {
     let inferences = 0;
     const backend = stubBackend();
-    const counting = {
-      systemOne: ((request: unknown) => {
+    const counting: JevBackend = {
+      systemOne: (request) => {
         inferences += 1;
-        return (backend.systemOne as (request: unknown) => Promise<unknown>)(request);
-      }) as JevBackend["systemOne"],
-    } as JevBackend;
+        return backend.systemOne(request);
+      },
+    };
     return Effect.gen(function* () {
       const engine = yield* JevEngine;
       for (let index = 0; index <= RESULT_CACHE_MAX_ENTRIES; index += 1) {

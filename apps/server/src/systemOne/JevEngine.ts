@@ -15,6 +15,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import {
   AuthenticationError,
@@ -23,7 +24,8 @@ import {
   PermissionDeniedError,
   score,
   TypeSafeClient,
-  type SystemOneResult,
+  type Questions,
+  type SystemOneRequest,
 } from "@typesafe-ai/sdk";
 
 import { buildClassifyState, buildRouteQuestions, type TurnClassifyInput } from "./stateBuilder.ts";
@@ -31,7 +33,7 @@ import { buildClassifyState, buildRouteQuestions, type TurnClassifyInput } from 
 /** Pinned model: thresholds are calibrated against a fixed version, never the alias. */
 export const JEV_MODEL_ID = "jev-1.13.0";
 /** A Jev call must never stall a turn past this budget; calibration tunes it. */
-export const DEFAULT_CLASSIFY_TIMEOUT_MS = 3000;
+const DEFAULT_CLASSIFY_TIMEOUT_MS = 3000;
 /** Past answers kept; repeats skip the network call entirely. */
 export const RESULT_CACHE_MAX_ENTRIES = 200;
 
@@ -68,8 +70,16 @@ export interface SkippedTurn {
 
 export type ClassifyOutcome = ClassifiedTurn | SkippedTurn;
 
+type JevAnswerSet = {
+  readonly model?: unknown;
+  readonly answers?: unknown;
+  readonly usage?: { readonly input_tokens?: unknown };
+};
+
 /** Structural backend so tests can inject a stub without the network. */
-export type JevBackend = Pick<TypeSafeClient, "systemOne">;
+export type JevBackend = {
+  readonly systemOne: (request: unknown) => PromiseLike<JevAnswerSet>;
+};
 
 export interface JevEngineOptions {
   /**
@@ -94,7 +104,7 @@ interface CachedClassification {
 }
 
 /** Maps a Jev answer set onto a classified turn, throwing on malformed answers. */
-function toClassified(result: SystemOneResult): Omit<ClassifiedTurn, "_tag" | "latencyMs"> {
+function toClassified(result: JevAnswerSet): CachedClassification {
   const answers = result.answers as Record<
     string,
     | {
@@ -176,7 +186,12 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
   let backendKey: string | null = null;
   const createBackend =
     options.createBackend ??
-    ((apiKey: string): JevBackend => new TypeSafeClient({ apiKey, retry: { maxRetries: 0 } }));
+    ((apiKey: string): JevBackend => {
+      const client = new TypeSafeClient({ apiKey, retry: { maxRetries: 0 } });
+      return {
+        systemOne: (request) => client.systemOne(request as SystemOneRequest<Questions>),
+      };
+    });
 
   const loadBackend = Effect.fn("JevEngine.loadBackend")(function* (apiKey: string) {
     if (backend !== null && backendKey === apiKey) return backend;
@@ -231,14 +246,14 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
     const requested = {
       handling_route: choice(
         questions.handling_route.instructions,
-        questions.handling_route.criteria as Record<string, string | null>,
+        questions.handling_route.criteria as Record<string, string>,
       ),
-      complexity: score(questions.complexity.instructions, [...questions.complexity.criteria]),
+      complexity: score(questions.complexity.instructions, questions.complexity.criteria),
       is_self_contained: noul(questions.is_self_contained.instructions),
       is_sensitive_or_risky: noul(questions.is_sensitive_or_risky.instructions),
     };
     const response = yield* Effect.tryPromise(() =>
-      instance.systemOne({ state, model: JEV_MODEL_ID, questions: requested }),
+      Promise.resolve(instance.systemOne({ state, model: JEV_MODEL_ID, questions: requested })),
     ).pipe(
       Effect.timeoutOption(timeoutMs),
       Effect.catch((error) =>
@@ -253,12 +268,10 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
       return skipped("inference-timeout");
     }
     if (response._tag === "Skipped") return response;
-    const result = response.value;
+    const parsed = yield* Effect.try(() => toClassified(response.value)).pipe(Effect.option);
+    if (Option.isNone(parsed)) return skipped("inference-error");
+    const answers = parsed.value;
     const finishedMs = yield* Clock.currentTimeMillis;
-    const answers = yield* Effect.try(() => toClassified(result)).pipe(
-      Effect.catch(() => Effect.succeed(skipped("inference-error") as ClassifyOutcome)),
-    );
-    if (answers._tag === "Skipped") return answers;
     resultCache.set(key, answers);
     while (resultCache.size > RESULT_CACHE_MAX_ENTRIES) {
       const oldest = resultCache.keys().next();
@@ -267,7 +280,7 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
     }
     yield* Ref.set(lastAuth, "ok");
     yield* Effect.logInfo("Jev classified turn", { route: answers.route, model: answers.model });
-    return { _tag: "Classified", ...answers, latencyMs: finishedMs - startedMs };
+    return { _tag: "Classified", ...answers, latencyMs: finishedMs - startedMs } as ClassifyOutcome;
   });
 
   return JevEngine.of({

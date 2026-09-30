@@ -77,7 +77,7 @@ describe("buildRouteQuestions", () => {
         q: {
           type: "score",
           instructions: "rate",
-          criteria: ["ok", "z".repeat(MAX_OPTION_TOKENS * 4 + 8)],
+          criteria: ["ok", "z".repeat(MAX_OPTION_TOKENS * 4 + 8)] as [string, string],
         },
       }),
     ).toBe(false);

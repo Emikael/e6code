@@ -94,7 +94,7 @@ export const buildRouteQuestions = (): RouteQuestions => ({
       "Simple lookup or standard procedure",
       "Requires some judgment or multi-step process",
       "Unusual situation, edge case, or escalation needed",
-    ],
+    ] as const,
   },
   is_self_contained: {
     type: "noul",

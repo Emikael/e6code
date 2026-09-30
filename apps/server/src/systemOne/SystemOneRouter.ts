@@ -33,7 +33,7 @@ const KEY_LIKE_PATTERNS = [
   /\bxox[bpas]-[A-Za-z0-9-]{8,}/,
 ];
 
-export const looksLikeKeyMaterial = (text: string): boolean =>
+const looksLikeKeyMaterial = (text: string): boolean =>
   KEY_LIKE_PATTERNS.some((pattern) => pattern.test(text));
 
 export interface RouteTurnInput {
@@ -83,6 +83,7 @@ export class SystemOneRouter extends Context.Service<
   }
 >()("e6/systemOne/SystemOneRouter") {}
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.fn("SystemOneRouter.make")(function* (
   options: SystemOneRouterOptions = {},
 ) {

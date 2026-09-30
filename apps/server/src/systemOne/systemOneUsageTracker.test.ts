@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
+  JEV_INPUT_COST_USD_PER_MTOK,
   layer,
   layerTest,
   summarizeSystemOneUsage,
@@ -56,7 +57,7 @@ describe("summarizeSystemOneUsage", () => {
       fallback: 4,
       llmCallsAvoided: 4,
       jevInputTokens: 1_000_000,
-      jevCostUsd: 0.042,
+      jevCostUsd: JEV_INPUT_COST_USD_PER_MTOK,
       avgLatencyMs: 125,
     });
   });

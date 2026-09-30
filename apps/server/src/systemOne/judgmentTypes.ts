@@ -11,21 +11,21 @@ export type QuestionType = "choice" | "score" | "noul";
 
 export interface ChoiceQuestion {
   type: "choice";
-  instructions: string | object;
+  instructions: string;
   /** option -> short description (or null), or a plain list of option names */
   criteria: Record<string, string | null> | string[];
 }
 
 export interface ScoreQuestion {
   type: "score";
-  instructions: string | object;
-  /** ordered levels, index 0 = lowest */
-  criteria: string[];
+  instructions: string;
+  /** ordered levels, index 0 = lowest; at least two so a score is meaningful */
+  criteria: readonly [string, string, ...string[]];
 }
 
 export interface NoulQuestion {
   type: "noul";
-  instructions: string | object;
+  instructions: string;
   criteria?: {
     true?: string;
     false?: string;
