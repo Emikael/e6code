@@ -253,9 +253,7 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
       is_sensitive_or_risky: noul(questions.is_sensitive_or_risky.instructions),
     };
     const response = yield* Effect.tryPromise(() =>
-      Promise.resolve(
-        instance.systemOne({ state, model: JEV_MODEL_ID, questions: requested }),
-      ),
+      Promise.resolve(instance.systemOne({ state, model: JEV_MODEL_ID, questions: requested })),
     ).pipe(
       Effect.timeoutOption(timeoutMs),
       Effect.catch((error) =>
