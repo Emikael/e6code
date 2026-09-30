@@ -1,3 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off - userData resolution must precede
+// app.ready: the Clerk bridge registers its schemes at creation, and any
+// promise-based fs call would yield to the event loop and let Electron emit
+// ready first. Sync syscalls block the loop, so readiness cannot interleave.
+import * as NodeFS from "node:fs";
+
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -47,18 +53,12 @@ const normalizeCommitHash = (value: string): Option.Option<string> => {
 
 export const resolveUserDataPath = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
-  const fileSystem = yield* FileSystem.FileSystem;
   for (const dirName of environment.legacyUserDataDirNames) {
     const legacyPath = environment.path.join(environment.appDataDirectory, dirName);
-    const legacyPathExists = yield* fileSystem.exists(legacyPath).pipe(
-      Effect.mapError(
-        (cause) =>
-          new DesktopUserDataPathResolutionError({
-            legacyPath,
-            cause,
-          }),
-      ),
-    );
+    const legacyPathExists = yield* Effect.try({
+      try: () => NodeFS.existsSync(legacyPath),
+      catch: (cause) => new DesktopUserDataPathResolutionError({ legacyPath, cause }),
+    });
     if (legacyPathExists) {
       return legacyPath;
     }

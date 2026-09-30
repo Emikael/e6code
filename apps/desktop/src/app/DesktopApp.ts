@@ -160,6 +160,7 @@ export const stopAllPoolInstances = Effect.fn("desktop.app.stopAllPoolInstances"
 const bootstrap = Effect.gen(function* () {
   const state = yield* DesktopState.DesktopState;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const electronApp = yield* ElectronApp.ElectronApp;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
@@ -247,7 +248,21 @@ const bootstrap = Effect.gen(function* () {
     yield* logBootstrapInfo("bootstrap backend start requested");
     yield* appActivation.start.pipe(
       Effect.tap(() => logBootstrapInfo("desktop app control socket ready")),
-      Effect.catch((error) => logStartupError("desktop app control socket unavailable", { error })),
+      // A live owner means a sibling instance won the startup race. Quit
+      // instead of booting a duplicate backend and window; anything else
+      // keeps the previous degraded-but-running behavior.
+      Effect.catchTag("DesktopAppActivationDuplicateInstanceError", (error) =>
+        Effect.gen(function* () {
+          yield* logBootstrapInfo("another desktop instance is already running; quitting", {
+            address: error.address,
+          });
+          yield* electronApp.quit;
+          return yield* Effect.interrupt;
+        }),
+      ),
+      Effect.catchTag("DesktopAppActivationStartError", (error) =>
+        logStartupError("desktop app control socket unavailable", { error }),
+      ),
     );
     // Bring up the WSL backend if the user previously enabled it. The
     // primary is already starting; reconcile fires off the WSL register
