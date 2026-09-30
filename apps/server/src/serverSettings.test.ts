@@ -1,5 +1,4 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodePath from "node:path";
 import {
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
@@ -337,8 +336,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       Effect.gen(function* () {
         const serverConfig = yield* ServerConfig.ServerConfig;
         const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
         const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-        const secretPath = NodePath.join(
+        const secretPath = path.join(
           serverConfig.secretsDir,
           `${ServerSettingsModule.systemOneJevApiKeySecretName}.bin`,
         );

@@ -14,9 +14,9 @@ import { layer, layerTest as routerLayerTest, SystemOneRouter } from "./SystemOn
 
 const settingsOn = ServerSettingsService.layerTest({ systemOne: { enabled: true } });
 
-const stubBackend = (choice: string, confidence = 0.95): JevBackend =>
-  ({
-    systemOne: (async () => ({
+const stubBackend = (choice: string, confidence = 0.95): JevBackend => ({
+  systemOne: () =>
+    Promise.resolve({
       model: "jev-1.13.0",
       answers: {
         handling_route: {
@@ -36,8 +36,8 @@ const stubBackend = (choice: string, confidence = 0.95): JevBackend =>
         is_sensitive_or_risky: { type: "noul", noul: 0.05 },
       },
       usage: { input_tokens: 60, output_tokens: 0 },
-    })) as JevBackend["systemOne"],
-  }) as JevBackend;
+    }),
+});
 
 const engineWith = (choice: string) =>
   Layer.effect(
@@ -150,17 +150,12 @@ describe("SystemOneRouter", () => {
         JevEngine,
         makeEngine({
           resolveApiKey: Effect.succeed("router-test-key"),
-          createBackend: () =>
-            ({
-              systemOne: ((request: unknown) => {
-                calls += 1;
-                return (
-                  stubBackend("answer_deterministic").systemOne as (
-                    request: unknown,
-                  ) => Promise<unknown>
-                )(request);
-              }) as JevBackend["systemOne"],
-            }) as JevBackend,
+          createBackend: () => ({
+            systemOne: (request) => {
+              calls += 1;
+              return stubBackend("answer_deterministic").systemOne(request);
+            },
+          }),
         }),
       );
       expect(
