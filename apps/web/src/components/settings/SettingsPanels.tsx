@@ -601,6 +601,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
         ? ["Continue threads after restarts"]
         : []),
+      ...(settings.systemOne.enabled !== DEFAULT_UNIFIED_SETTINGS.systemOne.enabled
+        ? ["Jev routing"]
+        : []),
       ...(isBackgroundActivityDirty ? ["Background activity"] : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
@@ -672,6 +675,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.responseStreamingMode,
       settings.enableProviderUpdateChecks,
       settings.continueThreadsAfterServerUpdate,
+      settings.systemOne.enabled,
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
@@ -2794,6 +2798,57 @@ export function GeneralSettingsPanel() {
                 updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
               }
               aria-label="Continue threads after restarts"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("local-routing")}
+          serverScoped
+          settingKeys={["systemOne"]}
+          description="Classify turns through the Jev API to answer simple turns without the full model and trim context for the rest. Turn content leaves the machine; the API key stays on this server."
+          resetAction={
+            settings.systemOne.enabled !== DEFAULT_UNIFIED_SETTINGS.systemOne.enabled ? (
+              <SettingResetButton
+                label="Jev routing"
+                onClick={() =>
+                  updateSettings({
+                    systemOne: { enabled: DEFAULT_UNIFIED_SETTINGS.systemOne.enabled },
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["systemOne"]}
+              checked={settings.systemOne.enabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ systemOne: { enabled: Boolean(checked) } })
+              }
+              aria-label="Route turns through Jev"
+            />
+          }
+        />
+
+        <SettingsRow
+          serverScoped
+          settingKeys={["systemOne"]}
+          title="Jev API key"
+          description="Required to enable routing. Calls appear on the Usage page when active."
+          control={
+            <DraftInput
+              type="password"
+              autoComplete="off"
+              className="w-full sm:w-64"
+              value={settings.systemOne.apiKey}
+              placeholder="Paste Jev API key"
+              aria-label="Jev API key"
+              onCommit={(next) => {
+                if (next !== settings.systemOne.apiKey) {
+                  updateSettings({ systemOne: { apiKey: next } });
+                }
+              }}
             />
           }
         />

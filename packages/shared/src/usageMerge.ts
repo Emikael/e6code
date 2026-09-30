@@ -90,10 +90,26 @@ export interface MergedUsage {
   readonly daily: readonly DailyTotals[];
   readonly hourly: readonly HourlyTotals[];
   readonly costQuality: CostQuality;
+  /** Summed hosted pre-router totals; zeroed when no environment reports any. */
+  readonly systemOne: MergedSystemOneUsage;
   /** Environments whose data was dropped as a duplicate of another's. */
   readonly duplicateSources: readonly string[];
   readonly contributingEnvironments: readonly EnvironmentId[];
   readonly staleEnvironments: readonly EnvironmentId[];
+}
+
+export interface MergedSystemOneUsage {
+  readonly calls: number;
+  readonly deterministic: number;
+  readonly fastPath: number;
+  readonly fallback: number;
+  readonly llmCallsAvoided: number;
+  readonly jevInputTokens: number;
+  readonly jevCostUsd: number;
+  /** Weighted by calls across reporting environments. */
+  readonly avgLatencyMs: number;
+  /** Environments that reported a pre-router section. */
+  readonly environments: number;
 }
 
 /**
@@ -214,6 +230,17 @@ const EMPTY_MERGED: MergedUsage = {
     unpricedShare: 0,
     cacheSavingsUsd: 0,
   },
+  systemOne: {
+    calls: 0,
+    deterministic: 0,
+    fastPath: 0,
+    fallback: 0,
+    llmCallsAvoided: 0,
+    jevInputTokens: 0,
+    jevCostUsd: 0,
+    avgLatencyMs: 0,
+    environments: 0,
+  },
   duplicateSources: [],
   contributingEnvironments: [],
   staleEnvironments: [],
@@ -294,9 +321,33 @@ export function mergeUsage(
   >();
   const contributingEnvironments: EnvironmentId[] = [];
 
+  let systemOneCalls = 0;
+  let systemOneDeterministic = 0;
+  let systemOneFastPath = 0;
+  let systemOneFallback = 0;
+  let systemOneAvoided = 0;
+  let systemOneJevTokens = 0;
+  let systemOneJevCost = 0;
+  let systemOneLatencySum = 0;
+  let systemOneEnvironments = 0;
+
   for (const environment of current) {
     const { buckets, sessionsByProvider } = ownedContribution(environment, ownerByFingerprint);
     if (buckets.length > 0) contributingEnvironments.push(environment.environmentId);
+
+    const systemOne = environment.summary.systemOne;
+    if (systemOne !== undefined) {
+      systemOneCalls += systemOne.calls;
+      systemOneDeterministic += systemOne.deterministic;
+      systemOneFastPath += systemOne.fastPath;
+      systemOneFallback += systemOne.fallback;
+      systemOneAvoided += systemOne.llmCallsAvoided;
+      // Defensive: a section missing spend fields merges as zeros, not NaN.
+      systemOneJevTokens += systemOne.jevInputTokens ?? 0;
+      systemOneJevCost += systemOne.jevCostUsd ?? 0;
+      systemOneLatencySum += systemOne.avgLatencyMs * systemOne.calls;
+      systemOneEnvironments += 1;
+    }
 
     for (const [providerKind, providerSessions] of sessionsByProvider) {
       sessions += providerSessions;
@@ -448,5 +499,16 @@ export function mergeUsage(
     duplicateSources: duplicates,
     contributingEnvironments,
     staleEnvironments,
+    systemOne: {
+      calls: systemOneCalls,
+      deterministic: systemOneDeterministic,
+      fastPath: systemOneFastPath,
+      fallback: systemOneFallback,
+      llmCallsAvoided: systemOneAvoided,
+      jevInputTokens: systemOneJevTokens,
+      jevCostUsd: systemOneJevCost,
+      avgLatencyMs: systemOneCalls === 0 ? 0 : systemOneLatencySum / systemOneCalls,
+      environments: systemOneEnvironments,
+    },
   };
 }

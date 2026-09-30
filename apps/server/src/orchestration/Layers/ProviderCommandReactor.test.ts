@@ -57,6 +57,8 @@ import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegi
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
+import { RuntimeReceiptBusTest } from "./RuntimeReceiptBus.ts";
+import { SystemOneRouter } from "../../systemOne/SystemOneRouter.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
@@ -67,6 +69,10 @@ import {
 } from "./ProviderCommandReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
+import {
+  RuntimeReceiptBus,
+  type OrchestrationRuntimeReceipt,
+} from "../Services/RuntimeReceiptBus.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
@@ -120,7 +126,8 @@ describe("ProviderCommandReactor", () => {
     | OrchestrationEngineService
     | ProviderCommandReactor
     | ProjectionSnapshotQuery
-    | SqlClient.SqlClient,
+    | SqlClient.SqlClient
+    | RuntimeReceiptBus,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -187,6 +194,7 @@ describe("ProviderCommandReactor", () => {
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderServiceError>;
     readonly tryHandlePromptCommandEffect?: ProviderAuthService["Service"]["tryHandlePromptCommand"];
+    readonly systemOneRouterLayer?: Layer.Layer<SystemOneRouter, never, never>;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -495,7 +503,25 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
-    runtime = ManagedRuntime.make(layer);
+    const layerWithSystemOne =
+      input?.systemOneRouterLayer === undefined
+        ? layer.pipe(Layer.provideMerge(RuntimeReceiptBusTest))
+        : layer.pipe(
+            Layer.provideMerge(input.systemOneRouterLayer),
+            Layer.provideMerge(RuntimeReceiptBusTest),
+          );
+    runtime = ManagedRuntime.make(layerWithSystemOne);
+    const systemOneReceipts: Array<OrchestrationRuntimeReceipt> = [];
+    if (input?.systemOneRouterLayer !== undefined) {
+      const bus = await runtime.runPromise(Effect.service(RuntimeReceiptBus));
+      runtime.runFork(
+        Stream.runForEach(bus.streamEventsForTest, (receipt) =>
+          Effect.sync(() => {
+            systemOneReceipts.push(receipt);
+          }),
+        ),
+      );
+    }
 
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
@@ -629,6 +655,7 @@ describe("ProviderCommandReactor", () => {
       drain,
       startReactor,
       runEffect,
+      systemOneReceipts,
       get titleRegenerationCompletionDispatchAttempts() {
         return titleRegenerationCompletionDispatchAttempts;
       },
@@ -887,6 +914,173 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("answers deterministic turns locally without calling sendTurn", async () => {
+    const harness = await createHarness({
+      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+        routeTurn: () =>
+          Effect.succeed({
+            _tag: "Deterministic",
+            text: "Hello! How can I help with your code today?",
+            route: "answer_deterministic",
+            confidence: 0.95,
+            latencyMs: 120,
+            inputTokens: 100,
+          }),
+      }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-system-one-deterministic"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-s1"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+    await waitFor(() =>
+      harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
+    );
+
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    await waitFor(async () => {
+      const thread = (await harness.readModel()).threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      );
+      return (
+        thread?.activities.some(
+          (activity) => activity.kind === "systemOne.turn.answered" && activity.tone === "info",
+        ) ?? false
+      );
+    });
+    const thread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(thread?.activities).toContainEqual(
+      expect.objectContaining({
+        kind: "systemOne.turn.answered",
+        tone: "info",
+        turnId: null,
+      }),
+    );
+    expect(harness.systemOneReceipts).toContainEqual(
+      expect.objectContaining({
+        type: "systemOne.turn.decided",
+        outcome: "deterministic",
+        route: "answer_deterministic",
+      }),
+    );
+  });
+
+  it("falls back to sendTurn when the router defers to the full LLM", async () => {
+    const harness = await createHarness({
+      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+        routeTurn: () =>
+          Effect.succeed({
+            _tag: "FullLlm",
+            reason: "needs-tools",
+            policyRoute: "needs_tools",
+            confidence: 0.9,
+          }),
+      }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-system-one-fallback"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-s2"),
+          role: "user",
+          text: "refactor the auth module",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.systemOneReceipts).toContainEqual(
+      expect.objectContaining({
+        type: "systemOne.turn.decided",
+        outcome: "full-llm",
+        reason: "needs-tools",
+      }),
+    );
+  });
+
+  it("trims context records on the fast path and still calls sendTurn", async () => {
+    const harness = await createHarness({
+      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+        routeTurn: () =>
+          Effect.succeed({
+            _tag: "FastPath",
+            route: "fast_llm_trimmed",
+            confidence: 0.7,
+            latencyMs: 110,
+            inputTokens: 90,
+          }),
+      }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const records = Array.from({ length: 10 }, (_, index) => ({
+      version: 1 as const,
+      kind: "terminal" as const,
+      contextId: ComposerContextId.make(`terminal-${index}`),
+      label: `build-${index}`,
+      terminalId: `terminal-${index}`,
+      terminalLabel: "Build",
+      lineStart: 7,
+      lineEnd: 7,
+      text: "compiled successfully",
+    }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-system-one-fast-path"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-s3"),
+          role: "user",
+          text: "summarize these files",
+          attachments: [],
+          context: { version: 1 as const, records },
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await waitFor(() =>
+      harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
+    );
+
+    expect(harness.systemOneReceipts).toContainEqual(
+      expect.objectContaining({
+        type: "systemOne.turn.decided",
+        outcome: "fast-path",
+        route: "fast_llm_trimmed",
+        droppedRecords: 2,
+      }),
+    );
   });
 
   effectIt.effect("projects inline context before sending the provider turn", () =>

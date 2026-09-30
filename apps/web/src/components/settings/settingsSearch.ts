@@ -386,6 +386,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "local-routing",
+    title: "Jev routing",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: [
+      "jev api key classify fast skip llm tokens routing system one pre-router deterministic",
+    ],
+  },
+  {
     id: "background-activity",
     title: "Background activity",
     to: "/settings/general",

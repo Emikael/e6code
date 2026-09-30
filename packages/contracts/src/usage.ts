@@ -21,14 +21,16 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
  * client renders partial coverage when an environment reports an older version
  * rather than failing the whole page.
  */
-export const USAGE_CONTRACT_VERSION = 5 as const;
+export const USAGE_CONTRACT_VERSION = 7 as const;
 
 /**
  * Oldest {@link UsageSummary} version a current client will still merge.
  *
  * v5 only adds `grok` to {@link UsageProviderKind}; v4 Claude/Codex buckets
  * remain valid, so mixed-version environments keep those totals instead of
- * treating every older server as stale.
+ * treating every older server as stale. v7 only adds the optional
+ * {@link SystemOneUsage} section; servers that predate it simply report no
+ * pre-router data.
  */
 export const USAGE_MERGE_COMPATIBLE_SINCE = 4 as const;
 
@@ -169,6 +171,24 @@ export const UsagePricing = Schema.Struct({
 });
 export type UsagePricing = typeof UsagePricing.Type;
 
+/**
+ * Hosted Jev pre-router totals since server boot (in-memory, resets on
+ * restart). `llmCallsAvoided` counts turns that never reached a provider.
+ * `jevInputTokens` are metered per call and `jevCostUsd` scales them by the
+ * pinned Jev input price: measured spend, not estimates.
+ */
+export const SystemOneUsage = Schema.Struct({
+  calls: NonNegativeInt,
+  deterministic: NonNegativeInt,
+  fastPath: NonNegativeInt,
+  fallback: NonNegativeInt,
+  llmCallsAvoided: NonNegativeInt,
+  jevInputTokens: NonNegativeInt,
+  jevCostUsd: Schema.Number,
+  avgLatencyMs: Schema.Number,
+});
+export type SystemOneUsage = typeof SystemOneUsage.Type;
+
 export const UsageSummaryInput = Schema.Struct({
   /** Inclusive first day of the window, in `timeZone`. */
   sinceDay: UsageDay,
@@ -199,6 +219,11 @@ export const UsageSummary = Schema.Struct({
   pricing: UsagePricing,
   /** Wall-clock cost of the scan, surfaced in diagnostics. */
   scanDurationMs: NonNegativeInt,
+  /**
+   * Hosted pre-router totals since server boot. Optional so older servers
+   * keep merging: absent means "no pre-router data", never zero spend.
+   */
+  systemOne: Schema.optional(SystemOneUsage),
 });
 export type UsageSummary = typeof UsageSummary.Type;
 

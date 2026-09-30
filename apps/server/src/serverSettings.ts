@@ -150,6 +150,16 @@ function usageLimitSourceSecretName(sourceId: string): string {
   return `usage-limit-source-${Buffer.from(sourceId, "utf8").toString("base64url")}`;
 }
 
+/**
+ * The Jev API key is a bearer secret like a hub management key: settings JSON
+ * holds "" (absent) or the marker (present), the real value lives in the
+ * secret store, and a client sending the marker back means "keep what you
+ * have". Any other non-empty value is a new key, healed into the store on
+ * persist even if it was hand-placed in the JSON.
+ */
+export const systemOneJevApiKeySecretName = "systemone-jev-api-key";
+const SYSTEM_ONE_JEV_API_KEY_REDACTED = USAGE_LIMIT_SOURCE_KEY_REDACTED;
+
 function redactProviderEnvironmentVariable(
   variable: ProviderInstanceEnvironmentVariable,
 ): ProviderInstanceEnvironmentVariable {
@@ -854,11 +864,30 @@ const make = Effect.gen(function* () {
         });
       }
 
+      const systemOne = { ...next.systemOne };
+      const jevKey = systemOne.apiKey;
+      if (jevKey.length > 0 && jevKey !== SYSTEM_ONE_JEV_API_KEY_REDACTED) {
+        changes.push({
+          kind: "write",
+          secretName: systemOneJevApiKeySecretName,
+          value: textEncoder.encode(jevKey),
+        });
+        systemOne.apiKey = SYSTEM_ONE_JEV_API_KEY_REDACTED;
+      } else if (jevKey.length === 0) {
+        changes.push({
+          kind: "remove",
+          secretName: systemOneJevApiKeySecretName,
+          operation: "remove-secret",
+        });
+      }
+      // The marker short-circuits both branches: keep what the store holds.
+
       return {
         settings: {
           ...next,
           providerInstances: providerInstances as ServerSettings["providerInstances"],
           usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+          systemOne,
         },
         changes,
       };

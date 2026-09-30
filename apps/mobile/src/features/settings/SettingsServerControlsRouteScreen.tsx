@@ -126,6 +126,11 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     const value = reference.settings[key];
     return displayTargets.every((entry) => entry.settings[key] === value) ? value : null;
   };
+  const systemOneEnabled = (() => {
+    if (reference === null) return null;
+    const values = displayTargets.map((entry) => entry.settings.systemOne.enabled);
+    return values.every((value) => value === values[0]) ? (values[0] ?? null) : null;
+  })();
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     label: "environment settings update",
     reportFailure: true,
@@ -330,6 +335,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       value={uniform("enableAgentBrowserAccess")}
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
+                    />
+                  </SettingsSection>
+                  <SettingsSection title="Jev routing">
+                    <FanoutSwitchRow
+                      icon="bolt.circle"
+                      label="Route turns through Jev"
+                      subtitle="Classify turns through the Jev API to skip unneeded LLM calls. Needs a key, set on web."
+                      value={systemOneEnabled}
+                      disabled={disabledFor("systemOne")}
+                      onValueChange={(value) => write({ systemOne: { enabled: value } })}
                     />
                   </SettingsSection>
                 </>

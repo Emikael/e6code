@@ -48,6 +48,10 @@ import * as ServerSettings from "../serverSettings.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEnvironment.ts";
 import { UsageAggregator } from "./usageAggregation.ts";
+import {
+  summarizeSystemOneUsage,
+  SystemOneUsageTracker,
+} from "../systemOne/systemOneUsageTracker.ts";
 import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
 import {
   listTranscriptFiles,
@@ -150,6 +154,14 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
   const hostEnvironment = yield* HostProcessEnvironment;
+  // Optional: older harnesses and flag-off servers read plain transcript
+  // summaries with no pre-router section. Channels pinned: the lookup
+  // never fails and needs nothing.
+  const systemOneTracker = yield* Effect.serviceOption(SystemOneUsageTracker) as Effect.Effect<
+    Option.Option<SystemOneUsageTracker["Service"]>,
+    never,
+    never
+  >;
 
   const fileCache: ScanCache = new Map();
   const sourceCache = new Map<string, typeof CachedSource.Type>();
@@ -627,6 +639,10 @@ export const make = Effect.gen(function* () {
     const readAt = yield* DateTime.now;
     const finishedAtMs = yield* Clock.currentTimeMillis;
 
+    const trackerTotals = Option.isSome(systemOneTracker)
+      ? yield* systemOneTracker.value.readTotals
+      : null;
+
     return {
       contractVersion: USAGE_CONTRACT_VERSION,
       readAt: DateTime.formatIso(readAt),
@@ -637,6 +653,7 @@ export const make = Effect.gen(function* () {
       sources,
       pricing: pricing(),
       scanDurationMs: Math.max(0, finishedAtMs - startedAtMs),
+      ...(trackerTotals !== null ? { systemOne: summarizeSystemOneUsage(trackerTotals) } : {}),
     } satisfies UsageSummary;
   });
 

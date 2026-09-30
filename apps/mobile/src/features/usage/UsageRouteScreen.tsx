@@ -313,6 +313,9 @@ export function UsageRouteScreen() {
                   />
                   <ProviderSection merged={merged} metric={metric} />
                   <TotalsSection merged={merged} isPast24Hours={isPast24Hours} />
+                  {merged.systemOne.environments > 0 ? (
+                    <SystemOneSection systemOne={merged.systemOne} />
+                  ) : null}
                   <ModelsSection merged={merged} />
                 </>
               )}
@@ -515,6 +518,36 @@ function MetricCell(props: {
       <Text className="text-xl font-e6-medium tabular-nums text-foreground">{props.value}</Text>
       <Text className="text-xs text-foreground-tertiary">{props.detail}</Text>
     </View>
+  );
+}
+
+function SystemOneSection(props: { readonly systemOne: MergedUsage["systemOne"] }) {
+  const { systemOne } = props;
+  return (
+    <SettingsSection title="Jev routing">
+      <View className="flex-row flex-wrap">
+        <MetricCell
+          label="LLM calls avoided"
+          value={String(systemOne.llmCallsAvoided)}
+          detail={`${systemOne.deterministic} answered directly`}
+        />
+        <MetricCell
+          label="Jev input tokens"
+          value={formatTokens(systemOne.jevInputTokens)}
+          detail="metered per call"
+        />
+        <MetricCell
+          label="Jev cost"
+          value={formatUsd(systemOne.jevCostUsd)}
+          detail={`${systemOne.fastPath} fast-path routes`}
+        />
+        <MetricCell
+          label="Jev calls"
+          value={String(systemOne.calls)}
+          detail={`${Math.round(systemOne.avgLatencyMs)} ms average`}
+        />
+      </View>
+    </SettingsSection>
   );
 }
 

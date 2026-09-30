@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
+import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -13,6 +14,7 @@ import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
@@ -145,6 +147,9 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
+import * as JevEngine from "./systemOne/JevEngine.ts";
+import * as SystemOneRouter from "./systemOne/SystemOneRouter.ts";
+import * as SystemOneUsageTracker from "./systemOne/systemOneUsageTracker.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -207,7 +212,16 @@ const BackgroundLayerLive = BackgroundPolicy.layer.pipe(
   Layer.provideMerge(ServerSettingsLayerLive),
 );
 
-const UsageLayerLive = UsageService.layer.pipe(Layer.provide(ServerSettingsLayerLive));
+const SystemOneUsageTrackerLayerLive = SystemOneUsageTracker.layer;
+
+const UsageLayerLive = UsageService.layer.pipe(
+  Layer.provide(ServerSettingsLayerLive),
+  // The tracker is optional by design (serviceOption): older harnesses build
+  // this layer without it and read plain summaries. Providing it here shares
+  // the same memoized instance the router records into, so the summary
+  // carries the pre-router section.
+  Layer.provide(SystemOneUsageTrackerLayerLive),
+);
 
 const ResourceDiagnosticsLayerLive = Layer.mergeAll(
   HostResources.layer,
@@ -243,6 +257,26 @@ const HttpServerLive = Layer.unwrap(
 
 const PlatformServicesLive = NodeServices.layer;
 
+const textDecoder = new TextDecoder();
+
+// Hosted Jev pre-router. Dormant until settings.systemOne.enabled with a
+// stored key: the router falls back to the full LLM without any network
+// call, so no download or readiness machinery is needed.
+const SystemOneEngineLayerLive = Layer.effect(
+  JevEngine.JevEngine,
+  Effect.flatMap(ServerSecretStore.ServerSecretStore, (secrets) =>
+    JevEngine.make({
+      resolveApiKey: secrets.get(ServerSettings.systemOneJevApiKeySecretName).pipe(
+        Effect.map((key) => (Option.isSome(key) ? textDecoder.decode(key.value) : null)),
+        Effect.catch(() => Effect.succeed(null)),
+      ),
+    }),
+  ),
+);
+// Router binds its dependencies explicitly: same-pipe provideMerge pooling
+// does not satisfy constructed layer requirements.
+const SystemOneRouterLayerLive = Layer.provide(SystemOneRouter.layer(), SystemOneEngineLayerLive);
+
 const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(OrchestrationReactorLive),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
@@ -255,6 +289,11 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadPullRequestReactor.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
+  // Hosted Jev pre-router. Dormant until settings.systemOne.enabled with a
+  // stored key: the router falls back to the full LLM without any network call.
+  Layer.provideMerge(SystemOneEngineLayerLive),
+  Layer.provideMerge(SystemOneRouterLayerLive),
+  Layer.provideMerge(SystemOneUsageTrackerLayerLive),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(

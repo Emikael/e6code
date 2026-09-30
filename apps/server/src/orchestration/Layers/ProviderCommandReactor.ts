@@ -3,6 +3,7 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
+  type IsoDateTime,
   type ModelSelection,
   type OrchestrationEvent,
   ProviderDriverKind,
@@ -52,6 +53,9 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
+import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
+import { trimForFastPath } from "../../systemOne/fastPath.ts";
+import { SystemOneRouter } from "../../systemOne/SystemOneRouter.ts";
 import { forkParked, ServerActivation } from "../../serverActivation.ts";
 import {
   formatThreadTitleContext,
@@ -222,6 +226,10 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  // Optional by design: existing harnesses and flag-off servers run the
+  // historical path with zero behavior change when no router is provided.
+  const systemOneRouter = yield* Effect.serviceOption(SystemOneRouter);
+  const runtimeReceiptBus = yield* Effect.serviceOption(RuntimeReceiptBus);
   /** Environment settings with the thread's project overrides applied. */
   const projectSettingsForThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     const settings = yield* serverSettingsService.getSettings;
@@ -304,6 +312,105 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+
+  /**
+   * System One pre-route. Returns the router outcome, or null when the router
+   * is absent or disabled (silent: no receipt, historical path). Never fails.
+   */
+  const routeSystemOneTurn = Effect.fn("routeSystemOneTurn")(function* (input: {
+    threadId: ThreadId;
+    threadTitle: string | undefined;
+    projectName: string | undefined;
+    messageText: string;
+    hasAttachments: boolean;
+  }) {
+    if (Option.isNone(systemOneRouter)) return null;
+    const outcome = yield* systemOneRouter.value.routeTurn({
+      text: input.messageText,
+      hasAttachments: input.hasAttachments,
+      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+    });
+    if (outcome._tag === "FullLlm" && outcome.reason === "router-disabled") return null;
+    return outcome;
+  });
+
+  const publishSystemOneReceipt = (input: {
+    threadId: ThreadId;
+    outcome: "deterministic" | "fast-path" | "full-llm";
+    route?: string;
+    confidence?: number;
+    latencyMs?: number;
+    reason?: string;
+    droppedRecords?: number;
+    textCharsSaved?: number;
+    model?: string;
+    jevInputTokens?: number;
+    createdAt: IsoDateTime;
+  }): Effect.Effect<void> => {
+    if (Option.isNone(runtimeReceiptBus)) return Effect.void;
+    return runtimeReceiptBus.value
+      .publish({
+        type: "systemOne.turn.decided",
+        threadId: input.threadId,
+        outcome: input.outcome,
+        ...(input.route !== undefined ? { route: input.route } : {}),
+        ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+        ...(input.latencyMs !== undefined ? { latencyMs: input.latencyMs } : {}),
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        ...(input.droppedRecords !== undefined ? { droppedRecords: input.droppedRecords } : {}),
+        ...(input.textCharsSaved !== undefined ? { textCharsSaved: input.textCharsSaved } : {}),
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.jevInputTokens !== undefined ? { jevInputTokens: input.jevInputTokens } : {}),
+        createdAt: input.createdAt,
+      })
+      .pipe(Effect.ignore);
+  };
+
+  /**
+   * Appends a deterministic answer as thread activity. Returns false on any
+   * failure so the caller falls back to the full LLM and the turn is never
+   * lost between the two paths.
+   */
+  const appendSystemOneAnswer = Effect.fn("appendSystemOneAnswer")(function* (input: {
+    threadId: ThreadId;
+    text: string;
+    route: string;
+    confidence: number;
+    createdAt: IsoDateTime;
+  }) {
+    const appended = yield* Effect.all({
+      commandId: serverCommandId("system-one-answer"),
+      eventId: serverEventId(),
+    }).pipe(
+      Effect.flatMap(({ commandId, eventId }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone: "info",
+            kind: "systemOne.turn.answered",
+            summary: "Answered locally without the provider model",
+            payload: {
+              text: input.text,
+              // `detail` is what both clients render as the row body.
+              detail: input.text,
+              route: input.route,
+              confidence: input.confidence,
+            },
+            turnId: null,
+            createdAt: input.createdAt,
+          },
+          createdAt: input.createdAt,
+        }),
+      ),
+      Effect.as(true),
+      Effect.catch(() => Effect.succeed(false)),
+    );
+    return appended;
+  });
 
   const cancelTurnsAfterCompaction = Effect.fn("cancelTurnsAfterCompaction")(function* (
     threadId: ThreadId,
@@ -1475,11 +1582,76 @@ const make = Effect.gen(function* () {
       turnsAfterCompaction.set(event.payload.threadId, queued);
       return;
     }
+    const project = yield* resolveProject(thread.projectId);
+    const preRoute = yield* routeSystemOneTurn({
+      threadId: event.payload.threadId,
+      threadTitle: thread.title ?? undefined,
+      projectName: project?.title ?? undefined,
+      messageText: message.text,
+      hasAttachments: (message.attachments?.length ?? 0) > 0,
+    });
+    if (preRoute !== null && preRoute._tag === "Deterministic") {
+      const answered = yield* appendSystemOneAnswer({
+        threadId: event.payload.threadId,
+        text: preRoute.text,
+        route: preRoute.route,
+        confidence: preRoute.confidence,
+        createdAt: event.payload.createdAt,
+      });
+      if (answered) {
+        yield* publishSystemOneReceipt({
+          threadId: event.payload.threadId,
+          outcome: "deterministic",
+          route: preRoute.route,
+          confidence: preRoute.confidence,
+          latencyMs: preRoute.latencyMs,
+          ...(preRoute.model !== undefined ? { model: preRoute.model } : {}),
+          ...(preRoute.inputTokens !== undefined ? { jevInputTokens: preRoute.inputTokens } : {}),
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      yield* publishSystemOneReceipt({
+        threadId: event.payload.threadId,
+        outcome: "full-llm",
+        reason: "answer-append-failed",
+        createdAt: event.payload.createdAt,
+      });
+    }
+    const fastRoute = preRoute !== null && preRoute._tag === "FastPath" ? preRoute : null;
+    const fastTrim =
+      fastRoute !== null ? trimForFastPath(message.text, message.context?.records ?? []) : null;
+    if (fastRoute !== null && fastTrim !== null) {
+      yield* publishSystemOneReceipt({
+        threadId: event.payload.threadId,
+        outcome: "fast-path",
+        route: fastRoute.route,
+        confidence: fastRoute.confidence,
+        latencyMs: fastRoute.latencyMs,
+        droppedRecords: fastTrim.droppedRecords,
+        textCharsSaved: fastTrim.textCharsSaved,
+        ...(fastRoute.model !== undefined ? { model: fastRoute.model } : {}),
+        ...(fastRoute.inputTokens !== undefined ? { jevInputTokens: fastRoute.inputTokens } : {}),
+        createdAt: event.payload.createdAt,
+      });
+    } else if (preRoute !== null && preRoute._tag === "FullLlm") {
+      yield* publishSystemOneReceipt({
+        threadId: event.payload.threadId,
+        outcome: "full-llm",
+        ...(preRoute.policyRoute !== undefined ? { route: preRoute.policyRoute } : {}),
+        ...(preRoute.confidence !== undefined ? { confidence: preRoute.confidence } : {}),
+        ...(preRoute.latencyMs !== undefined ? { latencyMs: preRoute.latencyMs } : {}),
+        reason: preRoute.reason,
+        ...(preRoute.model !== undefined ? { model: preRoute.model } : {}),
+        ...(preRoute.inputTokens !== undefined ? { jevInputTokens: preRoute.inputTokens } : {}),
+        createdAt: event.payload.createdAt,
+      });
+    }
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
       messageText: projectComposerContextForProvider({
-        text: message.text,
-        records: message.context?.records ?? [],
+        text: fastTrim?.text ?? message.text,
+        records: fastTrim?.records ?? message.context?.records ?? [],
       }),
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined

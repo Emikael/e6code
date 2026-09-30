@@ -1053,6 +1053,26 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+/**
+ * Hosted Jev (System One) pre-router. Classifies each turn through the Jev
+ * API and skips or shrinks the provider LLM call when safe. Ships
+ * default-off; enabling it requires a Jev API key, and turn content then
+ * leaves the machine. The key itself lives in the server secret store:
+ * `apiKey` here holds "" (absent) or the redacted marker (present), never
+ * key material.
+ */
+export const SystemOneSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  apiKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  deterministicThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.85))),
+  fastPathThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.6))),
+  confidenceFloor: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
+  selfContainedThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.8))),
+  riskThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
+  timeoutMs: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(3000))),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SystemOneSettings = typeof SystemOneSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
@@ -1140,6 +1160,7 @@ export const ServerSettings = Schema.Struct({
   ),
   sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
+  systemOne: SystemOneSettings,
   // Legacy flat fields retained for old settings files and old clients. New
   // consumers should resolve `backgroundActivity` instead.
   automaticGitFetchInterval: Schema.DurationFromMillis.pipe(
@@ -1465,6 +1486,18 @@ export const ServerSettingsPatch = Schema.Struct({
       profile: Schema.optionalKey(BackgroundActivityProfileSelection),
       baseProfile: Schema.optionalKey(BackgroundActivityProfile),
       overrides: Schema.optionalKey(BackgroundActivityOverrides),
+    }),
+  ),
+  systemOne: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      apiKey: Schema.optionalKey(Schema.String),
+      deterministicThreshold: Schema.optionalKey(Schema.Number),
+      fastPathThreshold: Schema.optionalKey(Schema.Number),
+      confidenceFloor: Schema.optionalKey(Schema.Number),
+      selfContainedThreshold: Schema.optionalKey(Schema.Number),
+      riskThreshold: Schema.optionalKey(Schema.Number),
+      timeoutMs: Schema.optionalKey(Schema.Number),
     }),
   ),
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),

@@ -486,6 +486,32 @@ export function UsagePage() {
                   </div>
                 </section>
 
+                {merged.systemOne.environments > 0 ? (
+                  <section className="flex flex-col gap-2">
+                    <h2 className="text-sm font-medium text-foreground">Jev routing</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Turns classified through the Jev API since the server started. Token counts
+                      are metered per call; cost scales them by the Jev input price.
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
+                      <Metric
+                        label="LLM calls avoided"
+                        value={String(merged.systemOne.llmCallsAvoided)}
+                      />
+                      <Metric
+                        label="Jev input tokens"
+                        value={formatTokens(merged.systemOne.jevInputTokens)}
+                      />
+                      <Metric label="Jev cost" value={formatUsd(merged.systemOne.jevCostUsd)} />
+                      <Metric label="Jev calls" value={String(merged.systemOne.calls)} />
+                      <Metric
+                        label="Avg latency"
+                        value={`${Math.round(merged.systemOne.avgLatencyMs)} ms`}
+                      />
+                    </div>
+                  </section>
+                ) : null}
+
                 <section className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-3">
                     <h2 className="text-sm font-medium text-foreground">Breakdown</h2>

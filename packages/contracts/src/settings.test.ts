@@ -64,6 +64,35 @@ describe("storage cleanup settings", () => {
   });
 });
 
+describe("systemOne settings", () => {
+  it("stays off with calibrated defaults for existing installations", () => {
+    expect(decodeServerSettings({}).systemOne).toEqual({
+      enabled: false,
+      apiKey: "",
+      deterministicThreshold: 0.85,
+      fastPathThreshold: 0.6,
+      confidenceFloor: 0.5,
+      selfContainedThreshold: 0.8,
+      riskThreshold: 0.5,
+      timeoutMs: 3000,
+    });
+    expect(DEFAULT_SERVER_SETTINGS.systemOne.enabled).toBe(false);
+    expect(DEFAULT_SERVER_SETTINGS.systemOne.apiKey).toBe("");
+  });
+
+  it("accepts partial patches without resetting other thresholds", () => {
+    expect(decodeServerSettingsPatch({ systemOne: { enabled: true } })).toEqual({
+      systemOne: { enabled: true },
+    });
+  });
+
+  it("accepts a key patch without touching other fields", () => {
+    expect(decodeServerSettingsPatch({ systemOne: { apiKey: "jev-test-key" } })).toEqual({
+      systemOne: { apiKey: "jev-test-key" },
+    });
+  });
+});
+
 describe("ClientSettings rich text composer", () => {
   it("enables rich text for new and existing settings without a saved preference", () => {
     expect(decodeClientSettings({}).composerRichTextEnabled).toBe(true);

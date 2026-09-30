@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodePath from "node:path";
 import {
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
@@ -330,6 +331,84 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }),
     ).pipe(Effect.provide(makeServerSettingsLayer())),
   );
+
+  it.effect("stores the Jev key in the secret store and redacts it from settings", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const secretPath = NodePath.join(
+          serverConfig.secretsDir,
+          `${ServerSettingsModule.systemOneJevApiKeySecretName}.bin`,
+        );
+
+        const updated = yield* serverSettings.updateSettings({
+          systemOne: { apiKey: "jev-secret-1" },
+        });
+        assert.notStrictEqual(updated.systemOne.apiKey, "jev-secret-1");
+
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+        assert.notInclude(raw, "jev-secret-1");
+        assert.strictEqual(
+          Buffer.from(yield* fileSystem.readFile(secretPath)).toString("utf8"),
+          "jev-secret-1",
+        );
+
+        // Other fields change without touching the stored key.
+        const relabeled = yield* serverSettings.updateSettings({ systemOne: { enabled: true } });
+        assert.strictEqual(relabeled.systemOne.enabled, true);
+        assert.strictEqual(
+          Buffer.from(yield* fileSystem.readFile(secretPath)).toString("utf8"),
+          "jev-secret-1",
+        );
+
+        // Empty string clears the stored key.
+        const cleared = yield* serverSettings.updateSettings({ systemOne: { apiKey: "" } });
+        assert.strictEqual(cleared.systemOne.apiKey, "");
+        const removed = yield* fileSystem.stat(secretPath).pipe(
+          Effect.map(() => false),
+          Effect.catch(() => Effect.succeed(true)),
+        );
+        assert.strictEqual(removed, true);
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("fails closed when the Jev key cannot be persisted", () => {
+    const platformCause = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "readFile",
+      pathOrDescriptor: "jev api key secret",
+      description: "Secret backend unavailable.",
+    });
+    const cause = new ServerSecretStore.SecretStoreReadError({
+      resource: "jev api key secret",
+      cause: platformCause,
+    });
+    const configLayer = Layer.fresh(
+      ServerConfig.layerTest(process.cwd(), {
+        prefix: "e6code-server-settings-jev-failure-test-",
+      }),
+    );
+    const settingsLayer = ServerSettingsModule.layer.pipe(
+      Layer.provide(makeFailingSecretStoreLayer(cause)),
+      Layer.provideMerge(Layer.fresh(SqlitePersistenceMemory)),
+      Layer.provideMerge(configLayer),
+    );
+
+    return Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const error = yield* Effect.flip(
+        serverSettings.updateSettings({ systemOne: { apiKey: "jev-secret-1" } }),
+      );
+      assert.deepInclude(error, {
+        _tag: "ServerSettingsError",
+        operation: "read-secret",
+      });
+    }).pipe(Effect.provide(settingsLayer));
+  });
 
   it.effect("preserves model when switching providers via textGenerationModelSelection", () =>
     Effect.gen(function* () {
