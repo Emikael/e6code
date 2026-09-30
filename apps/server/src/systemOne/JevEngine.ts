@@ -31,7 +31,7 @@ import { buildClassifyState, buildRouteQuestions, type TurnClassifyInput } from 
 /** Pinned model: thresholds are calibrated against a fixed version, never the alias. */
 export const JEV_MODEL_ID = "jev-1.13.0";
 /** A Jev call must never stall a turn past this budget; calibration tunes it. */
-export const DEFAULT_CLASSIFY_TIMEOUT_MS = 3000;
+const DEFAULT_CLASSIFY_TIMEOUT_MS = 3000;
 /** Past answers kept; repeats skip the network call entirely. */
 export const RESULT_CACHE_MAX_ENTRIES = 200;
 

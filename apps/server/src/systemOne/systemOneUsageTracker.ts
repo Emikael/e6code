@@ -61,6 +61,7 @@ export class SystemOneUsageTracker extends Context.Service<
   }
 >()("e6/systemOne/systemOneUsageTracker") {}
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.fn("SystemOneUsageTracker.make")(function* () {
   const daysRef = yield* Ref.make(new Map<string, DayCounters>());
 
