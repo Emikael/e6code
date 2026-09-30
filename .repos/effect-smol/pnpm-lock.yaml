@@ -467,7 +467,7 @@ importers:
         version: link:../node-shared
       undici:
         specifier: ^8.10.2
-        version: 8.10.2
+        version: 8.11.2
     devDependencies:
       '@testcontainers/mysql':
         specifier: ^12.1.0
@@ -933,66 +933,6 @@ importers:
       vitest:
         specifier: 5.0.0
         version: 5.0.0(@edge-runtime/vm@5.0.0)(@opentelemetry/api@1.9.1)(@types/node@26.4.1)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(happy-dom@20.14.0)(jsdom@30.0.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.0))
-
-  scratchpad:
-    dependencies:
-      '@effect/ai-anthropic':
-        specifier: workspace:*
-        version: link:../packages/ai/anthropic
-      '@effect/ai-openai':
-        specifier: workspace:*
-        version: link:../packages/ai/openai
-      '@effect/ai-openai-compat':
-        specifier: workspace:*
-        version: link:../packages/ai/openai-compat
-      '@effect/ai-openrouter':
-        specifier: workspace:*
-        version: link:../packages/ai/openrouter
-      '@effect/opentelemetry':
-        specifier: workspace:*
-        version: link:../packages/opentelemetry
-      '@effect/platform-bun':
-        specifier: workspace:*
-        version: link:../packages/platform/bun
-      '@effect/platform-node':
-        specifier: workspace:*
-        version: link:../packages/platform/node
-      '@effect/sql-clickhouse':
-        specifier: workspace:*
-        version: link:../packages/sql/clickhouse
-      '@effect/sql-d1':
-        specifier: workspace:*
-        version: link:../packages/sql/d1
-      '@effect/sql-libsql':
-        specifier: workspace:*
-        version: link:../packages/sql/libsql
-      '@effect/sql-mssql':
-        specifier: workspace:*
-        version: link:../packages/sql/mssql
-      '@effect/sql-mysql2':
-        specifier: workspace:*
-        version: link:../packages/sql/mysql2
-      '@effect/sql-pg':
-        specifier: workspace:*
-        version: link:../packages/sql/pg
-      '@effect/sql-sqlite-bun':
-        specifier: workspace:*
-        version: link:../packages/sql/sqlite-bun
-      '@effect/sql-sqlite-do':
-        specifier: workspace:*
-        version: link:../packages/sql/sqlite-do
-      '@effect/sql-sqlite-node':
-        specifier: workspace:*
-        version: link:../packages/sql/sqlite-node
-      '@effect/sql-sqlite-react-native':
-        specifier: workspace:*
-        version: link:../packages/sql/sqlite-react-native
-      '@effect/sql-sqlite-wasm':
-        specifier: workspace:*
-        version: link:../packages/sql/sqlite-wasm
-      effect:
-        specifier: workspace:*
-        version: link:../packages/effect
 
   scripts:
     dependencies:
@@ -6295,6 +6235,10 @@ packages:
 
   undici@8.10.2:
     resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
+    engines: {node: '>=22.19.0'}
+
+  undici@8.11.2:
+    resolution: {integrity: sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==}
     engines: {node: '>=22.19.0'}
 
   unpipe@1.0.0:
@@ -12082,6 +12026,8 @@ snapshots:
   undici@7.29.0: {}
 
   undici@8.10.2: {}
+
+  undici@8.11.2: {}
 
   unpipe@1.0.0: {}
 
