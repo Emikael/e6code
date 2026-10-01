@@ -139,6 +139,15 @@ describe("searchSettings", () => {
     }
   });
 
+  it("registers Jev routing on the general settings page", () => {
+    expect(SETTINGS_SEARCH_ITEMS.find((item) => item.id === "jev-routing")).toMatchObject({
+      id: "jev-routing",
+      title: "Jev routing",
+      to: "/settings/general",
+    });
+    expect(searchSettings("jev api key")[0]?.id).toBe("jev-routing");
+  });
+
   it("registers the WSL backend as a desktop-only setting", () => {
     expect(SETTINGS_SEARCH_ITEMS.find((item) => item.id === "wsl-backend")).toMatchObject({
       id: "wsl-backend",

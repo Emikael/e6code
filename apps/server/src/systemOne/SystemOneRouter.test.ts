@@ -219,7 +219,7 @@ describe("SystemOneRouter", () => {
       expect(yield* tracker.readTotals).toMatchObject({ calls: 0, fallback: 0 });
     }).pipe(
       Effect.provide(
-        Layer.provide(layer(), Layer.mergeAll(engineLayerTest, settingsOn, usageLayer)),
+        Layer.provideMerge(layer(), Layer.mergeAll(engineLayerTest, settingsOn, usageLayer)),
       ),
     ),
   );

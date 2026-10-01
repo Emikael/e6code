@@ -411,7 +411,10 @@ const make = Effect.gen(function* () {
       });
     }).pipe(
       Effect.as(true),
-      Effect.catch(() => Effect.succeed(false)),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
+        return Effect.succeed(false);
+      }),
     );
     if (!wrote) return false;
     yield* Effect.all({
