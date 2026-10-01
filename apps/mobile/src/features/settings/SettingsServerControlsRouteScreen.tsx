@@ -355,7 +355,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     />
                     <View className="border-t border-border-subtle">
                       <SettingsControlRow
-                        icon="lock"
+                        icon={{ ios: "lock", android: "lock" }}
                         label="Jev API key"
                         subtitle={
                           systemOneKeyStored
