@@ -48,6 +48,61 @@ const baseThread: OrchestrationThread = {
 };
 
 describe("applyThreadDetailEvent", () => {
+  it("completes a local turn after an earlier turn without creating a provider session", () => {
+    const now = "2026-04-01T01:00:00.000Z";
+    const turnId = TurnId.make("local-turn");
+    const userMessageId = MessageId.make("local-user-message");
+    const result = applyThreadDetailEvent(
+      {
+        ...baseThread,
+        latestTurn: {
+          turnId: TurnId.make("earlier-turn"),
+          state: "completed",
+          requestedAt: baseThread.createdAt,
+          startedAt: baseThread.createdAt,
+          completedAt: baseThread.createdAt,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: userMessageId,
+            role: "user",
+            text: "hi",
+            turnId: null,
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+      {
+        ...baseEventFields,
+        sequence: 2,
+        occurredAt: now,
+        aggregateKind: "thread",
+        aggregateId: baseThread.id,
+        type: "thread.turn-completed",
+        payload: {
+          threadId: baseThread.id,
+          turnId,
+          userMessageId,
+          assistantMessageId: MessageId.make("local-answer"),
+          requestedAt: now,
+          completedAt: now,
+        },
+      },
+    );
+    expect(result.kind).toBe("updated");
+    if (result.kind !== "updated") return;
+    expect(result.thread.latestTurn).toMatchObject({
+      turnId,
+      state: "completed",
+      requestedAt: now,
+      completedAt: now,
+    });
+    expect(result.thread.messages[0]?.turnId).toBe(turnId);
+    expect(result.thread.session).toBeNull();
+  });
   describe("project events", () => {
     it("returns unchanged for project.created", () => {
       const result = applyThreadDetailEvent(baseThread, {

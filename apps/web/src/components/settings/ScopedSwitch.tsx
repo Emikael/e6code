@@ -12,8 +12,10 @@ import { useScopedSettingsMixed } from "./useScopedSettings";
 export function ScopedSwitch({
   settingKeys,
   checked,
+  mixed: mixedOverride,
   ...props
 }: ComponentProps<typeof Switch> & { settingKeys: readonly (keyof ServerSettings)[] }) {
   const mixed = useScopedSettingsMixed(settingKeys);
-  return <Switch {...props} mixed={mixed} checked={mixed ? false : checked} />;
+  const effectiveMixed = mixedOverride ?? mixed;
+  return <Switch {...props} mixed={effectiveMixed} checked={effectiveMixed ? false : checked} />;
 }

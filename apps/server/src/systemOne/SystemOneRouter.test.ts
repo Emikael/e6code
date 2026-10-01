@@ -3,6 +3,7 @@ import { DEFAULT_SERVER_SETTINGS, type ServerSettingsError } from "@e6tools/cont
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import { MAX_STATE_TOKENS } from "./stateBuilder.ts";
 
 import {
   JevEngine,
@@ -223,6 +224,30 @@ describe("SystemOneRouter", () => {
       ),
     ),
   );
+
+  it.live("bypasses classification when the request would be truncated", () => {
+    let calls = 0;
+    const engine = Layer.succeed(
+      JevEngine,
+      JevEngine.of({
+        status: Effect.succeed({ _tag: "Ready" }),
+        close: Effect.void,
+        classifyTurn: () =>
+          Effect.sync(() => {
+            calls += 1;
+            return { _tag: "Skipped", reason: "inference-error" };
+          }),
+      }),
+    );
+    return Effect.gen(function* () {
+      const text =
+        "Explain this code.\n" + "x".repeat(MAX_STATE_TOKENS * 4) + "\nDo not modify files.";
+      expect(
+        yield* routeWith(Layer.provide(layer(), Layer.mergeAll(engine, settingsOn)), text),
+      ).toEqual({ _tag: "FullLlm", reason: "text-too-long" });
+      expect(calls).toBe(0);
+    });
+  });
 
   it.live("carries the answering model on routed outcomes", () =>
     Effect.gen(function* () {

@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -81,6 +82,17 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it("redacts file-provided Jev keys before sending settings to clients", () => {
+    for (const key of ["", "file-provided-jev-key", "••••••"]) {
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        systemOne: { ...DEFAULT_SERVER_SETTINGS.systemOne, apiKey: key },
+      };
+      const redacted = ServerSettingsModule.redactServerSettingsForClient(settings);
+      assert.strictEqual(redacted.systemOne.apiKey, key.length > 0 ? "••••••" : "");
+      assert.strictEqual(settings.systemOne.apiKey, key);
+    }
+  });
   it.effect("preserves context when reading a provider environment secret fails", () => {
     const platformCause = PlatformError.systemError({
       _tag: "PermissionDenied",

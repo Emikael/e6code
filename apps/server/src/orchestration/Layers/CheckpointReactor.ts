@@ -188,9 +188,12 @@ const make = Effect.gen(function* () {
       : Option.none();
   });
 
-  const resolveThreadDetail = Effect.fn("resolveThreadDetail")(function* (threadId: ThreadId) {
+  const resolveThreadDetail = Effect.fn("resolveThreadDetail")(function* (
+    threadId: ThreadId,
+    activityKinds: ReadonlyArray<string> = [],
+  ) {
     return yield* projectionSnapshotQuery
-      .getThreadDetailById(threadId, { activityKinds: [] })
+      .getThreadDetailById(threadId, { activityKinds })
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
@@ -391,13 +394,18 @@ const make = Effect.gen(function* () {
 
   // Capture the files left by a completed or interrupted turn.
   const captureCheckpointFromTurnCompletion = Effect.fn("captureCheckpointFromTurnCompletion")(
-    function* (event: Extract<ProviderRuntimeEvent, { type: "turn.completed" | "turn.aborted" }>) {
-      const turnId = toTurnId(event.turnId);
+    function* (
+      event:
+        | Extract<ProviderRuntimeEvent, { type: "turn.completed" | "turn.aborted" }>
+        | Extract<OrchestrationEvent, { type: "thread.turn-completed" }>,
+    ) {
+      const local = event.type === "thread.turn-completed";
+      const turnId = local ? event.payload.turnId : toTurnId(event.turnId);
       if (!turnId) {
         return;
       }
 
-      const thread = yield* resolveThreadDetail(event.threadId);
+      const thread = yield* resolveThreadDetail(local ? event.payload.threadId : event.threadId);
       if (!thread) {
         return;
       }
@@ -449,11 +457,13 @@ const make = Effect.gen(function* () {
         cwd: checkpointCwd,
         turnCount: nextTurnCount,
         status:
-          event.type === "turn.aborted"
+          local || event.type === "turn.aborted"
             ? "ready"
             : checkpointStatusFromRuntime(event.payload.state),
-        assistantMessageId: existingPlaceholder?.assistantMessageId ?? undefined,
-        createdAt: event.createdAt,
+        assistantMessageId: local
+          ? event.payload.assistantMessageId
+          : (existingPlaceholder?.assistantMessageId ?? undefined),
+        createdAt: local ? event.payload.completedAt : event.createdAt,
       });
     },
   );
@@ -773,7 +783,7 @@ const make = Effect.gen(function* () {
   ) {
     const now = DateTime.formatIso(yield* DateTime.now);
 
-    const thread = yield* resolveThreadDetail(event.payload.threadId);
+    const thread = yield* resolveThreadDetail(event.payload.threadId, ["systemOne.turn.answered"]);
     if (!thread) {
       yield* appendRevertFailureActivity({
         threadId: event.payload.threadId,
@@ -810,7 +820,21 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* providerService.assertConversationRollbackSupported(event.payload.threadId);
+    const localTurnsToRevert = thread.checkpoints.filter(
+      (checkpoint) =>
+        checkpoint.checkpointTurnCount > event.payload.turnCount &&
+        thread.activities.some(
+          (activity) =>
+            activity.kind === "systemOne.turn.answered" && activity.turnId === checkpoint.turnId,
+        ),
+    ).length;
+    const rolledBackTurns = Math.max(
+      0,
+      currentTurnCount - event.payload.turnCount - localTurnsToRevert,
+    );
+    if (rolledBackTurns > 0) {
+      yield* providerService.assertConversationRollbackSupported(event.payload.threadId);
+    }
 
     if (event.payload.restoreFiles !== false) {
       if (!checkpointCwd) {
@@ -871,7 +895,6 @@ const make = Effect.gen(function* () {
       yield* refreshWorkspaceEntries(checkpointCwd);
     }
 
-    const rolledBackTurns = Math.max(0, currentTurnCount - event.payload.turnCount);
     if (rolledBackTurns > 0) {
       yield* providerService.rollbackConversation({
         threadId: event.payload.threadId,
@@ -915,6 +938,22 @@ const make = Effect.gen(function* () {
   });
 
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (event: OrchestrationEvent) {
+    if (event.type === "thread.turn-completed") {
+      pending.delete(event.payload.threadId);
+      yield* captureCheckpointFromTurnCompletion(event).pipe(
+        Effect.catch((error) =>
+          Effect.flatMap(nowIso, (createdAt) =>
+            appendCaptureFailureActivity({
+              threadId: event.payload.threadId,
+              turnId: event.payload.turnId,
+              detail: error.message,
+              createdAt,
+            }).pipe(Effect.catch(() => Effect.void)),
+          ),
+        ),
+      );
+      return;
+    }
     if (event.type === "thread.turn-start-requested" || event.type === "thread.message-sent") {
       if (event.type === "thread.turn-start-requested") pending.add(event.payload.threadId);
       yield* ensurePreTurnBaselineFromDomainTurnStart(event);
@@ -1033,6 +1072,7 @@ const make = Effect.gen(function* () {
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
         if (
           event.type !== "thread.turn-start-requested" &&
+          event.type !== "thread.turn-completed" &&
           event.type !== "thread.message-sent" &&
           event.type !== "thread.checkpoint-revert-requested"
         ) {

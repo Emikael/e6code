@@ -3,6 +3,7 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
+  MessageId,
   type IsoDateTime,
   type ModelSelection,
   type OrchestrationEvent,
@@ -12,8 +13,7 @@ import {
   ThreadId,
   type ProviderSession,
   type RuntimeMode,
-  type TurnId,
-  MessageId,
+  TurnId,
 } from "@e6tools/contracts";
 import { assistantCitationsToPlainText } from "@e6tools/shared/assistantCitations";
 import { projectComposerContextForProvider } from "@e6tools/shared/composerContextReferences";
@@ -386,51 +386,31 @@ const make = Effect.gen(function* () {
   };
 
   /**
-   * Writes a deterministic answer as an assistant message plus a badge
-   * activity. Returns false on any write failure so the caller falls back to
-   * the full LLM and the turn is never lost between the two paths.
+   * Persists a deterministic answer and completes its turn. Returns false on any
+   * failure so the caller falls back to the full LLM and the turn is never
+   * lost between the two paths.
    */
   const appendSystemOneAnswer = Effect.fn("appendSystemOneAnswer")(function* (input: {
     threadId: ThreadId;
+    userMessageId: MessageId;
     text: string;
     route: string;
     confidence: number;
     createdAt: IsoDateTime;
   }) {
-    const messageId = yield* crypto.randomUUIDv4.pipe(Effect.map(MessageId.make));
-    const wrote = yield* Effect.gen(function* () {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.message.assistant.delta",
-        commandId: yield* serverCommandId("system-one-answer-delta"),
-        threadId: input.threadId,
-        messageId,
-        delta: input.text,
-        createdAt: input.createdAt,
-      });
-      yield* orchestrationEngine.dispatch({
-        type: "thread.message.assistant.complete",
-        commandId: yield* serverCommandId("system-one-answer-complete"),
-        threadId: input.threadId,
-        messageId,
-        createdAt: input.createdAt,
-      });
-    }).pipe(
-      Effect.as(true),
-      Effect.catchCause((cause) => {
-        if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
-        return Effect.succeed(false);
-      }),
-    );
-    if (!wrote) return false;
-    yield* Effect.all({
+    const appended = yield* Effect.all({
       commandId: serverCommandId("system-one-answer"),
       eventId: serverEventId(),
     }).pipe(
       Effect.flatMap(({ commandId, eventId }) =>
         orchestrationEngine.dispatch({
-          type: "thread.activity.append",
+          type: "thread.turn.answer",
           commandId,
           threadId: input.threadId,
+          userMessageId: input.userMessageId,
+          assistantMessageId: MessageId.make(`system-one:${input.userMessageId}`),
+          turnId: TurnId.make(`system-one:${input.userMessageId}`),
+          text: input.text,
           activity: {
             id: eventId,
             tone: "info",
@@ -440,15 +420,19 @@ const make = Effect.gen(function* () {
               route: input.route,
               confidence: input.confidence,
             },
-            turnId: null,
+            turnId: TurnId.make(`system-one:${input.userMessageId}`),
             createdAt: input.createdAt,
           },
           createdAt: input.createdAt,
         }),
       ),
-      Effect.catch(() => Effect.void),
+      Effect.as(true),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
+        return Effect.succeed(false);
+      }),
     );
-    return true;
+    return appended;
   });
 
   const cancelTurnsAfterCompaction = Effect.fn("cancelTurnsAfterCompaction")(function* (
@@ -1589,20 +1573,29 @@ const make = Effect.gen(function* () {
       return;
     }
     const project = yield* resolveProject(thread.projectId);
-    const preRoute = yield* routeSystemOneTurn({
-      threadId: event.payload.threadId,
-      threadTitle: thread.title ?? undefined,
-      projectName: project?.title ?? undefined,
-      messageText: message.text,
-      hasAttachments: (message.attachments?.length ?? 0) > 0,
-    });
+    const providerNeedsTurn =
+      thread.session?.status === "running" ||
+      thread.session?.status === "starting" ||
+      thread.hasPendingApprovals ||
+      thread.hasPendingUserInput ||
+      event.payload.sourceProposedPlan !== undefined;
+    const preRoute = providerNeedsTurn
+      ? null
+      : yield* routeSystemOneTurn({
+          threadId: event.payload.threadId,
+          threadTitle: thread.title ?? undefined,
+          projectName: project?.title ?? undefined,
+          messageText: message.text,
+          hasAttachments: (message.attachments?.length ?? 0) > 0,
+        });
     if (preRoute !== null && preRoute._tag === "Deterministic") {
       const answered = yield* appendSystemOneAnswer({
         threadId: event.payload.threadId,
+        userMessageId: event.payload.messageId,
         text: preRoute.text,
         route: preRoute.route,
         confidence: preRoute.confidence,
-        createdAt: event.payload.createdAt,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
       });
       if (answered) {
         yield* publishSystemOneReceipt({

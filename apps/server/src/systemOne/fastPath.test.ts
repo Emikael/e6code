@@ -23,8 +23,8 @@ describe("trimForFastPath", () => {
     expect(trimmed.text).toBe("hello");
   });
 
-  it("keeps a long live message intact", () => {
-    const text = "x".repeat(20_000);
+  it("preserves instructions after a long pasted message", () => {
+    const text = "Explain this code.\n" + "x".repeat(13000) + "\nDo not modify any files.";
     const trimmed = trimForFastPath(text, []);
     expect(trimmed.text).toBe(text);
     expect(trimmed.textCharsSaved).toBe(0);

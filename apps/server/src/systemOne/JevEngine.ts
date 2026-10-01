@@ -242,7 +242,12 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
       resultCache.delete(key);
       resultCache.set(key, cached);
       const hitMs = yield* Clock.currentTimeMillis;
-      return { _tag: "Classified", ...cached, latencyMs: hitMs - startedMs } as ClassifyOutcome;
+      return {
+        _tag: "Classified",
+        ...cached,
+        inputTokens: 0,
+        latencyMs: hitMs - startedMs,
+      } as ClassifyOutcome;
     }
 
     const questions = buildRouteQuestions();

@@ -18,6 +18,7 @@ import { answerDeterministic } from "./deterministicResponder.ts";
 import { JevEngine } from "./JevEngine.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
+import { buildClassifyState } from "./stateBuilder.ts";
 
 /**
  * Best-effort tripwire for bearer material. Sensitivity is judged by the
@@ -130,15 +131,15 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
       return { _tag: "FullLlm", reason: "key-like-material" } as RouteOutcome;
     }
 
-    // Tokens recorded below are real Jev counts metered per call.
-    const outcome = yield* engine.classifyTurn(
-      {
-        lastMessage: input.text,
-        ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
-        ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-      },
-      settings.systemOne.timeoutMs,
-    );
+    const classifyInput = {
+      lastMessage: input.text,
+      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+    };
+    if (buildClassifyState(classifyInput).lastMessage !== input.text) {
+      return { _tag: "FullLlm", reason: "text-too-long" } as RouteOutcome;
+    }
+    const outcome = yield* engine.classifyTurn(classifyInput, settings.systemOne.timeoutMs);
     if (outcome._tag === "Skipped") {
       return { _tag: "FullLlm", reason: `jev-skipped:${outcome.reason}` } as RouteOutcome;
     }

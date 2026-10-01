@@ -204,7 +204,12 @@ describe("JevEngine", () => {
       const second = yield* engine.classifyTurn({ lastMessage: "hello" });
       const third = yield* engine.classifyTurn({ lastMessage: "different question" });
       expect(first._tag).toBe("Classified");
-      expect(second).toMatchObject({ _tag: "Classified", route: "answer_deterministic" });
+      expect(first).toMatchObject({ inputTokens: 120 });
+      expect(second).toMatchObject({
+        _tag: "Classified",
+        route: "answer_deterministic",
+        inputTokens: 0,
+      });
       expect(third._tag).toBe("Classified");
       expect(inferences).toBe(2);
     }).pipe(Effect.provide(stubLayer({ createBackend: () => counting })));

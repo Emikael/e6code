@@ -32,6 +32,7 @@ import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -512,13 +513,22 @@ describe("ProviderCommandReactor", () => {
           );
     runtime = ManagedRuntime.make(layerWithSystemOne);
     const systemOneReceipts: Array<OrchestrationRuntimeReceipt> = [];
+    const systemOneDecisions = await runtime.runPromise(
+      Queue.unbounded<OrchestrationRuntimeReceipt>(),
+    );
     if (input?.systemOneRouterLayer !== undefined) {
       const bus = await runtime.runPromise(Effect.service(RuntimeReceiptBus));
       runtime.runFork(
         Stream.runForEach(bus.streamEventsForTest, (receipt) =>
           Effect.sync(() => {
             systemOneReceipts.push(receipt);
-          }),
+          }).pipe(
+            Effect.andThen(
+              receipt.type === "systemOne.turn.decided"
+                ? Queue.offer(systemOneDecisions, receipt)
+                : Effect.void,
+            ),
+          ),
         ),
       );
     }
@@ -656,6 +666,7 @@ describe("ProviderCommandReactor", () => {
       startReactor,
       runEffect,
       systemOneReceipts,
+      waitForSystemOneDecision: () => runtime!.runPromise(Queue.take(systemOneDecisions)),
       get titleRegenerationCompletionDispatchAttempts() {
         return titleRegenerationCompletionDispatchAttempts;
       },
@@ -916,26 +927,24 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
-  effectIt.effect("answers deterministic turns locally without calling sendTurn", () =>
-    Effect.gen(function* () {
-      const harness = yield* Effect.promise(() =>
-        createHarness({
-          systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
-            routeTurn: () =>
-              Effect.succeed({
-                _tag: "Deterministic",
-                text: "Hello! How can I help with your code today?",
-                route: "answer_deterministic",
-                confidence: 0.95,
-                latencyMs: 120,
-                inputTokens: 100,
-              }),
+  it("answers deterministic turns locally without calling sendTurn", async () => {
+    const harness = await createHarness({
+      systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+        routeTurn: () =>
+          Effect.succeed({
+            _tag: "Deterministic",
+            text: "Hello! How can I help with your code today?",
+            route: "answer_deterministic",
+            confidence: 0.95,
+            latencyMs: 120,
+            inputTokens: 100,
           }),
-        }),
-      );
-      const now = "2026-01-01T00:00:00.000Z";
+      }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
 
-      yield* harness.engine.dispatch({
+    await Effect.runPromise(
+      harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-system-one-deterministic"),
         threadId: ThreadId.make("thread-1"),
@@ -948,63 +957,78 @@ describe("ProviderCommandReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
-      });
-      yield* Effect.promise(() => harness.drain());
-      yield* Effect.promise(() =>
-        waitFor(() =>
-          harness.systemOneReceipts.some((receipt) => receipt.type === "systemOne.turn.decided"),
-        ),
-      );
+      }),
+    );
+    await harness.drain();
+    await harness.waitForSystemOneDecision();
 
-      expect(harness.sendTurn).not.toHaveBeenCalled();
-      yield* Effect.promise(() =>
-        waitFor(async () => {
-          const thread = (await harness.readModel()).threads.find(
-            (entry) => entry.id === ThreadId.make("thread-1"),
-          );
-          return (
-            (thread?.messages.some(
-              (entry) =>
-                entry.role === "assistant" &&
-                entry.text.includes("Hello! How can I help with your code today?"),
-            ) ??
-              false) &&
-            (thread?.activities.some(
-              (activity) => activity.kind === "systemOne.turn.answered" && activity.tone === "info",
-            ) ??
-              false)
-          );
-        }),
-      );
-      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
-        (entry) => entry.id === ThreadId.make("thread-1"),
-      );
-      expect(thread?.messages).toContainEqual(
-        expect.objectContaining({
-          role: "assistant",
-          text: "Hello! How can I help with your code today?",
-          streaming: false,
-        }),
-      );
-      const answered = thread?.activities.find(
-        (activity) => activity.kind === "systemOne.turn.answered",
-      );
-      expect(answered).toMatchObject({
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(harness.generateThreadTitle).not.toHaveBeenCalled();
+    const thread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(thread?.activities).toContainEqual(
+      expect.objectContaining({
         kind: "systemOne.turn.answered",
         tone: "info",
-        turnId: null,
-        payload: { route: "answer_deterministic", confidence: 0.95 },
-      });
-      expect(harness.generateThreadTitle).not.toHaveBeenCalled();
-      expect(harness.systemOneReceipts).toContainEqual(
-        expect.objectContaining({
-          type: "systemOne.turn.decided",
-          outcome: "deterministic",
-          route: "answer_deterministic",
-        }),
-      );
-    }),
-  );
+        turnId: asTurnId("system-one:user-message-s1"),
+      }),
+    );
+    expect(harness.systemOneReceipts).toContainEqual(
+      expect.objectContaining({
+        type: "systemOne.turn.decided",
+        outcome: "deterministic",
+        route: "answer_deterministic",
+      }),
+    );
+    expect(thread?.session).toBeNull();
+    expect(thread?.latestTurn).toMatchObject({
+      state: "completed",
+      turnId: asTurnId("system-one:user-message-s1"),
+      assistantMessageId: asMessageId("system-one:user-message-s1"),
+    });
+    expect(thread?.messages).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        text: "Hello! How can I help with your code today?",
+        streaming: false,
+      }),
+    );
+    expect(
+      thread?.messages.find((message) => message.id === asMessageId("user-message-s1"))?.turnId,
+    ).toBe(asTurnId("system-one:user-message-s1"));
+    expect(await harness.readPendingTurnStarts()).toEqual([]);
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("cmd-settle-local-answer"),
+        threadId: ThreadId.make("thread-1"),
+      }),
+    );
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-second-local-answer"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-s1-next"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+    await harness.waitForSystemOneDecision();
+    const after = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(after?.latestTurn?.turnId).toBe(asTurnId("system-one:user-message-s1-next"));
+  });
 
   effectIt.effect("falls back to sendTurn when the router dies", () =>
     Effect.gen(function* () {
@@ -4433,7 +4457,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.activity.append",
         commandId: CommandId.make("cmd-user-input-requested"),
@@ -4466,7 +4490,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.user-input.respond",
         commandId: CommandId.make("cmd-user-input-respond-stale"),

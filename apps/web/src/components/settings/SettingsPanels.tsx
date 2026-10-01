@@ -781,6 +781,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
+      systemOne: { enabled: DEFAULT_UNIFIED_SETTINGS.systemOne.enabled },
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -2114,7 +2115,10 @@ export function GeneralSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const navigate = useNavigate();
-  const { scope, environment, connectedEnvironments } = useSettingsScope();
+  const { scope, environment, connectedEnvironments, targets } = useSettingsScope();
+  const systemOneMixed = targets.some(
+    (target) => target.settings.systemOne.enabled !== settings.systemOne.enabled,
+  );
   // The representative environment supplies the provider list for pickers;
   // a fanned-out model choice is validated against every target before it
   // is written. Per-machine tuning (background activity overrides) still
@@ -2807,6 +2811,7 @@ export function GeneralSettingsPanel() {
           {...searchableSetting("jev-routing")}
           serverScoped
           settingKeys={["systemOne"]}
+          mixed={systemOneMixed}
           description="Classify turns through the Jev API to answer simple turns without the full model and trim context for the rest. Turn content leaves the machine; the API key stays on this server."
           resetAction={
             settings.systemOne.enabled !== DEFAULT_UNIFIED_SETTINGS.systemOne.enabled ? (
@@ -2823,6 +2828,7 @@ export function GeneralSettingsPanel() {
           control={
             <ScopedSwitch
               settingKeys={["systemOne"]}
+              mixed={systemOneMixed}
               checked={settings.systemOne.enabled}
               onCheckedChange={(checked) =>
                 updateSettings({ systemOne: { enabled: Boolean(checked) } })
