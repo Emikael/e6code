@@ -56,7 +56,7 @@ import {
 } from "../Services/ProviderCommandReactor.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import { trimForFastPath } from "../../systemOne/fastPath.ts";
-import { SystemOneRouter } from "../../systemOne/SystemOneRouter.ts";
+import { SystemOneRouter, type RouteOutcome } from "../../systemOne/SystemOneRouter.ts";
 import { forkParked, ServerActivation } from "../../serverActivation.ts";
 import {
   formatThreadTitleContext,
@@ -341,7 +341,12 @@ const make = Effect.gen(function* () {
           return Effect.logWarning("system one pre-route failed", {
             threadId: input.threadId,
             cause: Cause.pretty(cause),
-          }).pipe(Effect.as({ _tag: "FullLlm", reason: "router-failed" } as const));
+          }).pipe(
+            Effect.as({
+              _tag: "FullLlm",
+              reason: "router-failed",
+            } as Extract<RouteOutcome, { _tag: "FullLlm" }>),
+          );
         }),
       );
     if (outcome._tag === "FullLlm" && outcome.reason === "router-disabled") return null;

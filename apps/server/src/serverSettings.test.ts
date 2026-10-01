@@ -31,6 +31,8 @@ import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.t
 
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
+const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const encodeServerSettingsJson = Schema.encodeSync(Schema.fromJsonString(ServerSettings));
 
 const makeServerSettingsLayer = () =>
   ServerSettingsModule.layer.pipe(
@@ -384,7 +386,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       };
       const redacted = ServerSettingsModule.redactServerSettingsForClient(leaked);
       assert.strictEqual(redacted.systemOne.apiKey, SECRET_VALUE_REDACTED);
-      assert.notInclude(JSON.stringify(redacted), "jev-plaintext");
+      assert.notInclude(encodeServerSettingsJson(redacted), "jev-plaintext");
     }),
   );
 
@@ -396,7 +398,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const path = yield* Path.Path;
         yield* fileSystem.writeFileString(
           serverConfig.settingsPath,
-          `${JSON.stringify({ systemOne: { apiKey: "jev-plaintext-on-disk" } })}\n`,
+          `${encodeUnknownJsonString({ systemOne: { apiKey: "jev-plaintext-on-disk" } })}\n`,
         );
         const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
         const persisted = yield* serverSettings.getPersistedSettings;
