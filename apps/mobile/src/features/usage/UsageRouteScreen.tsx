@@ -313,7 +313,7 @@ export function UsageRouteScreen() {
                   />
                   <ProviderSection merged={merged} metric={metric} />
                   <TotalsSection merged={merged} isPast24Hours={isPast24Hours} />
-                  {merged.systemOne.environments > 0 ? (
+                  {merged.systemOne.environments > 0 && merged.systemOne.calls > 0 ? (
                     <SystemOneSection systemOne={merged.systemOne} />
                   ) : null}
                   <ModelsSection merged={merged} />

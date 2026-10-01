@@ -80,8 +80,9 @@ describe("JevEngine", () => {
     }).pipe(Effect.provide(stubLayer())),
   );
 
-  it.live("treats 401 as key-invalid and recovers on success", () => {
+  it.live("treats 401 as key-invalid and skips until the key bytes change", () => {
     let calls = 0;
+    const currentKey = { value: "jev-test-key" };
     const flapping: JevBackend = {
       systemOne: () => {
         calls += 1;
@@ -97,10 +98,24 @@ describe("JevEngine", () => {
         reason: "key-invalid",
       });
       expect(yield* engine.status).toEqual({ _tag: "KeyInvalid" });
-      const recovered = yield* engine.classifyTurn({ lastMessage: "hello again" });
+      expect(yield* engine.classifyTurn({ lastMessage: "hello again" })).toEqual({
+        _tag: "Skipped",
+        reason: "key-invalid",
+      });
+      expect(calls).toBe(1);
+      currentKey.value = "jev-rotated-key";
+      const recovered = yield* engine.classifyTurn({ lastMessage: "hello rotated" });
       expect(recovered._tag).toBe("Classified");
       expect(yield* engine.status).toEqual({ _tag: "Ready" });
-    }).pipe(Effect.provide(stubLayer({ createBackend: () => flapping })));
+      expect(calls).toBe(2);
+    }).pipe(
+      Effect.provide(
+        layer({
+          resolveApiKey: Effect.sync(() => currentKey.value),
+          createBackend: () => flapping,
+        }),
+      ),
+    );
   });
 
   it.live("treats 403 as key-invalid", () => {

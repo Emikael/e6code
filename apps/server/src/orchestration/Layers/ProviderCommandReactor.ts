@@ -13,6 +13,7 @@ import {
   type ProviderSession,
   type RuntimeMode,
   type TurnId,
+  MessageId,
 } from "@e6tools/contracts";
 import { assistantCitationsToPlainText } from "@e6tools/shared/assistantCitations";
 import { projectComposerContextForProvider } from "@e6tools/shared/composerContextReferences";
@@ -325,12 +326,24 @@ const make = Effect.gen(function* () {
     hasAttachments: boolean;
   }) {
     if (Option.isNone(systemOneRouter)) return null;
-    const outcome = yield* systemOneRouter.value.routeTurn({
-      text: input.messageText,
-      hasAttachments: input.hasAttachments,
-      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
-      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-    });
+    const outcome = yield* systemOneRouter.value
+      .routeTurn({
+        text: input.messageText,
+        hasAttachments: input.hasAttachments,
+        ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
+        ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+      })
+      .pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.interrupt;
+          }
+          return Effect.logWarning("system one pre-route failed", {
+            threadId: input.threadId,
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as({ _tag: "FullLlm", reason: "router-failed" } as const));
+        }),
+      );
     if (outcome._tag === "FullLlm" && outcome.reason === "router-disabled") return null;
     return outcome;
   });
@@ -368,9 +381,9 @@ const make = Effect.gen(function* () {
   };
 
   /**
-   * Appends a deterministic answer as thread activity. Returns false on any
-   * failure so the caller falls back to the full LLM and the turn is never
-   * lost between the two paths.
+   * Writes a deterministic answer as an assistant message plus a badge
+   * activity. Returns false on any write failure so the caller falls back to
+   * the full LLM and the turn is never lost between the two paths.
    */
   const appendSystemOneAnswer = Effect.fn("appendSystemOneAnswer")(function* (input: {
     threadId: ThreadId;
@@ -379,7 +392,29 @@ const make = Effect.gen(function* () {
     confidence: number;
     createdAt: IsoDateTime;
   }) {
-    const appended = yield* Effect.all({
+    const messageId = yield* crypto.randomUUIDv4.pipe(Effect.map(MessageId.make));
+    const wrote = yield* Effect.gen(function* () {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.message.assistant.delta",
+        commandId: yield* serverCommandId("system-one-answer-delta"),
+        threadId: input.threadId,
+        messageId,
+        delta: input.text,
+        createdAt: input.createdAt,
+      });
+      yield* orchestrationEngine.dispatch({
+        type: "thread.message.assistant.complete",
+        commandId: yield* serverCommandId("system-one-answer-complete"),
+        threadId: input.threadId,
+        messageId,
+        createdAt: input.createdAt,
+      });
+    }).pipe(
+      Effect.as(true),
+      Effect.catch(() => Effect.succeed(false)),
+    );
+    if (!wrote) return false;
+    yield* Effect.all({
       commandId: serverCommandId("system-one-answer"),
       eventId: serverEventId(),
     }).pipe(
@@ -394,9 +429,6 @@ const make = Effect.gen(function* () {
             kind: "systemOne.turn.answered",
             summary: "Answered locally without the provider model",
             payload: {
-              text: input.text,
-              // `detail` is what both clients render as the row body.
-              detail: input.text,
               route: input.route,
               confidence: input.confidence,
             },
@@ -406,10 +438,9 @@ const make = Effect.gen(function* () {
           createdAt: input.createdAt,
         }),
       ),
-      Effect.as(true),
-      Effect.catch(() => Effect.succeed(false)),
+      Effect.catch(() => Effect.void),
     );
-    return appended;
+    return true;
   });
 
   const cancelTurnsAfterCompaction = Effect.fn("cancelTurnsAfterCompaction")(function* (
@@ -1437,39 +1468,6 @@ const make = Effect.gen(function* () {
     yield* ensureThreadWorktree(thread);
 
     const isCompactCommand = isCompactCommandMessage(message);
-    if (!hasOtherUserMessages && !isCompactCommand) {
-      const project = yield* resolveProject(thread.projectId);
-      const generationCwd =
-        resolveThreadWorkspaceCwd({
-          thread,
-          projects: project ? [project] : [],
-        }) ?? process.cwd();
-      const generationInput = {
-        messageText: assistantCitationsToPlainText(message.text),
-        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-        ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
-      };
-
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        ...generationInput,
-      }).pipe(Effect.forkScoped);
-
-      if (
-        thread.titleState?.source !== "manual" &&
-        canReplaceThreadTitle(thread.title, event.payload.titleSeed)
-      ) {
-        yield* maybeGenerateThreadTitleForFirstTurn({
-          threadId: event.payload.threadId,
-          cwd: generationCwd,
-          expectedTitle: thread.title,
-          expectedVersion: thread.titleState?.version ?? null,
-          ...generationInput,
-        }).pipe(Effect.forkScoped);
-      }
-    }
 
     let compactionSessionEnsured = false;
     const handleCompactionFailure = (cause: Cause.Cause<unknown>) => {
@@ -1617,6 +1615,38 @@ const make = Effect.gen(function* () {
         reason: "answer-append-failed",
         createdAt: event.payload.createdAt,
       });
+    }
+    if (!hasOtherUserMessages && !isCompactCommand) {
+      const generationCwd =
+        resolveThreadWorkspaceCwd({
+          thread,
+          projects: project ? [project] : [],
+        }) ?? process.cwd();
+      const generationInput = {
+        messageText: assistantCitationsToPlainText(message.text),
+        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+        ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
+      };
+
+      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+        threadId: event.payload.threadId,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+        ...generationInput,
+      }).pipe(Effect.forkScoped);
+
+      if (
+        thread.titleState?.source !== "manual" &&
+        canReplaceThreadTitle(thread.title, event.payload.titleSeed)
+      ) {
+        yield* maybeGenerateThreadTitleForFirstTurn({
+          threadId: event.payload.threadId,
+          cwd: generationCwd,
+          expectedTitle: thread.title,
+          expectedVersion: thread.titleState?.version ?? null,
+          ...generationInput,
+        }).pipe(Effect.forkScoped);
+      }
     }
     const fastRoute = preRoute !== null && preRoute._tag === "FastPath" ? preRoute : null;
     const fastTrim =

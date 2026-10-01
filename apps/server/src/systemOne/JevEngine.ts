@@ -179,7 +179,7 @@ export class JevEngine extends Context.Service<
 
 export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOptions) {
   const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_CLASSIFY_TIMEOUT_MS;
-  const lastAuth = yield* Ref.make<"unknown" | "ok" | "invalid">("unknown");
+  const invalidKey = yield* Ref.make<string | null>(null);
   const resolveKey: Effect.Effect<string | null, never, never> =
     options.resolveApiKey ?? Effect.succeed(null);
   let backend: JevBackend | null = null;
@@ -218,7 +218,9 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
   const status: Effect.Effect<EngineStatus> = Effect.gen(function* () {
     const apiKey = yield* resolveKey;
     if (apiKey === null) return { _tag: "KeyMissing" } as EngineStatus;
-    if ((yield* Ref.get(lastAuth)) === "invalid") return { _tag: "KeyInvalid" } as EngineStatus;
+    if ((yield* Ref.get(invalidKey)) === apiKey) {
+      return { _tag: "KeyInvalid" } as EngineStatus;
+    }
     return { _tag: "Ready" } as EngineStatus;
   });
 
@@ -229,6 +231,7 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
     const startedMs = yield* Clock.currentTimeMillis;
     const apiKey = yield* resolveKey;
     if (apiKey === null) return skipped("key-missing");
+    if ((yield* Ref.get(invalidKey)) === apiKey) return skipped("key-invalid");
     const instance = yield* loadBackend(apiKey);
     if (instance === null) return skipped("inference-error");
 
@@ -259,7 +262,7 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
       Effect.catch((error) =>
         Effect.gen(function* () {
           const auth = isAuthFailure(error);
-          yield* Ref.set(lastAuth, auth ? "invalid" : "unknown");
+          yield* Ref.set(invalidKey, auth ? apiKey : null);
           return skipped(auth ? "key-invalid" : "inference-error");
         }),
       ),
@@ -278,7 +281,7 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
       if (oldest.done) break;
       resultCache.delete(oldest.value);
     }
-    yield* Ref.set(lastAuth, "ok");
+    yield* Ref.set(invalidKey, null);
     yield* Effect.logInfo("Jev classified turn", { route: answers.route, model: answers.model });
     return { _tag: "Classified", ...answers, latencyMs: finishedMs - startedMs } as ClassifyOutcome;
   });

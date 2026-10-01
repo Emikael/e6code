@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
+import { DEFAULT_SERVER_SETTINGS, type ServerSettingsError } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 
 import {
   JevEngine,
@@ -9,8 +11,8 @@ import {
   type JevBackend,
 } from "./JevEngine.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import type { ServerSettingsError } from "@e6tools/contracts";
 import { layer, layerTest as routerLayerTest, SystemOneRouter } from "./SystemOneRouter.ts";
+import { layer as usageLayer, SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
 
 const settingsOn = ServerSettingsService.layerTest({ systemOne: { enabled: true } });
 
@@ -158,14 +160,68 @@ describe("SystemOneRouter", () => {
           }),
         }),
       );
-      expect(
-        yield* routeWith(
-          Layer.provide(layer(), Layer.mergeAll(counting, settingsOn)),
-          "here is the deploy key: AKIAIOSFODNN7EXAMPLE for the migration",
-        ),
-      ).toEqual({ _tag: "FullLlm", reason: "key-like-material" });
+      const routerLayer = Layer.provide(layer(), Layer.mergeAll(counting, settingsOn));
+      const samples = [
+        "here is the deploy key: AKIAIOSFODNN7EXAMPLE for the migration",
+        "stripe sk_live_exampletestfixture",
+        "claude sk-ant-exampletestfixture",
+        "openai sk-proj-exampletestfixture",
+        "Authorization: Bearer exampletokenvalue",
+        "maps AIzaExampleTestFixtureKey99ab",
+        "grok xai-exampletestfixture",
+      ];
+      for (const text of samples) {
+        expect(yield* routeWith(routerLayer, text)).toEqual({
+          _tag: "FullLlm",
+          reason: "key-like-material",
+        });
+      }
       expect(calls).toBe(0);
     }),
+  );
+
+  it.live("does not materialize secrets when routing is off", () => {
+    let materialized = 0;
+    const settingsLayer = Layer.succeed(
+      ServerSettingsService,
+      ServerSettingsService.of({
+        start: Effect.void,
+        ready: Effect.void,
+        getPersistedSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        getSettings: Effect.sync(() => {
+          materialized += 1;
+          return DEFAULT_SERVER_SETTINGS;
+        }),
+        updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        streamChanges: Stream.empty,
+        subscribeChanges: Effect.succeed(Stream.empty),
+      }),
+    );
+    return Effect.gen(function* () {
+      expect(
+        yield* routeWith(
+          Layer.provide(layer(), Layer.mergeAll(engineLayerTest, settingsLayer)),
+          "hi",
+        ),
+      ).toEqual({ _tag: "FullLlm", reason: "router-disabled" });
+      expect(materialized).toBe(0);
+    });
+  });
+
+  it.live("does not count skipped engine calls as Jev usage", () =>
+    Effect.gen(function* () {
+      const router = yield* SystemOneRouter;
+      const tracker = yield* SystemOneUsageTracker;
+      expect(yield* router.routeTurn({ text: "hi", hasAttachments: false })).toMatchObject({
+        _tag: "FullLlm",
+        reason: "jev-skipped:disabled",
+      });
+      expect(yield* tracker.readTotals).toMatchObject({ calls: 0, fallback: 0 });
+    }).pipe(
+      Effect.provide(
+        Layer.provide(layer(), Layer.mergeAll(engineLayerTest, settingsOn, usageLayer)),
+      ),
+    ),
   );
 
   it.live("carries the answering model on routed outcomes", () =>

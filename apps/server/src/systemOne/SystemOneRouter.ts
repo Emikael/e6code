@@ -27,10 +27,15 @@ import { SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
  */
 const KEY_LIKE_PATTERNS = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
-  /\bsk-(live|test)-[A-Za-z0-9]{8,}/,
+  /\bsk[_-](live|test)[_-][A-Za-z0-9]{8,}/,
+  /\bsk-ant-[A-Za-z0-9_-]{8,}/,
+  /\bsk-proj-[A-Za-z0-9_-]{8,}/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}/,
   /\bxox[bpas]-[A-Za-z0-9-]{8,}/,
+  /\bAIza[0-9A-Za-z_-]{20,}/,
+  /\bxai-[A-Za-z0-9]{8,}/,
+  /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/,
 ];
 
 const looksLikeKeyMaterial = (text: string): boolean =>
@@ -111,7 +116,7 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
   };
 
   const routeTurn = Effect.fn("SystemOneRouter.routeTurn")(function* (input: RouteTurnInput) {
-    const settings = yield* serverSettings.getSettings.pipe(
+    const settings = yield* serverSettings.getPersistedSettings.pipe(
       Effect.catch(() => Effect.succeed(null)),
     );
     if (settings === null || !settings.systemOne.enabled) {
@@ -135,7 +140,6 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
       settings.systemOne.timeoutMs,
     );
     if (outcome._tag === "Skipped") {
-      yield* note("full-llm");
       return { _tag: "FullLlm", reason: `jev-skipped:${outcome.reason}` } as RouteOutcome;
     }
     const decision = decideRoute(outcome, thresholds);

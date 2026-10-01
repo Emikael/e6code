@@ -486,7 +486,7 @@ export function UsagePage() {
                   </div>
                 </section>
 
-                {merged.systemOne.environments > 0 ? (
+                {merged.systemOne.environments > 0 && merged.systemOne.calls > 0 ? (
                   <section className="flex flex-col gap-2">
                     <h2 className="text-sm font-medium text-foreground">Jev routing</h2>
                     <p className="text-xs text-muted-foreground">

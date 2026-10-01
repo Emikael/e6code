@@ -653,7 +653,9 @@ export const make = Effect.gen(function* () {
       sources,
       pricing: pricing(),
       scanDurationMs: Math.max(0, finishedAtMs - startedAtMs),
-      ...(trackerTotals !== null ? { systemOne: summarizeSystemOneUsage(trackerTotals) } : {}),
+      ...(trackerTotals !== null && trackerTotals.calls > 0
+        ? { systemOne: summarizeSystemOneUsage(trackerTotals) }
+        : {}),
     } satisfies UsageSummary;
   });
 

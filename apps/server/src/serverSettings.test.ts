@@ -7,6 +7,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
+  SECRET_VALUE_REDACTED,
   ServerSettings,
   ServerSettingsPatch,
 } from "@e6tools/contracts";
@@ -371,6 +372,47 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           Effect.catch(() => Effect.succeed(true)),
         );
         assert.strictEqual(removed, true);
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("redacts a Jev key before settings leave the server", () =>
+    Effect.sync(() => {
+      const leaked = {
+        ...DEFAULT_SERVER_SETTINGS,
+        systemOne: { ...DEFAULT_SERVER_SETTINGS.systemOne, apiKey: "jev-plaintext" },
+      };
+      const redacted = ServerSettingsModule.redactServerSettingsForClient(leaked);
+      assert.strictEqual(redacted.systemOne.apiKey, SECRET_VALUE_REDACTED);
+      assert.notInclude(JSON.stringify(redacted), "jev-plaintext");
+    }),
+  );
+
+  it.effect("heals a plaintext Jev key out of settings.json on load", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* fileSystem.writeFileString(
+          serverConfig.settingsPath,
+          `${JSON.stringify({ systemOne: { apiKey: "jev-plaintext-on-disk" } })}\n`,
+        );
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const persisted = yield* serverSettings.getPersistedSettings;
+        const settings = yield* serverSettings.getSettings;
+        assert.notStrictEqual(persisted.systemOne.apiKey, "jev-plaintext-on-disk");
+        assert.notStrictEqual(settings.systemOne.apiKey, "jev-plaintext-on-disk");
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+        assert.notInclude(raw, "jev-plaintext-on-disk");
+        const secretPath = path.join(
+          serverConfig.secretsDir,
+          `${ServerSettingsModule.systemOneJevApiKeySecretName}.bin`,
+        );
+        assert.strictEqual(
+          Buffer.from(yield* fileSystem.readFile(secretPath)).toString("utf8"),
+          "jev-plaintext-on-disk",
+        );
       }),
     ).pipe(Effect.provide(makeServerSettingsLayer())),
   );

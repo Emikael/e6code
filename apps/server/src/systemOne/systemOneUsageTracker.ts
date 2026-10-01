@@ -1,11 +1,12 @@
 /**
  * systemOneUsageTracker - in-memory pre-router counters, day-bucketed.
  *
- * Records every turn where Jev was consulted (deterministic answers,
- * fast-path routes, and fallbacks alike). Totals live for the process
- * lifetime and reset on restart; the usage summary labels them as
- * since-boot. Token counts are metered Jev input tokens; cost scales them
- * by the pinned Jev input price.
+ * Records every turn where Jev classified a result (deterministic answers,
+ * fast-path routes, and classified fallbacks alike). Skipped calls never
+ * reached Jev and are not counted. Totals live for the process lifetime and
+ * reset on restart; the usage summary labels them as since-boot. Token counts
+ * are metered Jev input tokens; cost scales them by the pinned Jev input
+ * price.
  *
  * @module systemOneUsageTracker
  */

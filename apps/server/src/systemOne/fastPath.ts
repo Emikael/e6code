@@ -12,8 +12,6 @@
 
 /** Most-recent context records kept; older ones are dropped first. */
 export const FAST_PATH_MAX_RECORDS = 8;
-/** Live message cap; only pathological pastes ever hit it. */
-export const FAST_PATH_TEXT_BUDGET_CHARS = 12000;
 
 export interface TrimmedFastPathInput<T> {
   readonly text: string;
@@ -29,12 +27,11 @@ export const trimForFastPath = <T>(
 ): TrimmedFastPathInput<T> => {
   const droppedRecords = Math.max(0, records.length - FAST_PATH_MAX_RECORDS);
   const kept = droppedRecords > 0 ? records.slice(droppedRecords) : records;
-  const textCharsSaved = Math.max(0, text.length - FAST_PATH_TEXT_BUDGET_CHARS);
   return {
-    text: textCharsSaved > 0 ? text.slice(0, FAST_PATH_TEXT_BUDGET_CHARS) : text,
+    text,
     records: kept,
-    trimmed: droppedRecords > 0 || textCharsSaved > 0,
+    trimmed: droppedRecords > 0,
     droppedRecords,
-    textCharsSaved,
+    textCharsSaved: 0,
   };
 };

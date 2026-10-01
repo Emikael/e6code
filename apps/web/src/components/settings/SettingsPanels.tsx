@@ -42,6 +42,7 @@ import {
   type ResponseStreamingMode,
   MIN_TERMINAL_FONT_SIZE,
   type QuitConfirmationMode,
+  SECRET_VALUE_REDACTED,
 } from "@e6tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@e6tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@e6tools/shared/model";
@@ -2803,7 +2804,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
-          {...searchableSetting("local-routing")}
+          {...searchableSetting("jev-routing")}
           serverScoped
           settingKeys={["systemOne"]}
           description="Classify turns through the Jev API to answer simple turns without the full model and trim context for the rest. Turn content leaves the machine; the API key stays on this server."
@@ -2835,21 +2836,36 @@ export function GeneralSettingsPanel() {
           serverScoped
           settingKeys={["systemOne"]}
           title="Jev API key"
-          description="Required to enable routing. Calls appear on the Usage page when active."
+          description="Required to enable routing. Calls appear on the Usage page when active. Leave blank to keep a stored key."
           control={
-            <DraftInput
-              type="password"
-              autoComplete="off"
-              className="w-full sm:w-64"
-              value={settings.systemOne.apiKey}
-              placeholder="Paste Jev API key"
-              aria-label="Jev API key"
-              onCommit={(next) => {
-                if (next !== settings.systemOne.apiKey) {
-                  updateSettings({ systemOne: { apiKey: next } });
+            <span className="flex w-full items-center gap-2 sm:w-auto">
+              <DraftInput
+                type="password"
+                autoComplete="off"
+                className="w-full sm:w-64"
+                value=""
+                placeholder={
+                  settings.systemOne.apiKey === SECRET_VALUE_REDACTED
+                    ? "Key stored on this server"
+                    : "Paste Jev API key"
                 }
-              }}
-            />
+                aria-label="Jev API key"
+                onCommit={(next) => {
+                  if (next === "") return;
+                  updateSettings({ systemOne: { apiKey: next } });
+                }}
+              />
+              {settings.systemOne.apiKey === SECRET_VALUE_REDACTED ? (
+                <Button
+                  type="button"
+                  variant="ghost-muted"
+                  size="xs"
+                  onClick={() => updateSettings({ systemOne: { apiKey: "" } })}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </span>
           }
         />
 

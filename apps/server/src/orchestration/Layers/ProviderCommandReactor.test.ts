@@ -963,27 +963,81 @@ describe("ProviderCommandReactor", () => {
             (entry) => entry.id === ThreadId.make("thread-1"),
           );
           return (
-            thread?.activities.some(
+            (thread?.messages.some(
+              (entry) =>
+                entry.role === "assistant" &&
+                entry.text.includes("Hello! How can I help with your code today?"),
+            ) ??
+              false) &&
+            (thread?.activities.some(
               (activity) => activity.kind === "systemOne.turn.answered" && activity.tone === "info",
-            ) ?? false
+            ) ??
+              false)
           );
         }),
       );
       const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
         (entry) => entry.id === ThreadId.make("thread-1"),
       );
-      expect(thread?.activities).toContainEqual(
+      expect(thread?.messages).toContainEqual(
         expect.objectContaining({
-          kind: "systemOne.turn.answered",
-          tone: "info",
-          turnId: null,
+          role: "assistant",
+          text: "Hello! How can I help with your code today?",
+          streaming: false,
         }),
       );
+      const answered = thread?.activities.find(
+        (activity) => activity.kind === "systemOne.turn.answered",
+      );
+      expect(answered).toMatchObject({
+        kind: "systemOne.turn.answered",
+        tone: "info",
+        turnId: null,
+        payload: { route: "answer_deterministic", confidence: 0.95 },
+      });
+      expect(harness.generateThreadTitle).not.toHaveBeenCalled();
       expect(harness.systemOneReceipts).toContainEqual(
         expect.objectContaining({
           type: "systemOne.turn.decided",
           outcome: "deterministic",
           route: "answer_deterministic",
+        }),
+      );
+    }),
+  );
+
+  effectIt.effect("falls back to sendTurn when the router dies", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          systemOneRouterLayer: Layer.succeed(SystemOneRouter, {
+            routeTurn: () => Effect.die(new Error("system-one-test-defect")),
+          }),
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-system-one-defect"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-s1-defect"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.systemOneReceipts).toContainEqual(
+        expect.objectContaining({
+          type: "systemOne.turn.decided",
+          outcome: "full-llm",
+          reason: "router-failed",
         }),
       );
     }),

@@ -1,9 +1,9 @@
 /**
- * confidencePolicy - turns a Laya classification into a routing decision.
+ * confidencePolicy - turns a Jev classification into a routing decision.
  *
- * Pure: thresholds in, decision out. The reactor acts on it; T4 adds the
- * fast-path action. Every low-confidence or high-risk outcome falls back to
- * the full LLM — the policy never invents a third option.
+ * Pure: thresholds in, decision out. The reactor acts on it. Every
+ * low-confidence or high-risk outcome falls back to the full LLM — the
+ * policy never invents a third option.
  *
  * @module confidencePolicy
  */

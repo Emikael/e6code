@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { FAST_PATH_MAX_RECORDS, FAST_PATH_TEXT_BUDGET_CHARS, trimForFastPath } from "./fastPath.ts";
+import { FAST_PATH_MAX_RECORDS, trimForFastPath } from "./fastPath.ts";
 
 describe("trimForFastPath", () => {
   it("passes small inputs through untouched", () => {
@@ -23,10 +23,11 @@ describe("trimForFastPath", () => {
     expect(trimmed.text).toBe("hello");
   });
 
-  it("caps pathological message text", () => {
-    const trimmed = trimForFastPath("x".repeat(FAST_PATH_TEXT_BUDGET_CHARS + 100), []);
-    expect(trimmed.text).toHaveLength(FAST_PATH_TEXT_BUDGET_CHARS);
-    expect(trimmed.textCharsSaved).toBe(100);
-    expect(trimmed.trimmed).toBe(true);
+  it("keeps a long live message intact", () => {
+    const text = "x".repeat(20_000);
+    const trimmed = trimForFastPath(text, []);
+    expect(trimmed.text).toBe(text);
+    expect(trimmed.textCharsSaved).toBe(0);
+    expect(trimmed.trimmed).toBe(false);
   });
 });

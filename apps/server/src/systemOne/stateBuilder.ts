@@ -1,14 +1,14 @@
 /**
- * stateBuilder - packs a turn into Laya's budgets before any inference runs.
+ * stateBuilder - packs a turn into the hosted Jev request budgets.
  *
- * Laya truncates hard: 512 tokens of state (`max_len`), 192 tokens per
+ * Jev truncates hard: 512 tokens of state (`max_len`), 192 tokens per
  * question option (`head_max_len`), and under ~20 options per Choice is the
  * model's own recommendation. Everything here is pure so the budgets are
- * unit-testable without loading the ~1.7GB weights.
+ * unit-testable without a network call.
  *
  * Token counts are a chars/4 heuristic. The engine enforces the exact limits
  * with the real tokenizer and fails open to the LLM on overflow, so an
- * underestimate here only costs a skipped Laya call, never a wrong answer.
+ * underestimate here only costs a skipped Jev call, never a wrong answer.
  *
  * @module stateBuilder
  */

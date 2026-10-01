@@ -2022,6 +2022,7 @@ it.layer(
         start: Effect.void,
         ready: Effect.void,
         getSettings: Effect.fail(settingsError),
+        getPersistedSettings: Effect.fail(settingsError),
         updateSettings: () => Effect.fail(settingsError),
         streamChanges: Stream.empty,
         subscribeChanges: Effect.succeed(Stream.empty),

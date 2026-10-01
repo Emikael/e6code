@@ -1,9 +1,9 @@
 /**
  * judgmentTypes - the four System One question shapes, vendored locally.
  *
- * These mirror the TypeSafe Jev `system_one` API (which Laya reproduced), so
- * the question wording in `stateBuilder.ts` stays provider-independent and no
- * inference package is needed for types.
+ * These mirror the TypeSafe Jev `system_one` API, so the question wording in
+ * `stateBuilder.ts` stays provider-independent and no inference package is
+ * needed for types.
  *
  * @module judgmentTypes
  */

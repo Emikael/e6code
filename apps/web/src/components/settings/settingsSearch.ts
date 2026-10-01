@@ -386,7 +386,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "local-routing",
+    id: "jev-routing",
     title: "Jev routing",
     to: "/settings/general",
     scope: "environment-defaults",

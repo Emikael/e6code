@@ -244,8 +244,6 @@ const bootstrap = Effect.gen(function* () {
     if (settings.wslOnly === true && settings.wslBackendEnabled === true) {
       yield* desktopWindow.showConnectingSplash;
     }
-    yield* primaryBackend.start;
-    yield* logBootstrapInfo("bootstrap backend start requested");
     yield* appActivation.start.pipe(
       Effect.tap(() => logBootstrapInfo("desktop app control socket ready")),
       // A live owner means a sibling instance won the startup race. Quit
@@ -264,6 +262,8 @@ const bootstrap = Effect.gen(function* () {
         logStartupError("desktop app control socket unavailable", { error }),
       ),
     );
+    yield* primaryBackend.start;
+    yield* logBootstrapInfo("bootstrap backend start requested");
     // Bring up the WSL backend if the user previously enabled it. The
     // primary is already starting; reconcile fires off the WSL register
     // in parallel rather than blocking primary readiness on a possibly

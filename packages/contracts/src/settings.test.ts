@@ -91,6 +91,17 @@ describe("systemOne settings", () => {
       systemOne: { apiKey: "jev-test-key" },
     });
   });
+
+  it.each([
+    { timeoutMs: 0 },
+    { timeoutMs: 60_001 },
+    { deterministicThreshold: -0.1 },
+    { deterministicThreshold: 1.5 },
+    { riskThreshold: 2 },
+  ])("rejects out-of-range System One values %j", (systemOne) => {
+    expect(() => decodeServerSettingsPatch({ systemOne })).toThrow();
+    expect(() => decodeServerSettings({ systemOne })).toThrow();
+  });
 });
 
 describe("ClientSettings rich text composer", () => {

@@ -1054,6 +1054,32 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 /**
+ * Client-visible stand-in for a secret stored on the server. Never a real
+ * key: a client that sends this marker back means "keep what you have".
+ */
+export const SECRET_VALUE_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
+
+export const MIN_SYSTEM_ONE_UNIT_INTERVAL = 0;
+export const MAX_SYSTEM_ONE_UNIT_INTERVAL = 1;
+export const SystemOneUnitInterval = Schema.Number.check(
+  Schema.isBetween({
+    minimum: MIN_SYSTEM_ONE_UNIT_INTERVAL,
+    maximum: MAX_SYSTEM_ONE_UNIT_INTERVAL,
+  }),
+);
+export type SystemOneUnitInterval = typeof SystemOneUnitInterval.Type;
+
+export const MIN_SYSTEM_ONE_TIMEOUT_MS = 1;
+export const MAX_SYSTEM_ONE_TIMEOUT_MS = 60_000;
+export const SystemOneTimeoutMs = Schema.Number.check(
+  Schema.isBetween({
+    minimum: MIN_SYSTEM_ONE_TIMEOUT_MS,
+    maximum: MAX_SYSTEM_ONE_TIMEOUT_MS,
+  }),
+);
+export type SystemOneTimeoutMs = typeof SystemOneTimeoutMs.Type;
+
+/**
  * Hosted Jev (System One) pre-router. Classifies each turn through the Jev
  * API and skips or shrinks the provider LLM call when safe. Ships
  * default-off; enabling it requires a Jev API key, and turn content then
@@ -1064,12 +1090,16 @@ export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 export const SystemOneSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   apiKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  deterministicThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.85))),
-  fastPathThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.6))),
-  confidenceFloor: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
-  selfContainedThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.8))),
-  riskThreshold: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
-  timeoutMs: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(3000))),
+  deterministicThreshold: SystemOneUnitInterval.pipe(
+    Schema.withDecodingDefault(Effect.succeed(0.85)),
+  ),
+  fastPathThreshold: SystemOneUnitInterval.pipe(Schema.withDecodingDefault(Effect.succeed(0.6))),
+  confidenceFloor: SystemOneUnitInterval.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
+  selfContainedThreshold: SystemOneUnitInterval.pipe(
+    Schema.withDecodingDefault(Effect.succeed(0.8)),
+  ),
+  riskThreshold: SystemOneUnitInterval.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
+  timeoutMs: SystemOneTimeoutMs.pipe(Schema.withDecodingDefault(Effect.succeed(3000))),
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type SystemOneSettings = typeof SystemOneSettings.Type;
 
@@ -1492,12 +1522,12 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       enabled: Schema.optionalKey(Schema.Boolean),
       apiKey: Schema.optionalKey(Schema.String),
-      deterministicThreshold: Schema.optionalKey(Schema.Number),
-      fastPathThreshold: Schema.optionalKey(Schema.Number),
-      confidenceFloor: Schema.optionalKey(Schema.Number),
-      selfContainedThreshold: Schema.optionalKey(Schema.Number),
-      riskThreshold: Schema.optionalKey(Schema.Number),
-      timeoutMs: Schema.optionalKey(Schema.Number),
+      deterministicThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      fastPathThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      confidenceFloor: Schema.optionalKey(SystemOneUnitInterval),
+      selfContainedThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      riskThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      timeoutMs: Schema.optionalKey(SystemOneTimeoutMs),
     }),
   ),
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
