@@ -1059,8 +1059,8 @@ export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
  */
 export const SECRET_VALUE_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
 
-export const MIN_SYSTEM_ONE_UNIT_INTERVAL = 0;
-export const MAX_SYSTEM_ONE_UNIT_INTERVAL = 1;
+const MIN_SYSTEM_ONE_UNIT_INTERVAL = 0;
+const MAX_SYSTEM_ONE_UNIT_INTERVAL = 1;
 export const SystemOneUnitInterval = Schema.Number.check(
   Schema.isBetween({
     minimum: MIN_SYSTEM_ONE_UNIT_INTERVAL,
@@ -1069,8 +1069,8 @@ export const SystemOneUnitInterval = Schema.Number.check(
 );
 export type SystemOneUnitInterval = typeof SystemOneUnitInterval.Type;
 
-export const MIN_SYSTEM_ONE_TIMEOUT_MS = 1;
-export const MAX_SYSTEM_ONE_TIMEOUT_MS = 60_000;
+const MIN_SYSTEM_ONE_TIMEOUT_MS = 1;
+const MAX_SYSTEM_ONE_TIMEOUT_MS = 60_000;
 export const SystemOneTimeoutMs = Schema.Number.check(
   Schema.isBetween({
     minimum: MIN_SYSTEM_ONE_TIMEOUT_MS,
