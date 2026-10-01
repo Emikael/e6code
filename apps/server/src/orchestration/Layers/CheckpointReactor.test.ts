@@ -758,6 +758,77 @@ describe("CheckpointReactor", () => {
       }),
   );
 
+  effectIt.effect("checkpoints and rewinds a local answer without rolling back the provider", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ hasSession: false, seedFilesystemCheckpoints: false }),
+      );
+      const threadId = ThreadId.make("thread-1");
+      const turnId = TurnId.make("system-one:local-user");
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-local-start"),
+        threadId,
+        message: {
+          messageId: MessageId.make("local-user"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt,
+      });
+      expect(yield* harness.nextReceipt).toMatchObject({ type: "checkpoint.baseline.captured" });
+      yield* harness.engine.dispatch({
+        type: "thread.turn.answer",
+        commandId: CommandId.make("cmd-local-answer"),
+        threadId,
+        turnId,
+        userMessageId: MessageId.make("local-user"),
+        assistantMessageId: MessageId.make("local-assistant"),
+        text: "Hello!",
+        activity: {
+          id: EventId.make("local-answer-activity"),
+          tone: "info",
+          kind: "systemOne.turn.answered",
+          summary: "Answered locally",
+          payload: {},
+          turnId,
+          createdAt,
+        },
+        createdAt,
+      });
+      expect(yield* harness.nextReceipt).toMatchObject({
+        type: "checkpoint.diff.finalized",
+        turnId,
+        checkpointTurnCount: 1,
+      });
+      expect(yield* harness.nextReceipt).toMatchObject({ type: "turn.processing.quiesced" });
+      yield* Effect.promise(harness.drain);
+      const thread = (yield* Effect.promise(harness.readModel)).threads[0];
+      expect(thread?.checkpoints[0]).toMatchObject({
+        status: "ready",
+        assistantMessageId: "local-assistant",
+        files: [],
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.conversation.revert",
+        commandId: CommandId.make("cmd-local-revert"),
+        threadId,
+        turnCount: 0,
+        createdAt,
+      });
+      yield* Effect.promise(harness.drain);
+      const reverted = (yield* Effect.promise(harness.readModel)).threads[0];
+      expect(reverted?.messages).toEqual([]);
+      expect(reverted?.checkpoints).toEqual([]);
+      expect(harness.provider.assertConversationRollbackSupported).not.toHaveBeenCalled();
+      expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+    }),
+  );
+
   effectIt.effect("captures baseline and large turn summaries before completion receipts", () =>
     Effect.gen(function* () {
       const harness = yield* Effect.promise(() =>

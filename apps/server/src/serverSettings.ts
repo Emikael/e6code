@@ -24,6 +24,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
+  SECRET_VALUE_REDACTED,
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
@@ -144,11 +145,21 @@ function providerEnvironmentSecretName(input: {
  * the secret store, mirroring provider environment secrets. A client that
  * sends the marker back means "keep what you have".
  */
-const USAGE_LIMIT_SOURCE_KEY_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
+const USAGE_LIMIT_SOURCE_KEY_REDACTED = SECRET_VALUE_REDACTED;
 
 function usageLimitSourceSecretName(sourceId: string): string {
   return `usage-limit-source-${Buffer.from(sourceId, "utf8").toString("base64url")}`;
 }
+
+/**
+ * The Jev API key is a bearer secret like a hub management key: settings JSON
+ * holds "" (absent) or the marker (present), the real value lives in the
+ * secret store, and a client sending the marker back means "keep what you
+ * have". Any other non-empty value is a new key, healed into the store on
+ * persist even if it was hand-placed in the JSON.
+ */
+export const systemOneJevApiKeySecretName = "systemone-jev-api-key";
+const SYSTEM_ONE_JEV_API_KEY_REDACTED = USAGE_LIMIT_SOURCE_KEY_REDACTED;
 
 function redactProviderEnvironmentVariable(
   variable: ProviderInstanceEnvironmentVariable,
@@ -186,7 +197,11 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
       },
     ]),
   );
-  return { ...settings, providerInstances, usageLimitSources };
+  const systemOne = {
+    ...settings.systemOne,
+    apiKey: settings.systemOne.apiKey.length > 0 ? SYSTEM_ONE_JEV_API_KEY_REDACTED : "",
+  };
+  return { ...settings, providerInstances, usageLimitSources, systemOne };
 }
 
 export class ServerSettingsService extends Context.Service<
@@ -198,8 +213,15 @@ export class ServerSettingsService extends Context.Service<
     /** Await settings runtime readiness. */
     readonly ready: Effect.Effect<void, ServerSettingsError>;
 
-    /** Read the current settings. */
+    /** Read the current settings, hydrating secrets from the store. */
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
+
+    /**
+     * Cached settings without hydrating secret-store values. Use this to
+     * inspect flags and non-secret fields without pulling provider keys into
+     * the fiber.
+     */
+    readonly getPersistedSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
     /** Patch settings and persist. Returns the new full settings object. */
     readonly updateSettings: (
@@ -237,10 +259,14 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
     });
     const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
 
+    const readSettings = Ref.get(currentSettingsRef).pipe(
+      Effect.map(resolveTextGenerationProvider),
+    );
     return {
       start: Effect.void,
       ready: Effect.void,
-      getSettings: Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider)),
+      getSettings: readSettings,
+      getPersistedSettings: readSettings,
       updateSettings: (patch) =>
         Ref.get(currentSettingsRef).pipe(
           Effect.map((currentSettings) => applyServerSettingsPatch(currentSettings, patch)),
@@ -642,7 +668,7 @@ const make = Effect.gen(function* () {
     if (folded !== loaded) {
       yield* writeSettingsAtomically(folded);
     }
-    return folded;
+    return yield* healSystemOneApiKey(folded);
   });
 
   const settingsCache = yield* Cache.make<typeof cacheKey, ServerSettings, ServerSettingsError>({
@@ -651,6 +677,39 @@ const make = Effect.gen(function* () {
   });
 
   const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
+
+  const healSystemOneApiKey = (
+    settings: ServerSettings,
+  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    Effect.gen(function* () {
+      const jevKey = settings.systemOne.apiKey;
+      if (jevKey.length === 0 || jevKey === SYSTEM_ONE_JEV_API_KEY_REDACTED) {
+        return settings;
+      }
+      yield* secretStore.set(systemOneJevApiKeySecretName, textEncoder.encode(jevKey)).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ServerSettingsError({
+              settingsPath,
+              operation: "write-secret",
+              cause,
+            }),
+        ),
+      );
+      const healed = {
+        ...settings,
+        systemOne: { ...settings.systemOne, apiKey: SYSTEM_ONE_JEV_API_KEY_REDACTED },
+      };
+      yield* writeSettingsAtomically(healed);
+      return healed;
+    }).pipe(
+      Effect.catch((error: ServerSettingsError) =>
+        Effect.logWarning("failed to move Jev API key into the secret store", {
+          operation: error.operation,
+          cause: error.cause,
+        }).pipe(Effect.as(settings)),
+      ),
+    );
 
   const materializeProviderEnvironmentSecrets = (
     settings: ServerSettings,
@@ -854,11 +913,30 @@ const make = Effect.gen(function* () {
         });
       }
 
+      const systemOne = { ...next.systemOne };
+      const jevKey = systemOne.apiKey;
+      if (jevKey.length > 0 && jevKey !== SYSTEM_ONE_JEV_API_KEY_REDACTED) {
+        changes.push({
+          kind: "write",
+          secretName: systemOneJevApiKeySecretName,
+          value: textEncoder.encode(jevKey),
+        });
+        systemOne.apiKey = SYSTEM_ONE_JEV_API_KEY_REDACTED;
+      } else if (jevKey.length === 0) {
+        changes.push({
+          kind: "remove",
+          secretName: systemOneJevApiKeySecretName,
+          operation: "remove-secret",
+        });
+      }
+      // The marker short-circuits both branches: keep what the store holds.
+
       return {
         settings: {
           ...next,
           providerInstances: providerInstances as ServerSettings["providerInstances"],
           usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+          systemOne,
         },
         changes,
       };
@@ -1050,6 +1128,7 @@ const make = Effect.gen(function* () {
       Effect.flatMap(materializeProviderEnvironmentSecrets),
       Effect.map(resolveTextGenerationProvider),
     ),
+    getPersistedSettings: getSettingsFromCache.pipe(Effect.map(resolveTextGenerationProvider)),
     updateSettings,
     get streamChanges() {
       return materializeChanges(Stream.fromPubSub(changesPubSub));

@@ -43,6 +43,17 @@ export class DesktopAppActivationStartError extends Schema.TaggedError<DesktopAp
   }
 }
 
+export class DesktopAppActivationDuplicateInstanceError extends Schema.TaggedError<DesktopAppActivationDuplicateInstanceError>()(
+  "DesktopAppActivationDuplicateInstanceError",
+  {
+    address: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Another desktop app instance already owns the control socket at ${this.address}.`;
+  }
+}
+
 interface RunningControlServer {
   readonly close: () => Promise<void>;
 }
@@ -70,8 +81,26 @@ function requestIdFromUnknown(value: unknown): string {
   return "invalid-request";
 }
 
+const CONTROL_SOCKET_PROBE_TIMEOUT_MS = 2_000;
+
+// A bind conflict means either a live owner is serving the socket (a sibling
+// instance won the startup race) or a stale file is sitting on the path.
+// Connecting distinguishes them: only a live owner accepts.
+export async function probeDesktopAppControlServer(address: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = NodeNet.createConnection(address);
+    const done = (live: boolean) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(live);
+    };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(CONTROL_SOCKET_PROBE_TIMEOUT_MS, () => done(false));
+  });
+}
+
 async function prepareUnixSocket(input: {
-  readonly address: string;
   readonly directory: string;
   readonly userId: number | undefined;
 }): Promise<void> {
@@ -84,7 +113,10 @@ async function prepareUnixSocket(input: {
     throw new Error(`${input.directory} is owned by another user.`);
   }
   await NodeFSP.chmod(input.directory, 0o700);
-  await NodeFSP.unlink(input.address).catch((error: NodeJS.ErrnoException) => {
+}
+
+async function unlinkControlSocket(address: string): Promise<void> {
+  await NodeFSP.unlink(address).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   });
 }
@@ -98,7 +130,6 @@ export async function startDesktopAppControlServer(input: {
 }): Promise<RunningControlServer> {
   if (input.directory !== null) {
     await prepareUnixSocket({
-      address: input.address,
       directory: input.directory,
       userId: input.userId,
     });
@@ -162,19 +193,39 @@ export async function startDesktopAppControlServer(input: {
     });
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => {
-      server.removeListener("listening", onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.removeListener("error", onError);
-      resolve();
-    };
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(input.address);
-  });
+  const listenOnce = () =>
+    new Promise<void>((resolve, reject) => {
+      const onError = (error: NodeJS.ErrnoException) => {
+        server.removeListener("listening", onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        server.removeListener("error", onError);
+        resolve();
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(input.address);
+    });
+
+  try {
+    await listenOnce();
+  } catch (error) {
+    // A bind conflict means either a live owner is serving the socket (a
+    // sibling instance won the startup race) or a stale file survived from
+    // a dead instance. Only a live owner accepts connections: report it so
+    // the caller can quit instead of booting a duplicate, otherwise clear
+    // the stale file and bind once more.
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (input.directory === null || (code !== "EEXIST" && code !== "EADDRINUSE")) {
+      throw error;
+    }
+    if (await probeDesktopAppControlServer(input.address)) {
+      throw new DesktopAppActivationDuplicateInstanceError({ address: input.address });
+    }
+    await unlinkControlSocket(input.address);
+    await listenOnce();
+  }
 
   try {
     if (input.directory !== null) {
@@ -194,9 +245,7 @@ export async function startDesktopAppControlServer(input: {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       server.removeAllListeners();
       if (input.directory !== null) {
-        await NodeFSP.unlink(input.address).catch((error: NodeJS.ErrnoException) => {
-          if (error.code !== "ENOENT") throw error;
-        });
+        await unlinkControlSocket(input.address);
       }
     },
   };
@@ -205,7 +254,11 @@ export async function startDesktopAppControlServer(input: {
 export class DesktopAppActivation extends Context.Service<
   DesktopAppActivation,
   {
-    readonly start: Effect.Effect<void, DesktopAppActivationStartError, Scope.Scope>;
+    readonly start: Effect.Effect<
+      void,
+      DesktopAppActivationStartError | DesktopAppActivationDuplicateInstanceError,
+      Scope.Scope
+    >;
     readonly setRendererReady: (ready: boolean) => Effect.Effect<void>;
     readonly complete: (response: DesktopAppActivationResponse) => Effect.Effect<void>;
   }
@@ -259,7 +312,10 @@ export const make = Effect.gen(function* () {
             handle: (request) => broker.request(request),
             cancel: (requestId) => broker.cancel(requestId),
           }),
-        catch: (cause) => new DesktopAppActivationStartError({ address: address.address, cause }),
+        catch: (cause) =>
+          Schema.is(DesktopAppActivationDuplicateInstanceError)(cause)
+            ? cause
+            : new DesktopAppActivationStartError({ address: address.address, cause }),
       }),
       (server) =>
         Effect.promise(() => server.close()).pipe(

@@ -1,5 +1,6 @@
 import {
   USAGE_CONTRACT_VERSION,
+  USAGE_MERGE_COMPATIBLE_SINCE,
   type EnvironmentId,
   type UsageBucket,
   type UsageDay,
@@ -178,7 +179,7 @@ describe("mergeUsage", () => {
           summary(
             [bucket()],
             [{ provider: "claude", hostId: "linux", homePath: "/b" }],
-            USAGE_CONTRACT_VERSION - 2,
+            USAGE_MERGE_COMPATIBLE_SINCE - 1,
           ),
         ),
       ],
@@ -389,5 +390,66 @@ describe("mergeUsage", () => {
     ]);
     expect(merged.daily).toHaveLength(1);
     expect(merged.daily[0]?.costUsd).toBe(10);
+  });
+
+  it("sums pre-router sections and skips environments without one", () => {
+    const withSystemOne = {
+      ...summary([bucket()], [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }]),
+      systemOne: {
+        calls: 10,
+        deterministic: 6,
+        fastPath: 2,
+        fallback: 2,
+        llmCallsAvoided: 6,
+        jevInputTokens: 900,
+        jevCostUsd: 0.0000378,
+        avgLatencyMs: 120,
+      },
+    };
+    const merged = mergeUsage(
+      [
+        environment("env-a", withSystemOne),
+        environment(
+          "env-b",
+          summary([bucket()], [{ provider: "claude", hostId: "linux", homePath: "/b/.claude" }]),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    expect(merged.systemOne).toEqual({
+      calls: 10,
+      deterministic: 6,
+      fastPath: 2,
+      fallback: 2,
+      llmCallsAvoided: 6,
+      jevInputTokens: 900,
+      jevCostUsd: 0.0000378,
+      avgLatencyMs: 120,
+      environments: 1,
+    });
+  });
+
+  it("merges pre-v7 sections as zeros for the new spend fields", () => {
+    const legacySystemOne = {
+      ...summary([bucket()], [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }]),
+      // Pre-v7 servers report no spend fields at all.
+      systemOne: {
+        calls: 4,
+        deterministic: 2,
+        fastPath: 1,
+        fallback: 1,
+        llmCallsAvoided: 2,
+        avgLatencyMs: 100,
+      } as unknown as UsageSummary["systemOne"],
+    };
+    const merged = mergeUsage([environment("env-a", legacySystemOne)], USAGE_CONTRACT_VERSION);
+
+    expect(merged.systemOne).toMatchObject({
+      calls: 4,
+      jevInputTokens: 0,
+      jevCostUsd: 0,
+      environments: 1,
+    });
   });
 });

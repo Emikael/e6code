@@ -1912,6 +1912,74 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [unsettledEvent, sessionSetEvent];
     }
 
+    case "thread.turn.answer": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      const message = thread.messages.find((entry) => entry.id === command.userMessageId);
+      if (
+        message?.role !== "user" ||
+        message.turnId !== null ||
+        thread.session?.status === "running" ||
+        thread.session?.status === "starting" ||
+        isImportedAgentSessionMessageId(command.assistantMessageId)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "A local answer requires an unadopted user message and no active provider turn.",
+        });
+      }
+      const events: Array<PlannedOrchestrationEvent> = [
+        {
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.message-sent",
+          payload: {
+            threadId: command.threadId,
+            messageId: command.assistantMessageId,
+            role: "assistant",
+            text: command.text,
+            turnId: command.turnId,
+            streaming: false,
+            createdAt: command.createdAt,
+            updatedAt: command.createdAt,
+          },
+        },
+        {
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.turn-completed",
+          payload: {
+            threadId: command.threadId,
+            turnId: command.turnId,
+            userMessageId: command.userMessageId,
+            assistantMessageId: command.assistantMessageId,
+            requestedAt: message.createdAt,
+            completedAt: command.createdAt,
+          },
+        },
+      ];
+      if (command.activity !== undefined) {
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.activity-appended",
+          payload: { threadId: command.threadId, activity: command.activity },
+        });
+      }
+      return events;
+    }
+
     case "thread.message.assistant.delta":
     case "thread.message.reasoning.delta": {
       if (isImportedAgentSessionMessageId(command.messageId)) {

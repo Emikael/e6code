@@ -1055,6 +1055,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.turn-completed":
         case "thread.turn-diff-completed": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -1118,6 +1119,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyThreadMessagesProjection",
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
+        case "thread.turn-completed": {
+          const message = yield* projectionThreadMessageRepository.getByMessageId({
+            messageId: event.payload.userMessageId,
+          });
+          if (Option.isSome(message)) {
+            yield* projectionThreadMessageRepository.upsert({
+              ...message.value,
+              turnId: event.payload.turnId,
+            });
+          }
+          return;
+        }
         // A draft retry re-creates a soft-deleted thread id. Every projector
         // drops its own rows for the old incarnation here so replay from any
         // per-projector cursor rebuilds the new thread without stale history.
@@ -1363,6 +1376,37 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyThreadTurnsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
+        case "thread.turn-completed": {
+          const pending = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const matchingPending =
+            Option.isSome(pending) && pending.value.messageId === event.payload.userMessageId
+              ? pending.value
+              : null;
+          yield* projectionTurnRepository.upsertByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            pendingMessageId: event.payload.userMessageId,
+            sourceProposedPlanThreadId: matchingPending?.sourceProposedPlanThreadId ?? null,
+            sourceProposedPlanId: matchingPending?.sourceProposedPlanId ?? null,
+            assistantMessageId: event.payload.assistantMessageId,
+            state: "completed",
+            requestedAt: event.payload.requestedAt,
+            startedAt: event.payload.requestedAt,
+            completedAt: event.payload.completedAt,
+            checkpointTurnCount: null,
+            checkpointRef: null,
+            checkpointStatus: null,
+            checkpointFiles: [],
+          });
+          if (matchingPending !== null) {
+            yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+              threadId: event.payload.threadId,
+            });
+          }
+          return;
+        }
         case "thread.created":
           yield* projectionTurnRepository.deleteByThreadId({
             threadId: event.payload.threadId,

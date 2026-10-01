@@ -16,7 +16,11 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { afterEach, describe, expect } from "vite-plus/test";
 
-import { startDesktopAppControlServer } from "./DesktopAppActivation.ts";
+import {
+  probeDesktopAppControlServer,
+  startDesktopAppControlServer,
+  DesktopAppActivationDuplicateInstanceError,
+} from "./DesktopAppActivation.ts";
 
 const openServers: Array<{ close: () => Promise<void> }> = [];
 
@@ -131,6 +135,87 @@ describe("desktop app control server", () => {
         });
 
         await expect(canceled).resolves.toBe("request-canceled");
+        await server.close();
+        openServers.splice(openServers.indexOf(server), 1);
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      });
+    }),
+  );
+
+  it.effect("probes a live owner instead of stealing its socket", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      const userId = yield* HostProcessUserId;
+      yield* Effect.promise(async () => {
+        const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-app-dupe-test-"));
+        const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
+        const okResponse = (input: DesktopAppActivationRequest): DesktopAppActivationResponse => ({
+          version: 1,
+          requestId: input.requestId,
+          ok: true,
+          projectId: ProjectId.make("project-1"),
+          threadId: ThreadId.make("thread-1"),
+        });
+        const owner = await startDesktopAppControlServer({
+          ...target,
+          userId,
+          handle: async (input) => okResponse(input),
+          cancel: () => undefined,
+        });
+        openServers.push(owner);
+
+        expect(await probeDesktopAppControlServer(target.address)).toBe(true);
+        const failure = await startDesktopAppControlServer({
+          ...target,
+          userId,
+          handle: async (input) => okResponse(input),
+          cancel: () => undefined,
+        }).then(
+          () => null,
+          (error) => error,
+        );
+        expect(failure).toBeInstanceOf(DesktopAppActivationDuplicateInstanceError);
+
+        // The owner keeps serving on its socket.
+        const response = await exchange(target.address, request("request-owner", platform));
+        expect(response).toMatchObject({ ok: true, requestId: "request-owner" });
+
+        await owner.close();
+        openServers.splice(openServers.indexOf(owner), 1);
+        expect(await probeDesktopAppControlServer(target.address)).toBe(false);
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      });
+    }),
+  );
+
+  it.effect("recovers from a stale socket file left by a dead instance", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      const userId = yield* HostProcessUserId;
+      yield* Effect.promise(async () => {
+        const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-app-stale-test-"));
+        const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
+        if (target.directory === null) return;
+        await NodeFSP.mkdir(target.directory, { recursive: true });
+        await NodeFSP.writeFile(target.address, "stale");
+
+        const server = await startDesktopAppControlServer({
+          ...target,
+          userId,
+          handle: async (input) => ({
+            version: 1,
+            requestId: input.requestId,
+            ok: true,
+            projectId: ProjectId.make("project-1"),
+            threadId: ThreadId.make("thread-1"),
+          }),
+          cancel: () => undefined,
+        });
+        openServers.push(server);
+
+        const response = await exchange(target.address, request("request-stale", platform));
+        expect(response).toMatchObject({ ok: true, requestId: "request-stale" });
+
         await server.close();
         openServers.splice(openServers.indexOf(server), 1);
         await NodeFSP.rm(root, { recursive: true, force: true });

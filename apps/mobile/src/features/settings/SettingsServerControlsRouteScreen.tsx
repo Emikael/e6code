@@ -1,6 +1,6 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/AppText";
 import {
   type ResponseStreamingMode,
   type ServerSettings,
@@ -8,6 +8,7 @@ import {
   type ThreadEnvMode,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   type ProjectScopedServerSettingKey,
+  SECRET_VALUE_REDACTED,
 } from "@e6tools/contracts";
 import { useRef, useState, type ComponentProps } from "react";
 import { Alert, Platform, Pressable, View } from "react-native";
@@ -126,6 +127,17 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     const value = reference.settings[key];
     return displayTargets.every((entry) => entry.settings[key] === value) ? value : null;
   };
+  const systemOneEnabled = (() => {
+    if (reference === null) return null;
+    const values = displayTargets.map((entry) => entry.settings.systemOne.enabled);
+    return values.every((value) => value === values[0]) ? (values[0] ?? null) : null;
+  })();
+  const systemOneApiKey = (() => {
+    if (reference === null) return null;
+    const values = displayTargets.map((entry) => entry.settings.systemOne.apiKey);
+    return values.every((value) => value === values[0]) ? (values[0] ?? null) : null;
+  })();
+  const systemOneKeyStored = systemOneApiKey === SECRET_VALUE_REDACTED;
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     label: "environment settings update",
     reportFailure: true,
@@ -331,6 +343,56 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
                     />
+                  </SettingsSection>
+                  <SettingsSection title="Jev routing">
+                    <FanoutSwitchRow
+                      icon="bolt.circle"
+                      label="Route turns through Jev"
+                      subtitle="Classify turns through the Jev API to skip unneeded LLM calls. Needs a key."
+                      value={systemOneEnabled}
+                      disabled={disabledFor("systemOne")}
+                      onValueChange={(value) => write({ systemOne: { enabled: value } })}
+                    />
+                    <View className="border-t border-border-subtle">
+                      <SettingsControlRow
+                        icon={{ ios: "lock", android: "lock" }}
+                        label="Jev API key"
+                        subtitle={
+                          systemOneKeyStored
+                            ? "Stored on this server. Leave blank to keep it."
+                            : "Required to enable routing."
+                        }
+                        disabled={disabledFor("systemOne")}
+                      >
+                        <View className="items-end gap-2">
+                          <AppTextInput
+                            accessibilityLabel="Jev API key"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            className="min-h-10 w-40 rounded-xl px-3 py-2 text-base"
+                            editable={!disabledFor("systemOne")}
+                            onEndEditing={(event) => {
+                              const next = event.nativeEvent.text;
+                              if (next === "") return;
+                              write({ systemOne: { apiKey: next } });
+                            }}
+                            placeholder={
+                              systemOneKeyStored ? "Key stored on this server" : "Paste Jev API key"
+                            }
+                            secureTextEntry
+                          />
+                          {systemOneKeyStored ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              disabled={disabledFor("systemOne")}
+                              onPress={() => write({ systemOne: { apiKey: "" } })}
+                            >
+                              <Text className="text-sm text-foreground-muted">Clear</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </SettingsControlRow>
+                    </View>
                   </SettingsSection>
                 </>
               ) : null}

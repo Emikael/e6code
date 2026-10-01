@@ -351,6 +351,28 @@ export function applyThreadDetailEvent(
         },
       };
 
+    case "thread.turn-completed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          messages: thread.messages.map((message) =>
+            message.id === event.payload.userMessageId
+              ? { ...message, turnId: event.payload.turnId }
+              : message,
+          ),
+          latestTurn: {
+            turnId: event.payload.turnId,
+            state: "completed",
+            requestedAt: event.payload.requestedAt,
+            startedAt: event.payload.requestedAt,
+            completedAt: event.payload.completedAt,
+            assistantMessageId: event.payload.assistantMessageId,
+          },
+          updatedAt: event.payload.completedAt,
+        },
+      };
+
     case "thread.turn-interrupt-requested": {
       if (event.payload.turnId === undefined) {
         return { kind: "unchanged" };

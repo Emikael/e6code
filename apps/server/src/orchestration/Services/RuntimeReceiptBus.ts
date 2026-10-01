@@ -49,10 +49,27 @@ export const TurnProcessingQuiescedReceipt = Schema.Struct({
 });
 export type TurnProcessingQuiescedReceipt = typeof TurnProcessingQuiescedReceipt.Type;
 
+export const SystemOneTurnDecidedReceipt = Schema.Struct({
+  type: Schema.Literal("systemOne.turn.decided"),
+  threadId: ThreadId,
+  outcome: Schema.Literals(["deterministic", "fast-path", "full-llm"]),
+  route: Schema.optional(Schema.String),
+  confidence: Schema.optional(Schema.Number),
+  latencyMs: Schema.optional(Schema.Number),
+  reason: Schema.optional(Schema.String),
+  droppedRecords: Schema.optional(Schema.Number),
+  textCharsSaved: Schema.optional(Schema.Number),
+  model: Schema.optional(Schema.String),
+  jevInputTokens: Schema.optional(Schema.Number),
+  createdAt: IsoDateTime,
+});
+export type SystemOneTurnDecidedReceipt = typeof SystemOneTurnDecidedReceipt.Type;
+
 export const OrchestrationRuntimeReceipt = Schema.Union([
   CheckpointBaselineCapturedReceipt,
   CheckpointDiffFinalizedReceipt,
   TurnProcessingQuiescedReceipt,
+  SystemOneTurnDecidedReceipt,
 ]);
 export type OrchestrationRuntimeReceipt = typeof OrchestrationRuntimeReceipt.Type;
 

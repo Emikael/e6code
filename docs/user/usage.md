@@ -101,3 +101,16 @@ settings section when you no longer need it.
 Add **Subscription usage** from your iOS or Android widget gallery to see remaining Codex and
 Claude quotas. Tap it to open **Usage → Limits**. On iOS, use **Edit Widget** to choose Session,
 Weekly, or both for each provider. Reopen E6 to refresh expired readings.
+
+## Route turns through Jev
+
+Turn on **Jev routing** in Settings (per environment) and add your Jev API key to classify turns
+through TypeSafe's Jev decision API. Greetings and simple lookups answer without calling your
+provider at all, and straightforward questions send trimmed context.
+
+Turn content leaves the machine for the Jev API; the key itself stays on your server. Jev calls
+cost $0.042 per million input tokens, metered per call. **Usage** gains a **Jev routing** section
+showing avoided provider calls alongside metered Jev tokens and cost.
+
+Jev routing counters reset when the server restarts. Turn it off anytime to return to
+provider-only turns.

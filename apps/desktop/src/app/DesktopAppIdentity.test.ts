@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as PlatformError from "effect/PlatformError";
+import { beforeEach, vi } from "vite-plus/test";
 
 import type * as Electron from "electron";
 
@@ -14,6 +14,13 @@ import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+
+const { existsSyncMock } = vi.hoisted(() => ({ existsSyncMock: vi.fn() }));
+
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+  existsSync: existsSyncMock,
+}));
 
 const defaultEnvironmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -111,7 +118,7 @@ const withIdentity = <A, E, R>(
     readonly environment?: TestEnvironmentInput;
     readonly legacyPathExists?: boolean;
     readonly existingPathIncludes?: readonly string[];
-    readonly legacyPathProbeError?: PlatformError.PlatformError;
+    readonly legacyPathProbeError?: unknown;
     readonly packageJson?: string;
     readonly pngIconPath?: Option.Option<string>;
   } = {},
@@ -121,21 +128,25 @@ const withIdentity = <A, E, R>(
     setDockIcon: [],
     setName: [],
   };
+  // Synchronous by design: userData resolution must precede app.ready, so the
+  // implementation uses existsSync and these tests drive it directly. Only the
+  // legacy userData probe throws: environment construction also stats paths
+  // while its layer builds.
+  existsSyncMock.mockImplementation((path: unknown) => {
+    const candidate = typeof path === "string" ? path : String(path);
+    if (input.legacyPathProbeError !== undefined && candidate.includes("E6 Code (Alpha)")) {
+      throw input.legacyPathProbeError;
+    }
+    return (
+      input.existingPathIncludes ?? (input.legacyPathExists === true ? ["E6 Code (Alpha)"] : [])
+    ).some((part) => candidate.includes(part));
+  });
 
   return effect.pipe(
     Effect.provide(
       DesktopAppIdentity.layer.pipe(
         Layer.provideMerge(
           FileSystem.layerNoop({
-            exists: (path) =>
-              input.legacyPathProbeError
-                ? Effect.fail(input.legacyPathProbeError)
-                : Effect.succeed(
-                    (
-                      input.existingPathIncludes ??
-                      (input.legacyPathExists === true ? ["E6 Code (Alpha)"] : [])
-                    ).some((part) => path.includes(part)),
-                  ),
             readFileString: () =>
               Effect.succeed(input.packageJson ?? '{"e6codeCommitHash":"abcdef1234567890"}'),
           }),
@@ -175,13 +186,8 @@ describe("DesktopAppIdentity", () => {
 
   it.effect("preserves failures while inspecting the legacy userData path", () => {
     const legacyPath = "/Users/alice/Library/Application Support/E6 Code (Alpha)";
-    const cause = PlatformError.systemError({
-      _tag: "PermissionDenied",
-      module: "FileSystem",
-      method: "exists",
-      description: "permission denied",
-      pathOrDescriptor: legacyPath,
-    });
+    // Synchronous by design: existsSync throws plain errors, not PlatformError.
+    const cause = new Error("permission denied");
 
     return withIdentity(
       Effect.gen(function* () {
@@ -197,6 +203,24 @@ describe("DesktopAppIdentity", () => {
         );
       }),
       { legacyPathProbeError: cause },
+    );
+  });
+
+  it.effect("resolves without the async FileSystem service", () => {
+    // Regression pin: userData resolution must precede app.ready for the Clerk
+    // bridge's scheme registration, so it cannot yield to the event loop for
+    // promise-based fs. Providing no FileSystem at all fails loudly if an
+    // async dependency ever creeps back in.
+    existsSyncMock.mockReturnValue(false);
+    return Effect.gen(function* () {
+      const userDataPath = yield* DesktopAppIdentity.resolveUserDataPath;
+      assert.equal(userDataPath, "/Users/alice/Library/Application Support/e6code");
+    }).pipe(
+      Effect.provide(
+        DesktopEnvironment.layer(defaultEnvironmentInput).pipe(
+          Layer.provide(Layer.mergeAll(NodePath.layerPosix, DesktopConfig.layerTest({}))),
+        ),
+      ),
     );
   });
 

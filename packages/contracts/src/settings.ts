@@ -1053,6 +1053,56 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+/**
+ * Client-visible stand-in for a secret stored on the server. Never a real
+ * key: a client that sends this marker back means "keep what you have".
+ */
+export const SECRET_VALUE_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
+
+const MIN_SYSTEM_ONE_UNIT_INTERVAL = 0;
+const MAX_SYSTEM_ONE_UNIT_INTERVAL = 1;
+export const SystemOneUnitInterval = Schema.Number.check(
+  Schema.isBetween({
+    minimum: MIN_SYSTEM_ONE_UNIT_INTERVAL,
+    maximum: MAX_SYSTEM_ONE_UNIT_INTERVAL,
+  }),
+);
+export type SystemOneUnitInterval = typeof SystemOneUnitInterval.Type;
+
+const MIN_SYSTEM_ONE_TIMEOUT_MS = 1;
+const MAX_SYSTEM_ONE_TIMEOUT_MS = 60_000;
+export const SystemOneTimeoutMs = Schema.Number.check(
+  Schema.isBetween({
+    minimum: MIN_SYSTEM_ONE_TIMEOUT_MS,
+    maximum: MAX_SYSTEM_ONE_TIMEOUT_MS,
+  }),
+);
+export type SystemOneTimeoutMs = typeof SystemOneTimeoutMs.Type;
+
+/**
+ * Hosted Jev (System One) pre-router. Classifies each turn through the Jev
+ * API and skips or shrinks the provider LLM call when safe. Ships
+ * default-off; enabling it requires a Jev API key, and turn content then
+ * leaves the machine. The key itself lives in the server secret store:
+ * `apiKey` here holds "" (absent) or the redacted marker (present), never
+ * key material.
+ */
+export const SystemOneSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  apiKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  deterministicThreshold: SystemOneUnitInterval.pipe(
+    Schema.withDecodingDefault(Effect.succeed(0.85)),
+  ),
+  fastPathThreshold: SystemOneUnitInterval.pipe(Schema.withDecodingDefault(Effect.succeed(0.6))),
+  confidenceFloor: SystemOneUnitInterval.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
+  selfContainedThreshold: SystemOneUnitInterval.pipe(
+    Schema.withDecodingDefault(Effect.succeed(0.8)),
+  ),
+  riskThreshold: SystemOneUnitInterval.pipe(Schema.withDecodingDefault(Effect.succeed(0.5))),
+  timeoutMs: SystemOneTimeoutMs.pipe(Schema.withDecodingDefault(Effect.succeed(3000))),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SystemOneSettings = typeof SystemOneSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
@@ -1140,6 +1190,7 @@ export const ServerSettings = Schema.Struct({
   ),
   sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
+  systemOne: SystemOneSettings,
   // Legacy flat fields retained for old settings files and old clients. New
   // consumers should resolve `backgroundActivity` instead.
   automaticGitFetchInterval: Schema.DurationFromMillis.pipe(
@@ -1465,6 +1516,18 @@ export const ServerSettingsPatch = Schema.Struct({
       profile: Schema.optionalKey(BackgroundActivityProfileSelection),
       baseProfile: Schema.optionalKey(BackgroundActivityProfile),
       overrides: Schema.optionalKey(BackgroundActivityOverrides),
+    }),
+  ),
+  systemOne: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      apiKey: Schema.optionalKey(Schema.String),
+      deterministicThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      fastPathThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      confidenceFloor: Schema.optionalKey(SystemOneUnitInterval),
+      selfContainedThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      riskThreshold: Schema.optionalKey(SystemOneUnitInterval),
+      timeoutMs: Schema.optionalKey(SystemOneTimeoutMs),
     }),
   ),
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),

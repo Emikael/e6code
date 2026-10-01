@@ -14,6 +14,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ThreadId,
+  TurnId,
   ModelSelection,
   ProviderInstanceId,
 } from "@e6tools/contracts";
@@ -865,11 +866,25 @@ it.live("reverts to an earlier checkpoint and trims checkpoint projections + git
 );
 
 it.live(
-  "appends checkpoint.revert.failed activity when revert is requested without a provider binding",
+  "appends checkpoint.revert.failed activity when a provider turn is reverted without a provider binding",
   () =>
     withHarness((harness) =>
       Effect.gen(function* () {
         yield* seedProjectAndThread(harness);
+
+        // An empty thread needs no provider rollback; seed a completed provider turn.
+        yield* harness.engine.dispatch({
+          type: "thread.turn.diff.complete",
+          commandId: CommandId.make("cmd-checkpoint-without-provider-binding"),
+          threadId: THREAD_ID,
+          turnId: TurnId.make(FIXTURE_TURN_ID),
+          completedAt: nowIso(),
+          checkpointRef: checkpointRefForThreadTurn(THREAD_ID, 1),
+          status: "ready",
+          files: [],
+          checkpointTurnCount: 1,
+          createdAt: nowIso(),
+        });
 
         yield* harness.engine.dispatch({
           type: "thread.checkpoint.revert",
@@ -879,15 +894,11 @@ it.live(
           createdAt: nowIso(),
         });
 
-        const thread = yield* harness.waitForThread(THREAD_ID, (entry) =>
-          entry.activities.some(
-            (activity) =>
-              activity.kind === "checkpoint.revert.failed" &&
-              typeof activity.payload === "object" &&
-              activity.payload !== null,
-          ),
+        yield* harness.drainCheckpointReactor;
+        const thread = (yield* harness.snapshotQuery.getSnapshot()).threads.find(
+          (entry) => entry.id === THREAD_ID,
         );
-        const failureActivity = thread.activities.find(
+        const failureActivity = thread?.activities.find(
           (activity) => activity.kind === "checkpoint.revert.failed",
         );
         assert.equal(failureActivity !== undefined, true);
