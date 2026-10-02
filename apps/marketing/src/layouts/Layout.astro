@@ -4,12 +4,7 @@ import appIcon from "../assets/icon.webp";
 import desktopScreenshot from "../assets/app-desktop.webp";
 import dmSansLatinUrl from "../assets/fonts/dm-sans-latin.woff2?url";
 import "../styles/fonts.css";
-import {
-  ANDROID_PLAY_STORE_URL,
-  GITHUB_REPOSITORY_URL,
-  IOS_APP_STORE_URL,
-  MARKETING_STATS,
-} from "../lib/site";
+import { ANDROID_PLAY_STORE_URL, GITHUB_REPOSITORY_URL, IOS_APP_STORE_URL } from "../lib/site";
 
 interface Props {
   title?: string;
@@ -19,7 +14,7 @@ interface Props {
 
 const {
   title = "E6 Code",
-  description = "E6 Code. The open-source control plane for coding agents.",
+  description = "E6 Code is the open-source control room for coding agents. Run Claude Code, Codex, Cursor, Grok, OpenCode, and Antigravity with the subscriptions you already have, from desktop, web, or your phone.",
   pageClass,
 } = Astro.props;
 
@@ -55,7 +50,6 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="The E6 Code desktop app with a thread open." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@e6dotgg" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={socialImageUrl} />
@@ -77,21 +71,35 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
       <nav class="nav">
         <div class="nav-inner">
           <a href="/" class="nav-brand" aria-label="E6 Code home">
+            <Image
+              src={appIcon}
+              alt=""
+              width={22}
+              height={22}
+              densities={[1, 2, 3]}
+              format="webp"
+              quality={90}
+              loading="eager"
+              decoding="async"
+            />
             <span class="nav-brand-name">E6 Code</span>
           </a>
           <div class="nav-right">
+            <a class="nav-link nav-link--section" href="/#agents">Agents</a>
+            <a class="nav-link nav-link--section" href="/#routing">Routing</a>
+            <a class="nav-link nav-link--section" href="/#remote">Remote</a>
             <a class="nav-link" href="/download">Download</a>
             <a
               class="nav-stars"
               href={GITHUB_REPOSITORY_URL}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={`Star E6 Code on GitHub — ${MARKETING_STATS.githubStars} stars`}
+              aria-label="E6 Code on GitHub"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2.3l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.12l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.3z"/>
+                <path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 015.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"/>
               </svg>
-              <span><strong>{MARKETING_STATS.githubStars}</strong> GitHub stars</span>
+              <span>GitHub</span>
             </a>
           </div>
         </div>
@@ -115,11 +123,10 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
               loading="lazy"
               decoding="async"
             />
-            <span>&copy; {new Date().getFullYear()} E6 Tools Inc · MIT licensed</span>
+            <span>&copy; {new Date().getFullYear()} Emikael Silveira · MIT licensed</span>
           </div>
           <div class="footer-links">
             <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href="https://discord.gg/jn4EGJjrvv" target="_blank" rel="noopener noreferrer">Discord</a>
             <a href="/download">Download</a>
             <a href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS app</a>
             <a href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android app</a>
@@ -155,9 +162,10 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     --fg-faint: #52525b;
     --border: rgba(255, 255, 255, 0.08);
     --border-strong: rgba(255, 255, 255, 0.14);
-    --accent-h: 250;
-    --accent: oklch(0.68 0.17 var(--accent-h));
-    --accent-dim: oklch(0.68 0.17 var(--accent-h) / 0.15);
+    /* Amber signal: the one color that means "live". Everything else is chrome. */
+    --accent: oklch(0.82 0.15 72);
+    --accent-dim: oklch(0.82 0.15 72 / 0.14);
+    --chrome: linear-gradient(180deg, #ffffff 0%, #d4d4d8 45%, #71717a 100%);
     --ok: oklch(0.72 0.16 150);
     --warn: oklch(0.76 0.15 75);
     --font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -365,6 +373,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
   .nav-brand {
     display: inline-flex;
     align-items: center;
+    gap: 9px;
     color: var(--fg);
     transition: color 0.2s ease;
   }
@@ -421,14 +430,12 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     background: rgba(255, 255, 255, 0.04);
   }
 
-  .nav-stars strong {
-    color: var(--fg);
-    font-weight: 600;
+  .nav-stars svg {
+    flex-shrink: 0;
   }
 
-  .nav-stars svg {
-    color: var(--warn);
-    flex-shrink: 0;
+  .nav-brand img {
+    border-radius: 5px;
   }
 
   .main {
@@ -512,6 +519,12 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
       width: 100%;
       gap: 14px 20px;
       justify-content: initial;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .nav-link--section {
+      display: none;
     }
   }
 
