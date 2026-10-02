@@ -7,13 +7,12 @@ import { APP_VERSION } from "../../branding";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
-import { E6Wordmark } from "../E6Wordmark";
+import { E6Monogram, EmulsionStripe } from "../E6Monogram";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
-import { Badge } from "../ui/badge";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -30,10 +29,9 @@ import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUp
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
 /**
- * The sidebar's title strip, read like the edge of a strip of E-6 slide film:
- * the mark, then an amber edge print carrying the build's channel and
- * version. Dev and Nightly add a 2px channel stripe along the bottom edge
- * (the "artwork" identification mode) instead of illustrated header art.
+ * The sidebar's title strip: the E6 tile, the name on one line, and a channel
+ * chip for Dev and Nightly builds. A CMY emulsion stripe (the E-6 dye layers)
+ * runs along the bottom edge on every channel.
  */
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -42,14 +40,11 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const channelStripe = resolveSidebarStageBackdropVariant(
-    stageLabel,
-    environmentIdentificationMode === "artwork",
-  );
-  const pillLabel =
-    environmentIdentificationMode === "pill"
-      ? resolveEnvironmentIdentificationPillLabel(stageLabel)
-      : null;
+  const channel =
+    environmentIdentificationMode === "none"
+      ? null
+      : resolveSidebarStageBackdropVariant(stageLabel);
+  const channelLabel = resolveEnvironmentIdentificationPillLabel(stageLabel);
 
   return (
     <SidebarHeader
@@ -60,50 +55,46 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     >
       <SidebarTrigger className="relative z-10 md:hidden" />
       <SidebarBrand stageLabel={stageLabel} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
-      ) : null}
-      {channelStripe ? (
+      {channel && channelLabel ? (
         <span
-          aria-hidden
-          data-channel-stripe={channelStripe}
+          data-environment-identification={channel}
           className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-0 h-0.5",
-            channelStripe === "nightly" ? "bg-(--channel-nightly)" : "bg-(--channel-dev)",
+            "relative z-10 ml-2 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[13rem]/sidebar-header:inline-flex",
+            channel === "nightly"
+              ? "bg-(--channel-nightly)/14 text-(--channel-nightly)"
+              : "bg-(--channel-dev)/14 text-(--channel-dev)",
           )}
-        />
+        >
+          {channelLabel}
+        </span>
       ) : null}
+      <EmulsionStripe className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 opacity-90" />
     </SidebarHeader>
   );
 });
 
 function SidebarBrand({ stageLabel }: { stageLabel: string }) {
-  const edgePrint = `${stageLabel} ▸ ${APP_VERSION}`;
+  const build = `${stageLabel} ${APP_VERSION}`;
   return (
-    <Link
-      aria-label={`Go to threads. E6 Code ${edgePrint}`}
-      className="relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden min-w-0 shrink flex-col items-start justify-center gap-1 rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex"
-      to="/"
-    >
-      {/* Center the visible capitals, without the font's ascender/descender space. */}
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-semibold tracking-tight text-foreground">
-        <E6Wordmark aria-hidden className="h-[1cap] w-auto shrink-0" />
-        <span className="truncate [text-box:trim-both_cap_alphabetic]">Code</span>
-      </span>
-      <span
-        aria-hidden
-        className="max-w-full truncate font-mono text-[9px] leading-none font-medium tracking-[0.14em] text-(--edge-print) uppercase tabular-nums"
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            aria-label={`Go to threads. E6 Code ${build}`}
+            className="relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-8 shrink-0 items-center gap-2 rounded-md pr-1 outline-hidden ring-ring focus-visible:ring-2 md:flex"
+            to="/"
+          />
+        }
       >
-        {edgePrint}
-      </span>
-    </Link>
+        <E6Monogram className="size-5" />
+        <span className="text-[13px] leading-none font-semibold tracking-[-0.01em] whitespace-nowrap text-foreground">
+          E6 Code
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">
+        <span className="tabular-nums">{build}</span>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

@@ -585,14 +585,22 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --stage-night-glow-secondary: oklch(0.345571 0.117466 273.568);
     --stage-night-sparkle: oklch(0.880867 0.057747 269.011);
 
-    /* Sidebar title strip: amber edge print (AA on the light sidebar) and
-       the Dev/Nightly channel stripes, drawn from the channel app icons. */
-    --edge-print: oklch(0.5 0.12 62);
-    --channel-dev: oklch(0.616111 0.195824 259.735);
-    --channel-nightly: oklch(0.62583 0.210886 305.994);
+    /* E6 emulsion: the three dye layers of E-6 slide film. The brand's one
+       colour motif (monogram edge, header stripe, hero underline and
+       backlight). Light values hold AA as thin lines on white. */
+    --emulsion-cyan: oklch(0.64 0.13 218);
+    --emulsion-magenta: oklch(0.6 0.24 356);
+    --emulsion-yellow: oklch(0.8 0.16 84);
+    --monogram-ground: oklch(0.19 0.012 275);
+    --channel-dev: oklch(0.55 0.2 260);
+    --channel-nightly: oklch(0.55 0.21 306);
 
     @variant dark {
-      --edge-print: oklch(0.8 0.14 72);
+      --emulsion-cyan: oklch(0.8 0.13 212);
+      --emulsion-magenta: oklch(0.7 0.23 354);
+      --emulsion-yellow: oklch(0.88 0.16 92);
+      --channel-dev: oklch(0.78 0.13 252);
+      --channel-nightly: oklch(0.76 0.15 306);
       --stage-art-top: oklch(0.581473 0.149124 256.9);
       --stage-art-mid: oklch(0.456509 0.159377 261.945);
       --stage-art-bottom: oklch(0.291327 0.136578 267.649);
