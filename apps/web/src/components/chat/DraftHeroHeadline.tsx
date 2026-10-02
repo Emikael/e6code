@@ -32,10 +32,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { E6Monogram } from "../E6Monogram";
 import { cn } from "~/lib/utils";
 
-// Hard-stop CMY bands under the project name: the E-6 emulsion motif as the
+// Hard-stop cyan/orange bands under the project name: the brand stripe as the
 // picker's affordance, replacing a plain dotted underline.
-const EMULSION_UNDERLINE =
-  "bg-[linear-gradient(90deg,var(--emulsion-cyan)_0_33.34%,var(--emulsion-magenta)_33.34%_66.67%,var(--emulsion-yellow)_66.67%)] bg-size-[100%_3px] bg-bottom bg-no-repeat pb-1";
+const BRAND_UNDERLINE =
+  "bg-[linear-gradient(90deg,var(--brand-cyan)_0_50%,var(--brand-orange)_50%)] bg-size-[100%_3px] bg-bottom bg-no-repeat pb-1";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 
 interface DraftHeroHeadlineProps {
@@ -149,7 +149,7 @@ export function DraftHeroHeadline({
             // mid-sentence and baffle screen-reader users.
             <MenuTrigger
               className={cn(
-                EMULSION_UNDERLINE,
+                BRAND_UNDERLINE,
                 "pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground transition-[background-size] hover:bg-size-[100%_4px] focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               )}
             />
@@ -258,13 +258,13 @@ export function DraftHeroHeadline({
 
   return (
     <div className="relative flex flex-col items-center gap-5">
-      {/* A slide on a light table: the three E-6 dyes, backlit and static. */}
+      {/* Static backlight in the two brand hues, meeting behind the name. */}
       <div
         aria-hidden
         className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-[28rem] w-[min(52rem,100vw)] -translate-1/2 opacity-45 dark:opacity-30"
         style={{
           background:
-            "radial-gradient(38% 46% at 30% 58%, color-mix(in oklab, var(--emulsion-cyan) 55%, transparent), transparent 70%), radial-gradient(34% 44% at 52% 40%, color-mix(in oklab, var(--emulsion-magenta) 45%, transparent), transparent 70%), radial-gradient(36% 46% at 72% 60%, color-mix(in oklab, var(--emulsion-yellow) 50%, transparent), transparent 70%)",
+            "radial-gradient(42% 50% at 34% 56%, color-mix(in oklab, var(--brand-cyan) 55%, transparent), transparent 70%), radial-gradient(42% 50% at 68% 52%, color-mix(in oklab, var(--brand-orange) 50%, transparent), transparent 70%)",
         }}
       />
       <E6Monogram className="size-11 shadow-[0_8px_24px_-8px_rgb(0_0_0/0.45)]" />
