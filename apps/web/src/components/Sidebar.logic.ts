@@ -1276,3 +1276,64 @@ export function sortScopedProjectsForSidebar<
       left.id.localeCompare(right.id),
   );
 }
+
+export interface SidebarProjectThreadGroup<T> {
+  readonly projectKey: string;
+  readonly displayName: string;
+  readonly threadCount: number;
+  /** Rows to render: every thread when expanded, else only the open thread. */
+  readonly rendered: readonly T[];
+  readonly expanded: boolean;
+  /** Threads waiting on the user, so a collapsed header can still say so. */
+  readonly attentionCount: number;
+}
+
+/** Splits already-sorted active threads under their logical project, in
+    project order. Threads whose project is unknown trail in one group. */
+export function groupSidebarThreadsByProject<
+  T extends { readonly environmentId: string; readonly projectId: string },
+>(input: {
+  readonly threads: readonly T[];
+  readonly projects: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly displayName: string;
+    readonly memberProjects: ReadonlyArray<{ readonly environmentId: string; readonly id: string }>;
+  }>;
+  readonly isExpanded: (projectKey: string) => boolean;
+  readonly needsAttention: (thread: T) => boolean;
+  readonly isRouteThread: (thread: T) => boolean;
+}): SidebarProjectThreadGroup<T>[] {
+  const groupKeyByProject = new Map<string, string>();
+  for (const project of input.projects) {
+    for (const member of project.memberProjects) {
+      groupKeyByProject.set(`${member.environmentId}:${member.id}`, project.projectKey);
+    }
+  }
+  const OTHER = "\0other";
+  const threadsByGroup = new Map<string, T[]>();
+  for (const thread of input.threads) {
+    const key = groupKeyByProject.get(`${thread.environmentId}:${thread.projectId}`) ?? OTHER;
+    const list = threadsByGroup.get(key);
+    if (list) list.push(thread);
+    else threadsByGroup.set(key, [thread]);
+  }
+  const ordered = [
+    ...input.projects.map((project) => ({ key: project.projectKey, name: project.displayName })),
+    { key: OTHER, name: "Other" },
+  ];
+  return ordered.flatMap(({ key, name }) => {
+    const threads = threadsByGroup.get(key);
+    if (!threads) return [];
+    const expanded = input.isExpanded(key);
+    return [
+      {
+        projectKey: key,
+        displayName: name,
+        threadCount: threads.length,
+        rendered: expanded ? threads : threads.filter(input.isRouteThread),
+        expanded,
+        attentionCount: threads.filter(input.needsAttention).length,
+      },
+    ];
+  });
+}

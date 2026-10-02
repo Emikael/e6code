@@ -3,6 +3,7 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
+  groupSidebarThreadsByProject,
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   archiveSelectedThreadEntries,
@@ -2576,4 +2577,69 @@ describe("navigation after parking a thread", () => {
       ).toBe(expected);
     },
   );
+});
+
+describe("groupSidebarThreadsByProject", () => {
+  const thread = (id: string, projectId: string, waiting = false) => ({
+    id,
+    environmentId: "env",
+    projectId,
+    waiting,
+  });
+  const projects = [
+    {
+      projectKey: "api",
+      displayName: "my-api",
+      memberProjects: [{ environmentId: "env", id: "p-api" }],
+    },
+    {
+      projectKey: "web",
+      displayName: "web",
+      memberProjects: [
+        { environmentId: "env", id: "p-web" },
+        { environmentId: "env", id: "p-web-fork" },
+      ],
+    },
+    {
+      projectKey: "empty",
+      displayName: "empty",
+      memberProjects: [{ environmentId: "env", id: "p-empty" }],
+    },
+  ];
+  const group = (
+    threads: ReturnType<typeof thread>[],
+    collapsed: ReadonlySet<string> = new Set(),
+    routeId: string | null = null,
+  ) =>
+    groupSidebarThreadsByProject({
+      threads,
+      projects,
+      isExpanded: (key) => !collapsed.has(key),
+      needsAttention: (candidate) => candidate.waiting,
+      isRouteThread: (candidate) => candidate.id === routeId,
+    });
+
+  it("follows project order, merges member projects, keeps thread order, and drops empty projects", () => {
+    const groups = group([
+      thread("w1", "p-web"),
+      thread("a1", "p-api"),
+      thread("w2", "p-web-fork"),
+      thread("x1", "p-gone"),
+    ]);
+    expect(groups.map((entry) => [entry.displayName, entry.rendered.map((t) => t.id)])).toEqual([
+      ["my-api", ["a1"]],
+      ["web", ["w1", "w2"]],
+      ["Other", ["x1"]],
+    ]);
+  });
+
+  it("collapsed groups render only the open thread but still count waiting work", () => {
+    const [web] = group(
+      [thread("w1", "p-web", true), thread("w2", "p-web"), thread("w3", "p-web", true)],
+      new Set(["web"]),
+      "w2",
+    );
+    expect(web).toMatchObject({ expanded: false, threadCount: 3, attentionCount: 2 });
+    expect(web!.rendered.map((t) => t.id)).toEqual(["w2"]);
+  });
 });

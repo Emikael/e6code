@@ -78,7 +78,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -698,6 +698,7 @@ function OpenCommandPaletteDialog(props: {
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const clientSettings = useClientSettings();
+  const updateClientSettings = useUpdateClientSettings();
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -2029,6 +2030,23 @@ function OpenCommandPaletteDialog(props: {
     icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:toggle-thread-grouping",
+    searchTerms: ["group", "by project", "one list", "flat", "organize", "sidebar", "folders"],
+    title:
+      clientSettings.sidebarThreadOrganization === "by_project"
+        ? "Sidebar: show threads in one list"
+        : "Sidebar: group threads by project",
+    icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await updateClientSettings({
+        sidebarThreadOrganization:
+          clientSettings.sidebarThreadOrganization === "by_project" ? "flat" : "by_project",
+      });
     },
   });
 
