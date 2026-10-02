@@ -22,6 +22,7 @@ import {
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Kbd } from "../ui/kbd";
 import { SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -48,6 +49,9 @@ export interface SidebarThreadHeaderProps {
   searchResultCount: number;
   activeSearchResultIndex: number;
   onClearSearch: () => void;
+  /** Shown in the idle search field as a jump to the command palette. */
+  commandPaletteShortcutLabel: string | null;
+  onOpenCommandPalette: () => void;
 }
 
 export function SidebarThreadHeader({
@@ -68,6 +72,8 @@ export function SidebarThreadHeader({
   searchResultCount,
   activeSearchResultIndex,
   onClearSearch,
+  commandPaletteShortcutLabel,
+  onOpenCommandPalette,
 }: SidebarThreadHeaderProps) {
   const resultsVisible = isSearching && searchResultCount > 0;
   // Results shrink as the query narrows, so the active index can outrun the
@@ -120,6 +126,24 @@ export function SidebarThreadHeader({
           >
             <XIcon className="size-3" />
           </Button>
+        ) : commandPaletteShortcutLabel ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Open command palette (${commandPaletteShortcutLabel})`}
+                  onClick={onOpenCommandPalette}
+                  className="shrink-0 cursor-pointer rounded outline-hidden ring-ring focus-visible:ring-2 pointer-coarse:hidden"
+                />
+              }
+            >
+              <Kbd className="bg-sidebar-control-surface text-sidebar-muted-foreground tabular-nums">
+                {commandPaletteShortcutLabel}
+              </Kbd>
+            </TooltipTrigger>
+            <TooltipPopup side="top">Command palette</TooltipPopup>
+          </Tooltip>
         ) : null}
       </div>
       {/* Unfilled like the search field beside it: the buttons carry their own

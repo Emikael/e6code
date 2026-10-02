@@ -29,6 +29,13 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { E6Monogram } from "../E6Monogram";
+import { cn } from "~/lib/utils";
+
+// Hard-stop cyan/orange bands under the project name: the brand stripe as the
+// picker's affordance, replacing a plain dotted underline.
+const BRAND_UNDERLINE =
+  "bg-[linear-gradient(90deg,var(--brand-cyan)_0_50%,var(--brand-orange)_50%)] bg-size-[100%_3px] bg-bottom bg-no-repeat pb-1";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 
 interface DraftHeroHeadlineProps {
@@ -140,7 +147,12 @@ export function DraftHeroHeadline({
             // project title) so the hero sentence reads naturally: an
             // aria-label here would replace the title with an action phrase
             // mid-sentence and baffle screen-reader users.
-            <MenuTrigger className="pointer-events-auto inline-block max-w-64 truncate border-foreground/60 border-b border-dotted align-baseline text-foreground transition-colors hover:border-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" />
+            <MenuTrigger
+              className={cn(
+                BRAND_UNDERLINE,
+                "pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground transition-[background-size] hover:bg-size-[100%_4px] focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+            />
           }
         >
           {activeProjectDisplayName ?? "Choose a project"}
@@ -245,17 +257,29 @@ export function DraftHeroHeadline({
       : "Add a project to start";
 
   return (
-    <h1
-      aria-label={headingLabel}
-      className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
-    >
-      {hasResolvedProject ? (
-        <>What should we build in {projectSelector}?</>
-      ) : canChooseProject ? (
-        <>{projectSelector} to start</>
-      ) : (
-        <>Add a project to start</>
-      )}
-    </h1>
+    <div className="relative flex flex-col items-center gap-5">
+      {/* Static backlight in the two brand hues, meeting behind the name. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-[28rem] w-[min(52rem,100vw)] -translate-1/2 opacity-45 dark:opacity-30"
+        style={{
+          background:
+            "radial-gradient(42% 50% at 34% 56%, color-mix(in oklab, var(--brand-cyan) 55%, transparent), transparent 70%), radial-gradient(42% 50% at 68% 52%, color-mix(in oklab, var(--brand-orange) 50%, transparent), transparent 70%)",
+        }}
+      />
+      <E6Monogram className="size-11 shadow-[0_8px_24px_-8px_rgb(0_0_0/0.45)]" />
+      <h1
+        aria-label={headingLabel}
+        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.15] font-medium tracking-[-0.03em] text-balance text-muted-foreground sm:text-[2.5rem]"
+      >
+        {hasResolvedProject ? (
+          <>What should we build in {projectSelector}?</>
+        ) : canChooseProject ? (
+          <>{projectSelector} to start</>
+        ) : (
+          <>Add a project to start</>
+        )}
+      </h1>
+    </div>
   );
 }

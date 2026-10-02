@@ -260,6 +260,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["long lines code blocks tables diffs file previews"],
   },
   {
+    id: "group-threads-by-project",
+    title: "Group threads by project",
+    to: "/settings/general",
+    searchTerms: ["sidebar organize by project one list flat folders threads"],
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

@@ -473,6 +473,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               threadId: ThreadId.make("thread-1"),
               planId: "plan-1",
             },
+            diffStat: { insertions: 2, deletions: 1 },
           },
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
@@ -599,6 +600,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               threadId: ThreadId.make("thread-1"),
               planId: "plan-1",
             },
+            diffStat: { insertions: 2, deletions: 1 },
           },
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
@@ -1848,6 +1850,77 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(threadDetail.value.latestTurn?.state, "running");
         assert.equal(threadDetail.value.latestTurn?.startedAt, "2026-04-02T00:00:30.000Z");
       }
+    }),
+  );
+
+  it.effect("sums the latest turn's checkpoint files into the shell diff stat", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_turns`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json, scripts_json,
+          created_at, updated_at, deleted_at
+        )
+        VALUES (
+          'project-1', 'Project 1', '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-02T00:00:00.000Z', '2026-04-02T00:00:01.000Z', NULL
+        )
+      `;
+      for (const threadId of ["thread-changed", "thread-unchanged"]) {
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+            branch, worktree_path, latest_turn_id, latest_user_message_at,
+            pending_approval_count, pending_user_input_count, has_actionable_proposed_plan,
+            created_at, updated_at, archived_at, deleted_at
+          )
+          VALUES (
+            ${threadId}, 'project-1', 'Thread', '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access', 'default', NULL, NULL, ${`${threadId}-turn`}, NULL, 0, 0, 0,
+            '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', NULL, NULL
+          )
+        `;
+      }
+      const changedFiles =
+        '[{"path":"src/a.ts","kind":"modified","additions":40,"deletions":3},' +
+        '{"path":"src/b.ts","kind":"added","additions":2,"deletions":5}]';
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, pending_message_id, source_proposed_plan_thread_id,
+          source_proposed_plan_id, assistant_message_id, state, requested_at, started_at,
+          completed_at, checkpoint_turn_count, checkpoint_ref, checkpoint_status,
+          checkpoint_files_json
+        )
+        VALUES
+          (
+            'thread-changed', 'thread-changed-turn', NULL, NULL, NULL, NULL, 'completed',
+            '2026-04-02T00:00:05.000Z', '2026-04-02T00:00:06.000Z', '2026-04-02T00:00:20.000Z',
+            1, 'checkpoint-1', 'ready', ${changedFiles}
+          ),
+          (
+            'thread-unchanged', 'thread-unchanged-turn', NULL, NULL, NULL, NULL, 'completed',
+            '2026-04-02T00:00:05.000Z', '2026-04-02T00:00:06.000Z', '2026-04-02T00:00:20.000Z',
+            1, 'checkpoint-1', 'ready', '[]'
+          )
+      `;
+
+      const changed = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-changed"));
+      assert.deepEqual(changed._tag === "Some" ? changed.value.latestTurn?.diffStat : "missing", {
+        insertions: 42,
+        deletions: 8,
+      });
+      const shells = (yield* snapshotQuery.getShellSnapshot()).threads;
+      const diffStatOf = (id: string) =>
+        shells.find((thread) => thread.id === id)?.latestTurn?.diffStat;
+      assert.deepEqual(diffStatOf("thread-changed"), { insertions: 42, deletions: 8 });
+      assert.equal(diffStatOf("thread-unchanged"), undefined);
     }),
   );
 

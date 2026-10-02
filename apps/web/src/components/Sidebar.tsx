@@ -50,6 +50,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
+  EllipsisIcon,
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
@@ -114,7 +115,11 @@ import {
   projectGroupsSpanEnvironments,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  useUiStateStore,
+} from "../uiStateStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -122,8 +127,9 @@ import {
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { onSidebarAction, type SidebarAction } from "../sidebarActionBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -172,6 +178,8 @@ import {
   resolveSidebarDropVerb,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
+  groupSidebarThreadsByProject,
+  type SidebarProjectThreadGroup,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
@@ -210,6 +218,7 @@ import {
 } from "./ThreadStatusIndicators";
 import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Sidebar.snooze";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
+import { Switch } from "./ui/switch";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
@@ -656,8 +665,11 @@ function SidebarSectionHeader(props: {
   dragging?: boolean;
   isDropTarget?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
+  // Shelf-wide actions; opened from the ⋯ button or a right-click on the header.
+  onMenu?: ((position: { x: number; y: number }) => void) | undefined;
 }) {
   const snoozed = props.marker === "snoozed-header";
+  const onMenu = props.onMenu;
   const className = cn(
     "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
     snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
@@ -689,18 +701,109 @@ function SidebarSectionHeader(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("mx-0.5 h-8", props.className)}
+      className={cn("group/shelf mx-0.5 flex h-8 items-center", props.className)}
     >
       <button
         type="button"
         onClick={props.toggle.onToggle}
+        onContextMenu={
+          onMenu
+            ? (event) => {
+                event.preventDefault();
+                onMenu({ x: event.clientX, y: event.clientY });
+              }
+            : undefined
+        }
         aria-expanded={props.toggle.expanded}
         data-testid={`sidebar-${snoozed ? "snoozed" : "settled"}-shelf-toggle`}
-        className={cn(className, "cursor-pointer")}
+        className={cn(className, "min-w-0 cursor-pointer")}
       >
         {content}
       </button>
+      {onMenu ? (
+        <button
+          type="button"
+          aria-label={`${props.label} actions`}
+          data-testid={`sidebar-${snoozed ? "snoozed" : "settled"}-shelf-menu`}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            onMenu({ x: rect.left, y: rect.bottom + 4 });
+          }}
+          className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground/70 opacity-0 outline-hidden ring-ring group-focus-within/shelf:opacity-100 group-hover/shelf:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+        >
+          <EllipsisIcon aria-hidden className="size-3.5" />
+        </button>
+      ) : null}
     </SortableSidebarMarker>
+  );
+}
+
+// A project header in the grouped Active section. Not sortable: grouped view
+// has no drag, so it never enters the drop projection.
+function SidebarProjectGroupHeader(props: {
+  group: SidebarProjectThreadGroup<EnvironmentThreadShell>;
+  project: ProjectFaviconProject | null;
+  onToggle: () => void;
+  onNewThread: (() => void) | null;
+}) {
+  const { group } = props;
+  const waiting = !group.expanded && group.attentionCount > 0;
+  return (
+    <li
+      data-thread-selection-safe
+      data-testid="sidebar-project-group"
+      className="group/project mx-0.5 mt-2 flex h-7 list-none items-center first:mt-0"
+    >
+      <button
+        type="button"
+        onClick={props.onToggle}
+        aria-expanded={group.expanded}
+        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground/80 outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
+      >
+        <ChevronDownIcon
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+            !group.expanded && "-rotate-90",
+          )}
+        />
+        {props.project ? (
+          <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+        ) : (
+          <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+        )}
+        <span className="truncate">{group.displayName}</span>
+        {waiting ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-amber-600 tabular-nums dark:text-amber-300/90"
+            aria-label={`${group.attentionCount} waiting on you`}
+          >
+            <span aria-hidden className="size-1.5 rounded-full bg-amber-500 dark:bg-amber-300/90" />
+            {group.attentionCount}
+          </span>
+        ) : null}
+        <span className="ml-auto shrink-0 font-normal text-sidebar-muted-foreground tabular-nums">
+          {group.threadCount}
+        </span>
+      </button>
+      {props.onNewThread ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`New thread in ${group.displayName}`}
+                onClick={props.onNewThread}
+                className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+              />
+            }
+          >
+            <PlusIcon aria-hidden className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">New thread in {group.displayName}</TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </li>
   );
 }
 
@@ -1619,6 +1722,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {draftIndicator}
             {title}
             {pinIndicator}
+            <ThreadWorktreeIndicator thread={thread} />
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
@@ -1931,7 +2035,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   <MiddleTruncate
                     value={thread.branch}
                     showTitle={false}
-                    className="flex-1 text-muted-foreground/40"
+                    className="flex-1 font-mono text-[11px] text-muted-foreground"
                   />
                 </>
               ) : (
@@ -1940,7 +2044,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {terminalStatusIcon}
               {prBadge}
               {diff ? (
-                <span className="shrink-0 font-mono">
+                <span className="shrink-0 font-mono tabular-nums">
                   <span className="text-diff-addition-foreground">+{diff.insertions}</span>{" "}
                   <span className="text-diff-deletion-foreground">−{diff.deletions}</span>
                 </span>
@@ -1989,10 +2093,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 function latestTurnDiff(
   thread: SidebarThreadSummary,
 ): { insertions: number; deletions: number } | null {
-  // Shells don't carry checkpoint summaries; diff stats render only when the
-  // shell projection grows them. Kept as a seam so the row layout is ready.
-  void thread;
-  return null;
+  // Older servers omit diffStat; the row then shows no stat.
+  return thread.latestTurn?.diffStat ?? null;
 }
 
 const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
@@ -2157,6 +2259,8 @@ export default function Sidebar() {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const groupByProject = useClientSettings((s) => s.sidebarThreadOrganization === "by_project");
+  const updateClientSettings = useUpdateClientSettings();
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
@@ -2170,6 +2274,7 @@ export default function Sidebar() {
     reorderPinnedThread,
     reorderActiveThread,
     archiveThread,
+    unarchiveThread,
     deleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -2322,6 +2427,10 @@ export default function Sidebar() {
   const projectGroups = useMemo(
     () => sortLogicalProjectsForSidebar(unsortedProjectGroups, threads, sidebarProjectSortOrder),
     [sidebarProjectSortOrder, threads, unsortedProjectGroups],
+  );
+  const projectByGroupKey = useMemo(
+    () => new Map(projectGroups.map((group) => [group.projectKey, group])),
+    [projectGroups],
   );
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
@@ -2778,9 +2887,36 @@ export default function Sidebar() {
     return routeThread === undefined ? EMPTY_THREADS : [routeThread];
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
+  const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const activeProjectGroups = useMemo(() => {
+    if (!groupByProject) return null;
+    return groupSidebarThreadsByProject({
+      threads: activeThreads,
+      projects: projectGroups,
+      isExpanded: (projectKey) => resolveProjectExpanded(projectExpandedById, [projectKey]),
+      needsAttention: (thread) => {
+        const status = resolveSidebarThreadStatus(thread);
+        return status === "approval" || status === "input";
+      },
+      isRouteThread: (thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
+    });
+  }, [activeThreads, groupByProject, projectExpandedById, projectGroups, routeThreadKey]);
+  // Collapsed groups drop their rows here, so jump shortcuts and range
+  // selection follow what is on screen, like the collapsed shelves.
+  const renderedActiveThreads = useMemo(
+    () => activeProjectGroups?.flatMap((group) => group.rendered) ?? activeThreads,
+    [activeProjectGroups, activeThreads],
+  );
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...pinnedThreads,
+      ...renderedActiveThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+    ],
+    [pinnedThreads, renderedActiveThreads, visibleSnoozedThreads, renderedSettledThreads],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -3385,7 +3521,7 @@ export default function Sidebar() {
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
+    const activeRows = rowsOf(renderedActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (snoozedThreads.length > 0) {
@@ -3400,6 +3536,7 @@ export default function Sidebar() {
   }, [
     activeThreads,
     pinnedThreads,
+    renderedActiveThreads,
     renderedSettledThreads,
     settledThreads.length,
     snoozedThreads.length,
@@ -4034,6 +4171,121 @@ export default function Sidebar() {
     ],
   );
 
+  // Bulk actions over the whole settled shelf in the current project scope,
+  // including rows hidden behind "Show more".
+  const runSettledShelfAction = useCallback(
+    async (action: SidebarAction) => {
+      const api = readLocalApi();
+      const threads = settledThreads;
+      if (!api) return;
+      if (threads.length === 0) {
+        // Reachable from the command palette, which can't see the shelf.
+        toastManager.add(stackedThreadToast({ type: "info", title: "No settled threads" }));
+        return;
+      }
+      const count = threads.length;
+      const noun = `settled thread${count === 1 ? "" : "s"}`;
+      if (action === "archive-settled") {
+        if (confirmThreadArchive) {
+          const confirmed = await settlePromise(() =>
+            api.dialogs.confirm(`Archive ${count} ${noun}?`),
+          );
+          if (confirmed._tag === "Failure" || !confirmed.value) return;
+        }
+        const archived: ScopedThreadRef[] = [];
+        let failed = 0;
+        for (const thread of threads) {
+          const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+          const result = await archiveThread(threadRef, { silent: true });
+          if (result._tag === "Success") archived.push(threadRef);
+          else if (isAtomCommandInterrupted(result)) break;
+          else failed += 1;
+        }
+        if (archived.length === 0 && failed === 0) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: failed > 0 ? "warning" : "success",
+            title:
+              failed > 0
+                ? `Archived ${archived.length} of ${count} ${noun}`
+                : `Archived ${archived.length} ${noun}`,
+            description: failed > 0 ? "Running threads can't be archived." : undefined,
+            timeout: 5_000,
+            ...(archived.length > 0
+              ? {
+                  actionProps: {
+                    children: "Undo",
+                    onClick: () => {
+                      for (const threadRef of archived) {
+                        void unarchiveThread(threadRef, { navigate: false });
+                      }
+                    },
+                  },
+                }
+              : {}),
+          }),
+        );
+        return;
+      }
+      // Bulk delete always confirms, whatever confirmThreadDelete says.
+      const confirmed = await settlePromise(() =>
+        api.dialogs.confirm(
+          [
+            `Delete ${count} ${noun}?`,
+            "This permanently clears their conversation history and can't be undone.",
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (confirmed._tag === "Failure" || !confirmed.value) return;
+      const { firstFailure } = await deleteSelectedThreadEntries({
+        entries: threads.map((thread) => ({
+          threadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          thread,
+        })),
+        delete: ({ thread }, deletedThreadKeys) =>
+          deleteThread(scopeThreadRef(thread.environmentId, thread.id), { deletedThreadKeys }),
+      });
+      if (firstFailure !== null) {
+        const firstError = squashAtomCommandFailure(firstFailure);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to delete some settled threads",
+            description: firstError instanceof Error ? firstError.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [archiveThread, confirmThreadArchive, deleteThread, settledThreads, unarchiveThread],
+  );
+  useEffect(
+    () => onSidebarAction((action) => void runSettledShelfAction(action)),
+    [runSettledShelfAction],
+  );
+  const handleSettledShelfMenu = useCallback(
+    (position: { x: number; y: number }) => {
+      void (async () => {
+        const api = readLocalApi();
+        if (!api) return;
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            [
+              { id: "archive-settled", label: "Archive all settled" },
+              { id: "delete-settled", label: "Delete all settled…", destructive: true },
+            ],
+            position,
+          ),
+        );
+        if (clicked._tag === "Failure") return;
+        if (clicked.value === "archive-settled" || clicked.value === "delete-settled") {
+          await runSettledShelfAction(clicked.value);
+        }
+      })();
+    },
+    [runSettledShelfAction],
+  );
+
   const handleThreadContextMenu = useCallback(
     (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
       void (async () => {
@@ -4556,6 +4808,20 @@ export default function Sidebar() {
                         );
                       }}
                     </ComboboxList>
+                    {/* Matches the list's p-1 + item px-2 inset; shrink-0 keeps the
+                        flex-column popup from squeezing it under the list. */}
+                    <label className="mx-1 mb-1 flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-sm border-t border-border px-2 pt-1 text-sm font-medium hover:bg-accent">
+                      <FolderIcon aria-hidden className="size-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">Group by project</span>
+                      <Switch
+                        checked={groupByProject}
+                        onCheckedChange={(checked) =>
+                          void updateClientSettings({
+                            sidebarThreadOrganization: checked ? "by_project" : "flat",
+                          })
+                        }
+                      />
+                    </label>
                   </ComboboxPopup>
                 </Combobox>
               }
@@ -4564,6 +4830,11 @@ export default function Sidebar() {
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
               newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
+              commandPaletteShortcutLabel={shortcutLabelForCommand(
+                keybindings,
+                "commandPalette.toggle",
+              )}
+              onOpenCommandPalette={() => openCommandPalette()}
               showNewThreadInProjectHint={projectGroups.length > 1}
               searchInputRef={threadSearchInputRef}
               searchQuery={threadSearchQuery}
@@ -4758,9 +5029,12 @@ export default function Sidebar() {
                               null
                             }
                             projectDisplayName={
-                              projectDisplayNameByKey.get(
-                                `${thread.environmentId}:${thread.projectId}`,
-                              ) ?? null
+                              // The group header already names the project.
+                              activeProjectGroups !== null && section === "active"
+                                ? null
+                                : (projectDisplayNameByKey.get(
+                                    `${thread.environmentId}:${thread.projectId}`,
+                                  ) ?? null)
                             }
                             providerEntryByInstanceId={
                               providerEntriesByEnvironment.get(thread.environmentId) ??
@@ -4798,7 +5072,13 @@ export default function Sidebar() {
                             key={threadKey}
                             id={threadKey}
                             disabled={
-                              !draggableThreadKeys.has(threadKey) || optimisticDrop !== null
+                              // ponytail: the drag projection only knows section
+                              // markers, so grouped view drops drag; pin/settle stay
+                              // in menus. Teach Sidebar.drag.ts project headers to
+                              // bring it back.
+                              groupByProject ||
+                              !draggableThreadKeys.has(threadKey) ||
+                              optimisticDrop !== null
                             }
                           >
                             {(bag) => renderThreadRowInner(thread, section, bag)}
@@ -4818,6 +5098,8 @@ export default function Sidebar() {
                       ];
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
+                          // Grouped active rows render under their headers below.
+                          if (activeProjectGroups !== null && item.section === "active") continue;
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
                           continue;
                         }
@@ -4861,6 +5143,30 @@ export default function Sidebar() {
                                 isDropTarget={dragTargetSection === "active"}
                               />,
                             );
+                            for (const group of activeProjectGroups ?? []) {
+                              const project = projectByGroupKey.get(group.projectKey) ?? null;
+                              items.push(
+                                <SidebarProjectGroupHeader
+                                  key={`project-group:${group.projectKey}`}
+                                  group={group}
+                                  project={project}
+                                  onToggle={() =>
+                                    setProjectExpanded(group.projectKey, !group.expanded)
+                                  }
+                                  onNewThread={
+                                    project
+                                      ? () =>
+                                          void handleNewThreadRef.current(
+                                            scopeProjectRef(project.environmentId, project.id),
+                                          )
+                                      : null
+                                  }
+                                />,
+                              );
+                              for (const thread of group.rendered) {
+                                items.push(renderThreadRow(thread, "active"));
+                              }
+                            }
                             break;
                           case "snoozed-header":
                             items.push(
@@ -4897,6 +5203,9 @@ export default function Sidebar() {
                                   expanded: settledShelfExpanded,
                                   onToggle: toggleSettledShelf,
                                 }}
+                                onMenu={
+                                  settledThreads.length > 0 ? handleSettledShelfMenu : undefined
+                                }
                               />,
                             );
                             break;

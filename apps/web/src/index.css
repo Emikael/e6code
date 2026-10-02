@@ -585,7 +585,20 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --stage-night-glow-secondary: oklch(0.345571 0.117466 273.568);
     --stage-night-sparkle: oklch(0.880867 0.057747 269.011);
 
+    /* E6 brand: cyan + orange, complementary on the wheel, over charcoal
+       and off-white. Fills and lines use the brand values; the *-ink
+       shades are for small text on light surfaces, where the brand hues
+       fall under AA. */
+    --brand-cyan: #06b6d4;
+    --brand-orange: #f97316;
+    --brand-off-white: #f8fafc;
+    --brand-charcoal: #18181b;
+    --brand-cyan-ink: #0e7490;
+    --brand-orange-ink: #c2410c;
+
     @variant dark {
+      --brand-cyan-ink: var(--brand-cyan);
+      --brand-orange-ink: var(--brand-orange);
       --stage-art-top: oklch(0.581473 0.149124 256.9);
       --stage-art-mid: oklch(0.456509 0.159377 261.945);
       --stage-art-bottom: oklch(0.291327 0.136578 267.649);

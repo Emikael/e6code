@@ -3,18 +3,16 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { APP_VERSION } from "../../branding";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
-import { E6Wordmark } from "../E6Wordmark";
+import { BrandStripe, E6Monogram } from "../E6Monogram";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
-  resolveSidebarStageFocusRingOffsetClass,
-  SidebarStageBackdrop,
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
-import { Badge } from "../ui/badge";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -30,6 +28,11 @@ import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
+/**
+ * The sidebar's title strip: the E6 tile, the name on one line, and a channel
+ * chip for Dev (cyan) and Nightly (orange) builds. The cyan/orange brand
+ * stripe runs along the bottom edge on every channel.
+ */
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
 }: {
@@ -37,14 +40,11 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const backdropVariant = resolveSidebarStageBackdropVariant(
-    stageLabel,
-    environmentIdentificationMode === "artwork",
-  );
-  const pillLabel =
-    environmentIdentificationMode === "pill"
-      ? resolveEnvironmentIdentificationPillLabel(stageLabel)
-      : null;
+  const channel =
+    environmentIdentificationMode === "none"
+      ? null
+      : resolveSidebarStageBackdropVariant(stageLabel);
+  const channelLabel = resolveEnvironmentIdentificationPillLabel(stageLabel);
 
   return (
     <SidebarHeader
@@ -53,53 +53,48 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         isElectron && "drag-region",
       )}
     >
-      {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
-      <SidebarTrigger
-        className={cn(
-          "relative z-10 md:hidden",
-          backdropVariant &&
-            "focus-visible:ring-white/90 [&_svg]:stroke-white/90! [&_svg]:opacity-100! [&_svg]:hover:stroke-white! [:hover,[data-pressed]]:bg-white/15",
-          backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
-        )}
-      />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
+      <SidebarTrigger className="relative z-10 md:hidden" />
+      <SidebarBrand stageLabel={stageLabel} />
+      {channel && channelLabel ? (
+        <span
+          data-environment-identification={channel}
+          className={cn(
+            "relative z-10 ml-2 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[13rem]/sidebar-header:inline-flex",
+            channel === "nightly"
+              ? "bg-(--brand-orange)/14 text-(--brand-orange-ink)"
+              : "bg-(--brand-cyan)/14 text-(--brand-cyan-ink)",
+          )}
         >
-          {pillLabel}
-        </Badge>
+          {channelLabel}
+        </span>
       ) : null}
+      <BrandStripe className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 opacity-90" />
     </SidebarHeader>
   );
 });
 
-function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+function SidebarBrand({ stageLabel }: { stageLabel: string }) {
+  const build = `${stageLabel} ${APP_VERSION}`;
   return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      {/* Center the visible capitals, without the font's ascender/descender space. */}
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-        <E6Wordmark aria-label="E6" className="h-[1cap] w-auto shrink-0" />
-        <span
-          className={cn(
-            "truncate [text-box:trim-both_cap_alphabetic]",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          Code
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            aria-label={`Go to threads. E6 Code ${build}`}
+            className="relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-8 shrink-0 items-center gap-2 rounded-md pr-1 outline-hidden ring-ring focus-visible:ring-2 md:flex"
+            to="/"
+          />
+        }
+      >
+        <E6Monogram className="size-5" />
+        <span className="text-[13px] leading-none font-semibold tracking-[-0.01em] whitespace-nowrap text-foreground">
+          E6 Code
         </span>
-      </span>
-    </Link>
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">
+        <span className="tabular-nums">{build}</span>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

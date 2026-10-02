@@ -41,6 +41,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  ArchiveIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
@@ -56,6 +57,7 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Trash2Icon,
 } from "lucide-react";
 import {
   useCallback,
@@ -76,7 +78,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -111,6 +113,7 @@ import {
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
 import { onOpenCommandPalette } from "../commandPaletteBus";
+import { requestSidebarAction } from "../sidebarActionBus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -695,6 +698,7 @@ function OpenCommandPaletteDialog(props: {
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const clientSettings = useClientSettings();
+  const updateClientSettings = useUpdateClientSettings();
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -2028,6 +2032,42 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:toggle-thread-grouping",
+    searchTerms: ["group", "by project", "one list", "flat", "organize", "sidebar", "folders"],
+    title:
+      clientSettings.sidebarThreadOrganization === "by_project"
+        ? "Sidebar: show threads in one list"
+        : "Sidebar: group threads by project",
+    icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await updateClientSettings({
+        sidebarThreadOrganization:
+          clientSettings.sidebarThreadOrganization === "by_project" ? "flat" : "by_project",
+      });
+    },
+  });
+
+  actionItems.push(
+    {
+      kind: "action",
+      value: "action:archive-settled",
+      searchTerms: ["archive", "settled", "clear", "clean up", "threads", "all"],
+      title: "Archive all settled threads",
+      icon: <ArchiveIcon className={ITEM_ICON_CLASS} />,
+      run: async () => requestSidebarAction("archive-settled"),
+    },
+    {
+      kind: "action",
+      value: "action:delete-settled",
+      searchTerms: ["delete", "remove", "settled", "clear", "clean up", "threads", "all"],
+      title: "Delete all settled threads…",
+      icon: <Trash2Icon className={ITEM_ICON_CLASS} />,
+      run: async () => requestSidebarAction("delete-settled"),
+    },
+  );
 
   actionItems.push({
     kind: "action",

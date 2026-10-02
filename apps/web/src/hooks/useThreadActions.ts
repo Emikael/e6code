@@ -279,7 +279,8 @@ export function useThreadActions() {
   );
 
   const archiveThread = useCallback(
-    async (target: ScopedThreadRef, opts: { onArchived?: () => void } = {}) => {
+    // `silent` skips the per-thread undo toast so bulk callers can show one.
+    async (target: ScopedThreadRef, opts: { onArchived?: () => void; silent?: boolean } = {}) => {
       const resolved = resolveThreadTarget(target);
       if (!resolved) return AsyncResult.success(undefined);
       const { thread, threadRef } = resolved;
@@ -313,14 +314,18 @@ export function useThreadActions() {
       }
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       opts.onArchived?.();
-      showUndoToast({
-        title: "Thread archived",
-        description: thread.title,
-        claim: action,
-        // Undo also brings the reader back when archiving moved them to a draft.
-        undo: () => unarchiveThread(threadRef, { navigate: shouldNavigateToDraft }),
-        failureTitle: "Failed to undo archive",
-      });
+      if (opts.silent) {
+        action.finish();
+      } else {
+        showUndoToast({
+          title: "Thread archived",
+          description: thread.title,
+          claim: action,
+          // Undo also brings the reader back when archiving moved them to a draft.
+          undo: () => unarchiveThread(threadRef, { navigate: shouldNavigateToDraft }),
+          failureTitle: "Failed to undo archive",
+        });
+      }
 
       if (shouldNavigateToDraft) {
         const navigationResult = await settlePromise(() =>

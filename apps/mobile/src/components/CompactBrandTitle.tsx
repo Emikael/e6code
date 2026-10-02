@@ -39,7 +39,7 @@ export function CompactBrandTitle(
       <E6Wordmark colorClassName="accent-icon" height={15} />
       <Text
         allowFontScaling={props.allowFontScaling}
-        className="font-e6-medium text-[21px] tracking-[-0.5px] text-foreground-muted"
+        className="font-e6-medium text-[21px] tracking-[-0.5px] text-foreground"
       >
         Code
       </Text>
