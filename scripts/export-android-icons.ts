@@ -34,12 +34,8 @@ const TEXT = { x: 16, y: 36, width: 95, height: 59 };
 // guaranteed), so 0.48 leaves the letters at ~72% of the mask with room for the
 // launcher's own zoom effects.
 const WORDMARK_FRACTION = 0.48;
-// Icon Composer positions layers on a 1024pt canvas, with translation relative to center.
-const COMPOSER_CANVAS_PT = 1024;
 const SVG_DENSITY = 300;
 const OUTPUT_DIRECTORY = "apps/mobile/assets";
-// Production has no background artwork, so its splash composes onto the adaptive color.
-const PRODUCTION_BACKGROUND_COLOR = "#000000";
 
 export class AndroidIconRenderError extends Schema.TaggedError<AndroidIconRenderError>()(
   "AndroidIconRenderError",
@@ -82,15 +78,6 @@ const composite = (
     catch: (cause) => new AndroidIconRenderError({ layer, cause }),
   });
 
-const solidCanvas = (layer: string, size: number, background: string) =>
-  Effect.tryPromise({
-    try: () =>
-      sharp({ create: { width: size, height: size, channels: 4, background } })
-        .png()
-        .toBuffer(),
-    catch: (cause) => new AndroidIconRenderError({ layer, cause }),
-  });
-
 const readLayerSource = Effect.fn("androidIcons.readLayerSource")(function* (
   repositoryRoot: string,
   variant: IconVariant,
@@ -117,85 +104,15 @@ const renderForeground = Effect.fn("androidIcons.renderForeground")(function* (
   );
 });
 
-const renderDevelopmentBackground = Effect.fn("androidIcons.renderDevelopmentBackground")(
-  function* (repositoryRoot: string, size: number) {
-    // The annotation layer shares the wordmark's coordinate space, so it is scaled and
-    // centered the same way to keep the dimension lines around the letters.
-    const annotations = yield* readLayerSource(repositoryRoot, "dev", "annotations.svg");
-    const defs = annotations.match(/<defs>[\s\S]*?<\/defs>/)?.[0] ?? "";
-    const body = annotations.replace(/^[\s\S]*?<\/defs>/, "").replace(/<\/svg>\s*$/, "");
-    const paper = yield* readLayerSource(repositoryRoot, "dev", "background.svg");
-    const background = yield* rasterize("dev-background", fullBleed(paper), size);
-    const overlay = yield* rasterize(
-      "dev-annotations",
-      canvasSvg(size, `${defs}<g transform="${wordmarkTransform(size)}">${body}</g>`),
-      size,
-    );
-    return yield* composite("dev-background", background, [{ input: overlay }]);
-  },
-);
-
-const renderNightlyBackground = Effect.fn("androidIcons.renderNightlyBackground")(function* (
-  repositoryRoot: string,
-  size: number,
-) {
-  // Positions mirror assets/nightly/app-icon.icon/icon.json. The SVG blur filter is
-  // dropped because Icon Composer ignores it and it smears at this raster size.
-  const clouds = [
-    { file: "cloud-lower-left.svg", scale: 25, translation: [-309.6375, 268.66077693836917] },
-    {
-      file: "cloud-upper-right.svg",
-      scale: 15,
-      translation: [387.9605131881942, -134.30064713259117],
-    },
-  ] as const;
-  const k = size / COMPOSER_CANVAS_PT;
-  const overlays = yield* Effect.forEach(clouds, (cloud) =>
-    Effect.gen(function* () {
-      const width = Math.round(64 * cloud.scale * k);
-      const height = Math.round(32 * cloud.scale * k);
-      const left = Math.round((COMPOSER_CANVAS_PT / 2 + cloud.translation[0]) * k - width / 2);
-      const top = Math.round((COMPOSER_CANVAS_PT / 2 + cloud.translation[1]) * k - height / 2);
-      const source = yield* readLayerSource(repositoryRoot, "nightly", cloud.file);
-      const png = yield* rasterize(
-        cloud.file,
-        source.replace(/ filter="url\(#soft\)"/, ""),
-        width,
-        height,
-      );
-      const x0 = Math.max(0, left);
-      const y0 = Math.max(0, top);
-      const x1 = Math.min(size, left + width);
-      const y1 = Math.min(size, top + height);
-      const clipped = yield* Effect.tryPromise({
-        try: () =>
-          sharp(png)
-            .extract({ left: x0 - left, top: y0 - top, width: x1 - x0, height: y1 - y0 })
-            .png()
-            .toBuffer(),
-        catch: (cause) => new AndroidIconRenderError({ layer: cloud.file, cause }),
-      });
-      return { input: clipped, left: x0, top: y0 };
-    }),
-  );
-  const sky = yield* readLayerSource(repositoryRoot, "nightly", "background.svg");
-  const background = yield* rasterize("nightly-background", fullBleed(sky), size);
-  return yield* composite("nightly-background", background, overlays);
-});
-
+// Every channel's ground (and its brand band) lives in background.svg, which
+// Icon Composer scales past the canvas edge; rasterize it full-bleed here.
 const renderBackground = Effect.fn("androidIcons.renderBackground")(function* (
   repositoryRoot: string,
   variant: IconVariant,
   size: number,
 ) {
-  switch (variant) {
-    case "dev":
-      return yield* renderDevelopmentBackground(repositoryRoot, size);
-    case "nightly":
-      return yield* renderNightlyBackground(repositoryRoot, size);
-    case "prod":
-      return yield* solidCanvas("prod-background", size, PRODUCTION_BACKGROUND_COLOR);
-  }
+  const ground = yield* readLayerSource(repositoryRoot, variant, "background.svg");
+  return yield* rasterize(`${variant}-background`, fullBleed(ground), size);
 });
 
 const renderSplashIcon = Effect.fn("androidIcons.renderSplashIcon")(function* (
@@ -216,11 +133,11 @@ const exportAndroidIcons = Effect.gen(function* () {
     ["android-icon-mark.png", yield* renderForeground(repositoryRoot, ADAPTIVE_CANVAS, 0.65)],
     [
       "android-icon-background-dev.png",
-      yield* renderDevelopmentBackground(repositoryRoot, ADAPTIVE_CANVAS),
+      yield* renderBackground(repositoryRoot, "dev", ADAPTIVE_CANVAS),
     ],
     [
       "android-icon-background-nightly.png",
-      yield* renderNightlyBackground(repositoryRoot, ADAPTIVE_CANVAS),
+      yield* renderBackground(repositoryRoot, "nightly", ADAPTIVE_CANVAS),
     ],
     ["android-splash-icon-dev.png", yield* renderSplashIcon(repositoryRoot, "dev")],
     ["android-splash-icon-nightly.png", yield* renderSplashIcon(repositoryRoot, "nightly")],
