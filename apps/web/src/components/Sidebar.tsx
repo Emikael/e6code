@@ -1646,6 +1646,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {draftIndicator}
             {title}
             {pinIndicator}
+            <ThreadWorktreeIndicator thread={thread} />
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
@@ -1958,7 +1959,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   <MiddleTruncate
                     value={thread.branch}
                     showTitle={false}
-                    className="flex-1 text-muted-foreground/40"
+                    className="flex-1 font-mono text-[11px] text-muted-foreground"
                   />
                 </>
               ) : (
@@ -4707,6 +4708,11 @@ export default function Sidebar() {
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
               newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
+              commandPaletteShortcutLabel={shortcutLabelForCommand(
+                keybindings,
+                "commandPalette.toggle",
+              )}
+              onOpenCommandPalette={() => openCommandPalette()}
               showNewThreadInProjectHint={projectGroups.length > 1}
               searchInputRef={threadSearchInputRef}
               searchQuery={threadSearchQuery}
