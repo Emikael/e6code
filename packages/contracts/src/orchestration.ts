@@ -686,6 +686,11 @@ export const OrchestrationLatestTurn = Schema.Struct({
   completedAt: Schema.NullOr(IsoDateTime),
   assistantMessageId: Schema.NullOr(MessageId),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  // Line totals of this turn's checkpoint, present once it changed files.
+  // Optional so payloads from older servers still decode.
+  diffStat: Schema.optional(
+    Schema.Struct({ insertions: NonNegativeInt, deletions: NonNegativeInt }),
+  ),
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 

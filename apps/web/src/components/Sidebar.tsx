@@ -2044,7 +2044,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {terminalStatusIcon}
               {prBadge}
               {diff ? (
-                <span className="shrink-0 font-mono">
+                <span className="shrink-0 font-mono tabular-nums">
                   <span className="text-diff-addition-foreground">+{diff.insertions}</span>{" "}
                   <span className="text-diff-deletion-foreground">−{diff.deletions}</span>
                 </span>
@@ -2093,10 +2093,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 function latestTurnDiff(
   thread: SidebarThreadSummary,
 ): { insertions: number; deletions: number } | null {
-  // Shells don't carry checkpoint summaries; diff stats render only when the
-  // shell projection grows them. Kept as a seam so the row layout is ready.
-  void thread;
-  return null;
+  // Older servers omit diffStat; the row then shows no stat.
+  return thread.latestTurn?.diffStat ?? null;
 }
 
 const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
