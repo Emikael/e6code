@@ -4808,7 +4808,10 @@ export default function Sidebar() {
                         );
                       }}
                     </ComboboxList>
-                    <label className="flex h-9 cursor-pointer items-center gap-2 border-t border-border px-3 text-sm">
+                    {/* Matches the list's p-1 + item px-2 inset; shrink-0 keeps the
+                        flex-column popup from squeezing it under the list. */}
+                    <label className="mx-1 mb-1 flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-sm border-t border-border px-2 pt-1 text-sm font-medium hover:bg-accent">
+                      <FolderIcon aria-hidden className="size-4 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">Group by project</span>
                       <Switch
                         checked={groupByProject}
