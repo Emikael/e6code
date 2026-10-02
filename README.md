@@ -1,125 +1,166 @@
+<div align="center">
+
+<img src="./assets/prod/black-universal-1024.png" alt="E6 Code" width="96" height="96" />
+
 # E6 Code
 
-E6 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code)), [web app](https://app.e6.codes) and [Electron-based desktop app](https://e6.codes).
+**Every coding agent. One control room.**
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, E6 Code can control them.
+A fast, open-source GUI for coding agents. Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and
+Antigravity side by side with the subscriptions you already have, from your desktop, a browser, or your phone.
 
-## "Wait, what are you selling me?"
+[Website](https://e6.codes) · [Download](https://github.com/emikael/e6code/releases) · [Web app](https://app.e6.codes) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
 
-Nothing. We built E6 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+<img src="./apps/marketing/src/assets/app-desktop.webp" alt="The E6 Code desktop app: a Claude Code thread explaining its change beside the turn's diff" width="100%" />
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+</div>
 
-## Installation
+## Why E6 Code
 
-> [!WARNING]
-> E6 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
+We wanted the best possible development experience with agents. Codex desktop, Conductor, Claude
+Desktop, and Cursor Glass inspired us, but none met our bar. So we built something performant,
+remote-ready, and truly open. If we ever go the wrong direction, you have everything you need to fork
+it and build the editor you want.
+
+**"Wait, what are you selling me?"** Nothing. E6 Code doesn't resell tokens or proxy your keys. It drives
+the provider CLIs already installed on your machine, so your plan, limits, and credentials stay yours.
+
+## What you get
+
+- **Every harness in one place.** Pick Claude Code, Codex, Cursor, Grok Build, OpenCode, or Antigravity per
+  thread. Multiple accounts are supported for [Claude](./docs/user/providers-claude.md) and
+  [Codex](./docs/user/providers-codex.md).
+- **Checkpoints on every turn.** Each turn ends with a hidden git ref, so you can diff exactly what the agent
+  changed and [revert to an earlier prompt](./docs/user/composer.md), files included in worktrees.
+- **Git without the terminal dance.** Commit, push, and open pull requests on GitHub, GitLab, Bitbucket,
+  Azure DevOps, Forgejo, and Gitea. See [source control](./docs/user/source-control.md).
+- **Remote ready.** Keep agents running on one machine and drive them from your phone or any browser, over
+  your LAN, Tailscale, or E6 Connect. See [remote access](./docs/user/remote-access.md).
+- **Jev routing (opt-in).** Classify turns before they reach your provider, so small talk is answered
+  locally and simple questions go out with trimmed context. See [usage](./docs/user/usage.md#route-turns-through-jev).
+- **Built for the keyboard.** A command palette, configurable [keybindings](./docs/user/keybindings.md),
+  an integrated [terminal](./docs/user/terminal.md), and [themes](./docs/user/appearance.md).
+
+## Install
+
+> [!IMPORTANT]
+> Install and sign in to at least one provider first:
 >
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+> | Provider    | Install                                               | Sign in                                                  |
+> | ----------- | ----------------------------------------------------- | -------------------------------------------------------- |
+> | Claude Code | [Claude Code](https://claude.com/product/claude-code) | `claude auth login`                                      |
+> | Codex       | [Codex CLI](https://developers.openai.com/codex/cli)  | `codex login`                                            |
+> | Cursor      | [Cursor CLI](https://cursor.com/cli)                  | `agent login`                                            |
+> | Grok Build  | [Grok Build CLI](https://x.ai/cli)                    | `grok login`                                             |
+> | OpenCode    | [OpenCode](https://opencode.ai)                       | `opencode auth login`                                    |
+> | Antigravity | No CLI needed                                         | **Settings → Install Antigravity → Sign in with Google** |
 
 ### Command line
 
 ```bash
+# macOS / Linux
 curl -fsSL https://e6.codes/install.sh | sh
 ```
 
-On Windows, in PowerShell:
-
 ```powershell
+# Windows (PowerShell)
 irm https://e6.codes/install.ps1 | iex
 ```
 
-Then run `e6` to start the server and open the local web app. `e6 service install` keeps it running in the background, `e6 update` moves to a newer release, and `e6 --help` has the full reference.
+Then run `e6` to start the server and open the local web app.
+
+| Command              | What it does                          |
+| -------------------- | ------------------------------------- |
+| `e6`                 | Start the server and open the web app |
+| `e6 service install` | Keep it running in the background     |
+| `e6 update`          | Move to a newer release               |
+| `e6 --help`          | Full reference                        |
 
 To try it once without installing, run `npx e6@latest`.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/emikael/e6code/releases), or from your favorite package registry:
+Download the latest build from [GitHub Releases](https://github.com/emikael/e6code/releases), or use a
+package manager:
 
-#### Windows (`winget`)
+| Platform                  | Command                         |
+| ------------------------- | ------------------------------- |
+| macOS (Homebrew)          | `brew install --cask e6-code`   |
+| Windows (winget)          | `winget install E6Tools.E6Code` |
+| Arch Linux (AUR, stable)  | `yay -S e6code-bin`             |
+| Arch Linux (AUR, nightly) | `yay -S e6code-nightly-bin`     |
 
-```bash
-winget install E6Tools.E6Code
-```
+The AUR packaging lives in [`packaging/aur`](./packaging/aur).
 
-#### macOS (Homebrew)
+### Mobile
 
-```bash
-brew install --cask e6-code
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S e6code-bin
-```
-
-Nightly:
-
-```bash
-yay -S e6code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+Install the app for [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) or
+[Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code), then pair it with a running
+E6 Code server. See [remote access](./docs/user/remote-access.md).
 
 ## Documentation
 
-Full docs live in [docs/](./docs). There's no docs site yet.
+User guides live in [`docs/user`](./docs/user). There's no docs site yet.
 
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run E6 Code as a background service](./docs/user/background-service.md)
+| Getting started                                                   | Working with agents                                 | Running it                                              |
+| ----------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| [Install and first run](./docs/user/install.md)                   | [Messages and context](./docs/user/composer.md)     | [Remote access](./docs/user/remote-access.md)           |
+| [Welcome wizard](./docs/user/welcome-wizard.md)                   | [Permission modes](./docs/user/permission-modes.md) | [Background service](./docs/user/background-service.md) |
+| [Settings and project overrides](./docs/user/project-settings.md) | [Source control](./docs/user/source-control.md)     | [Updating](./docs/user/updating.md)                     |
+| [Keyboard shortcuts](./docs/user/keybindings.md)                  | [Usage and Jev routing](./docs/user/usage.md)       | [Devices](./docs/user/devices.md)                       |
 
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
+## How it works
 
-## If you REALLY want to contribute still.... read this first
+A Node WebSocket server wraps the provider CLIs and serves the web, desktop, and mobile clients. Clients
+send typed requests, the server turns them into commands, and a pure decider turns commands into persisted
+events. A projector derives the read model the UI renders. Per-provider adapters translate each CLI's native
+protocol into orchestration events.
 
-### Install `vp`
+| Path                      | What lives there                                             |
+| ------------------------- | ------------------------------------------------------------ |
+| `apps/server`             | WebSocket server, orchestration, providers, checkpointing    |
+| `apps/web`                | React/Vite UI, also wrapped by the desktop app               |
+| `apps/desktop`            | Electron shell that bundles the server                       |
+| `apps/mobile`             | React Native app for iOS and Android                         |
+| `apps/marketing`          | The [e6.codes](https://e6.codes) website                     |
+| `packages/contracts`      | Effect/Schema contracts for everything that crosses the wire |
+| `packages/client-runtime` | Client code shared by web and mobile                         |
 
-E6 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
+Start at [docs/internals/overview.md](./docs/internals/overview.md) for the architecture.
 
-#### macOS / Linux
+## Build from source
+
+E6 Code uses [Vite+](https://viteplus.dev/guide/), so you need the global `vp` CLI:
 
 ```bash
+# macOS / Linux
 curl -fsSL https://vite.plus | bash
 ```
 
-#### Windows
-
-```bash
+```powershell
+# Windows
 irm https://vite.plus/ps1 | iex
 ```
 
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
+Then install dependencies and start the server and web app:
 
 ```bash
 vp i
+vp run dev
 ```
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
+The [development runbook](./docs/operations/development.md#first-checkout) covers desktop builds, tests,
+and platform prerequisites.
 
-Have a feature request? Start an [Ideas discussion](https://github.com/emikael/e6code/discussions/categories/ideas).
+## Contributing
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+We're very early, so expect bugs. We're (mostly) not accepting contributions yet: small, focused fixes
+may be considered, but big features won't be.
+
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
+- Feature ideas go in [Ideas discussions](https://github.com/emikael/e6code/discussions/categories/ideas).
+- Report security issues privately through [GitHub security advisories](https://github.com/emikael/e6code/security/advisories/new).
+
+## License
+
+[MIT](./LICENSE)
