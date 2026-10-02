@@ -62,7 +62,7 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 // headers; "flat" keeps one list. Pinned and the shelves are global either way.
 export const SidebarThreadOrganization = Schema.Literals(["by_project", "flat"]);
 export type SidebarThreadOrganization = typeof SidebarThreadOrganization.Type;
-export const DEFAULT_SIDEBAR_THREAD_ORGANIZATION: SidebarThreadOrganization = "by_project";
+const DEFAULT_SIDEBAR_THREAD_ORGANIZATION: SidebarThreadOrganization = "by_project";
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
