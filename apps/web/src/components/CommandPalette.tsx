@@ -41,6 +41,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  ArchiveIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
@@ -56,6 +57,7 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Trash2Icon,
 } from "lucide-react";
 import {
   useCallback,
@@ -111,6 +113,7 @@ import {
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
 import { onOpenCommandPalette } from "../commandPaletteBus";
+import { requestSidebarAction } from "../sidebarActionBus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -2028,6 +2031,25 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  actionItems.push(
+    {
+      kind: "action",
+      value: "action:archive-settled",
+      searchTerms: ["archive", "settled", "clear", "clean up", "threads", "all"],
+      title: "Archive all settled threads",
+      icon: <ArchiveIcon className={ITEM_ICON_CLASS} />,
+      run: async () => requestSidebarAction("archive-settled"),
+    },
+    {
+      kind: "action",
+      value: "action:delete-settled",
+      searchTerms: ["delete", "remove", "settled", "clear", "clean up", "threads", "all"],
+      title: "Delete all settled threads…",
+      icon: <Trash2Icon className={ITEM_ICON_CLASS} />,
+      run: async () => requestSidebarAction("delete-settled"),
+    },
+  );
 
   actionItems.push({
     kind: "action",

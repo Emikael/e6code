@@ -50,6 +50,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
+  EllipsisIcon,
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
@@ -122,6 +123,7 @@ import {
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { onSidebarAction, type SidebarAction } from "../sidebarActionBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -656,8 +658,11 @@ function SidebarSectionHeader(props: {
   dragging?: boolean;
   isDropTarget?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
+  // Shelf-wide actions; opened from the ⋯ button or a right-click on the header.
+  onMenu?: ((position: { x: number; y: number }) => void) | undefined;
 }) {
   const snoozed = props.marker === "snoozed-header";
+  const onMenu = props.onMenu;
   const className = cn(
     "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
     snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
@@ -689,17 +694,39 @@ function SidebarSectionHeader(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("mx-0.5 h-8", props.className)}
+      className={cn("group/shelf mx-0.5 flex h-8 items-center", props.className)}
     >
       <button
         type="button"
         onClick={props.toggle.onToggle}
+        onContextMenu={
+          onMenu
+            ? (event) => {
+                event.preventDefault();
+                onMenu({ x: event.clientX, y: event.clientY });
+              }
+            : undefined
+        }
         aria-expanded={props.toggle.expanded}
         data-testid={`sidebar-${snoozed ? "snoozed" : "settled"}-shelf-toggle`}
-        className={cn(className, "cursor-pointer")}
+        className={cn(className, "min-w-0 cursor-pointer")}
       >
         {content}
       </button>
+      {onMenu ? (
+        <button
+          type="button"
+          aria-label={`${props.label} actions`}
+          data-testid={`sidebar-${snoozed ? "snoozed" : "settled"}-shelf-menu`}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            onMenu({ x: rect.left, y: rect.bottom + 4 });
+          }}
+          className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground/70 opacity-0 outline-hidden ring-ring group-focus-within/shelf:opacity-100 group-hover/shelf:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+        >
+          <EllipsisIcon aria-hidden className="size-3.5" />
+        </button>
+      ) : null}
     </SortableSidebarMarker>
   );
 }
@@ -2170,6 +2197,7 @@ export default function Sidebar() {
     reorderPinnedThread,
     reorderActiveThread,
     archiveThread,
+    unarchiveThread,
     deleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -4034,6 +4062,121 @@ export default function Sidebar() {
     ],
   );
 
+  // Bulk actions over the whole settled shelf in the current project scope,
+  // including rows hidden behind "Show more".
+  const runSettledShelfAction = useCallback(
+    async (action: SidebarAction) => {
+      const api = readLocalApi();
+      const threads = settledThreads;
+      if (!api) return;
+      if (threads.length === 0) {
+        // Reachable from the command palette, which can't see the shelf.
+        toastManager.add(stackedThreadToast({ type: "info", title: "No settled threads" }));
+        return;
+      }
+      const count = threads.length;
+      const noun = `settled thread${count === 1 ? "" : "s"}`;
+      if (action === "archive-settled") {
+        if (confirmThreadArchive) {
+          const confirmed = await settlePromise(() =>
+            api.dialogs.confirm(`Archive ${count} ${noun}?`),
+          );
+          if (confirmed._tag === "Failure" || !confirmed.value) return;
+        }
+        const archived: ScopedThreadRef[] = [];
+        let failed = 0;
+        for (const thread of threads) {
+          const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+          const result = await archiveThread(threadRef, { silent: true });
+          if (result._tag === "Success") archived.push(threadRef);
+          else if (isAtomCommandInterrupted(result)) break;
+          else failed += 1;
+        }
+        if (archived.length === 0 && failed === 0) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: failed > 0 ? "warning" : "success",
+            title:
+              failed > 0
+                ? `Archived ${archived.length} of ${count} ${noun}`
+                : `Archived ${archived.length} ${noun}`,
+            description: failed > 0 ? "Running threads can't be archived." : undefined,
+            timeout: 5_000,
+            ...(archived.length > 0
+              ? {
+                  actionProps: {
+                    children: "Undo",
+                    onClick: () => {
+                      for (const threadRef of archived) {
+                        void unarchiveThread(threadRef, { navigate: false });
+                      }
+                    },
+                  },
+                }
+              : {}),
+          }),
+        );
+        return;
+      }
+      // Bulk delete always confirms, whatever confirmThreadDelete says.
+      const confirmed = await settlePromise(() =>
+        api.dialogs.confirm(
+          [
+            `Delete ${count} ${noun}?`,
+            "This permanently clears their conversation history and can't be undone.",
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (confirmed._tag === "Failure" || !confirmed.value) return;
+      const { firstFailure } = await deleteSelectedThreadEntries({
+        entries: threads.map((thread) => ({
+          threadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          thread,
+        })),
+        delete: ({ thread }, deletedThreadKeys) =>
+          deleteThread(scopeThreadRef(thread.environmentId, thread.id), { deletedThreadKeys }),
+      });
+      if (firstFailure !== null) {
+        const firstError = squashAtomCommandFailure(firstFailure);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to delete some settled threads",
+            description: firstError instanceof Error ? firstError.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [archiveThread, confirmThreadArchive, deleteThread, settledThreads, unarchiveThread],
+  );
+  useEffect(
+    () => onSidebarAction((action) => void runSettledShelfAction(action)),
+    [runSettledShelfAction],
+  );
+  const handleSettledShelfMenu = useCallback(
+    (position: { x: number; y: number }) => {
+      void (async () => {
+        const api = readLocalApi();
+        if (!api) return;
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            [
+              { id: "archive-settled", label: "Archive all settled" },
+              { id: "delete-settled", label: "Delete all settled…", destructive: true },
+            ],
+            position,
+          ),
+        );
+        if (clicked._tag === "Failure") return;
+        if (clicked.value === "archive-settled" || clicked.value === "delete-settled") {
+          await runSettledShelfAction(clicked.value);
+        }
+      })();
+    },
+    [runSettledShelfAction],
+  );
+
   const handleThreadContextMenu = useCallback(
     (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
       void (async () => {
@@ -4897,6 +5040,9 @@ export default function Sidebar() {
                                   expanded: settledShelfExpanded,
                                   onToggle: toggleSettledShelf,
                                 }}
+                                onMenu={
+                                  settledThreads.length > 0 ? handleSettledShelfMenu : undefined
+                                }
                               />,
                             );
                             break;
