@@ -5,388 +5,408 @@ import Layout from "../layouts/Layout.astro";
 import {
   ANDROID_PLAY_STORE_URL,
   GITHUB_REPOSITORY_URL,
+  INSTALL_COMMANDS,
   IOS_APP_STORE_URL,
-  MARKETING_STATS,
 } from "../lib/site";
-import { tweets } from "../lib/tweets";
 
 const screenshot = await getImage({
   src: desktopScreenshot,
-  widths: [864, 1180, 1728, 2360],
+  widths: [864, 1180],
   format: "webp",
   quality: 90,
 });
 
-const desktopEndorsementRows = [
-  tweets.filter((_, index) => index % 2 === 0),
-  tweets.filter((_, index) => index % 2 === 1),
+// Sign-in steps mirror the README and docs/user/providers-*.md.
+const agents = [
+  {
+    key: "claude",
+    name: "Claude Code",
+    icon: "/harnesses/claude-ai-icon.svg",
+    command: "claude auth login",
+    note: "Separate accounts per configuration, compaction for long threads, and OpenRouter-compatible routing.",
+  },
+  {
+    key: "codex",
+    name: "Codex",
+    icon: "/harnesses/openai_dark.svg",
+    command: "codex login",
+    note: "The Codex CLI you already signed into. E6 Code drives it and leaves your plan alone.",
+  },
+  {
+    key: "cursor",
+    name: "Cursor",
+    icon: "/harnesses/cursor_light.svg",
+    command: "agent login",
+    note: "Cursor's CLI agent, running on the machine that owns your workspace.",
+  },
+  {
+    key: "grok",
+    name: "Grok Build",
+    icon: "/harnesses/grok-dark.svg",
+    command: "grok login",
+    note: "xAI's Grok Build CLI, in the same threads, diffs, and checkpoints as everything else.",
+  },
+  {
+    key: "opencode",
+    name: "OpenCode",
+    icon: "/harnesses/opencode-dark.svg",
+    command: "opencode auth login",
+    note: "Use a local or external OpenCode server, with approvals surfaced in the thread.",
+  },
+  {
+    key: "antigravity",
+    name: "Antigravity",
+    icon: "/harnesses/antigravity.png",
+    command: "Settings → Install Antigravity",
+    note: "No CLI required. Install it from Settings and sign in with Google, even from a remote device.",
+  },
 ];
 
-const mobileEndorsementRows = [
-  tweets.filter((_, index) => index % 3 === 0),
-  tweets.filter((_, index) => index % 3 === 1),
-  tweets.filter((_, index) => index % 3 === 2),
+const routes = [
+  {
+    key: "local",
+    prompt: "thanks, that fixed it!",
+    verdict: "Answered locally",
+    detail: "Small talk never wakes your provider. Zero provider tokens.",
+  },
+  {
+    key: "trim",
+    prompt: "what does this regex match?",
+    verdict: "Trimmed context",
+    detail: "A straightforward question goes to your agent with less context attached.",
+  },
+  {
+    key: "full",
+    prompt: "migrate the auth middleware to Effect",
+    verdict: "Full turn",
+    detail: "Real work gets the whole thread, exactly as if routing were off.",
+  },
 ];
+
+const connections = [
+  {
+    key: "lan",
+    label: "Same network",
+    command: "e6 serve --host <private-ip>",
+    detail: "Enable Network access in Settings → Connections, then scan a one-time pairing link from your phone.",
+  },
+  {
+    key: "tailscale",
+    label: "Tailscale",
+    command: "e6 serve --tailscale-serve",
+    detail: "HTTPS across your tailnet. Both devices join the tailnet, then pair once.",
+  },
+  {
+    key: "connect",
+    label: "E6 Connect",
+    command: "e6 connect",
+    detail: "No port forwarding. Sign in on the host and on your other device, then choose the environment.",
+  },
+];
+
+const turns = [
+  { n: 1, title: "Scaffold settings panel", files: 4, add: 212, del: 0 },
+  { n: 2, title: "Wire panel to contracts", files: 3, add: 64, del: 18 },
+  { n: 3, title: "Fix stale label on reconnect", files: 1, add: 9, del: 5 },
+  { n: 4, title: "Add focused tests", files: 2, add: 88, del: 2 },
+];
+
+const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gitea"];
 ---
 
 <Layout>
   <!-- ── Hero ──────────────────────────────────────────────────── -->
   <section class="hero">
-    <div class="hero-grid" aria-hidden="true"></div>
-
-    <div class="hero-float" aria-hidden="true">
-      {[
-        { key: "opencode", icon: "/harnesses/opencode-dark.svg", cls: "hf-opencode" },
-        { key: "antigravity", icon: "/harnesses/antigravity.png", cls: "hf-antigravity" },
-        { key: "claude", icon: "/harnesses/claude-ai-icon.svg", cls: "hf-claude" },
-        { key: "codex", icon: "/harnesses/openai_dark.svg", cls: "hf-codex" },
-        { key: "grok", icon: "/harnesses/grok-dark.svg", cls: "hf-grok" },
-        { key: "cursor", icon: "/harnesses/cursor_light.svg", cls: "hf-cursor" },
-      ].map((m) => (
-        <span class:list={["hero-float-mark", m.cls]}>
-          <span class="hero-float-card"><img src={m.icon} alt="" /></span>
-        </span>
-      ))}
-    </div>
+    <div class="hero-scan" aria-hidden="true"></div>
 
     <div class="container hero-inner">
-      <h1 class="hero-title display">
-        <span data-rise>The open-source</span><br /><span data-rise style="--d:90ms">control plane</span><br /><span data-rise style="--d:180ms">for coding agents.</span>
-      </h1>
+      <div class="hero-copy">
+        <p class="hero-signal" data-rise>
+          <span class="signal-dot" data-motion aria-hidden="true"></span>
+          6 agents · 3 surfaces · 0 tokens resold
+        </p>
 
-      <p class="hero-sub" data-rise style="--d:300ms">
-        Orchestrate Claude Code, Codex, Antigravity, OpenCode, Cursor, and Grok from one surface.
-        Bring your own subscription. Fork the whole thing.
-      </p>
+        <h1 class="hero-title">
+          <span data-rise style="--d:80ms">Every coding agent.</span>
+          <span data-rise style="--d:170ms" class="chrome-text">One control room.</span>
+        </h1>
 
-      <div class="hero-actions" data-rise style="--d:400ms">
-        <a
-          id="download-btn"
-          href="https://github.com/emikael/e6code/releases"
-          class="btn btn-primary btn-lg"
-        >
-          <svg class="dl-icon dl-icon--apple" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 814 1000" aria-hidden="true"><path fill="currentColor" d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg>
-          <svg class="dl-icon dl-icon--windows" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 88" aria-hidden="true"><path fill="currentColor" d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"/></svg>
-          <svg class="dl-icon dl-icon--linux" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"/></svg>
-          <span id="download-label">Download for macOS</span>
-        </a>
-        <a class="hero-source-link" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">
-          <svg class="hero-source-mark" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 015.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"/>
-          </svg>
-          <span>Steal our code (legally)</span>
-          <svg class="hero-source-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
-        </a>
-        <p class="hero-mobile-line">
-          Also on your phone:
+        <p class="hero-sub" data-rise style="--d:280ms">
+          E6 Code runs Claude Code, Codex, Cursor, Grok, OpenCode, and Antigravity side by
+          side, on your machine, with the subscriptions you already pay for. Drive it from
+          the desktop, a browser, or your phone.
+        </p>
+
+        <div class="hero-actions" data-rise style="--d:380ms">
+          <a id="download-btn" href="https://github.com/emikael/e6code/releases" class="btn btn-primary btn-lg">
+            <span class="dl-icon dl-icon--apple" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 814 1000"><path fill="currentColor" d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg></span>
+            <span class="dl-icon dl-icon--windows" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 88"><path fill="currentColor" d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"/></svg></span>
+            <span class="dl-icon dl-icon--linux" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></svg></span>
+            <span id="download-label">Download for macOS</span>
+          </a>
+          <a class="btn btn-ghost btn-lg" href="/download">All platforms</a>
+        </div>
+
+        <p class="hero-mobile-line" data-rise style="--d:460ms">
+          Also in your pocket:
           <a href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS</a>
           <span aria-hidden="true">·</span>
           <a href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android</a>
         </p>
       </div>
 
-      <!-- The rise wrapper is separate so its animated transform does not override the preview tilt. -->
-      <div data-rise style="--d:520ms">
-        <div class="hero-preview">
-          <figure class="hero-screenshot-frame">
-            <picture>
-              <!-- Match the hidden mobile layout without requesting a screenshot. -->
-              <source
-                media="(max-width: 820px)"
-                srcset="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-              />
-              <img
-                src={desktopScreenshot.src}
-                srcset={`${screenshot.srcSet.attribute}, ${desktopScreenshot.src} ${desktopScreenshot.width}w`}
-                sizes="(max-width: 960px) min(864px, calc(100vw - 20px)), min(1180px, calc(100vw - 60px))"
-                alt="E6 Code with a settled thread beside its pull request diff"
-                width={desktopScreenshot.width}
-                height={desktopScreenshot.height}
-                loading="eager"
-                decoding="async"
-              />
-            </picture>
-          </figure>
+      <div class="term install" data-rise style="--d:420ms">
+        <div class="term-head">
+          <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="seg" role="tablist" aria-label="Install command">
+            <button type="button" role="tab" class="seg-btn" data-install="unix" aria-selected="true">macOS · Linux</button>
+            <button type="button" role="tab" class="seg-btn" data-install="windows" aria-selected="false" tabindex="-1">Windows</button>
+          </div>
+        </div>
+        <div class="term-body">
+          <div class="install-line">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code id="install-command" data-unix={INSTALL_COMMANDS.unix} data-windows={INSTALL_COMMANDS.windows}>{INSTALL_COMMANDS.unix}</code>
+            <button type="button" class="copy-btn" id="install-copy" aria-label="Copy install command">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <div class="dim"><span class="prompt" aria-hidden="true">$</span> e6</div>
+          <div class="dim">→ server up, web app opens in your browser</div>
+          <div class="dim"><span class="prompt" aria-hidden="true">$</span> e6 service install <span class="faint"># keep it running</span></div>
+          <div class="cursor-line"><span class="prompt" aria-hidden="true">$</span><span class="caret" data-motion></span></div>
         </div>
       </div>
     </div>
-  </section>
 
-  <!-- ── Endorsements ─────────────────────────────────────────── -->
-  <section id="endorsements" class="sec-endorsements" aria-labelledby="endorsements-title">
-    <div class="container">
-      <div class="endorsements-head">
-        <h2 id="endorsements-title">Tolerated by over <span class="endorsements-count">{MARKETING_STATS.users}</span> devs</h2>
-        <p>Some of them even tweeted about it.</p>
-      </div>
-    </div>
-
-    <div class="endorsement-carousel endorsement-carousel--desktop" aria-label="Developer endorsements">
-        {
-          desktopEndorsementRows.map((row, rowIndex) => (
-            <div class:list={["endorsement-row", rowIndex === 1 && "is-reverse"]}>
-              <div class="endorsement-track">
-                {[0, 1].map((groupIndex) => (
-                  <div class="endorsement-track-group" aria-hidden={groupIndex === 1 ? "true" : undefined}>
-                    {row.map((tweet) => (
-                      <a
-                        class="endorsement-card"
-                        href={tweet.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`Read ${tweet.handle}'s post on X`}
-                        tabindex={groupIndex === 1 ? "-1" : undefined}
-                      >
-                        <div class="endorsement-author">
-                          <img
-                            src={`/pfps/${tweet.handle}.webp`}
-                            alt=""
-                            width="28"
-                            height="28"
-                            loading="lazy"
-                            decoding="async"
-                          />
-                          <div class="endorsement-handle">@{tweet.handle}</div>
-                        </div>
-                        <p>{tweet.excerpt ?? tweet.content}</p>
-                      </a>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
-        }
-    </div>
-
-    <div class="endorsement-carousel endorsement-carousel--mobile" aria-label="Developer endorsements">
-        {
-          mobileEndorsementRows.map((row, rowIndex) => (
-            <div class:list={["endorsement-row", rowIndex === 1 && "is-reverse"]}>
-              <div class="endorsement-track">
-                {[0, 1].map((groupIndex) => (
-                  <div class="endorsement-track-group" aria-hidden={groupIndex === 1 ? "true" : undefined}>
-                    {row.map((tweet) => (
-                      <a
-                        class="endorsement-card"
-                        href={tweet.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`Read ${tweet.handle}'s post on X`}
-                        tabindex={groupIndex === 1 ? "-1" : undefined}
-                      >
-                        <div class="endorsement-author">
-                          <img
-                            src={`/pfps/${tweet.handle}.webp`}
-                            alt=""
-                            width="28"
-                            height="28"
-                            loading="lazy"
-                            decoding="async"
-                          />
-                          <div class="endorsement-handle">@{tweet.handle}</div>
-                        </div>
-                        <p>{tweet.excerpt ?? tweet.content}</p>
-                      </a>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
-        }
+    <div class="container" data-rise style="--d:560ms">
+      <figure class="shot">
+        <img
+          src={desktopScreenshot.src}
+          srcset={`${screenshot.srcSet.attribute}, ${desktopScreenshot.src} ${desktopScreenshot.width}w`}
+          sizes="(max-width: 1240px) calc(100vw - 40px), 1176px"
+          alt="The E6 Code desktop app: a Claude Code thread explaining its retry change beside the turn's diff"
+          width={desktopScreenshot.width}
+          height={desktopScreenshot.height}
+          loading="eager"
+          decoding="async"
+        />
+      </figure>
     </div>
   </section>
 
-  <!-- ── Harnesses ─────────────────────────────────────────────── -->
-  <section id="harnesses" class="sec-harness">
-    <div class="container">
+  <!-- ── Agents ─────────────────────────────────────────────────── -->
+  <section id="agents" class="sec">
+    <div class="container split">
       <div class="section-head">
-        <h2>Bring your own sub</h2>
+        <p class="eyebrow"><span class="idx">01</span> Bring your own subscription</p>
+        <h2>Sign in where you already do. We take it from there.</h2>
         <p>
-          E6 Code doesn't resell tokens. Plug in Claude Code, Codex, Antigravity,
-          OpenCode, Cursor, or Grok with the credentials you already have. We
-          orchestrate them, you keep your plan.
+          E6 Code doesn't resell tokens or proxy your keys. It drives the provider CLIs
+          installed on your machine, so your plan, limits, and credentials stay yours.
+          Pick a harness per thread.
         </p>
       </div>
 
-      <div class="harness-grid">
-        <div class="harness">
-          <div class="harness-mark"><img src="/harnesses/claude-ai-icon.svg" alt="" /></div>
-          <div class="harness-meta">
-            <div class="harness-name">Claude Code</div>
-            <div class="harness-tag">claude auth login</div>
-          </div>
+      <div class="agent-console">
+        <div class="agent-rail" role="tablist" aria-label="Providers" aria-orientation="vertical">
+          {agents.map((agent, index) => (
+            <button
+              type="button"
+              role="tab"
+              class="agent-tab"
+              id={`agent-tab-${agent.key}`}
+              aria-controls="agent-panel"
+              aria-selected={index === 0 ? "true" : "false"}
+              tabindex={index === 0 ? "0" : "-1"}
+              data-command={agent.command}
+              data-note={agent.note}
+              data-name={agent.name}
+            >
+              <span class:list={["agent-mark", agent.key === "antigravity" && "agent-mark--fill"]}><img src={agent.icon} alt="" width="20" height="20" /></span>
+              <span>{agent.name}</span>
+            </button>
+          ))}
         </div>
-        <div class="harness">
-          <div class="harness-mark"><img src="/harnesses/openai_dark.svg" alt="" /></div>
-          <div class="harness-meta">
-            <div class="harness-name">Codex CLI</div>
-            <div class="harness-tag">codex login</div>
-          </div>
-        </div>
-        <div class="harness">
-          <div class="harness-mark"><img src="/harnesses/opencode-dark.svg" alt="" /></div>
-          <div class="harness-meta">
-            <div class="harness-name">OpenCode</div>
-            <div class="harness-tag">opencode auth</div>
-          </div>
-        </div>
-        <div class="harness">
-          <div class="harness-mark"><img src="/harnesses/cursor_light.svg" alt="" /></div>
-          <div class="harness-meta">
-            <div class="harness-name">Cursor</div>
-            <div class="harness-tag">cursor-agent</div>
-          </div>
-        </div>
-        <div class="harness">
-          <div class="harness-mark"><img src="/harnesses/grok-dark.svg" alt="" /></div>
-          <div class="harness-meta">
-            <div class="harness-name">Grok CLI</div>
-            <div class="harness-tag">grok login</div>
-          </div>
-        </div>
-        <div class="harness">
-          <div class="harness-mark"><img src="/harnesses/antigravity.png" alt="" /></div>
-          <div class="harness-meta">
-            <div class="harness-name">Antigravity</div>
-            <div class="harness-tag">Google sign-in</div>
-          </div>
-        </div>
-      </div>
 
-      <div class="harness-footer">
-        <div class="harness-footer-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> No keys resold. No quota caps.</div>
-        <div class="harness-footer-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> Switch models mid-thread.</div>
-        <div class="harness-footer-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> More harnesses shipping weekly.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Git ──────────────────────────────────────────────────── -->
-  <section id="git" class="sec-git">
-    <div class="container git-inner">
-      <div
-        class="git-visual"
-        role="img"
-        aria-label="Illustration of the E6 Code Git workflow: review a diff, commit and push changes, and open a pull request."
-      >
-        <div class="pr-card tile">
-          <div class="pr-head">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 8v8M18 8v5a3 3 0 01-3 3h-3M13 13l-2 3 2 3"/></svg>
-            <span class="pr-title">Add marketing hero animation</span>
-            <span class="pr-status">Ready</span>
+        <div class="term agent-panel" id="agent-panel" role="tabpanel" aria-labelledby={`agent-tab-${agents[0]!.key}`}>
+          <div class="term-head">
+            <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="term-title">~/work · <span id="agent-name">{agents[0]!.name}</span></span>
           </div>
-          <div class="pr-meta">
-            <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 8v8M6 12a6 6 0 006-6h6"/></svg> feat/marketing-hero → main</span>
-            <span>+142 −38</span>
-            <span>3 commits</span>
+          <div class="term-body">
+            <div><span class="prompt" aria-hidden="true">$</span> <span id="agent-command">{agents[0]!.command}</span></div>
+            <div class="ok-line" id="agent-ok">✓ Signed in. E6 Code picks it up on the next scan.</div>
+            <p class="agent-note" id="agent-note">{agents[0]!.note}</p>
           </div>
-          <div class="pr-files">
-            <div><code>apps/marketing/src/pages/index.astro</code> <span>+14 −2</span></div>
-            <div><code>apps/marketing/src/layouts/Layout.astro</code> <span>+8 −0</span></div>
-            <div><code>apps/marketing/public/hero.css</code> <span>+120 −36</span></div>
-          </div>
-          <div class="pr-foot">
-            <span class="btn btn-ghost" style="font-size:12px;padding:6px 10px">View diff</span>
-            <span class="btn btn-primary" style="font-size:12px;padding:6px 12px">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 015.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
-              Open pull request
-            </span>
-          </div>
-        </div>
-        <div class="pr-trail">
-          <div class="pr-trail-dot"></div>
-          <div class="pr-trail-line"></div>
-          <div class="pr-trail-dot"></div>
-        </div>
-        <div class="pr-button-shell">
-          <span class="pr-button">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 8v8M18 8v5a3 3 0 01-3 3h-3M13 13l-2 3 2 3"/></svg>
-            Commit &amp; push
-            <span id="pr-button-kbd" class="pr-button-kbd">⌘⏎</span>
-          </span>
-        </div>
-      </div>
-
-      <div class="git-copy">
-        <div class="section-head" style="margin-bottom:0">
-          <h2>One button to commit, push, and make a PR.</h2>
-          <p>
-            Every agent thread writes to its own branch. When it's good, one
-            button opens the PR on GitHub with a generated title, body and
-            changelog. No terminal dance required.
-          </p>
-          <ul class="checklist" style="margin-top:24px">
-            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> Auto-generated PR titles &amp; bodies</li>
-            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> Inline diff review before you push</li>
-            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> Draft PRs, stack PRs, amend PRs</li>
-            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg> Works with your existing GitHub auth</li>
-          </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ── Open source ───────────────────────────────────────────── -->
-  <section id="open" class="sec-open">
+  <!-- ── Routing ────────────────────────────────────────────────── -->
+  <section id="routing" class="sec sec-routing">
     <div class="container">
-      <div class="section-head open-head">
-        <div class="eyebrow">Open source</div>
-        <h2>If you don't like something, fork it.</h2>
+      <div class="section-head">
+        <p class="eyebrow"><span class="idx">02</span> Jev routing · opt-in</p>
+        <h2>Not every message deserves a frontier model.</h2>
+        <p>
+          Turn on Jev routing and each turn is classified before it reaches your agent.
+          Greetings and quick lookups get answered without calling your provider, and simple
+          questions go out with trimmed context. Try a message:
+        </p>
       </div>
 
-      <div class="open-grid">
-        <div class="tile open-term">
-          <div class="open-term-head">
-            <span></span><span></span><span></span>
-            <span class="open-term-title">~/code</span>
+      <div class="router" id="router" data-route="">
+        <div class="router-prompts" role="group" aria-label="Sample messages">
+          {routes.map((route) => (
+            <button type="button" class="router-chip" data-route-key={route.key} data-verdict={route.verdict} data-detail={route.detail} aria-pressed="false">
+              <span class="prompt" aria-hidden="true">›</span> {route.prompt}
+            </button>
+          ))}
+        </div>
+
+        <svg class="router-graph" viewBox="0 0 640 220" role="img" aria-label="A message enters Jev, which sends it to one of three outlets: answered locally, trimmed context to your agent, or the full turn to your agent.">
+          <path class="wire wire-in" d="M20 110 H250" />
+          <path class="wire wire-local" d="M330 110 C 400 110, 410 40, 470 40 H 620" />
+          <path class="wire wire-trim" d="M330 110 H 620" />
+          <path class="wire wire-full" d="M330 110 C 400 110, 410 180, 470 180 H 620" />
+          <rect class="router-node" x="250" y="82" width="80" height="56" rx="12" />
+          <text class="router-node-label" x="290" y="116" text-anchor="middle">Jev</text>
+          <text class="outlet outlet-local" x="620" y="28" text-anchor="end">answered locally</text>
+          <text class="outlet outlet-trim" x="620" y="98" text-anchor="end">trimmed → your agent</text>
+          <text class="outlet outlet-full" x="620" y="168" text-anchor="end">full turn → your agent</text>
+        </svg>
+
+        <div class="router-readout" aria-live="polite">
+          <strong id="router-verdict">Pick a message</strong>
+          <span id="router-detail">See where it would go.</span>
+        </div>
+      </div>
+
+      <ul class="facts">
+        <li><b>$0.042</b> per million input tokens, metered per call</li>
+        <li><b>Usage</b> shows avoided provider calls next to Jev cost</li>
+        <li><b>Your key</b> stays on your server. Turn content goes to the Jev API</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ── Remote ─────────────────────────────────────────────────── -->
+  <section id="remote" class="sec">
+    <div class="container split split--reverse">
+      <div class="section-head">
+        <p class="eyebrow"><span class="idx">03</span> Remote ready</p>
+        <h2>Your agents keep working. You don't have to sit there.</h2>
+        <p>
+          The server lives on the machine with your code. Phones, browsers, and other
+          desktops connect to it over your network, your tailnet, or E6 Connect. With two or
+          more machines connected, new threads can balance across them.
+        </p>
+        <p class="store-line">
+          <a class="btn btn-ghost" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS app</a>
+          <a class="btn btn-ghost" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android app</a>
+        </p>
+      </div>
+
+      <div class="remote" id="remote-visual" data-mode="lan">
+        <div class="seg remote-seg" role="tablist" aria-label="Connection mode">
+          {connections.map((mode, index) => (
+            <button
+              type="button"
+              role="tab"
+              class="seg-btn"
+              data-mode={mode.key}
+              data-command={mode.command}
+              data-detail={mode.detail}
+              aria-selected={index === 0 ? "true" : "false"}
+              tabindex={index === 0 ? "0" : "-1"}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        <div class="remote-map" aria-hidden="true">
+          <div class="device device-host">
+            <span class="device-kind">host</span>
+            <span class="device-name">workstation</span>
+            <span class="device-meta"><span class="signal-dot"></span>3 threads running</span>
           </div>
-          <div class="open-term-body">
-            <div><span class="prompt">$</span> gh repo fork emikael/e6code --clone</div>
-            <div class="dim">✓ Cloned e6code into ./e6code</div>
-            <div><span class="prompt">$</span> cd e6code &amp;&amp; vp install</div>
-            <div class="dim">✓ 1 284 packages installed in 4.2s</div>
-            <div><span class="prompt">$</span> vp run dev</div>
-            <div class="dim">▲ E6 Code dev server → <span class="accent">http://localhost:4001</span></div>
-            <div class="cursor"><span class="prompt">$</span><span class="caret"></span></div>
+          <svg class="remote-links" viewBox="0 0 300 200" preserveAspectRatio="none">
+            <path d="M0 100 C 120 100, 150 30, 300 30" />
+            <path d="M0 100 H 300" />
+            <path d="M0 100 C 120 100, 150 170, 300 170" />
+          </svg>
+          <div class="device-stack">
+            <div class="device"><span class="device-kind">phone</span><span class="device-name">iPhone</span></div>
+            <div class="device"><span class="device-kind">browser</span><span class="device-name">any laptop</span></div>
+            <div class="device"><span class="device-kind">desktop</span><span class="device-name">second Mac</span></div>
           </div>
         </div>
 
-        <div class="tile open-pitch">
-          <div class="open-pitch-copy">
-            <ul class="open-pitch-list">
-              <li>
-                <span class="open-pitch-mark" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
-                <span><strong>Change the UI.</strong> Restyle every surface to match your taste.</span>
-              </li>
-              <li>
-                <span class="open-pitch-mark" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
-                <span><strong>Add an agent.</strong> Wire in your own tools, models, and flows.</span>
-              </li>
-              <li>
-                <span class="open-pitch-mark" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
-                <span><strong>Ship your own build.</strong> Self-host it or distribute it as your own.</span>
-              </li>
-            </ul>
+        <div class="term remote-term">
+          <div class="term-body">
+            <div><span class="prompt" aria-hidden="true">$</span> <span id="remote-command">{connections[0]!.command}</span></div>
+            <p class="agent-note" id="remote-detail" aria-live="polite">{connections[0]!.detail}</p>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-          <div class="open-pitch-footer">
-            <div class="open-pitch-meta">
-              <span>MIT licensed</span>
-              <span aria-hidden="true">·</span>
-              <span>{MARKETING_STATS.githubStars} stars</span>
+  <!-- ── Checkpoints & Git ──────────────────────────────────────── -->
+  <section id="git" class="sec">
+    <div class="container split">
+      <div class="section-head">
+        <p class="eyebrow"><span class="idx">04</span> Checkpoints &amp; Git</p>
+        <h2>Every turn is a checkpoint. Every thread can be a PR.</h2>
+        <p>
+          Each turn ends with a hidden git ref, so you can diff exactly what the agent changed
+          and rewind when it wanders. Edit an earlier prompt to revert the thread, files
+          included in worktrees. When it's right, commit, push, and open the pull request
+          without leaving the thread.
+        </p>
+        <ul class="hosts" aria-label="Supported source control hosts">
+          {hosts.map((host) => <li>{host}</li>)}
+        </ul>
+      </div>
+
+      <div class="timeline" id="timeline">
+        <div class="timeline-turns" role="tablist" aria-label="Turns">
+          {turns.map((turn) => (
+            <button
+              type="button"
+              role="tab"
+              class="turn"
+              aria-selected={turn.n === turns.length ? "true" : "false"}
+              tabindex={turn.n === turns.length ? "0" : "-1"}
+              data-title={turn.title}
+              data-files={turn.files}
+              data-add={turn.add}
+              data-del={turn.del}
+              data-n={turn.n}
+            >
+              <span class="turn-dot" aria-hidden="true"></span>
+              <span>Turn {turn.n}</span>
+            </button>
+          ))}
+        </div>
+        <div class="term turn-card" aria-live="polite">
+          <div class="term-body">
+            <div class="turn-card-title" id="turn-title">{turns.at(-1)!.title}</div>
+            <div class="turn-card-meta">
+              <span id="turn-files">{turns.at(-1)!.files} files</span>
+              <span class="add" id="turn-add">+{turns.at(-1)!.add}</span>
+              <span class="del" id="turn-del">−{turns.at(-1)!.del}</span>
             </div>
-
-            <div class="open-pitch-actions">
-              <a class="btn btn-primary" href="https://github.com/emikael/e6code/fork" target="_blank" rel="noopener noreferrer">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.2"/><circle cx="18" cy="5" r="2.2"/><circle cx="12" cy="19" r="2.2"/><path d="M6 7.2v2A3 3 0 009 12.2h6A3 3 0 0018 9.2v-2M12 14v2.8"/></svg>
-                Fork on GitHub
-              </a>
-              <a class="open-source-link" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">
-                Browse source
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
-              </a>
+            <div class="turn-card-actions">
+              <span class="pill" id="turn-action">Latest checkpoint</span>
+              <span class="pill pill--primary">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 8v8M18 8v5a3 3 0 01-3 3h-3"/></svg>
+                Commit, push &amp; open PR
+              </span>
             </div>
           </div>
         </div>
@@ -394,22 +414,47 @@ const mobileEndorsementRows = [
     </div>
   </section>
 
-  <!-- ── Final CTA ─────────────────────────────────────────────── -->
-  <section id="download" class="sec-cta">
-    <div class="container cta-inner">
-      <h2 class="display cta-title">
-        Your agents deserve better than a terminal.
-      </h2>
-      <p class="cta-sub">
-        E6 Code is free, open source and fast. Install it, plug in the harness
-        you already pay for, and let your agents get to work.
-      </p>
-      <div class="cta-actions">
-        <a id="cta-download-btn" class="btn btn-primary btn-lg" href="https://github.com/emikael/e6code/releases">
-          <svg class="dl-icon dl-icon--apple" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 814 1000" aria-hidden="true"><path fill="currentColor" d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg>
-          <svg class="dl-icon dl-icon--windows" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 88" aria-hidden="true"><path fill="currentColor" d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"/></svg>
-          <svg class="dl-icon dl-icon--linux" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"/></svg>
+  <!-- ── Open source ────────────────────────────────────────────── -->
+  <section id="open" class="sec">
+    <div class="container split split--reverse">
+      <div class="section-head">
+        <p class="eyebrow"><span class="idx">05</span> Open at the core</p>
+        <h2>Don't like a decision? Fork it.</h2>
+        <p>
+          E6 Code is MIT licensed and built in the open. Restyle every surface, wire in your
+          own agent, or ship your own build. If we ever head the wrong way, you already have
+          everything you need.
+        </p>
+        <p class="store-line">
+          <a class="btn btn-primary" href={`${GITHUB_REPOSITORY_URL}/fork`} target="_blank" rel="noopener noreferrer">Fork on GitHub</a>
+          <a class="btn btn-ghost" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">Browse source</a>
+        </p>
+      </div>
 
+      <div class="term">
+        <div class="term-head">
+          <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="term-title">~/code</span>
+        </div>
+        <div class="term-body">
+          <div><span class="prompt" aria-hidden="true">$</span> gh repo fork emikael/e6code --clone</div>
+          <div class="dim">✓ Cloned into ./e6code</div>
+          <div><span class="prompt" aria-hidden="true">$</span> cd e6code &amp;&amp; vp i</div>
+          <div class="dim">✓ Dependencies installed</div>
+          <div><span class="prompt" aria-hidden="true">$</span> vp run dev</div>
+          <div class="dim">▲ server + web running · <span class="accent">your fork, your rules</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Final CTA ──────────────────────────────────────────────── -->
+  <section id="download" class="sec sec-cta">
+    <div class="container cta-inner">
+      <h2 class="cta-title">Your agents deserve<br /><span class="chrome-text">better than a terminal.</span></h2>
+      <p class="cta-sub">Free and open source. Install it, plug in the harness you already pay for, and get back to the work only you can do.</p>
+      <div class="hero-actions cta-actions">
+        <a id="cta-download-btn" class="btn btn-primary btn-lg" href="https://github.com/emikael/e6code/releases">
           <span id="cta-download-label">Download for macOS</span>
         </a>
         <a class="btn btn-ghost btn-lg" href="/download">Windows · Linux · other</a>
@@ -449,184 +494,397 @@ const mobileEndorsementRows = [
     return null;
   }
 
-  async function init() {
-    const btn = document.getElementById("download-btn") as HTMLAnchorElement | null;
-    const label = document.getElementById("download-label");
-    const ctaBtn = document.getElementById("cta-download-btn") as HTMLAnchorElement | null;
-    const ctaLabel = document.getElementById("cta-download-label");
-    const kbd = document.getElementById("pr-button-kbd");
+  const byId = <T extends HTMLElement = HTMLElement>(id: string) =>
+    document.getElementById(id) as T | null;
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-    const platform = detectPlatform();
-    if (!platform) return;
-    document.documentElement.dataset.platform = platform.os;
-    if (label) label.textContent = platform.label;
-    if (ctaLabel) ctaLabel.textContent = platform.label;
-    if (kbd && platform.os !== "mac") kbd.textContent = "Ctrl ⏎";
-
+  async function initDownload(platform: Platform) {
+    const buttons = [byId<HTMLAnchorElement>("download-btn"), byId<HTMLAnchorElement>("cta-download-btn")];
+    for (const label of [byId("download-label"), byId("cta-download-label")]) {
+      if (label) label.textContent = platform.label;
+    }
     try {
       const release = await fetchLatestRelease();
       const url = pickAsset(release.assets ?? [], platform);
-      if (url) {
-        if (btn) {
-          btn.href = url;
-          btn.removeAttribute("target");
-          btn.removeAttribute("rel");
-        }
-        if (ctaBtn) {
-          ctaBtn.href = url;
-          ctaBtn.removeAttribute("target");
-          ctaBtn.removeAttribute("rel");
-        }
-      }
+      if (!url) return;
+      for (const btn of buttons) if (btn) btn.href = url;
     } catch {
-      if (btn) btn.href = RELEASES_URL;
-      if (ctaBtn) ctaBtn.href = RELEASES_URL;
+      for (const btn of buttons) if (btn) btn.href = RELEASES_URL;
     }
   }
 
-  init();
-
-  const hero = document.querySelector<HTMLElement>(".hero");
-  const field = document.querySelector<HTMLElement>(".hero-float");
-  const tracks = Array.from(document.querySelectorAll<HTMLElement>(".endorsement-track"));
-  const caret = document.querySelector<HTMLElement>(".caret");
-  if (hero && field && caret) {
-    startHomeMotion({ hero, field, tracks, caret });
+  /** Wires a tab group: click or arrow keys select, `onSelect` renders the panel. */
+  function tabs(buttons: HTMLElement[], onSelect: (button: HTMLElement) => void) {
+    const select = (button: HTMLElement, focus = false) => {
+      for (const b of buttons) {
+        const on = b === button;
+        b.setAttribute("aria-selected", String(on));
+        b.tabIndex = on ? 0 : -1;
+      }
+      if (focus) button.focus();
+      onSelect(button);
+    };
+    const steps: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+    for (const button of buttons) {
+      button.addEventListener("click", () => select(button));
+      button.addEventListener("keydown", (event) => {
+        const step = steps[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const next = buttons[(buttons.indexOf(button) + step + buttons.length) % buttons.length];
+        if (next) select(next, true);
+      });
+    }
+    return select;
   }
+
+  // Retypes a short string so switching providers reads like a live terminal.
+  let typing: number | undefined;
+  function typeInto(element: HTMLElement, text: string, done: () => void) {
+    window.clearInterval(typing);
+    if (reducedMotion.matches) {
+      element.textContent = text;
+      done();
+      return;
+    }
+    let i = 0;
+    element.textContent = "";
+    typing = window.setInterval(() => {
+      element.textContent = text.slice(0, ++i);
+      if (i >= text.length) {
+        window.clearInterval(typing);
+        done();
+      }
+    }, 22);
+  }
+
+  function initInstall(platform: Platform | null) {
+    const code = byId("install-command");
+    const copy = byId("install-copy");
+    if (!code || !copy) return;
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>("[data-install]"));
+    const select = tabs(buttons, (button) => {
+      code.textContent = button.dataset.install === "windows" ? code.dataset.windows! : code.dataset.unix!;
+    });
+    if (platform?.os === "win" && buttons[1]) select(buttons[1]);
+
+    const label = copy.querySelector(".copy-label")!;
+    let reset: number | undefined;
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? "");
+        label.textContent = "Copied";
+      } catch {
+        label.textContent = "Select it";
+      }
+      window.clearTimeout(reset);
+      reset = window.setTimeout(() => (label.textContent = "Copy"), 1600);
+    });
+  }
+
+  function initAgents() {
+    const command = byId("agent-command");
+    const note = byId("agent-note");
+    const name = byId("agent-name");
+    const ok = byId("agent-ok");
+    const panel = byId("agent-panel");
+    if (!command || !note || !name || !ok || !panel) return;
+    ok.classList.add("is-shown");
+    tabs(Array.from(document.querySelectorAll<HTMLElement>(".agent-tab")), (button) => {
+      panel.setAttribute("aria-labelledby", button.id);
+      name.textContent = button.dataset.name ?? "";
+      note.textContent = button.dataset.note ?? "";
+      ok.classList.remove("is-shown");
+      typeInto(command, button.dataset.command ?? "", () => ok.classList.add("is-shown"));
+    });
+  }
+
+  function initRouter() {
+    const router = byId("router");
+    const verdict = byId("router-verdict");
+    const detail = byId("router-detail");
+    if (!router || !verdict || !detail) return;
+    const chips = Array.from(router.querySelectorAll<HTMLElement>(".router-chip"));
+    for (const chip of chips) {
+      chip.addEventListener("click", () => {
+        for (const c of chips) c.setAttribute("aria-pressed", String(c === chip));
+        // Clearing first lets the one-shot trace replay on repeat clicks.
+        router.dataset.route = "";
+        void router.offsetWidth;
+        router.dataset.route = chip.dataset.routeKey ?? "";
+        verdict.textContent = chip.dataset.verdict ?? "";
+        detail.textContent = chip.dataset.detail ?? "";
+      });
+    }
+  }
+
+  function initRemote() {
+    const visual = byId("remote-visual");
+    const command = byId("remote-command");
+    const detail = byId("remote-detail");
+    if (!visual || !command || !detail) return;
+    tabs(Array.from(visual.querySelectorAll<HTMLElement>("button[data-mode]")), (button) => {
+      visual.dataset.mode = button.dataset.mode ?? "";
+      command.textContent = button.dataset.command ?? "";
+      detail.textContent = button.dataset.detail ?? "";
+    });
+  }
+
+  function initTimeline() {
+    const timeline = byId("timeline");
+    const title = byId("turn-title");
+    const files = byId("turn-files");
+    const add = byId("turn-add");
+    const del = byId("turn-del");
+    const action = byId("turn-action");
+    if (!timeline || !title || !files || !add || !del || !action) return;
+    const buttons = Array.from(timeline.querySelectorAll<HTMLElement>(".turn"));
+    tabs(buttons, (button) => {
+      const { title: t, files: f, add: a, del: d, n } = button.dataset;
+      title.textContent = t ?? "";
+      files.textContent = `${f} file${f === "1" ? "" : "s"}`;
+      add.textContent = `+${a}`;
+      del.textContent = `−${d}`;
+      action.textContent = Number(n) === buttons.length ? "Latest checkpoint" : `Rewind to turn ${n}`;
+      timeline.style.setProperty("--progress", String((Number(n) - 1) / (buttons.length - 1)));
+    });
+  }
+
+  const platform = detectPlatform();
+  if (platform) {
+    document.documentElement.dataset.platform = platform.os;
+    void initDownload(platform);
+  }
+  initInstall(platform);
+  initAgents();
+  initRouter();
+  initRemote();
+  initTimeline();
+  startHomeMotion(Array.from(document.querySelectorAll<HTMLElement>("[data-motion]")));
 </script>
 
 <style>
-  /* ── Section base ─────────────────────────────────────────── */
-  section {
+  /* ── Base ─────────────────────────────────────────────────── */
+  .sec {
     position: relative;
-    padding: 96px 0;
+    padding: 112px 0;
     border-top: 1px solid var(--border);
   }
 
   .section-head {
-    margin-bottom: 56px;
-    max-width: 720px;
+    max-width: 560px;
   }
 
   .section-head .eyebrow {
-    margin-bottom: 14px;
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
   }
 
-  .section-head h2 {
-    font-size: clamp(32px, 4vw, 48px);
+  .idx {
+    color: var(--accent);
+  }
+
+  .section-head h2,
+  .cta-title {
+    font-family: var(--font-mono);
     font-weight: 500;
-    letter-spacing: -0.035em;
-    line-height: 1.05;
-    margin-bottom: 18px;
+    font-size: clamp(28px, 3.4vw, 42px);
+    letter-spacing: -0.045em;
+    line-height: 1.08;
+    margin-bottom: 20px;
+    text-wrap: balance;
   }
 
   .section-head p {
     color: var(--fg-muted);
-    font-size: 18px;
-    max-width: 620px;
-    letter-spacing: -0.005em;
+    font-size: 17px;
+    line-height: 1.6;
   }
 
-  .checklist {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  .chrome-text {
+    background: var(--chrome);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
-  .checklist li {
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    gap: 64px;
+    align-items: center;
+  }
+
+  .split--reverse > :first-child {
+    order: 2;
+  }
+
+  .prompt {
+    color: var(--accent);
+    margin-right: 8px;
+  }
+
+  .dim { color: var(--fg-dim); }
+  .faint { color: var(--fg-faint); }
+  .accent { color: var(--accent); }
+
+  .signal-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* Only gated dots pulse; the rest stay still. */
+  .signal-dot[data-motion] {
+    animation: signal 2.4s ease-out infinite;
+    animation-play-state: var(--home-motion-state, paused);
+  }
+
+  @keyframes signal {
+    0% { box-shadow: 0 0 0 0 oklch(0.82 0.15 72 / 0.5); }
+    70%, 100% { box-shadow: 0 0 0 8px oklch(0.82 0.15 72 / 0); }
+  }
+
+  /* ── Terminal card ────────────────────────────────────────── */
+  .term {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, #121215, #0c0c0e);
+    box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .term-head {
     display: flex;
     align-items: center;
-    gap: 10px;
-    color: var(--fg-muted);
-    font-size: 15px;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
   }
 
-  .checklist li svg {
-    color: var(--ok);
-    flex-shrink: 0;
+  .term-lights {
+    display: inline-flex;
+    gap: 6px;
+  }
+
+  .term-lights i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #27272a;
+  }
+
+  .term-title {
+    color: var(--fg-dim);
+    font-size: 12px;
+  }
+
+  .term-body {
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    line-height: 1.6;
+  }
+
+  .seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .seg-btn {
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-dim);
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .seg-btn:hover { color: var(--fg); }
+
+  .seg-btn[aria-selected="true"] {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   /* ── Hero ─────────────────────────────────────────────────── */
   .hero {
-    padding: 72px 0 60px;
     position: relative;
+    padding: 88px 0 96px;
     overflow: hidden;
-    border-top: 0;
   }
 
-  .hero-grid {
+  /* Static scanlines and a chrome glow; nothing here repaints. */
+  .hero-scan {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 48px 48px;
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 40%, transparent 100%);
-    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 40%, transparent 100%);
+    background:
+      radial-gradient(ellipse 60% 50% at 70% 10%, rgba(255, 255, 255, 0.07), transparent 70%),
+      radial-gradient(ellipse 40% 35% at 15% 30%, oklch(0.82 0.15 72 / 0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 4px);
+    mask-image: linear-gradient(180deg, black 50%, transparent 95%);
+    -webkit-mask-image: linear-gradient(180deg, black 50%, transparent 95%);
   }
 
   .hero-inner {
     position: relative;
-    text-align: center;
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 56px;
+    align-items: end;
+    margin-bottom: 72px;
+  }
+
+  .hero-signal {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-muted);
+    background: rgba(255, 255, 255, 0.02);
   }
 
   .hero-title {
-    font-size: clamp(38px, 5.6vw, 76px);
-    margin: 48px auto 22px;
-    max-width: 20ch;
-    text-wrap: balance;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: clamp(34px, 4.3vw, 58px);
+    letter-spacing: -0.055em;
+    line-height: 1.02;
+    margin: 28px 0 24px;
   }
-  /* Inline boxes ignore transforms, so each rising line needs its own block. */
-  .hero-title span { display: inline-block; }
+
+  .hero-title span { display: block; }
 
   .hero-sub {
     color: var(--fg-muted);
-    font-size: clamp(16px, 1.4vw, 19px);
-    max-width: 640px;
-    margin: 0 auto 36px;
-    letter-spacing: -0.005em;
-    line-height: 1.55;
+    font-size: clamp(16px, 1.35vw, 18px);
+    line-height: 1.6;
+    max-width: 560px;
+    margin-bottom: 32px;
   }
 
   .hero-actions {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 56px;
-  }
-
-  .hero-source-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--fg-muted);
-    font-size: 14px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    transition: color 0.18s ease;
-  }
-
-  .hero-source-link:hover {
-    color: var(--fg);
-  }
-
-  .hero-source-mark {
-    flex-shrink: 0;
-  }
-
-  .hero-source-arrow {
-    flex-shrink: 0;
-    opacity: 0.6;
-    transition: transform 0.18s ease, opacity 0.18s ease;
-  }
-
-  .hero-source-link:hover .hero-source-arrow {
-    transform: translate(2px, -2px);
-    opacity: 1;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
   }
 
   .hero-mobile-line {
@@ -635,7 +893,6 @@ const mobileEndorsementRows = [
     gap: 6px;
     color: var(--fg-dim);
     font-size: 13px;
-    letter-spacing: -0.005em;
   }
 
   .hero-mobile-line a {
@@ -643,15 +900,10 @@ const mobileEndorsementRows = [
     text-decoration: underline;
     text-decoration-color: rgba(161, 161, 170, 0.4);
     text-underline-offset: 3px;
-    transition: color 0.18s ease, text-decoration-color 0.18s ease;
   }
 
-  .hero-mobile-line a:hover {
-    color: var(--fg);
-    text-decoration-color: var(--fg);
-  }
+  .hero-mobile-line a:hover { color: var(--fg); }
 
-  /* Download button icons (platform-aware) */
   .dl-icon {
     display: none;
     width: 14px;
@@ -659,663 +911,548 @@ const mobileEndorsementRows = [
     flex-shrink: 0;
   }
 
-  :global([data-platform="mac"]) .dl-icon--apple { display: block; }
-  :global([data-platform="win"]) .dl-icon--windows { display: block; }
-  :global([data-platform="linux"]) .dl-icon--linux { display: block; }
+  .dl-icon svg { width: 100%; height: 100%; }
+
+  :global([data-platform="mac"]) .dl-icon--apple,
+  :global([data-platform="win"]) .dl-icon--windows,
+  :global([data-platform="linux"]) .dl-icon--linux,
   :global(html:not([data-platform])) .dl-icon--apple { display: block; }
 
-  /* Marks enter once, then drift while visible and lean toward the pointer. */
-  .hero-float {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 1;
-    --px: 0px;
-    --py: 0px;
-  }
-
-  .hero-float-mark {
-    position: absolute;
-    left: calc(50% + var(--x));
-    top: var(--y);
-    width: var(--s);
-    height: var(--s);
-    margin-left: calc(var(--s) / -2);
-    translate: calc(var(--px) * var(--depth)) calc(var(--py) * var(--depth));
-    transition: translate var(--parallax-duration, 0s) cubic-bezier(0.2, 0.7, 0.2, 1);
-  }
-
-  .hero-float-card {
-    display: grid;
-    place-items: center;
-    width: 100%;
-    height: 100%;
-    border-radius: 25%;
-    background: radial-gradient(circle at 30% 25%, var(--tint, rgba(255, 255, 255, 0.08)), rgba(20, 20, 24, 0.92) 65%);
-    border: 1px solid var(--border);
-    box-shadow:
-      0 20px 48px -16px rgba(0, 0, 0, 0.65),
-      0 2px 0 0 rgba(255, 255, 255, 0.04) inset;
-    animation:
-      mark-in 1s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d) both,
-      mark-drift var(--dur) ease-in-out calc(var(--d) + 1s) infinite;
-    animation-play-state: running, var(--home-motion-state, paused);
-  }
-
-  .hero-float-card img {
-    width: 56%;
-    height: 56%;
-    display: block;
-    object-fit: contain;
-  }
-
-  /* The Antigravity icon ships with its own rounded dark tile, so it fills the
-     card edge to edge instead of sitting inside it. */
-  .hf-antigravity .hero-float-card { background: #0d0d10; border-color: rgba(255, 255, 255, 0.1); }
-  .hf-antigravity .hero-float-card img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
-
-  @keyframes mark-in {
-    from { opacity: 0; transform: translate(var(--fx), var(--fy)) rotate(calc(var(--rot) + 24deg)) scale(0.6); }
-    to { opacity: 1; transform: translate(0, 0) rotate(var(--rot)) scale(1); }
-  }
-  @keyframes mark-drift {
-    0%, 100% { transform: translate(0, 0) rotate(var(--rot)); }
-    50% { transform: translate(var(--dx), var(--dy)) rotate(calc(var(--rot) + var(--wob))); }
-  }
-
-  .hf-opencode    { --x: max(-300px, -19vw); --y: 20px; --s: 64px; --rot: 6deg; --depth: 0.6; --d: 620ms; --dur: 8.5s; --dx: 2px; --dy: -8px; --wob: 3deg; --fx: -40px; --fy: -80px; }
-  .hf-antigravity { --x: min(300px, 19vw); --y: 20px; --s: 64px; --rot: -5deg; --depth: 0.6; --d: 580ms; --dur: 9.8s; --dx: -2px; --dy: -9px; --wob: -3deg; --fx: 40px; --fy: -80px; }
-  .hf-claude   { --x: max(-560px, -38vw); --y: 128px; --s: 96px; --rot: -8deg; --depth: 1.2; --d: 380ms; --dur: 10.5s; --dx: 4px; --dy: -12px; --wob: -2deg; --fx: -160px; --fy: -40px; --tint: rgba(217, 119, 87, 0.22); }
-  .hf-codex    { --x: min(560px, 38vw); --y: 128px; --s: 96px; --rot: 7deg; --depth: 1.2; --d: 460ms; --dur: 9.2s; --dx: -4px; --dy: -10px; --wob: 2deg; --fx: 160px; --fy: -40px; }
-  .hf-grok     { --x: max(-440px, -30vw); --y: 440px; --s: 80px; --rot: 4deg; --depth: 0.9; --d: 540ms; --dur: 11.5s; --dx: 3px; --dy: -9px; --wob: -3deg; --fx: -120px; --fy: 80px; }
-  .hf-cursor   { --x: min(440px, 30vw); --y: 440px; --s: 80px; --rot: -5deg; --depth: 0.9; --d: 700ms; --dur: 7.8s; --dx: -3px; --dy: -11px; --wob: 3deg; --fx: 120px; --fy: 80px; }
-
-  @media (prefers-reduced-motion: reduce) {
-    .hero-float-card { animation: none; transform: rotate(var(--rot)); }
-    .hero-float-mark { translate: none; transition: none; }
-  }
-
-  @media (max-width: 1180px) {
-    .hf-claude, .hf-codex { --s: 80px; }
-    .hf-grok, .hf-cursor { --s: 68px; --y: 420px; }
-  }
-
-  @media (max-width: 820px) {
-    .hero {
-      padding-top: 132px;
-    }
-
-    .hero-title {
-      font-size: clamp(40px, 11vw, 56px);
-      margin-top: 14px;
-    }
-
-    .hero-actions {
-      margin-bottom: 96px;
-    }
-
-    /* Four above the headline, two beside the CTA. Keeps the copy clear. */
-    .hf-claude      { --x: -37vw; --y: 44px; --s: 64px; --rot: -10deg; }
-    .hf-opencode    { --x: -12vw; --y: 52px; --s: 56px; --rot: -4deg; }
-    .hf-antigravity { --x: 12vw; --y: 52px; --s: 56px; --rot: 5deg; }
-    .hf-codex       { --x: 37vw; --y: 44px; --s: 64px; --rot: 8deg; }
-    .hf-grok     { --x: -36vw; --y: 474px; --s: 64px; --rot: -6deg; }
-    .hf-cursor   { --x: 36vw; --y: 474px; --s: 64px; --rot: 7deg; }
-  }
-
-  @media (max-width: 340px) {
-    .hf-opencode, .hf-antigravity, .hf-grok, .hf-cursor { --s: 48px; }
-    .hf-grok, .hf-cursor { --y: 580px; }
-  }
-
-  .hero-preview {
-    max-width: 1180px;
-    margin: 0 auto;
-    transform: perspective(2000px) rotateX(2deg);
-    transition: transform 0.6s ease;
-  }
-
-  .hero-preview:hover {
-    transform: perspective(2000px) rotateX(0deg);
-  }
-
-  .hero-screenshot-frame {
-    position: relative;
-    overflow: hidden;
-    aspect-ratio: 2880 / 1800;
-    border-radius: 14px;
-    background: #0a0a0c;
-    box-shadow: 0 28px 64px -28px rgba(0, 0, 0, 0.75);
-  }
-
-  .hero-screenshot-frame picture {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-  .hero-screenshot-frame img {
-    width: calc(100% + 4px);
-    height: calc(100% + 4px);
-    margin: -2px;
-    object-fit: cover;
-    object-position: center top;
-  }
-
-  /* ── Harnesses ─────────────────────────────────────────── */
-  .sec-harness { background: #09090b; }
-
-  .harness-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-  }
-
-  .harness {
-    padding: 22px 20px;
-    display: flex; align-items: center; gap: 14px;
-    border-right: 1px solid var(--border);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent);
-    transition: background 0.2s ease;
-  }
-  .harness:last-child { border-right: 0; }
-  .harness:hover { background: rgba(255, 255, 255, 0.025); }
-
-  .harness-mark {
-    color: var(--fg); opacity: 0.95;
-    flex-shrink: 0; width: 28px; height: 28px;
-    display: grid; place-items: center;
-  }
-  .harness-mark img { width: 22px; height: 22px; object-fit: contain; border-radius: 5px; }
-
-  .harness-meta { flex: 1; min-width: 0; }
-  .harness-name {
-    font-size: 14px; font-weight: 500;
-    letter-spacing: -0.01em; margin-bottom: 2px;
-  }
-  .harness-tag {
-    font-family: var(--font-mono);
-    font-size: 11px; color: var(--fg-dim);
-  }
-
-  .harness-footer {
-    display: flex; gap: 24px; flex-wrap: wrap;
-    margin-top: 28px; padding-top: 24px;
-    border-top: 1px dashed var(--border);
-    font-size: 13px; color: var(--fg-muted);
-  }
-  .harness-footer-item {
-    display: inline-flex; gap: 8px; align-items: center;
-    color: var(--fg-muted);
-  }
-  .harness-footer-item svg { color: var(--ok); }
-
-  /* ── Endorsements ─────────────────────────────────────── */
-  .sec-endorsements {
-    overflow: hidden;
-  }
-
-  .endorsements-head {
-    max-width: 720px;
-    margin-bottom: 56px;
-  }
-
-  .endorsements-head h2 {
-    font-size: clamp(32px, 4vw, 48px);
-    font-weight: 500;
-    letter-spacing: -0.035em;
-    line-height: 1.05;
-    margin-bottom: 18px;
-  }
-
-  .endorsements-count {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .endorsements-head p {
-    color: var(--fg-muted);
-    font-size: 18px;
-    max-width: 620px;
-    letter-spacing: -0.005em;
-  }
-
-  /* Two marquee rows scrolling in opposite directions. Each track holds the
-     row twice so a -50% translate loops seamlessly. The animation only runs
-     while a track is on screen (see homeMotion), and pauses on hover/focus. */
-  .endorsement-carousel {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .endorsement-carousel--mobile {
-    display: none;
-  }
-
-  .endorsement-carousel::before,
-  .endorsement-carousel::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    z-index: 2;
-    width: max(48px, calc((100vw - 1240px) / 2 + 56px));
-    pointer-events: none;
-  }
-
-  .endorsement-carousel::before {
-    left: 0;
-    background: linear-gradient(90deg, var(--bg), transparent);
-  }
-
-  .endorsement-carousel::after {
-    right: 0;
-    background: linear-gradient(270deg, var(--bg), transparent);
-  }
-
-  .endorsement-row {
-    overflow: hidden;
-  }
-
-  .endorsement-track {
-    width: max-content;
-    display: flex;
-    animation: endorsementMarquee 76s linear infinite;
-    animation-play-state: var(--home-motion-state, paused);
-    will-change: transform;
-  }
-
-  .endorsement-track-group {
-    display: flex;
-    gap: 12px;
-    padding-right: 12px;
-  }
-
-  .endorsement-row.is-reverse .endorsement-track {
-    animation-direction: reverse;
-    animation-duration: 84s;
-  }
-
-  .endorsement-carousel:hover .endorsement-track,
-  .endorsement-carousel:focus-within .endorsement-track {
-    animation-play-state: paused;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .endorsement-track { animation: none; }
-  }
-
-  @keyframes endorsementMarquee {
-    from { transform: translateX(0); }
-    to { transform: translateX(-50%); }
-  }
-
-  .endorsement-card {
-    position: relative;
-    width: clamp(264px, 22vw, 308px);
-    height: 132px;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.012);
-    transition:
-      border-color 0.18s ease,
-      background 0.18s ease;
-  }
-
-  .endorsement-card:hover {
-    border-color: var(--border-strong);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .endorsement-author {
+  .install-line {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-width: 0;
+    padding: 10px 10px 10px 12px;
+    margin: -4px -6px 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.35);
   }
 
-  .endorsement-author img {
+  .install-line code {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    color: var(--fg);
+    font-family: inherit;
+    scrollbar-width: none;
+  }
+
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .copy-btn:hover { color: var(--fg); border-color: var(--border-strong); }
+
+  .cursor-line { display: flex; align-items: center; }
+
+  .caret {
+    width: 8px;
+    height: 16px;
+    background: var(--accent);
+    animation: blink 1.1s steps(1) infinite;
+    animation-play-state: var(--home-motion-state, paused);
+  }
+
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .shot {
+    position: relative;
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0a0a0c;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.6),
+      0 60px 120px -40px rgba(0, 0, 0, 0.9);
+  }
+
+  .shot img {
+    width: 100%;
+    height: auto;
+  }
+
+  /* ── Agents ───────────────────────────────────────────────── */
+  .agent-console {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .agent-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .agent-tab {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    font-size: 14px;
+    color: var(--fg-muted);
+    text-align: left;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .agent-tab:hover { color: var(--fg); background: rgba(255, 255, 255, 0.025); }
+
+  .agent-tab[aria-selected="true"] {
+    color: var(--fg);
+    border-color: var(--border-strong);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .agent-mark {
     width: 28px;
     height: 28px;
-    border-radius: 50%;
-    object-fit: cover;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: #141417;
     flex-shrink: 0;
   }
 
-  .endorsement-handle {
+  .agent-mark img { width: 16px; height: 16px; object-fit: contain; }
+  .agent-mark--fill { overflow: hidden; }
+  .agent-mark--fill img { width: 100%; height: 100%; object-fit: cover; }
+
+  .agent-panel .term-body { min-height: 196px; }
+
+  .ok-line {
+    color: var(--ok);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+
+  .ok-line:global(.is-shown) { opacity: 1; transform: none; }
+
+  .agent-note {
+    margin-top: 10px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+    font-family: var(--font-sans);
+    font-size: 14px;
     color: var(--fg-muted);
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.55;
   }
 
-  .endorsement-card p {
-    color: var(--fg);
-    font-size: 13.5px;
-    line-height: 1.4;
-    letter-spacing: -0.003em;
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-  }
+  /* ── Routing ──────────────────────────────────────────────── */
+  .sec-routing .section-head { max-width: 680px; margin-bottom: 48px; }
 
-  /* ── Git ──────────────────────────────────────────────── */
-  .git-inner {
+  .router {
     display: grid;
-    grid-template-columns: 1.1fr 1fr;
-    gap: 64px; align-items: center;
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+    gap: 20px 40px;
+    align-items: center;
+    padding: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(ellipse 50% 70% at 50% 50%, rgba(255, 255, 255, 0.03), transparent),
+      #0b0b0d;
   }
 
-  .git-visual {
-    position: relative;
-    display: flex; flex-direction: column;
-    align-items: stretch; gap: 20px;
+  .router-prompts {
+    grid-row: span 2;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
-  .git-visual .btn {
-    line-height: normal;
-    pointer-events: none;
-  }
-
-  .pr-card { padding: 20px; }
-  .pr-head {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 12px;
-  }
-  .pr-head svg { color: var(--ok); }
-  .pr-title { font-weight: 500; font-size: 15px; flex: 1; }
-  .pr-status {
-    font-family: var(--font-mono); font-size: 10px;
-    color: var(--ok); padding: 2px 8px;
-    border: 1px solid var(--ok); border-radius: 999px;
-    letter-spacing: 0.08em; text-transform: uppercase;
-  }
-  .pr-meta {
-    display: flex; gap: 14px;
-    font-family: var(--font-mono); font-size: 11px;
-    color: var(--fg-dim); margin-bottom: 14px; flex-wrap: wrap;
-  }
-  .pr-meta span { display: inline-flex; align-items: center; gap: 5px; }
-  .pr-files {
-    border: 1px solid var(--border); border-radius: 8px;
-    overflow: hidden; margin-bottom: 16px;
-  }
-  .pr-files > div {
-    display: flex; justify-content: space-between;
-    padding: 8px 12px; font-family: var(--font-mono);
-    font-size: 11px; border-top: 1px solid var(--border);
-    color: var(--fg-muted);
-  }
-  .pr-files > div:first-child { border-top: 0; }
-  .pr-files span { color: var(--fg-dim); }
-  .pr-foot { display: flex; justify-content: flex-end; gap: 8px; }
-
-  .pr-trail {
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 0; margin: -4px 0;
-  }
-  .pr-trail-dot {
-    width: 8px; height: 8px; border-radius: 999px;
-    background: var(--border-strong);
-  }
-  .pr-trail-line {
-    width: 1px; height: 28px;
-    background: linear-gradient(180deg, var(--border-strong), var(--accent));
-  }
-
-  .pr-button-shell { display: flex; justify-content: center; }
-  .pr-button {
-    display: inline-flex; align-items: center; gap: 10px;
-    padding: 12px 20px;
-    background: var(--fg); color: #09090b;
-    font-weight: 600; font-size: 13px;
-    line-height: normal;
+  .router-chip {
+    text-align: left;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 8px 24px -8px rgba(255, 255, 255, 0.2);
-  }
-  .pr-button-kbd {
-    font-family: var(--font-mono); font-size: 10px;
-    background: rgba(0, 0, 0, 0.1);
-    padding: 2px 6px; border-radius: 4px;
-  }
-
-  /* ── Open source ──────────────────────────────────────── */
-  .open-head {
-    text-align: center;
-    margin: 0 auto 56px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--fg-muted);
+    background: rgba(255, 255, 255, 0.015);
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
   }
 
-  .open-grid {
-    display: grid;
-    grid-template-columns: 1.25fr 1fr;
-    gap: 20px;
+  .router-chip:hover { color: var(--fg); border-color: var(--border-strong); }
+
+  .router-chip[aria-pressed="true"] {
+    color: var(--fg);
+    border-color: var(--accent);
+    background: var(--accent-dim);
   }
 
-  .open-term { padding: 0; overflow: hidden; }
-  .open-term-head {
-    display: flex; align-items: center; gap: 6px;
-    padding: 10px 14px; border-bottom: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.02);
-  }
-  .open-term-head span {
-    width: 10px; height: 10px; border-radius: 999px;
-    background: #2a2a30; display: block;
-  }
-  .open-term-title {
-    margin-left: 10px;
-    font-family: var(--font-mono); font-size: 11px;
-    color: var(--fg-dim); flex: 1; text-align: center;
-    background: transparent !important;
-    width: auto !important; height: auto !important;
-    border-radius: 0 !important;
+  .router-graph { width: 100%; height: auto; overflow: visible; }
+
+  .wire {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.1);
+    stroke-width: 2;
+    stroke-linecap: round;
   }
 
-  .open-term-body {
-    padding: 20px 22px;
-    font-family: var(--font-mono); font-size: 13px;
-    line-height: 1.7; color: var(--fg);
-  }
-  .open-term-body > div {
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .open-term-body .prompt { color: var(--accent); margin-right: 8px; }
-  .open-term-body .dim { color: var(--fg-dim); }
-  .open-term-body .accent { color: var(--accent); }
-  .open-term-body .cursor { display: flex; align-items: center; }
-  .caret {
-    display: inline-block;
-    width: 7px; height: 14px;
-    background: var(--fg);
-    margin-left: 4px;
-    animation: blink 1s steps(2) infinite;
-    animation-play-state: var(--home-motion-state, paused);
+  .router-node {
+    fill: #141417;
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+    transition: stroke 0.3s ease;
   }
 
-  @keyframes blink {
-    50% { opacity: 0; }
+  .router-node-label {
+    fill: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 15px;
   }
+
+  .outlet {
+    fill: var(--fg-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    transition: fill 0.3s ease;
+  }
+
+  /* One-shot trace: the input wire, then the chosen outlet. */
+  .router:not([data-route=""]) .wire-in,
+  .router[data-route="local"] .wire-local,
+  .router[data-route="trim"] .wire-trim,
+  .router[data-route="full"] .wire-full {
+    stroke: var(--accent);
+    stroke-dasharray: 400;
+    stroke-dashoffset: 400;
+    animation: trace 0.55s cubic-bezier(0.3, 0.7, 0.2, 1) forwards;
+  }
+
+  .router[data-route="local"] .wire-local,
+  .router[data-route="trim"] .wire-trim,
+  .router[data-route="full"] .wire-full { animation-delay: 0.4s; }
+
+  .router:not([data-route=""]) .router-node { stroke: var(--accent); }
+
+  .router[data-route="local"] .outlet-local,
+  .router[data-route="trim"] .outlet-trim,
+  .router[data-route="full"] .outlet-full { fill: var(--fg); }
+
+  @keyframes trace { to { stroke-dashoffset: 0; } }
 
   @media (prefers-reduced-motion: reduce) {
-    .caret { animation: none; }
+    .router .wire { animation: none !important; stroke-dashoffset: 0 !important; }
   }
 
-  .open-pitch {
-    padding: 32px;
+  .router-readout {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 32px;
-    background:
-      radial-gradient(110% 75% at 100% 0%, var(--accent-dim), transparent 60%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
-  }
-
-  .open-pitch-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .open-pitch-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    font-size: 15px;
-    line-height: 1.5;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: baseline;
+    padding-top: 16px;
+    border-top: 1px dashed var(--border);
+    font-size: 14px;
     color: var(--fg-muted);
   }
 
-  .open-pitch-list strong {
-    color: var(--fg);
-    font-weight: 600;
-  }
-
-  .open-pitch-mark {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    margin-top: 1px;
-    border-radius: 7px;
+  .router-readout strong {
+    font-family: var(--font-mono);
+    font-weight: 500;
     color: var(--accent);
-    background: var(--accent-dim);
-    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   }
 
-  .open-pitch-footer {
+  .facts {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  .facts li {
+    padding: 18px 20px;
+    background: var(--bg);
+    font-size: 14px;
+    color: var(--fg-muted);
+  }
+
+  .facts b {
+    display: block;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 18px;
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+
+  /* ── Remote ───────────────────────────────────────────────── */
+  .store-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+
+  .remote {
     display: flex;
     flex-direction: column;
     gap: 18px;
   }
 
-  .open-pitch-meta {
-    display: flex;
+  .remote-seg { align-self: flex-start; }
+
+  .remote-map {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(60px, 0.8fr) minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
-    color: var(--fg-dim);
+  }
+
+  .device {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #0e0e11;
     font-family: var(--font-mono);
-    font-size: 11px;
   }
 
-  .open-pitch-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
+  .device-host {
+    border-color: var(--border-strong);
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.02);
   }
 
-  .open-source-link {
+  .device-kind {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+
+  .device-name { font-size: 14px; color: var(--fg); }
+
+  .device-meta {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  .device-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .remote-links {
+    width: 100%;
+    height: 100%;
+    min-height: 180px;
+  }
+
+  .remote-links path {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.22);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    transition: stroke 0.3s ease;
+  }
+
+  /* Each mode gets its own line language: solid LAN, dashed tailnet, amber relay. */
+  .remote[data-mode="tailscale"] .remote-links path { stroke-dasharray: 6 5; }
+  .remote[data-mode="connect"] .remote-links path { stroke: var(--accent); stroke-dasharray: 2 6; }
+
+  .remote-term .term-body { min-height: 120px; }
+
+  /* ── Timeline ─────────────────────────────────────────────── */
+  .hosts {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 28px;
+  }
+
+  .hosts li {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
     color: var(--fg-muted);
-    font-size: 13px;
+  }
+
+  .timeline {
+    --progress: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .timeline-turns {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .timeline-turns::before,
+  .timeline-turns::after {
+    content: "";
+    position: absolute;
+    top: 15px;
+    left: 12.5%;
+    height: 2px;
+    width: 75%;
+    background: var(--border-strong);
+  }
+
+  .timeline-turns::after {
+    width: calc(75% * var(--progress));
+    background: var(--accent);
+    transition: width 0.35s cubic-bezier(0.3, 0.7, 0.2, 1);
+  }
+
+  .turn {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+
+  .turn-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--border-strong);
+    background: var(--bg);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  }
+
+  .turn:hover .turn-dot { transform: scale(1.12); }
+  .turn[aria-selected="true"] { color: var(--fg); }
+  .turn[aria-selected="true"] .turn-dot { border-color: var(--accent); background: var(--accent); }
+
+  .turn-card-title { font-size: 15px; color: var(--fg); }
+
+  .turn-card-meta {
+    display: flex;
+    gap: 14px;
+    color: var(--fg-dim);
+  }
+
+  .add { color: var(--ok); }
+  .del { color: oklch(0.7 0.17 25); }
+
+  .turn-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 11px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    font-size: 12px;
+    color: var(--fg-muted);
+  }
+
+  .pill--primary {
+    border-color: transparent;
+    background: var(--fg);
+    color: #09090b;
     font-weight: 500;
-    transition: color 0.18s ease;
   }
 
-  .open-source-link:hover {
-    color: var(--fg);
-  }
-
-  /* ── Final CTA ────────────────────────────────────────── */
+  /* ── CTA ──────────────────────────────────────────────────── */
   .sec-cta {
     text-align: center;
-    padding: 120px 0;
-    position: relative;
     overflow: hidden;
   }
+
   .sec-cta::before {
     content: "";
     position: absolute;
-    inset: auto 0 -50% 0;
-    height: 60%;
-    background: radial-gradient(ellipse at center, var(--accent-dim) 0%, transparent 60%);
+    inset: 0;
+    background: radial-gradient(ellipse 50% 60% at 50% 100%, rgba(255, 255, 255, 0.06), transparent 70%);
     pointer-events: none;
-    opacity: 0.6;
   }
+
   .cta-inner { position: relative; }
+
   .cta-title {
-    font-size: clamp(40px, 6vw, 72px);
+    font-size: clamp(32px, 4.6vw, 60px);
+    margin-bottom: 22px;
   }
+
   .cta-sub {
+    max-width: 540px;
+    margin: 0 auto 34px;
     color: var(--fg-muted);
-    font-size: 18px;
-    max-width: 560px;
-    margin: 20px auto 36px;
-    line-height: 1.55;
-    letter-spacing: -0.005em;
-  }
-  .cta-actions {
-    display: flex; gap: 10px;
-    justify-content: center; flex-wrap: wrap;
-    margin-bottom: 24px;
+    font-size: 17px;
   }
 
-  /* ── Responsive ────────────────────────────────────────── */
-  @media (max-width: 960px) {
-    .hero-preview {
-      width: min(860px, calc(100vw - 24px));
-      margin-left: 50%;
-      transform: translateX(-50%) perspective(1600px) rotateX(1.5deg);
+  .cta-actions { justify-content: center; }
+
+  /* ── Responsive ───────────────────────────────────────────── */
+  @media (max-width: 1000px) {
+    .hero-inner,
+    .split {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 40px;
     }
-    .hero-preview:hover {
-      transform: translateX(-50%) perspective(1600px) rotateX(0deg);
-    }
-    .harness-grid { grid-template-columns: 1fr 1fr; }
-    .harness { border-right: 0; border-bottom: 1px solid var(--border); }
-    .harness:nth-child(odd) { border-right: 1px solid var(--border); }
-    .harness:nth-child(even) { border-right: 0; }
-    .git-inner { grid-template-columns: 1fr; gap: 40px; }
-    .open-grid { grid-template-columns: 1fr; }
+
+    .split--reverse > :first-child { order: 0; }
+
+    .router { grid-template-columns: minmax(0, 1fr); }
+    .router-prompts { grid-row: auto; }
   }
 
-  @media (max-width: 820px) {
-    section { padding: 64px 0; }
-    .sec-cta { padding: 96px 0; }
-    .container { padding-left: 20px; padding-right: 20px; }
-    .hero-preview { display: none; }
-    .endorsements-head {
-      margin-bottom: 40px;
+  @media (max-width: 720px) {
+    .container { padding: 0 20px; }
+    .sec { padding: 80px 0; }
+    .hero { padding: 48px 0 64px; }
+    .hero-inner { margin-bottom: 48px; }
+
+    .agent-console { grid-template-columns: minmax(0, 1fr); }
+
+    .agent-rail {
+      flex-direction: row;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
-    .endorsement-carousel--desktop {
-      display: none;
-    }
-    .endorsement-carousel--mobile {
-      display: flex;
-    }
-    .endorsement-carousel::before,
-    .endorsement-carousel::after {
-      width: 28px;
-    }
-    .endorsement-track {
-      animation-duration: 68s;
-    }
-    .endorsement-row.is-reverse .endorsement-track {
-      animation-duration: 76s;
-    }
-    .endorsement-card {
-      width: 268px;
-      padding: 14px;
-    }
-    .endorsement-card p {
-      font-size: 13px;
-    }
+
+    .agent-tab { flex-shrink: 0; }
+
+    .facts { grid-template-columns: minmax(0, 1fr); }
+    .router { padding: 18px; }
+    .hero-title { font-size: clamp(26px, 8.2vw, 40px); }
+    /* The graph scales down with the viewport; bump SVG text so labels stay legible. */
+    .outlet { font-size: 22px; }
+    .router-node-label { font-size: 24px; }
   }
 </style>
