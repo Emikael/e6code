@@ -472,7 +472,7 @@ function AboutVersionSection() {
       ) : selectedHostedAppChannel ? (
         <SettingsRow
           title="Update track"
-          description="Switches the hosted app release channel."
+          description="Opens that channel's site. Sign-in and connections stay on this one."
           control={
             <Select
               value={selectedHostedAppChannel}

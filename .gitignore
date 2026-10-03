@@ -26,6 +26,8 @@ __screenshots__/
 .tanstack
 squashfs-root/
 .vercel
+.wrangler/
+wrangler.preview.jsonc
 .gstack/
 .plans/
 dist-electron/
