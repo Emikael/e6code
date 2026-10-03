@@ -1,3 +1,4 @@
+import { HOSTED_APP_NIGHTLY_ORIGIN, HOSTED_APP_ORIGIN } from "@e6tools/shared/brand";
 import { DEFAULT_HOSTED_APP_URL } from "@e6tools/shared/connectAuth";
 
 import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "./pairingUrl";
@@ -9,6 +10,11 @@ export interface HostedPairingRequest {
 }
 
 export type HostedAppChannel = "latest" | "nightly";
+
+const HOSTED_CHANNEL_ORIGIN = {
+  latest: HOSTED_APP_ORIGIN,
+  nightly: HOSTED_APP_NIGHTLY_ORIGIN,
+} as const satisfies Record<HostedAppChannel, string>;
 
 function configuredHostedAppUrl(): string {
   return import.meta.env.VITE_HOSTED_APP_URL?.trim() || DEFAULT_HOSTED_APP_URL;
@@ -89,7 +95,7 @@ export function buildHostedPairingUrl(input: {
 export function buildHostedChannelSelectionUrl(input: {
   readonly channel: HostedAppChannel;
 }): string {
-  const url = new URL("/__e6code/channel", configuredHostedAppUrl());
-  url.searchParams.set("channel", input.channel);
-  return url.toString();
+  // Each channel is its own host. The cookie router on app.e6code.com is not
+  // deployed, so the About panel switches tracks by navigating there directly.
+  return new URL("/", HOSTED_CHANNEL_ORIGIN[input.channel]).toString();
 }

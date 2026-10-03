@@ -896,9 +896,6 @@ jobs:
       E6CODE_RELAY_URL: ${{ needs.relay_public_config.outputs.relay_url }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      E6CODE_WEB_ROUTER_URL: ${{ vars.E6CODE_WEB_ROUTER_URL }}
-      E6CODE_WEB_LATEST_DOMAIN: ${{ vars.E6CODE_WEB_LATEST_DOMAIN }}
-      E6CODE_WEB_NIGHTLY_DOMAIN: ${{ vars.E6CODE_WEB_NIGHTLY_DOMAIN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -945,37 +942,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-            echo "Missing required secret: CLOUDFLARE_API_TOKEN." >&2
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID." >&2
             exit 1
           fi
 
-          router_url="${E6CODE_WEB_ROUTER_URL:-https://app.e6code.com}"
-          latest_domain="${E6CODE_WEB_LATEST_DOMAIN:-latest.app.e6code.com}"
-          nightly_domain="${E6CODE_WEB_NIGHTLY_DOMAIN:-nightly.app.e6code.com}"
-
           if [[ "${{ needs.preflight.outputs.release_channel }}" == "stable" ]]; then
-            channel_domain="$latest_domain"
             channel_name="latest"
           else
-            channel_domain="$nightly_domain"
             channel_name="nightly"
           fi
 
-          # Channel routes bind from wrangler.jsonc, so deploy is the alias:
-          # no separate alias step like the old Vercel flow had.
-          echo "Building hosted web app for $channel_name channel ($channel_domain)."
+          # Hosts are the custom domains in apps/web/wrangler.jsonc. GitHub
+          # variables do not retarget them. Each build bakes its own origin so
+          # pairing links stay on the channel the user is using.
+          channel_origin="https://${channel_name}.app.e6code.com"
+          echo "Building hosted web app for $channel_name ($channel_origin)."
           APP_VERSION="${{ needs.preflight.outputs.version }}" \
-          VITE_HOSTED_APP_URL="$router_url" \
+          VITE_HOSTED_APP_URL="$channel_origin" \
           VITE_HOSTED_APP_CHANNEL="$channel_name" \
           vp run --filter @e6tools/web build
 
-          echo "Deploying to $channel_domain."
-          vp dlx wrangler@4.147.0 deploy --env "$channel_name"
+          node ../../scripts/apply-web-brand-assets.ts --channel "$channel_name"
 
-          # The app.e6code.com channel-cookie router (previously vercel.ts
-          # routes) is a follow-up Worker; stable releases intentionally do
-          # not touch the router domain until it exists.
+          echo "Deploying $channel_name to $channel_origin."
+          vp dlx wrangler@4.147.0 deploy --env "$channel_name"
 
   deploy_marketing:
     name: Deploy marketing site
@@ -1011,13 +1002,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-            echo "Missing required secret: CLOUDFLARE_API_TOKEN." >&2
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID." >&2
             exit 1
           fi
 
-          # The apex route binds from wrangler.jsonc, so this ships straight
-          # to https://e6code.com (zone must be Active).
+          # The apex custom domain binds from wrangler.jsonc and provisions
+          # DNS for https://e6code.com when the zone is Active.
           vp run --filter @e6tools/marketing build
           vp dlx wrangler@4.147.0 deploy
 

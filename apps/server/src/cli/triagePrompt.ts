@@ -65,7 +65,7 @@ different code depending on it:
 
 - How is E6 Code running on this machine: \`npx e6 serve\` in a terminal, the
   background service, or the desktop app?
-- Which surface is the user connecting from: the website (app.e6.codes), the
+- Which surface is the user connecting from: the website (latest.app.e6code.com), the
   desktop app against a local server, the desktop app against a remote server,
   or the mobile app?
 

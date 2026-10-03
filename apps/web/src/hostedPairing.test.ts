@@ -43,19 +43,15 @@ describe("hostedPairing", () => {
     expect(url.hash).toBe("#token=pairing-token");
   });
 
-  it("builds hosted channel selection URLs through the configured router origin", () => {
-    vi.stubEnv("VITE_HOSTED_APP_URL", "https://app.e6.codes");
+  it("builds hosted channel selection URLs on that channel's host", () => {
+    const nightly = new URL(buildHostedChannelSelectionUrl({ channel: "nightly" }));
+    const latest = new URL(buildHostedChannelSelectionUrl({ channel: "latest" }));
 
-    const url = new URL(
-      buildHostedChannelSelectionUrl({
-        channel: "nightly",
-      }),
-    );
-
-    expect(url.origin).toBe("https://app.e6.codes");
-    expect(url.pathname).toBe("/__e6code/channel");
-    expect(url.searchParams.get("channel")).toBe("nightly");
-    expect(url.searchParams.has("next")).toBe(false);
+    expect(nightly.origin).toBe("https://nightly.app.e6code.com");
+    expect(nightly.pathname).toBe("/");
+    expect(nightly.search).toBe("");
+    expect(latest.origin).toBe("https://latest.app.e6code.com");
+    expect(latest.pathname).toBe("/");
   });
 
   it("ignores incomplete hosted pairing requests", () => {

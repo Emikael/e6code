@@ -38,7 +38,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
 - Builds a self-contained CLI archive per platform (`e6-<version>-<platform>-<arch>.tar.gz`, `.zip` on Windows) in the same job as that target's desktop artifact and attaches them to the GitHub Release with a `SHA256SUMS` file, on every channel, for five targets: macOS arm64, Linux x64 and arm64, Windows x64 and arm64. Every archive is built, signed, and smoke-tested on hardware of its own architecture. There is no macOS x64 archive: Node single-executables are unsupported on x64 macOS (the SEA docs list macOS as arm64 only) and the binary segfaults on start; the x64 desktop app is Electron and unaffected.
-  - The archive holds the server as a Node single-executable (`scripts/build-cli-archive.ts`), so unpacking it needs neither Node, npm, nor a compiler. It is the only form in which E6 Code manages a runtime: the desktop's SSH environments, the boot service, `e6 update`, and the install scripts all download and verify this archive against `SHA256SUMS`. The npm packages exist for people who run `npx e6` or `npm install -g e6` themselves and carry the same archive contents; nothing in the product installs from npm. The `curl | sh` installers are `scripts/install.sh` and `scripts/install.ps1`; the marketing site copies them into its `public/` at build time (`apps/marketing/scripts/stage-install-scripts.mjs`) and serves them at `e6.codes/install.sh` and `/install.ps1`.
+  - The archive holds the server as a Node single-executable (`scripts/build-cli-archive.ts`), so unpacking it needs neither Node, npm, nor a compiler. It is the only form in which E6 Code manages a runtime: the desktop's SSH environments, the boot service, `e6 update`, and the install scripts all download and verify this archive against `SHA256SUMS`. The npm packages exist for people who run `npx e6` or `npm install -g e6` themselves and carry the same archive contents; nothing in the product installs from npm. The `curl | sh` installers are `scripts/install.sh` and `scripts/install.ps1`; the marketing site copies them into its `public/` at build time (`apps/marketing/scripts/stage-install-scripts.mjs`) and serves them at `e6code.com/install.sh` and `/install.ps1`.
   - The executable is built with a Node that supports `--build-sea` (`VP_NODE_VERSION=26.8.2`, kept in step with `SEA_NODE_VERSION` in `apps/server/vite.config.ts`), while the repo stays on `engines.node`.
   - macOS archives are signed with the Developer ID certificate and notarized when the Apple secrets are present (ad hoc otherwise, which still runs from `curl`/`tar` installs). Windows executables use the same Azure Trusted Signing setup as the installer. Every native addon in the macOS archive is signed too, since the hardened runtime refuses unsigned libraries.
   - Each archive is extracted and executed on its build runner (`scripts/smoke-cli-archive.ts`) before it is uploaded.
@@ -47,9 +47,9 @@ This document covers the unified release workflow for stable and nightly desktop
   - nightly releases publish npm dist-tag `nightly`
   - preview releases publish npm dist-tag `preview`, which nothing resolves unless asked for by name
   - one-time setup: the `@e6code` npm scope (org) must exist, and `e6` and each `@e6code/e6-<platform>-<arch>` package needs a trusted publisher registered for this workflow file (see below).
-- Deploys the hosted web app to Vercel only after a release is published:
-  - stable releases are aliased to the `latest` hosted app channel
-  - nightly releases are aliased to the `nightly` hosted app channel
+- Deploys the hosted web app to Cloudflare Workers only after a release is published:
+  - stable releases deploy the `latest` channel to `latest.app.e6code.com`
+  - nightly releases deploy the `nightly` channel to `nightly.app.e6code.com`
 - Signing is optional and auto-detected per platform from secrets.
 
 ## Pull request macOS previews
@@ -156,59 +156,69 @@ vp run --filter e6code-relay deploy -- --stage "$USER" --env-file .env.local
 ## Marketing site deployment
 
 After a nightly release is published, the release workflow builds the same commit
-and deploys it to the `e6code-marketing` Worker, whose apex route serves
+and deploys it to the `e6code-marketing` Worker, whose apex custom domain serves
 `https://e6code.com`. Stable releases do not deploy the marketing site because
 they can promote an older nightly commit.
 
 The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
-(variable); the `e6code.com` zone must be Active so the apex route binds.
-Headers and the `/app` redirect live in `apps/marketing/public/_headers` and
-`_redirects`, which Astro copies into `dist/` at build time.
+(variable). The `e6code.com` zone must be Active. The apex is a custom domain,
+so deploy provisions its DNS record and certificate. Delete any existing CNAME
+on the apex first; a custom domain cannot replace one. Headers and the `/app`
+redirect live in `apps/marketing/public/_headers` and `_redirects`, which Astro
+copies into `dist/` at build time. `/app` redirects to
+`https://latest.app.e6code.com`. Unknown paths serve the site's `404.html`.
 
 ## Hosted web app release deployment
 
 The hosted app deploys to Workers Static Assets, one Worker per channel. The
-release workflow builds the web app with the release version and channel baked
-in, then runs `wrangler deploy --env latest|nightly` from `apps/web`. Channel
-routes bind from `apps/web/wrangler.jsonc`, so deploy is the alias: there is no
-separate alias step.
+release workflow builds the web app with the release version and that channel's
+origin baked in, copies the channel favicons into `dist/`, then runs
+`wrangler deploy --env latest|nightly` from `apps/web`. Custom domains in
+`apps/web/wrangler.jsonc` are the only hostnames. Deploy provisions them.
+There is no alias step, and no GitHub variable retargets a channel.
+`E6CODE_WEB_ROUTER_URL`, `E6CODE_WEB_LATEST_DOMAIN`, and
+`E6CODE_WEB_NIGHTLY_DOMAIN` are unused; unset them if they are still defined.
 
 Required GitHub Actions secrets:
 
-- `CLOUDFLARE_API_TOKEN` (Workers Scripts + Routes edit on the account)
+- `CLOUDFLARE_API_TOKEN` (Workers Scripts write, plus DNS edit on the `e6code.com` zone so custom domains can create records)
 
 Required GitHub Actions variables:
 
 - `CLOUDFLARE_ACCOUNT_ID`
 
-Optional GitHub Actions variables:
+Custom domains (bound in `wrangler.jsonc`; the zone must be Active):
 
-- `E6CODE_WEB_ROUTER_URL`: defaults to `https://app.e6code.com`.
-- `E6CODE_WEB_LATEST_DOMAIN`: defaults to `latest.app.e6code.com`.
-- `E6CODE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.e6code.com`.
+- `latest.app.e6code.com`: stable releases.
+- `nightly.app.e6code.com`: nightly releases.
 
-Required routes (bound in `wrangler.jsonc`, zone must be Active):
-
-- `latest.app.e6code.com`: channel route updated by stable releases.
-- `nightly.app.e6code.com`: channel route updated by nightly releases.
-
-Users opt into a channel by visiting `/__e6code/channel?channel=latest` or
-`/__e6code/channel?channel=nightly` on the router domain; the router stores the
-`e6code_web_channel` cookie and serves the matching channel. The router domain
-itself (`app.e6code.com`) is a follow-up Worker port of the routes currently
-specified in `apps/web/vercel.ts`; until it exists, users land directly on a
-channel subdomain.
+Users open a channel host directly. `https://latest.app.e6code.com` is the
+public web app, including the marketing site's `/app` redirect. The About
+panel track selector navigates to the other channel's origin.
+`app.e6code.com` is not deployed.
 
 The release deploy job rewrites release package versions before upload so the
 hosted app's About panel renders the release version. It also passes
 `VITE_HOSTED_APP_CHANNEL=latest|nightly`, which renders the hosted update
-track selector in the About panel.
+track selector, and copies production or nightly favicons over the development
+icons in `apps/web/public`.
+
+Pull request previews use `.github/workflows/web-preview.yml`. The `preview:web`
+label deploys `e6code-web-pr-<number>` to the account's `workers.dev` subdomain
+with the same Cloudflare credentials. It does not attach a custom domain.
 
 One-time Cloudflare setup:
 
-1. Confirm the `e6code.com` zone is Active.
-2. Run one deploy per env (or let the next release do it) so the channel
-   routes bind. Future releases keep them current.
+1. Confirm the `e6code.com` zone is Active in the account named by
+   `CLOUDFLARE_ACCOUNT_ID`.
+2. Remove any CNAME already present on `e6code.com`, `latest.app.e6code.com`,
+   or `nightly.app.e6code.com`. A custom domain cannot be created on a hostname
+   that already has a CNAME.
+3. Run one deploy per env (or let the next release do it). Custom domains
+   create the proxied DNS records and certificates, including the second-level
+   `*.app` names. Future releases keep them current.
+4. Confirm the account has a workers.dev subdomain so `preview:web` can bake
+   its URL before building.
 
 ## Nightly builds
 
@@ -359,7 +369,7 @@ to validate the workflow.
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
 validate checks and builds without shipping. To exercise the complete release graph at lower stable
 risk, manually dispatch `channel=nightly`; this still publishes a real nightly npm package, GitHub
-prerelease, desktop updater release, hosted nightly alias, and marketing site, but it does not update stable app aliases or
+prerelease, desktop updater release, hosted nightly channel, and marketing site, but it does not update the stable channel host or
 open a version bump pull request. Only run it when a real nightly release is acceptable.
 
 Manual `channel=stable` is also a real stable-channel release. Omitting signing secrets only makes
