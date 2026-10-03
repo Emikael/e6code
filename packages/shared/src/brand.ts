@@ -15,11 +15,10 @@ export const DATA_DIR_NAME = ".e6";
 
 export const GITHUB_REPOSITORY = "emikael/e6code";
 export const NPM_PACKAGE_SCOPE = "@e6code";
-export const HOSTED_APP_LATEST_ORIGIN = "https://latest.app.e6code.com";
 export const HOSTED_APP_NIGHTLY_ORIGIN = "https://nightly.app.e6code.com";
-// Public hosted app. app.e6code.com is not deployed; stable channel is the
+// Public hosted app. app.e6code.com is not deployed; the stable channel is the
 // origin desktop, CLI, and local builds use until a router Worker exists.
-export const HOSTED_APP_ORIGIN = HOSTED_APP_LATEST_ORIGIN;
+export const HOSTED_APP_ORIGIN = "https://latest.app.e6code.com";
 
 function brandEnvName(suffix: string): string {
   return `${ENV_PREFIX}${suffix}`;

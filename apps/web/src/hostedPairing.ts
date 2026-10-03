@@ -1,4 +1,4 @@
-import { HOSTED_APP_LATEST_ORIGIN, HOSTED_APP_NIGHTLY_ORIGIN } from "@e6tools/shared/brand";
+import { HOSTED_APP_NIGHTLY_ORIGIN, HOSTED_APP_ORIGIN } from "@e6tools/shared/brand";
 import { DEFAULT_HOSTED_APP_URL } from "@e6tools/shared/connectAuth";
 
 import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "./pairingUrl";
@@ -12,7 +12,7 @@ export interface HostedPairingRequest {
 export type HostedAppChannel = "latest" | "nightly";
 
 const HOSTED_CHANNEL_ORIGIN = {
-  latest: HOSTED_APP_LATEST_ORIGIN,
+  latest: HOSTED_APP_ORIGIN,
   nightly: HOSTED_APP_NIGHTLY_ORIGIN,
 } as const satisfies Record<HostedAppChannel, string>;
 
