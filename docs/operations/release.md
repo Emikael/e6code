@@ -161,12 +161,20 @@ and deploys it to the `e6code-marketing` Worker, whose apex custom domain serves
 they can promote an older nightly commit.
 
 The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
-(variable). The `e6code.com` zone must be Active. The apex is a custom domain,
-so deploy provisions its DNS record and certificate. Delete any existing CNAME
-on the apex first; a custom domain cannot replace one. Headers and the `/app`
-redirect live in `apps/marketing/public/_headers` and `_redirects`, which Astro
-copies into `dist/` at build time. `/app` redirects to
+(variable). The `e6code.com` zone must be Active. The apex and `www` are custom
+domains, so deploy provisions their DNS records and certificates. Delete any
+existing CNAME on those hostnames first; a custom domain cannot replace one.
+`www.e6code.com` redirects to the apex. Headers and the `/app` redirect live in
+`apps/marketing/public/_headers` and `_redirects`, which Astro copies into
+`dist/` at build time. `/app` and `/app/` redirect to
 `https://latest.app.e6code.com`. Unknown paths serve the site's `404.html`.
+
+The project schema is published at `https://e6code.com/schema/e6.json`. Files
+that still name `https://e6.codes/schema/e6.json` remain valid. If `e6.codes`
+or `app.e6.codes` still resolve, redirect them before that host stops serving:
+the schema and install scripts to `https://e6code.com`, and the old app host to
+`https://latest.app.e6code.com`. This Worker can attach `e6.codes` only when
+that zone is in the same account.
 
 ## Hosted web app release deployment
 
@@ -181,7 +189,8 @@ There is no alias step, and no GitHub variable retargets a channel.
 
 Required GitHub Actions secrets:
 
-- `CLOUDFLARE_API_TOKEN` (Workers Scripts write, plus DNS edit on the `e6code.com` zone so custom domains can create records)
+- `CLOUDFLARE_API_TOKEN` (Workers Scripts write, plus DNS edit on the `e6code.com` zone so custom domains can create records). Release deploys only.
+- `CLOUDFLARE_PREVIEW_API_TOKEN` (Workers Scripts write, no zone DNS edit). `preview:web` deploys and deletes use this token, and the preview build runs without it.
 
 Required GitHub Actions variables:
 
@@ -194,8 +203,15 @@ Custom domains (bound in `wrangler.jsonc`; the zone must be Active):
 
 Users open a channel host directly. `https://latest.app.e6code.com` is the
 public web app, including the marketing site's `/app` redirect. The About
-panel track selector navigates to the other channel's origin.
-`app.e6code.com` is not deployed.
+panel track selector opens the other channel's site. Sign-in and paired
+connections stay on the site the user leaves. `app.e6code.com` is not deployed.
+
+Deployed script names are `e6code-web-latest` and `e6code-web-nightly`.
+
+In the Clerk instance for the production publishable key, allow
+`https://latest.app.e6code.com` and `https://nightly.app.e6code.com` before the
+first hosted deploy. Sign-in from a channel host fails until that origin is
+allowed.
 
 The release deploy job rewrites release package versions before upload so the
 hosted app's About panel renders the release version. It also passes
@@ -205,20 +221,26 @@ icons in `apps/web/public`.
 
 Pull request previews use `.github/workflows/web-preview.yml`. The `preview:web`
 label deploys `e6code-web-pr-<number>` to the account's `workers.dev` subdomain
-with the same Cloudflare credentials. It does not attach a custom domain.
+with `CLOUDFLARE_PREVIEW_API_TOKEN`. It does not attach a custom domain.
+Closing the PR or removing the label deletes that worker.
 
 One-time Cloudflare setup:
 
 1. Confirm the `e6code.com` zone is Active in the account named by
    `CLOUDFLARE_ACCOUNT_ID`.
-2. Remove any CNAME already present on `e6code.com`, `latest.app.e6code.com`,
-   or `nightly.app.e6code.com`. A custom domain cannot be created on a hostname
-   that already has a CNAME.
+2. Remove any CNAME already present on `e6code.com`, `www.e6code.com`,
+   `latest.app.e6code.com`, or `nightly.app.e6code.com`. A custom domain cannot
+   be created on a hostname that already has a CNAME.
 3. Run one deploy per env (or let the next release do it). Custom domains
-   create the proxied DNS records and certificates, including the second-level
-   `*.app` names. Future releases keep them current.
+   create the proxied DNS records and certificates. The channel hosts are
+   second-level names (`latest.app`, `nightly.app`); each custom domain
+   certificate covers that hostname. `www` redirects to the apex. Future
+   releases keep them current.
 4. Confirm the account has a workers.dev subdomain so `preview:web` can bake
    its URL before building.
+5. Allow both channel origins on the production Clerk instance, and create
+   `CLOUDFLARE_PREVIEW_API_TOKEN` without DNS edit.
+6. Redirect `e6.codes` and `app.e6.codes` if those names still resolve.
 
 ## Nightly builds
 

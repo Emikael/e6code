@@ -29,7 +29,6 @@
     "src",
     "vite",
     "vite.config.ts",
-    "vercel.ts",
     "test",
     "scripts/warm-dep-cache.ts",
     "../../scripts/lib/public-config.ts",
