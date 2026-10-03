@@ -155,66 +155,60 @@ vp run --filter e6code-relay deploy -- --stage "$USER" --env-file .env.local
 
 ## Marketing site deployment
 
-After a nightly release is published, the release workflow deploys the same commit
-to the marketing site's Vercel production project. Stable releases do not deploy
-the marketing site because they can promote an older nightly commit.
+After a nightly release is published, the release workflow builds the same commit
+and deploys it to the `e6code-marketing` Worker, whose apex route serves
+`https://e6code.com`. Stable releases do not deploy the marketing site because
+they can promote an older nightly commit.
 
-The job looks up the `e6code-marketing` project using the existing `VERCEL_TOKEN`
-and `VERCEL_ORG_ID` secrets. It also respects the optional `VERCEL_TEAM_SLUG`
-variable. The Vercel project's root directory must be `apps/marketing`.
-Git deployments remain disabled in `apps/marketing/vercel.ts`.
+The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
+(variable); the `e6code.com` zone must be Active so the apex route binds.
+Headers and the `/app` redirect live in `apps/marketing/public/_headers` and
+`_redirects`, which Astro copies into `dist/` at build time.
 
 ## Hosted web app release deployment
 
-The hosted app is intentionally not deployed by Vercel's Git integration. The
-web project disables automatic Git deployments in `apps/web/vercel.ts` via
-`git.deploymentEnabled: false`, and `.github/workflows/release.yml` deploys the
-web app with Vercel CLI after the GitHub Release succeeds.
+The hosted app deploys to Workers Static Assets, one Worker per channel. The
+release workflow builds the web app with the release version and channel baked
+in, then runs `wrangler deploy --env latest|nightly` from `apps/web`. Channel
+routes bind from `apps/web/wrangler.jsonc`, so deploy is the alias: there is no
+separate alias step.
 
 Required GitHub Actions secrets:
 
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
+- `CLOUDFLARE_API_TOKEN` (Workers Scripts + Routes edit on the account)
+
+Required GitHub Actions variables:
+
+- `CLOUDFLARE_ACCOUNT_ID`
 
 Optional GitHub Actions variables:
 
-- `VERCEL_TEAM_SLUG`: overrides the Vercel CLI scope when the team slug is preferred over the `VERCEL_ORG_ID` secret.
-- `E6CODE_WEB_ROUTER_URL`: defaults to `https://app.e6.codes`.
-- `E6CODE_WEB_LATEST_DOMAIN`: defaults to `latest.app.e6.codes`.
-- `E6CODE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.e6.codes`.
+- `E6CODE_WEB_ROUTER_URL`: defaults to `https://app.e6code.com`.
+- `E6CODE_WEB_LATEST_DOMAIN`: defaults to `latest.app.e6code.com`.
+- `E6CODE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.e6code.com`.
 
-Required Vercel domains:
+Required routes (bound in `wrangler.jsonc`, zone must be Active):
 
-- `app.e6.codes`: the router domain users open, updated by stable releases.
-- `latest.app.e6.codes`: channel alias updated by stable releases.
-- `nightly.app.e6.codes`: channel alias updated by nightly releases.
+- `latest.app.e6code.com`: channel route updated by stable releases.
+- `nightly.app.e6code.com`: channel route updated by nightly releases.
 
-The router domain uses `apps/web/vercel.ts` routes. Users opt into a channel by
-visiting `/__e6code/channel?channel=latest` or
-`/__e6code/channel?channel=nightly`; the router stores the
-`e6code_web_channel` cookie and rewrites future requests on `app.e6.codes` to
-the matching channel alias.
+Users opt into a channel by visiting `/__e6code/channel?channel=latest` or
+`/__e6code/channel?channel=nightly` on the router domain; the router stores the
+`e6code_web_channel` cookie and serves the matching channel. The router domain
+itself (`app.e6code.com`) is a follow-up Worker port of the routes currently
+specified in `apps/web/vercel.ts`; until it exists, users land directly on a
+channel subdomain.
 
 The release deploy job rewrites release package versions before upload so the
-hosted app's About panel renders the release version. Stable deploys alias the
-same deployment to both the `latest` channel and the router domain so the router
-rules stay current. Nightly deploys only alias the `nightly` channel. The job
-also passes `VITE_HOSTED_APP_CHANNEL=latest|nightly`, which renders the hosted
-update track selector in the About panel. Changing the selector navigates
-through `/__e6code/channel` on the router domain so the user's channel cookie is
-updated before redirecting to the hosted app root.
+hosted app's About panel renders the release version. It also passes
+`VITE_HOSTED_APP_CHANNEL=latest|nightly`, which renders the hosted update
+track selector in the About panel.
 
-One-time Vercel dashboard setup:
+One-time Cloudflare setup:
 
-1. Confirm the web project root directory remains `apps/web`.
-2. Add the three domains above to the web project.
-3. Disable automatic Git deployments in the dashboard if desired; the committed
-   `vercel.ts` setting is the source-of-truth, but disconnecting Git in the
-   dashboard is also safe.
-4. Run one stable release deployment, or manually alias the current stable
-   deployment, so `app.e6.codes` points at a deployment containing the router
-   rules in `apps/web/vercel.ts`. Future stable releases keep this alias current.
+1. Confirm the `e6code.com` zone is Active.
+2. Run one deploy per env (or let the next release do it) so the channel
+   routes bind. Future releases keep them current.
 
 ## Nightly builds
 
@@ -359,8 +353,7 @@ Checklist:
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
 `v0.0.0-test.1`, classifies the run as the stable channel. It publishes `e6` with npm dist-tag
-`latest`, creates a real GitHub Release, aliases the hosted app to `latest.app.e6.codes` and
-`app.e6.codes`, and can open a version bump pull request in the finalize job. Do not push a test tag
+`latest`, creates a real GitHub Release, deploys the hosted app to `latest.app.e6code.com`, and can open a version bump pull request in the finalize job. Do not push a test tag
 to validate the workflow.
 
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to

@@ -1,7 +1,7 @@
 # Installs the E6 Code CLI from a GitHub Release archive on Windows. Needs
 # only PowerShell 5.1+; no Node, npm, or compiler.
 #
-#   irm https://e6.codes/install.ps1 | iex
+#   irm https://e6code.com/install.ps1 | iex
 #
 # Environment:
 #   E6CODE_CHANNEL           release train to follow: stable, nightly, or preview

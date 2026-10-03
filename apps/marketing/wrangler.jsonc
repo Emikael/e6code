@@ -1,0 +1,18 @@
+{
+  // Landing page (apex e6code.com) on Workers Static Assets.
+  // Headers/redirects live in public/_headers and public/_redirects (copied
+  // into dist/ by Astro), so this file stays static-only: no Worker entry.
+  // The apex route binds at deploy time (zone must be Active first), so the
+  // release pipeline's plain `wrangler deploy` ships straight to production.
+  "name": "e6code-marketing",
+  "compatibility_date": "2026-10-02",
+  "assets": {
+    "directory": "./dist",
+  },
+  "routes": [{ "pattern": "e6code.com/*", "zone_name": "e6code.com" }],
+  "observability": {
+    "logs": {
+      "enabled": true,
+    },
+  },
+}

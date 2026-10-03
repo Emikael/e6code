@@ -1,0 +1,2 @@
+# Mirrors the /app redirect previously owned by apps/marketing/vercel.ts.
+/app https://app.e6code.com 301

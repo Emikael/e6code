@@ -1,0 +1,30 @@
+{
+  // Hosted web app (SPA) on Workers Static Assets. Two channel envs serve two
+  // different builds of the same dist/ directory: the release workflow builds
+  // each channel separately (with its VITE_HOSTED_APP_CHANNEL + version) and
+  // deploys with --env latest|--env nightly.
+  //   VITE_HOSTED_APP_CHANNEL=latest vp run --filter @e6tools/web build
+  //   wrangler deploy --env latest
+  // Routes bind at deploy time (zone must be Active first). The app.e6code.com
+  // channel-cookie router (previously apps/web/vercel.ts routes) is a separate
+  // Worker follow-up; until then users land directly on a channel subdomain.
+  "name": "e6code-web",
+  "compatibility_date": "2026-10-02",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+    },
+  },
+  "env": {
+    "latest": {
+      "routes": [{ "pattern": "latest.app.e6code.com/*", "zone_name": "e6code.com" }],
+    },
+    "nightly": {
+      "routes": [{ "pattern": "nightly.app.e6code.com/*", "zone_name": "e6code.com" }],
+    },
+  },
+}

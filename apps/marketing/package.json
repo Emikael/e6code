@@ -8,6 +8,7 @@
     "dev": "node scripts/stage-install-scripts.mjs && astro dev",
     "build": "node scripts/stage-install-scripts.mjs && astro build",
     "preview": "astro preview",
+    "deploy": "wrangler deploy",
     "typecheck": "astro check"
   },
   "dependencies": {
@@ -17,7 +18,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@vercel/config": "^0.3.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "wrangler": "catalog:"
   }
 }
