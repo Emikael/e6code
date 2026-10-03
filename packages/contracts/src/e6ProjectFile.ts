@@ -11,9 +11,9 @@ export const E6_PROJECT_FILE_NAME = "e6.json";
 export const LEGACY_E6_PROJECT_FILE_NAME = "e6.json";
 
 /** Public URL of the published JSON Schema for {@link E6ProjectFile}. */
-export const E6_PROJECT_FILE_SCHEMA_URL = "https://e6.codes/schema/e6.json";
+export const E6_PROJECT_FILE_SCHEMA_URL = "https://e6code.com/schema/e6.json";
 
-/** Schema URL published for repositories that still reference `e6.json`. */
+/** Schema URL from files published while the site was still on e6.codes. */
 const LEGACY_E6_PROJECT_FILE_SCHEMA_URL = "https://e6.codes/schema/e6.json";
 
 const E6_PROJECT_FILE_PATH_MAX_LENGTH = 512;
@@ -102,6 +102,6 @@ export const E6ProjectFile = Schema.Struct({
 }).annotate({
   title: "E6 project file",
   description:
-    "Checked-in project configuration for E6 Code (e6.json at the repository root). See https://e6.codes for documentation.",
+    "Checked-in project configuration for E6 Code (e6.json at the repository root). See https://e6code.com for documentation.",
 });
 export type E6ProjectFile = typeof E6ProjectFile.Type;
