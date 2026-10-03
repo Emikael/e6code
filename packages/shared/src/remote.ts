@@ -165,14 +165,28 @@ export const stripPairingTokenFromUrl = (url: URL): URL => {
 export const setPairingTokenOnUrl = (url: URL, credential: string): URL => {
   const next = new URL(url.toString());
   next.searchParams.delete(PAIRING_TOKEN_PARAM);
-  next.hash = new URLSearchParams([[PAIRING_TOKEN_PARAM, credential]]).toString();
+  const hashParams = readHashParams(next);
+  hashParams.delete(PAIRING_TOKEN_PARAM);
+  hashParams.set(PAIRING_TOKEN_PARAM, credential);
+  next.hash = hashParams.toString();
   return next;
 };
 
+const hostedPairingField = (url: URL, name: string): string => {
+  const hashValue = readHashParams(url).get(name)?.trim() ?? "";
+  if (hashValue.length > 0) {
+    return hashValue;
+  }
+  return url.searchParams.get(name)?.trim() ?? "";
+};
+
 export const readHostedPairingRequest = (url: URL): HostedPairingRequest | null => {
-  const host = url.searchParams.get(HOSTED_PAIRING_HOST_PARAM)?.trim() ?? "";
+  // New links keep host and label in the fragment, next to the token, so a
+  // static host does not log the paired machine. Query values stay valid for
+  // links that already shipped.
+  const host = hostedPairingField(url, HOSTED_PAIRING_HOST_PARAM);
   const token = getPairingTokenFromUrl(url)?.trim() ?? "";
-  const label = url.searchParams.get(HOSTED_PAIRING_LABEL_PARAM)?.trim() ?? "";
+  const label = hostedPairingField(url, HOSTED_PAIRING_LABEL_PARAM);
 
   if (!host || !token) {
     return null;
