@@ -33,6 +33,19 @@ describe("remote", () => {
     });
   });
 
+  it("derives backend urls from hosted pairing links that keep the host in the fragment", () => {
+    expect(
+      resolveRemotePairingTarget({
+        pairingUrl:
+          "https://latest.app.e6code.com/pair#host=https%3A%2F%2Fdesktop.tailnet.ts.net%3A44342%2F&token=pairing-token",
+      }),
+    ).toEqual({
+      credential: "pairing-token",
+      httpBaseUrl: "https://desktop.tailnet.ts.net:44342/",
+      wsBaseUrl: "wss://desktop.tailnet.ts.net:44342/",
+    });
+  });
+
   it("derives backend urls from hosted app pairing links", () => {
     expect(
       resolveRemotePairingTarget({

@@ -9,7 +9,7 @@
 A fast, open-source GUI for coding agents. Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and
 Antigravity side by side with the subscriptions you already have, from your desktop, a browser, or your phone.
 
-[Website](https://e6.codes) · [Download](https://github.com/emikael/e6code/releases) · [Web app](https://app.e6.codes) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
+[Website](https://e6code.com) · [Download](https://github.com/emikael/e6code/releases) · [Web app](https://latest.app.e6code.com) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
 
 <img src="./apps/marketing/src/assets/app-desktop.webp" alt="The E6 Code desktop app: a Claude Code thread explaining its change beside the turn's diff" width="100%" />
 
@@ -59,12 +59,12 @@ the provider CLIs already installed on your machine, so your plan, limits, and c
 
 ```bash
 # macOS / Linux
-curl -fsSL https://e6.codes/install.sh | sh
+curl -fsSL https://e6code.com/install.sh | sh
 ```
 
 ```powershell
 # Windows (PowerShell)
-irm https://e6.codes/install.ps1 | iex
+irm https://e6code.com/install.ps1 | iex
 ```
 
 Then run `e6` to start the server and open the local web app.
@@ -122,7 +122,7 @@ protocol into orchestration events.
 | `apps/web`                | React/Vite UI, also wrapped by the desktop app               |
 | `apps/desktop`            | Electron shell that bundles the server                       |
 | `apps/mobile`             | React Native app for iOS and Android                         |
-| `apps/marketing`          | The [e6.codes](https://e6.codes) website                     |
+| `apps/marketing`          | The [e6code.com](https://e6code.com) website                 |
 | `packages/contracts`      | Effect/Schema contracts for everything that crosses the wire |
 | `packages/client-runtime` | Client code shared by web and mobile                         |
 

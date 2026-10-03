@@ -11,13 +11,13 @@ launch E6 Code and configure providers afterwards.
 ## Command line
 
 ```bash
-curl -fsSL https://e6.codes/install.sh | sh
+curl -fsSL https://e6code.com/install.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://e6.codes/install.ps1 | iex
+irm https://e6code.com/install.ps1 | iex
 ```
 
 This puts `e6` in `~/.local/bin`. If your shell reports `command not found`

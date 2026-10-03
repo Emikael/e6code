@@ -888,19 +888,14 @@ jobs:
     needs: [preflight, relay_public_config, release]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       E6CODE_CLERK_PUBLISHABLE_KEY: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
       E6CODE_CLERK_JWT_TEMPLATE: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       E6CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       E6CODE_RELAY_URL: ${{ needs.relay_public_config.outputs.relay_url }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      E6CODE_WEB_ROUTER_URL: ${{ vars.E6CODE_WEB_ROUTER_URL }}
-      E6CODE_WEB_LATEST_DOMAIN: ${{ vars.E6CODE_WEB_LATEST_DOMAIN }}
-      E6CODE_WEB_NIGHTLY_DOMAIN: ${{ vars.E6CODE_WEB_NIGHTLY_DOMAIN }}
-      VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -941,77 +936,47 @@ jobs:
       - name: Refresh release lockfile
         run: vp install --lockfile-only --ignore-scripts
 
-      - name: Deploy and alias channel
+      - name: Deploy channel to Workers
         shell: bash
+        working-directory: apps/web
         run: |
           set -euo pipefail
 
-          if [[ -z "${VERCEL_TOKEN:-}" || -z "${VERCEL_ORG_ID:-}" || -z "${VERCEL_PROJECT_ID:-}" ]]; then
-            echo "Missing one or more required Vercel secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID." >&2
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID." >&2
             exit 1
           fi
 
-          router_url="${E6CODE_WEB_ROUTER_URL:-https://app.e6.codes}"
-          latest_domain="${E6CODE_WEB_LATEST_DOMAIN:-latest.app.e6.codes}"
-          nightly_domain="${E6CODE_WEB_NIGHTLY_DOMAIN:-nightly.app.e6.codes}"
-          router_domain="${router_url#http://}"
-          router_domain="${router_domain#https://}"
-          router_domain="${router_domain%%/*}"
-
           if [[ "${{ needs.preflight.outputs.release_channel }}" == "stable" ]]; then
-            channel_domain="$latest_domain"
             channel_name="latest"
           else
-            channel_domain="$nightly_domain"
             channel_name="nightly"
           fi
 
-          vercel_scope="${VERCEL_TEAM_SLUG:-$VERCEL_ORG_ID}"
-          vercel_scope_args=(--scope "$vercel_scope")
+          # Hosts are the custom domains in apps/web/wrangler.jsonc. GitHub
+          # variables do not retarget them. Each build bakes its own origin so
+          # pairing links stay on the channel the user is using.
+          channel_origin="https://${channel_name}.app.e6code.com"
+          echo "Building hosted web app for $channel_name ($channel_origin)."
+          APP_VERSION="${{ needs.preflight.outputs.version }}" \
+          VITE_HOSTED_APP_URL="$channel_origin" \
+          VITE_HOSTED_APP_CHANNEL="$channel_name" \
+          vp run --filter @e6tools/web build
 
-          echo "Deploying hosted web app for $channel_name channel."
-          deployment_url="$(
-            vp dlx vercel@53.1.1 deploy \
-              --archive=tgz \
-              --prod \
-              --skip-domain \
-              --yes \
-              --token "$VERCEL_TOKEN" \
-              "${vercel_scope_args[@]}" \
-              --build-env "APP_VERSION=${{ needs.preflight.outputs.version }}" \
-              --build-env "E6CODE_CLERK_PUBLISHABLE_KEY=${E6CODE_CLERK_PUBLISHABLE_KEY:-}" \
-              --build-env "E6CODE_CLERK_JWT_TEMPLATE=${E6CODE_CLERK_JWT_TEMPLATE:-}" \
-              --build-env "E6CODE_CLERK_CLI_OAUTH_CLIENT_ID=${E6CODE_CLERK_CLI_OAUTH_CLIENT_ID:-}" \
-              --build-env "E6CODE_RELAY_URL=${E6CODE_RELAY_URL:-}" \
-              --build-env "E6CODE_RELAY_CLIENT_OTLP_TRACES_URL=${E6CODE_RELAY_CLIENT_OTLP_TRACES_URL:-}" \
-              --build-env "E6CODE_RELAY_CLIENT_OTLP_TRACES_DATASET=${E6CODE_RELAY_CLIENT_OTLP_TRACES_DATASET:-}" \
-              --build-env "E6CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=${E6CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN:-}" \
-              --build-env "VITE_HOSTED_APP_URL=$router_url" \
-              --build-env "VITE_HOSTED_APP_CHANNEL=$channel_name"
-          )"
+          node ../../scripts/apply-web-brand-assets.ts --channel "$channel_name"
 
-          echo "Aliasing $deployment_url to $channel_domain."
-          vp dlx vercel@53.1.1 alias set "$deployment_url" "$channel_domain" \
-            --token "$VERCEL_TOKEN" \
-            "${vercel_scope_args[@]}"
-
-          if [[ "$channel_name" == "latest" && -n "$router_domain" && "$router_domain" != "$channel_domain" ]]; then
-            echo "Aliasing $deployment_url to router domain $router_domain."
-            vp dlx vercel@53.1.1 alias set "$deployment_url" "$router_domain" \
-              --token "$VERCEL_TOKEN" \
-              "${vercel_scope_args[@]}"
-          fi
+          echo "Deploying $channel_name to $channel_origin."
+          vp dlx wrangler@4.147.0 deploy --env "$channel_name"
 
   deploy_marketing:
     name: Deploy marketing site
     needs: [preflight, release]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -1031,30 +996,21 @@ jobs:
             args:
               - --filter=@e6tools/marketing...
 
-      - name: Deploy marketing site to Vercel
+      - name: Deploy marketing site to Workers
         shell: bash
+        working-directory: apps/marketing
         run: |
           set -euo pipefail
 
-          if [[ -z "${VERCEL_TOKEN:-}" || -z "${VERCEL_ORG_ID:-}" ]]; then
-            echo "Missing one or more required Vercel secrets: VERCEL_TOKEN, VERCEL_ORG_ID." >&2
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID." >&2
             exit 1
           fi
 
-          VERCEL_PROJECT_ID="$(
-            curl --fail --silent --show-error \
-              --header "Authorization: Bearer $VERCEL_TOKEN" \
-              "https://api.vercel.com/v9/projects/e6code-marketing?teamId=$VERCEL_ORG_ID" \
-              | jq --exit-status --raw-output '.id'
-          )"
-          export VERCEL_PROJECT_ID
-
-          vp dlx vercel@53.1.1 deploy \
-            --archive=tgz \
-            --prod \
-            --yes \
-            --token "$VERCEL_TOKEN" \
-            --scope "${VERCEL_TEAM_SLUG:-$VERCEL_ORG_ID}"
+          # The apex custom domain binds from wrangler.jsonc and provisions
+          # DNS for https://e6code.com when the zone is Active.
+          vp run --filter @e6tools/marketing build
+          vp dlx wrangler@4.147.0 deploy
 
   finalize:
     name: Finalize release

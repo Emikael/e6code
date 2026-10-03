@@ -1,14 +1,15 @@
+import { HOSTED_APP_NIGHTLY_ORIGIN, HOSTED_APP_ORIGIN } from "@e6tools/shared/brand";
 import { DEFAULT_HOSTED_APP_URL } from "@e6tools/shared/connectAuth";
+import { readHostedPairingRequest as readSharedHostedPairingRequest } from "@e6tools/shared/remote";
 
-import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "./pairingUrl";
-
-export interface HostedPairingRequest {
-  readonly host: string;
-  readonly token: string;
-  readonly label: string;
-}
+import { setPairingTokenOnUrl } from "./pairingUrl";
 
 export type HostedAppChannel = "latest" | "nightly";
+
+const HOSTED_CHANNEL_ORIGIN = {
+  latest: HOSTED_APP_ORIGIN,
+  nightly: HOSTED_APP_NIGHTLY_ORIGIN,
+} as const satisfies Record<HostedAppChannel, string>;
 
 function configuredHostedAppUrl(): string {
   return import.meta.env.VITE_HOSTED_APP_URL?.trim() || DEFAULT_HOSTED_APP_URL;
@@ -16,11 +17,6 @@ function configuredHostedAppUrl(): string {
 
 function configuredBackendUrl(): string {
   return import.meta.env.VITE_HTTP_URL?.trim() || import.meta.env.VITE_WS_URL?.trim() || "";
-}
-
-function configuredHostedAppChannel(): HostedAppChannel | null {
-  const channel = import.meta.env.VITE_HOSTED_APP_CHANNEL?.trim().toLowerCase();
-  return channel === "latest" || channel === "nightly" ? channel : null;
 }
 
 function originFromUrl(value: string): string | null {
@@ -36,10 +32,6 @@ export function isHostedStaticApp(url?: URL): boolean {
     return false;
   }
 
-  if (configuredHostedAppChannel()) {
-    return true;
-  }
-
   // No window, or a window without a location (tests, static render), means
   // no origin to be hosted at.
   if (url === undefined && (typeof window === "undefined" || window.location === undefined)) {
@@ -51,19 +43,7 @@ export function isHostedStaticApp(url?: URL): boolean {
 }
 
 export function readHostedPairingRequest(url: URL = new URL(window.location.href)) {
-  const host = url.searchParams.get("host")?.trim() ?? "";
-  const token = getPairingTokenFromUrl(url)?.trim() ?? "";
-  const label = url.searchParams.get("label")?.trim() ?? "";
-
-  if (!host || !token) {
-    return null;
-  }
-
-  return {
-    host,
-    token,
-    label,
-  } satisfies HostedPairingRequest;
+  return readSharedHostedPairingRequest(url);
 }
 
 export function hasHostedPairingRequest(url: URL = new URL(window.location.href)): boolean {
@@ -76,12 +56,13 @@ export function buildHostedPairingUrl(input: {
   readonly label?: string | null;
 }): string {
   const url = new URL("/pair", configuredHostedAppUrl());
-  url.searchParams.set("host", input.host);
-
+  const hashParams = new URLSearchParams();
+  hashParams.set("host", input.host);
   const label = input.label?.trim();
   if (label) {
-    url.searchParams.set("label", label);
+    hashParams.set("label", label);
   }
+  url.hash = hashParams.toString();
 
   return setPairingTokenOnUrl(url, input.token).toString();
 }
@@ -89,7 +70,7 @@ export function buildHostedPairingUrl(input: {
 export function buildHostedChannelSelectionUrl(input: {
   readonly channel: HostedAppChannel;
 }): string {
-  const url = new URL("/__e6code/channel", configuredHostedAppUrl());
-  url.searchParams.set("channel", input.channel);
-  return url.toString();
+  // Each channel is its own host. The About panel opens that host directly.
+  // Sign-in and pairing stay on the origin the user is leaving.
+  return new URL("/", HOSTED_CHANNEL_ORIGIN[input.channel]).toString();
 }

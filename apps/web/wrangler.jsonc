@@ -1,0 +1,34 @@
+{
+  // Hosted web app (SPA) on Workers Static Assets. Two channel envs serve two
+  // different builds of the same dist/ directory: the release workflow builds
+  // each channel separately (with its VITE_HOSTED_APP_CHANNEL + version),
+  // copies that channel's favicons into dist/, and deploys with
+  // --env latest|--env nightly.
+  //   VITE_HOSTED_APP_CHANNEL=latest vp run --filter @e6tools/web build
+  //   node ../../scripts/apply-web-brand-assets.ts --channel latest
+  //   wrangler deploy --env latest
+  // Custom domains provision the DNS record and certificate. The hostname
+  // must not already have a CNAME. workers_dev is off so a deploy without
+  // --env has no public hostname. app.e6code.com is not a route; users open
+  // a channel host directly until a router Worker exists.
+  "name": "e6code-web",
+  "compatibility_date": "2026-10-02",
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+    },
+  },
+  "env": {
+    "latest": {
+      "routes": [{ "pattern": "latest.app.e6code.com", "custom_domain": true }],
+    },
+    "nightly": {
+      "routes": [{ "pattern": "nightly.app.e6code.com", "custom_domain": true }],
+    },
+  },
+}

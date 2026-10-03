@@ -2,7 +2,7 @@
 # Installs the E6 Code CLI from a GitHub Release archive. Needs only sh, tar,
 # sha256sum or shasum, and curl or wget; no Node, npm, or compiler.
 #
-#   curl -fsSL https://e6.codes/install.sh | sh
+#   curl -fsSL https://e6code.com/install.sh | sh
 #
 # Environment:
 #   E6CODE_CHANNEL           release train to follow: stable, nightly, or preview

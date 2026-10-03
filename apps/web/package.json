@@ -8,6 +8,9 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
+    "deploy": "wrangler deploy --env latest",
+    "deploy:latest": "wrangler deploy --env latest",
+    "deploy:nightly": "wrangler deploy --env nightly",
     "typecheck": "tsc --noEmit",
     "test": "vp test run --passWithNoTests --project unit"
   },
@@ -71,7 +74,6 @@
     "@types/react": "~19.2.14",
     "@types/react-dom": "~19.2.3",
     "@types/react-test-renderer": "19.1.0",
-    "@vercel/config": "^0.3.0",
     "@vitejs/plugin-react": "^6.0.0",
     "babel-plugin-react-compiler": "1.0.0",
     "compression": "^1.8.1",
@@ -79,6 +81,7 @@
     "tailwindcss": "^4.0.0",
     "unified": "^11.0.5",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "wrangler": "catalog:"
   }
 }

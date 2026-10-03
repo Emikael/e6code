@@ -1,0 +1,6 @@
+# Stable channel host. app.e6code.com has no Worker yet.
+/app https://latest.app.e6code.com 301
+/app/ https://latest.app.e6code.com 301
+# Custom domains match one hostname. www has to reach this Worker before this
+# rule can send it to the apex.
+https://www.e6code.com/* https://e6code.com/:splat 301

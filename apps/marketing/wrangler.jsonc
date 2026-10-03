@@ -1,0 +1,24 @@
+{
+  // Landing page (apex e6code.com) on Workers Static Assets.
+  // Headers/redirects live in public/_headers and public/_redirects (copied
+  // into dist/ by Astro), so this file stays static-only: no Worker entry.
+  // Custom domains provision DNS and certificates when the zone is Active.
+  // www.e6code.com is attached so the host redirect in public/_redirects can
+  // run; a custom domain matches one hostname. Unknown paths serve dist/404.html.
+  "name": "e6code-marketing",
+  "compatibility_date": "2026-10-02",
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page",
+  },
+  "routes": [
+    { "pattern": "e6code.com", "custom_domain": true },
+    { "pattern": "www.e6code.com", "custom_domain": true },
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true,
+    },
+  },
+}

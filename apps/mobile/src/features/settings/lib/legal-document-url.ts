@@ -1,4 +1,4 @@
-const DEFAULT_MARKETING_SITE_URL = "https://e6.codes";
+const DEFAULT_MARKETING_SITE_URL = "https://e6code.com";
 
 function resolveMarketingSiteUrl(override: string | undefined): URL {
   try {

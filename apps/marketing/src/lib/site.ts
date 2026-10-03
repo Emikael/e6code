@@ -9,6 +9,6 @@ export const ANDROID_PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.e6tools.e6code";
 
 export const INSTALL_COMMANDS = {
-  unix: "curl -fsSL https://e6.codes/install.sh | sh",
-  windows: "irm https://e6.codes/install.ps1 | iex",
+  unix: "curl -fsSL https://e6code.com/install.sh | sh",
+  windows: "irm https://e6code.com/install.ps1 | iex",
 } as const;

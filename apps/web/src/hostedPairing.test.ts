@@ -13,8 +13,8 @@ describe("hostedPairing", () => {
     vi.unstubAllEnvs();
   });
 
-  it("reads hosted pairing host and query token parameters", () => {
-    const url = new URL("https://app.e6.codes/pair?host=100.64.1.2:3773&token=ABCD1234");
+  it("reads hosted pairing hosts from the query for links that already shipped", () => {
+    const url = new URL("https://latest.app.e6code.com/pair?host=100.64.1.2:3773&token=ABCD1234");
 
     expect(readHostedPairingRequest(url)).toEqual({
       host: "100.64.1.2:3773",
@@ -37,25 +37,23 @@ describe("hostedPairing", () => {
 
     expect(url.origin).toBe("https://preview.e6.codes");
     expect(url.pathname).toBe("/pair");
-    expect(url.searchParams.get("host")).toBe("https://backend.example.com:3773");
-    expect(url.searchParams.get("label")).toBe("Workstation");
+    expect(url.search).toBe("");
     expect(url.searchParams.has("token")).toBe(false);
-    expect(url.hash).toBe("#token=pairing-token");
+    const hashParams = new URLSearchParams(url.hash.slice(1));
+    expect(hashParams.get("host")).toBe("https://backend.example.com:3773");
+    expect(hashParams.get("label")).toBe("Workstation");
+    expect(hashParams.get("token")).toBe("pairing-token");
   });
 
-  it("builds hosted channel selection URLs through the configured router origin", () => {
-    vi.stubEnv("VITE_HOSTED_APP_URL", "https://app.e6.codes");
+  it("builds hosted channel selection URLs on that channel's host", () => {
+    const nightly = new URL(buildHostedChannelSelectionUrl({ channel: "nightly" }));
+    const latest = new URL(buildHostedChannelSelectionUrl({ channel: "latest" }));
 
-    const url = new URL(
-      buildHostedChannelSelectionUrl({
-        channel: "nightly",
-      }),
-    );
-
-    expect(url.origin).toBe("https://app.e6.codes");
-    expect(url.pathname).toBe("/__e6code/channel");
-    expect(url.searchParams.get("channel")).toBe("nightly");
-    expect(url.searchParams.has("next")).toBe(false);
+    expect(nightly.origin).toBe("https://nightly.app.e6code.com");
+    expect(nightly.pathname).toBe("/");
+    expect(nightly.search).toBe("");
+    expect(latest.origin).toBe("https://latest.app.e6code.com");
+    expect(latest.pathname).toBe("/");
   });
 
   it("ignores incomplete hosted pairing requests", () => {
@@ -80,15 +78,17 @@ describe("hostedPairing", () => {
     expect(isHostedStaticApp(new URL("https://preview.e6.codes/"))).toBe(false);
   });
 
-  it("detects hosted channel aliases as static apps", () => {
-    vi.stubEnv("VITE_HOSTED_APP_URL", "https://app.e6.codes");
+  it("treats a channel build as hosted only on its baked origin", () => {
+    vi.stubEnv("VITE_HOSTED_APP_URL", "https://nightly.app.e6code.com");
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "nightly");
     vi.stubEnv("VITE_HTTP_URL", "");
     vi.stubEnv("VITE_WS_URL", "");
 
-    expect(isHostedStaticApp(new URL("https://nightly.app.e6.codes/"))).toBe(true);
+    expect(isHostedStaticApp(new URL("https://nightly.app.e6code.com/"))).toBe(true);
+    expect(isHostedStaticApp(new URL("https://latest.app.e6code.com/"))).toBe(false);
+    expect(isHostedStaticApp(new URL("https://evil.example/"))).toBe(false);
 
     vi.stubEnv("VITE_HTTP_URL", "https://backend.example.com");
-    expect(isHostedStaticApp(new URL("https://nightly.app.e6.codes/"))).toBe(false);
+    expect(isHostedStaticApp(new URL("https://nightly.app.e6code.com/"))).toBe(false);
   });
 });

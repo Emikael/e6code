@@ -110,7 +110,7 @@ If that port is already in use, choose another with
 
 ### Hosted web app
 
-[app.e6.codes](https://app.e6.codes) needs an HTTPS endpoint. It connects directly
+[latest.app.e6code.com](https://latest.app.e6code.com) needs an HTTPS endpoint. It connects directly
 to your server; a hosted pairing link does not make an unreachable backend
 reachable or convert HTTP to HTTPS.
 

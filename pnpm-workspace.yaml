@@ -51,6 +51,7 @@ catalog:
   typescript: 7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
   vite-plus: 0.3.0
+  wrangler: 4.147.0
   yaml: ^2.9.0
 
 minimumReleaseAgeExclude:
@@ -94,6 +95,7 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/prisma@1.0.0-rc.12"
   - "@distilled.cloud/railway@1.0.0-rc.12"
   - "@distilled.cloud/stripe@1.0.0-rc.12"
+  - wrangler@4.147.0
 
 overrides:
   # Earlier React Navigation declarations create a circular type alias in TypeScript 7.

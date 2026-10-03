@@ -14,7 +14,7 @@ describe("buildE6ProjectFileJsonSchema", () => {
     const schema = buildE6ProjectFileJsonSchema();
 
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(schema.$id).toBe("https://e6.codes/schema/e6.json");
+    expect(schema.$id).toBe("https://e6code.com/schema/e6.json");
     expect(schema.type).toBe("object");
     expect(schema.additionalProperties).toBe(false);
   });
@@ -37,6 +37,8 @@ describe("buildE6ProjectFileJsonSchema", () => {
       "iconPath",
       "scripts",
     ]);
+    expect(schema.properties.$schema?.description).toContain("https://e6code.com/schema/e6.json");
+    expect(schema.properties.$schema?.description).toContain("https://e6.codes/schema/e6.json");
     expect(schema.required).toBeUndefined();
     expect(schema.properties.iconPath?.description).toContain("Workspace-relative path");
     expect(schema.properties.defaultThreadEnvMode?.description).toContain("new threads start");
