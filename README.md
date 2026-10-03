@@ -9,7 +9,7 @@
 A fast, open-source GUI for coding agents. Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and
 Antigravity side by side with the subscriptions you already have, from your desktop, a browser, or your phone.
 
-[Website](https://e6code.com) · [Download](https://github.com/emikael/e6code/releases) · [Web app](https://app.e6code.com) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
+[Website](https://e6code.com) · [Download](https://github.com/emikael/e6code/releases) · [Web app](https://latest.app.e6code.com) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
 
 <img src="./apps/marketing/src/assets/app-desktop.webp" alt="The E6 Code desktop app: a Claude Code thread explaining its change beside the turn's diff" width="100%" />
 
