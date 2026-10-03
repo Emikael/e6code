@@ -1,9 +1,9 @@
 name: Web Preview
 
-# Label a PR `preview:web` to get a hosted-web preview deployment on Vercel for
-# that push and every subsequent push. The deployment is a plain (non-prod,
-# non-aliased) deploy into the existing hosted-web Vercel project, so the
-# latest/nightly channel aliases are never touched.
+# Label a PR `preview:web` to get a hosted-web preview on its own workers.dev
+# hostname for that push and every subsequent push. The worker name is
+# e6code-web-pr-<number>, so latest and nightly custom domains are never
+# touched.
 #
 # The build intentionally omits the E6 Connect cloud config (Clerk keys, relay
 # URL): previews boot as the hosted-static app with manual pairing only. Pair a
@@ -11,9 +11,10 @@ name: Web Preview
 # backend) and open the pairing URL against the preview origin.
 #
 # The preview must be opened at the exact deployment URL from the PR comment.
-# Vite bakes that URL in as the hosted origin (via VERCEL_URL), and
-# `isHostedStaticApp` matches on origin, so branch-alias URLs will not
-# self-identify as the hosted app.
+# Vite bakes that URL in as the hosted origin, and `isHostedStaticApp` matches
+# on origin, so any other hostname will not self-identify as the hosted app.
+# The workers.dev subdomain is read before the build so the baked origin and
+# the deployed hostname are the same URL.
 
 on:
   pull_request:
@@ -30,7 +31,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy web preview
-    # Same-repo PRs only: fork PRs do not receive the Vercel secrets, and this
+    # Same-repo PRs only: fork PRs do not receive the Cloudflare secret, and this
     # workflow should skip rather than fail for them. On `labeled` events, only
     # the preview label itself triggers a deploy.
     if: >-
@@ -38,12 +39,11 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'preview:web') &&
       (github.event.action != 'labeled' || github.event.label.name == 'preview:web')
     runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -67,26 +67,58 @@ jobs:
       - id: deploy
         name: Deploy preview
         shell: bash
+        working-directory: apps/web
         run: |
           set -euo pipefail
 
-          if [[ -z "${VERCEL_TOKEN:-}" || -z "${VERCEL_ORG_ID:-}" || -z "${VERCEL_PROJECT_ID:-}" ]]; then
-            echo "Missing one or more required Vercel secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID." >&2
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID." >&2
             exit 1
           fi
 
-          vercel_scope="${VERCEL_TEAM_SLUG:-$VERCEL_ORG_ID}"
+          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Refusing to deploy a preview without a numeric pull request number." >&2
+            exit 1
+          fi
 
-          deployment_url="$(
-            vp dlx vercel@53.1.1 deploy \
-              --archive=tgz \
-              --yes \
-              --token "$VERCEL_TOKEN" \
-              --scope "$vercel_scope"
+          subdomain="$(
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+              | node -e 'let raw = ""; process.stdin.on("data", (chunk) => { raw += chunk; }); process.stdin.on("end", () => { const body = JSON.parse(raw); const subdomain = body.result && body.result.subdomain; if (!body.success || typeof subdomain !== "string" || subdomain.length === 0) { console.error(body.errors || body); process.exit(1); } process.stdout.write(subdomain); });'
           )"
+          if [[ -z "$subdomain" || "$subdomain" == "null" ]]; then
+            echo "This Cloudflare account has no workers.dev subdomain." >&2
+            exit 1
+          fi
 
-          echo "Deployed $deployment_url"
-          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+          worker_name="e6code-web-pr-${PR_NUMBER}"
+          deployment_url="https://${worker_name}.${subdomain}.workers.dev"
+
+          # No VITE_HOSTED_APP_CHANNEL: the About track selector would leave
+          # this preview for a production channel host. Production icons still
+          # match a stable-looking preview.
+          echo "Building preview ${deployment_url}."
+          VITE_HOSTED_APP_URL="$deployment_url" \
+            vp run --filter @e6tools/web build
+          node ../../scripts/apply-web-brand-assets.ts --channel latest
+
+          WORKER_NAME="$worker_name" node --input-type=module -e '
+            import * as NodeFS from "node:fs";
+            NodeFS.writeFileSync("wrangler.preview.jsonc", JSON.stringify({
+              name: process.env.WORKER_NAME,
+              compatibility_date: "2026-10-02",
+              workers_dev: true,
+              preview_urls: false,
+              assets: {
+                directory: "./dist",
+                not_found_handling: "single-page-application",
+              },
+            }, null, 2) + "\n");
+          '
+
+          vp dlx wrangler@4.147.0 deploy --config wrangler.preview.jsonc
+          echo "deployment_url=${deployment_url}" >> "$GITHUB_OUTPUT"
 
       - name: Comment deployment URL
         uses: actions/github-script@v8

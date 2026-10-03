@@ -7,6 +7,9 @@ import * as Option from "effect/Option";
 import {
   CLI_COMMAND,
   DATA_DIR_NAME,
+  HOSTED_APP_LATEST_ORIGIN,
+  HOSTED_APP_NIGHTLY_ORIGIN,
+  HOSTED_APP_ORIGIN,
   PRODUCT_NAME,
   readBrandEnv,
   resolveDefaultDataDir,
@@ -18,6 +21,12 @@ describe("brand", () => {
     assert.equal(PRODUCT_NAME, "E6 Code");
     assert.equal(CLI_COMMAND, "e6");
     assert.equal(DATA_DIR_NAME, ".e6");
+  });
+
+  it("uses the stable channel host as the public hosted app", () => {
+    assert.equal(HOSTED_APP_LATEST_ORIGIN, "https://latest.app.e6code.com");
+    assert.equal(HOSTED_APP_NIGHTLY_ORIGIN, "https://nightly.app.e6code.com");
+    assert.equal(HOSTED_APP_ORIGIN, HOSTED_APP_LATEST_ORIGIN);
   });
 
   it("reads E6CODE_* and treats a blank value as unset", () => {
