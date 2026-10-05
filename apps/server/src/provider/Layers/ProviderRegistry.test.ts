@@ -143,6 +143,12 @@ type TestClaudeCapabilities = {
   readonly tokenSource: string | undefined;
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  readonly models?: ReadonlyArray<{
+    readonly value: string;
+    readonly resolvedModel?: string;
+    readonly displayName: string;
+    readonly description: string;
+  }>;
 };
 
 function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
@@ -2659,6 +2665,75 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
     // ── checkClaudeProviderStatus tests ──────────────────────────
 
     describe("checkClaudeProviderStatus", () => {
+      it.effect("keeps the sonnet alias on the model supported by each CLI version", () =>
+        Effect.gen(function* () {
+          const checkAtVersion = (version: string) =>
+            checkClaudeProviderStatus(defaultClaudeSettings, claudeCapabilities()).pipe(
+              Effect.provide(
+                mockSpawnerLayer((args) => {
+                  if (args.join(" ") === "--version") {
+                    return { stdout: `${version}\n`, stderr: "", code: 0 };
+                  }
+                  throw new Error(`Unexpected args: ${args.join(" ")}`);
+                }),
+              ),
+            );
+
+          const older = yield* checkAtVersion("2.1.283");
+          const newer = yield* checkAtVersion("2.1.284");
+          assert.equal(
+            older.models.find((model) => model.aliases?.includes("sonnet"))?.slug,
+            "claude-sonnet-5",
+          );
+          assert.equal(
+            older.models.some((model) => model.slug === "claude-sonnet-5-5"),
+            false,
+          );
+          assert.equal(
+            newer.models.find((model) => model.aliases?.includes("sonnet"))?.slug,
+            "claude-sonnet-5-5",
+          );
+        }),
+      );
+
+      it.effect("adds models discovered by Claude Code without duplicating manifest models", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities({
+              models: [
+                {
+                  value: "sonnet",
+                  resolvedModel: "claude-sonnet-6",
+                  displayName: "Sonnet",
+                  description: "Latest Sonnet",
+                },
+                {
+                  value: "opus",
+                  resolvedModel: "claude-opus-5",
+                  displayName: "Opus",
+                  description: "Opus",
+                },
+              ],
+            }),
+          );
+          assert.equal(status.models.filter((model) => model.slug === "claude-sonnet-6").length, 1);
+          assert.equal(status.models.filter((model) => model.slug === "claude-opus-5").length, 1);
+          const discovered = status.models.find((model) => model.slug === "claude-sonnet-6");
+          assert.equal(discovered?.name, "Claude Sonnet 6");
+          assert.equal(discovered?.isCustom, false);
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              if (args.join(" ") === "--version") {
+                return { stdout: "2.1.300\n", stderr: "", code: 0 };
+              }
+              throw new Error(`Unexpected args: ${args.join(" ")}`);
+            }),
+          ),
+        ),
+      );
+
       it.effect("returns ready when claude is installed and authenticated", () =>
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus(

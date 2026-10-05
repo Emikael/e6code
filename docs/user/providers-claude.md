@@ -41,6 +41,14 @@ Claude Code's verbose mode can stay enabled when you use Claude for text generat
 thread titles, branch names, commit messages, and pull request descriptions. On a remote connection,
 E6 Code uses the Claude configuration on the connected server.
 
+## Models
+
+E6 Code picks up model IDs reported by Claude Code when it checks the provider.
+Update Claude Code to access newly released models. Models added this way can be
+selected immediately; controls for new models may appear later as E6 Code's model
+catalog is updated. If Claude Code does not report a model you need, add its full
+ID under **Settings > Providers > Models**.
+
 ## Compact long conversations
 
 Set **Auto-compact after** in the Claude provider settings to an integer between

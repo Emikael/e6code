@@ -158,6 +158,7 @@ export const DEFAULT_MODEL = "gpt-6-astra";
  */
 export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
   DEFAULT_MODEL,
+  "gpt-6.1-sol",
   "gpt-6-sol",
   "gpt-6-luna",
 ];

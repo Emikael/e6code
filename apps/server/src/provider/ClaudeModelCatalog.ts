@@ -124,12 +124,14 @@ function resolveClaudeCatalogModel(
 ): ClaudeCatalogModel | undefined {
   const value = slugOrAlias?.trim();
   if (!value) return undefined;
-  return (
-    catalog.models.find((entry) => entry.model.slug === value) ??
-    catalog.models.find((entry) =>
-      entry.model.aliases?.some((alias) => alias.toLowerCase() === value.toLowerCase()),
-    )
+  const direct = catalog.models.find((entry) => entry.model.slug === value);
+  if (direct) return direct;
+  const aliases = catalog.models.filter((entry) =>
+    entry.model.aliases?.some((alias) => alias.toLowerCase() === value.toLowerCase()),
   );
+  // A shared alias can resolve to different models across Claude Code versions.
+  // Leave it to the installed CLI instead of selecting one static catalog entry.
+  return aliases.length === 1 ? aliases[0] : undefined;
 }
 
 export function resolveClaudeModelSlug(catalog: ClaudeModelCatalog, slugOrAlias: string): string {
