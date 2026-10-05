@@ -29,6 +29,7 @@ import {
  */
 
 const CODEX = ProviderDriverKind.make("codex");
+const CLAUDE = ProviderDriverKind.make("claudeAgent");
 const model = (overrides: Partial<ServerProviderModel>): ServerProviderModel => ({
   slug: "gpt-test",
   name: "GPT Test",
@@ -38,6 +39,30 @@ const model = (overrides: Partial<ServerProviderModel>): ServerProviderModel => 
 });
 
 describe("classifyModels", () => {
+  it("keeps Claude models discovered from the CLI current while honoring known legacy entries", () => {
+    const manifest: ModelManifestData = {
+      version: 1,
+      currentModels: { claudeAgent: ["claude-current"] },
+      providers: {
+        claudeAgent: {
+          profiles: {},
+          models: [{ slug: "claude-old", name: "Claude Old", status: "legacy" }],
+        },
+      },
+    };
+    const models = [model({ slug: "claude-future" }), model({ slug: "claude-old" })];
+    assert.deepStrictEqual(
+      classifyModels(models, manifest, CLAUDE).map((entry) => [
+        entry.slug,
+        entry.isLegacy ?? false,
+      ]),
+      [
+        ["claude-future", false],
+        ["claude-old", true],
+      ],
+    );
+  });
+
   it("classifies qualified Codex families without changing their wire ids", () => {
     const manifest: ModelManifestData = { version: 1, currentModels: { codex: ["gpt-test"] } };
     const models = [

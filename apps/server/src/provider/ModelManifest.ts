@@ -219,6 +219,9 @@ function isLegacyModel(
     catalog?.find((model) => model.slug === slug) ??
     catalog?.find((model) => model.slug === family);
   if (catalogModel) return catalogModel.status === "legacy";
+  // Claude's SDK can reveal a new canonical model before the manifest has
+  // metadata for it. Unknown discovered models are not older releases.
+  if (driverKind === "claudeAgent" && catalog) return false;
   const currentModels = manifest.currentModels[driverKind];
   if (!currentModels) return false;
   return !currentModels.includes(slug) && !currentModels.includes(family);

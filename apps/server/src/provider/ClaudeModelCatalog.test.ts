@@ -116,6 +116,54 @@ describe("Claude model catalog", () => {
     );
   });
 
+  it("keeps a shared versioned alias available to older CLIs and defers raw dispatch to Claude Code", () => {
+    const base = manifest();
+    const input: ModelManifestData = {
+      ...base,
+      providers: {
+        ...base.providers,
+        claudeAgent: {
+          ...base.providers!.claudeAgent!,
+          models: [
+            {
+              slug: "claude-synthetic-next",
+              name: "Claude Synthetic Next",
+              aliases: ["synthetic"],
+              status: "current",
+              adapter: { claudeCode: { minVersion: "3.2.0" } },
+            },
+            {
+              slug: "claude-synthetic-old",
+              name: "Claude Synthetic Old",
+              aliases: ["synthetic"],
+              status: "current",
+            },
+          ],
+        },
+      },
+    };
+    const catalog = resolveClaudeModelCatalog(input);
+    const older = resolveClaudeModelsForVersion(catalog, "3.1.9");
+    const newer = resolveClaudeModelsForVersion(catalog, "3.2.0");
+
+    assert.strictEqual(
+      older.find((model) => model.aliases?.includes("synthetic"))?.slug,
+      "claude-synthetic-old",
+    );
+    assert.strictEqual(
+      newer.find((model) => model.aliases?.includes("synthetic"))?.slug,
+      "claude-synthetic-next",
+    );
+    assert.strictEqual(resolveClaudeModelSlug(catalog, "synthetic"), "synthetic");
+    assert.strictEqual(
+      resolveClaudeCatalogApiModelId(catalog, {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "synthetic",
+      }),
+      "synthetic",
+    );
+  });
+
   it("rejects malformed adapter mappings", () => {
     const base = manifest();
     const malformed: ModelManifestData = {

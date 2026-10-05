@@ -114,7 +114,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "      agents: [],",
           '      output_style: "default",',
           '      available_output_styles: ["default"],',
-          "      models: [],",
+          '      models: [{ value: "sonnet", resolvedModel: "claude-sonnet-6", displayName: "Sonnet", description: "Latest Sonnet" }],',
           '      account: { email: "dev@example.com", subscriptionType: "pro", tokenSource: "oauth" },',
           "    });",
           "  }",
@@ -155,6 +155,14 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
             name: "review",
             description: "Review changes",
             input: { hint: "[path]" },
+          },
+        ],
+        models: [
+          {
+            value: "sonnet",
+            resolvedModel: "claude-sonnet-6",
+            displayName: "Sonnet",
+            description: "Latest Sonnet",
           },
         ],
         usage: {
