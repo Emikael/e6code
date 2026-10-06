@@ -223,12 +223,17 @@ function runGit(cwd: string, args: ReadonlyArray<string>) {
   });
 }
 
-function createGitRepository() {
+function createWorkspace() {
   const cwd = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "e6-checkpoint-handler-"));
-  runGit(cwd, ["init", "--initial-branch=main"]);
+  NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v1\n", "utf8");
+  return cwd;
+}
+
+function createGitRepository() {
+  const cwd = createWorkspace();
+  runGit(cwd, ["-c", "core.fsmonitor=false", "init", "--initial-branch=main"]);
   runGit(cwd, ["config", "user.email", "test@example.com"]);
   runGit(cwd, ["config", "user.name", "Test User"]);
-  NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v1\n", "utf8");
   runGit(cwd, ["add", "."]);
   runGit(cwd, ["commit", "-m", "Initial"]);
   return cwd;
@@ -311,10 +316,7 @@ describe("CheckpointReactor", () => {
     readonly pullRequestRefreshCalls?: Array<string>;
     readonly pullRequestRefresh?: Effect.Effect<void>;
   }) {
-    const cwd = createGitRepository();
-    if (options?.initializeGit === false) {
-      NodeFS.rmSync(NodePath.join(cwd, ".git"), { recursive: true });
-    }
+    const cwd = options?.initializeGit === false ? createWorkspace() : createGitRepository();
     tempDirs.push(cwd);
     const provider = createProviderServiceHarness(
       cwd,

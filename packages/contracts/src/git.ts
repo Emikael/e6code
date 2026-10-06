@@ -119,6 +119,11 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
+  /**
+   * `"staged"` commits the index as it stands instead of staging the working tree
+   * first. Absent means the legacy "stage everything (or `filePaths`)" behavior.
+   */
+  commitScope: Schema.optional(Schema.Literals(["all", "staged"])),
   /** The thread the action runs beside; a pull request it creates is linked to it. */
   threadId: Schema.optional(ThreadId),
 });
@@ -185,6 +190,27 @@ export const VcsSwitchRefInput = Schema.Struct({
 });
 export type VcsSwitchRefInput = typeof VcsSwitchRefInput.Type;
 
+/** Repository-relative paths, as reported by `VcsStatusResult.workingTree.files`. */
+const VcsPathList = Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1));
+
+export const VcsPathsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  paths: VcsPathList,
+});
+export type VcsPathsInput = typeof VcsPathsInput.Type;
+
+export const VcsDiscardResult = Schema.Struct({
+  /** Pass to `vcs.restoreDiscard` to undo the discard. */
+  backupId: TrimmedNonEmptyStringSchema,
+});
+export type VcsDiscardResult = typeof VcsDiscardResult.Type;
+
+export const VcsRestoreDiscardInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  backupId: TrimmedNonEmptyStringSchema,
+});
+export type VcsRestoreDiscardInput = typeof VcsRestoreDiscardInput.Type;
+
 export const VcsInitInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   kind: Schema.optional(VcsDriverKind),
@@ -210,6 +236,33 @@ const VcsStatusChangeRequest = Schema.Struct({
   updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
+/** One side of a working-tree change: the index (staged) or the worktree (unstaged). */
+export const VcsFileChangeKind = Schema.Literals([
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+  "copied",
+  "type-changed",
+  "untracked",
+  "conflicted",
+]);
+export type VcsFileChangeKind = typeof VcsFileChangeKind.Type;
+
+export const VcsWorkingTreeFile = Schema.Struct({
+  /** Raw repository-relative path; never trimmed, since clients send it back to stage or discard. */
+  path: Schema.NonEmptyString,
+  insertions: NonNegativeInt,
+  deletions: NonNegativeInt,
+  /** Source path of a staged rename or copy. */
+  previousPath: Schema.optionalKey(Schema.NonEmptyString),
+  /** HEAD → index change. Absent when nothing is staged, or on older servers. */
+  staged: Schema.optionalKey(VcsFileChangeKind),
+  /** Index → worktree change. Absent when nothing is unstaged, or on older servers. */
+  unstaged: Schema.optionalKey(VcsFileChangeKind),
+});
+export type VcsWorkingTreeFile = typeof VcsWorkingTreeFile.Type;
+
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
@@ -218,13 +271,7 @@ const VcsStatusLocalShape = {
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
   hasWorkingTreeChanges: Schema.Boolean,
   workingTree: Schema.Struct({
-    files: Schema.Array(
-      Schema.Struct({
-        path: TrimmedNonEmptyStringSchema,
-        insertions: NonNegativeInt,
-        deletions: NonNegativeInt,
-      }),
-    ),
+    files: Schema.Array(VcsWorkingTreeFile),
     insertions: NonNegativeInt,
     deletions: NonNegativeInt,
   }),

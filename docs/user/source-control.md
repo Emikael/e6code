@@ -85,6 +85,21 @@ For a local Git repository without a remote, **Publish Repository** creates a ho
 adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
 make your first commit before pushing.
 
+## Stage and commit from the Diff tab
+
+Open the Diff tab (`Mod+D`) on the **Uncommitted** scope to see your changes split into
+**Staged** and **Changes**, the same way `git status` sees them. Hover a file to stage, unstage,
+or discard it, or use the buttons beside a section title to act on all of its files. Click a file to
+jump to its diff, and switch the scope to **Staged** or **Unstaged** to see only one side.
+
+The commit box at the top commits only what is staged. When nothing is staged, it stages every
+change first. Leave the message empty to generate one.
+
+Discarding reverts unstaged edits and deletes untracked files, but staged changes are kept, and so
+are ignored files and nested repositories inside an untracked folder. Use
+**Undo** in the notification to bring the files back. Discarding is unavailable while the agent is
+still working on the thread.
+
 ## Create a pull request
 
 Use a thread's Git actions to commit, push, and create a pull request. E6 Code can generate commit

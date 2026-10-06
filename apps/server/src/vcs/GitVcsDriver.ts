@@ -283,10 +283,31 @@ export class GitVcsDriver extends Context.Service<
       cwd: string,
       options?: GitRemoteStatusOptions,
     ) => Effect.Effect<GitRemoteStatusDetails, GitCommandError>;
+    /**
+     * Stages the commit and summarizes it. `"staged"` keeps the index as it is;
+     * a path list restages exactly those paths; omitted stages everything.
+     */
     readonly prepareCommitContext: (
       cwd: string,
-      filePaths?: readonly string[],
+      selection?: readonly string[] | "staged",
     ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
+    readonly stagePaths: (
+      cwd: string,
+      paths: ReadonlyArray<string>,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly unstagePaths: (
+      cwd: string,
+      paths: ReadonlyArray<string>,
+    ) => Effect.Effect<void, GitCommandError>;
+    /** Reverts unstaged changes and deletes untracked files after backing them up. */
+    readonly discardPaths: (
+      cwd: string,
+      paths: ReadonlyArray<string>,
+    ) => Effect.Effect<{ readonly backupId: string }, GitCommandError>;
+    readonly restoreDiscard: (
+      cwd: string,
+      backupId: string,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly commit: (
       cwd: string,
       subject: string,

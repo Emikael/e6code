@@ -3320,6 +3320,30 @@ const makeWsRpcLayer = (
             gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
+        [WS_METHODS.vcsStage]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStage,
+            gitWorkflow.stagePaths(input).pipe(Effect.ensuring(refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsUnstage]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsUnstage,
+            gitWorkflow.unstagePaths(input).pipe(Effect.ensuring(refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsDiscard]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDiscard,
+            gitWorkflow.discardPaths(input).pipe(Effect.ensuring(refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsRestoreDiscard]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRestoreDiscard,
+            gitWorkflow.restoreDiscard(input).pipe(Effect.ensuring(refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
         [WS_METHODS.vcsInit]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsInit,

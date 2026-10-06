@@ -10,6 +10,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -24,6 +25,8 @@ import {
   type ReviewDiffPreviewInput,
   type ReviewDiffFileStat,
   type ReviewDiffPreviewSource,
+  type ReviewDiffPreviewSourceKind,
+  type VcsFileChangeKind,
   type VcsRef,
 } from "@e6tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@e6tools/shared/git";
@@ -40,6 +43,12 @@ import {
 import { ServerConfig } from "../config.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DISCARD_BACKUP_REF_PREFIX = "refs/e6/discards/";
+const DISCARD_BACKUP_LIMIT = 20;
+// `-z` keeps paths raw so they can be passed back to staging commands unchanged.
+// Untracked directories stay collapsed (`dir/`): status is broadcast to every client,
+// and listing each file of an unignored build folder would multiply the payload.
+const STATUS_ARGS = ["status", "--porcelain=2", "--branch", "-z"];
 const gitProcesses = Semaphore.makeUnsafe(8);
 // `git worktree add` checks out the full tree, so on large repositories it can
 // take well beyond the default 30s (e.g. a 375k-file repo takes ~40s on an idle
@@ -168,30 +177,6 @@ function parseBranchAb(value: string): { ahead: number; behind: number } {
   };
 }
 
-function parseNumstatEntries(
-  stdout: string,
-): Array<{ path: string; insertions: number; deletions: number }> {
-  const entries: Array<{ path: string; insertions: number; deletions: number }> = [];
-  for (const line of stdout.split(/\r?\n/g)) {
-    if (line.trim().length === 0) continue;
-    const [addedRaw, deletedRaw, ...pathParts] = line.split("\t");
-    const rawPath =
-      pathParts.length > 1 ? (pathParts.at(-1) ?? "").trim() : pathParts.join("\t").trim();
-    if (rawPath.length === 0) continue;
-    const added = Number.parseInt(addedRaw ?? "0", 10);
-    const deleted = Number.parseInt(deletedRaw ?? "0", 10);
-    const renameArrowIndex = rawPath.indexOf(" => ");
-    const normalizedPath =
-      renameArrowIndex >= 0 ? rawPath.slice(renameArrowIndex + " => ".length).trim() : rawPath;
-    entries.push({
-      path: normalizedPath.length > 0 ? normalizedPath : rawPath,
-      insertions: Number.isFinite(added) ? added : 0,
-      deletions: Number.isFinite(deleted) ? deleted : 0,
-    });
-  }
-  return entries;
-}
-
 // -z preserves tabs/newlines in paths and gives renames two separate path fields.
 function parseReviewNumstat(stdout: string): ReviewDiffFileStat[] {
   const fields = stdout.split("\0");
@@ -212,26 +197,71 @@ function parseReviewNumstat(stdout: string): ReviewDiffFileStat[] {
   return files;
 }
 
-function parsePorcelainPath(line: string): string | null {
-  if (line.startsWith("? ") || line.startsWith("! ")) {
-    const simple = line.slice(2).trim();
-    return simple.length > 0 ? simple : null;
-  }
+const PORCELAIN_CHANGE_KINDS: Record<string, VcsFileChangeKind> = {
+  M: "modified",
+  A: "added",
+  D: "deleted",
+  R: "renamed",
+  C: "copied",
+  T: "type-changed",
+};
 
-  if (!(line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u "))) {
-    return null;
-  }
+interface PorcelainStatusEntry {
+  readonly path: string;
+  readonly previousPath?: string;
+  readonly staged?: VcsFileChangeKind;
+  readonly unstaged?: VcsFileChangeKind;
+}
 
-  const tabIndex = line.indexOf("\t");
-  if (tabIndex >= 0) {
-    const fromTab = line.slice(tabIndex + 1);
-    const [filePath] = fromTab.split("\t");
-    return filePath?.trim().length ? filePath.trim() : null;
-  }
+/** Fields before the path in each porcelain v2 record type. */
+const PORCELAIN_PATH_FIELD_INDEX: Record<string, number> = { "1": 8, "2": 9, u: 10, "?": 1 };
 
-  const parts = line.trim().split(/\s+/g);
-  const filePath = parts.at(-1) ?? "";
-  return filePath.length > 0 ? filePath : null;
+/**
+ * Parses `git status --porcelain=2 -z`. Paths are raw and repository-relative;
+ * `2` (rename/copy) records carry their source path in the following NUL field.
+ */
+function parsePorcelainV2Status(stdout: string): {
+  readonly headers: ReadonlyArray<string>;
+  readonly entries: ReadonlyArray<PorcelainStatusEntry>;
+} {
+  const headers: string[] = [];
+  const entries: PorcelainStatusEntry[] = [];
+  const records = stdout.split("\0");
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index]!;
+    if (record.startsWith("# ")) {
+      headers.push(record);
+      continue;
+    }
+    const type = record[0] ?? "";
+    const fieldCount = PORCELAIN_PATH_FIELD_INDEX[type];
+    if (fieldCount === undefined) continue;
+    let pathStart = -1;
+    for (let field = 0; field < fieldCount && (field === 0 || pathStart >= 0); field++) {
+      pathStart = record.indexOf(" ", pathStart + 1);
+    }
+    if (pathStart < 0) continue;
+    const filePath = record.slice(pathStart + 1);
+    if (filePath.length === 0) continue;
+    if (type === "?") {
+      entries.push({ path: filePath, unstaged: "untracked" });
+      continue;
+    }
+    if (type === "u") {
+      entries.push({ path: filePath, unstaged: "conflicted" });
+      continue;
+    }
+    const staged = PORCELAIN_CHANGE_KINDS[record[2] ?? ""];
+    const unstaged = PORCELAIN_CHANGE_KINDS[record[3] ?? ""];
+    const previousPath = type === "2" ? records[++index] : undefined;
+    entries.push({
+      path: filePath,
+      ...(previousPath ? { previousPath } : {}),
+      ...(staged ? { staged } : {}),
+      ...(unstaged ? { unstaged } : {}),
+    });
+  }
+  return { headers, entries };
 }
 
 function filterBranchesForListQuery(
@@ -545,6 +575,9 @@ function trace2ChildKey(record: Record<string, unknown>): string | null {
 
 const Trace2Record = Schema.Record(Schema.String, Schema.Unknown);
 const decodeTrace2Record = decodeJsonResult(Trace2Record);
+const DiscardPathsJson = Schema.fromJsonString(Schema.Array(Schema.String));
+const decodeDiscardPaths = decodeJsonResult(Schema.Array(Schema.String));
+const encodeDiscardPaths = Schema.encodeSync(DiscardPathsJson);
 
 const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
   input: Pick<GitVcsDriver.ExecuteGitInput, "operation" | "cwd" | "args">,
@@ -1729,7 +1762,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const statusResult = yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.statusDetails.status",
       cwd,
-      ["status", "--porcelain=2", "--branch"],
+      STATUS_ARGS,
       {
         allowNonZeroExit: true,
       },
@@ -1752,7 +1785,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ...gitCommandContext({
           operation: "GitVcsDriver.statusDetails.status",
           cwd,
-          args: ["status", "--porcelain=2", "--branch"],
+          args: STATUS_ARGS,
         }),
         detail: "Git status failed.",
         exitCode: statusResult.exitCode,
@@ -1765,45 +1798,50 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.catchTags({ GitCommandError: () => Effect.succeed(null) }),
     );
     const statusCacheKey = repositoryPaths?.gitCommonDir;
-    const [numstatStdout, defaultBranch, hasPrimaryRemote] = yield* Effect.all(
+    const [numstatEntries, defaultBranch, hasPrimaryRemote] = yield* Effect.all(
       [
         executeGitWithStableDiagnostics(
           "GitVcsDriver.statusDetails.numstat",
           cwd,
-          ["diff", "HEAD", "--numstat", "--"],
+          ["diff", "HEAD", "--numstat", "-z", "--"],
           { allowNonZeroExit: true },
         ).pipe(
           Effect.flatMap((result) => {
-            if (result.exitCode === 0) return Effect.succeed(result.stdout);
+            if (result.exitCode === 0) return Effect.succeed(parseReviewNumstat(result.stdout));
             if (isUnbornHeadStderr(result.stderr)) {
               return Effect.map(
                 Effect.all([
                   runGitStdout("GitVcsDriver.statusDetails.numstat.unborn", cwd, [
                     "diff",
                     "--numstat",
+                    "-z",
                   ]),
                   runGitStdout("GitVcsDriver.statusDetails.numstat.unborn.staged", cwd, [
                     "diff",
                     "--cached",
                     "--numstat",
+                    "-z",
                   ]),
                 ]),
                 ([unstagedStdout, stagedStdout]) => {
-                  const staged = parseNumstatEntries(stagedStdout);
-                  const unstaged = parseNumstatEntries(unstagedStdout);
-                  const map = new Map<string, { insertions: number; deletions: number }>();
-                  for (const entry of [...staged, ...unstaged]) {
-                    const existing = map.get(entry.path) ?? {
-                      insertions: 0,
-                      deletions: 0,
-                    };
-                    existing.insertions += entry.insertions;
-                    existing.deletions += entry.deletions;
-                    map.set(entry.path, existing);
+                  const map = new Map<string, ReviewDiffFileStat>();
+                  for (const entry of [
+                    ...parseReviewNumstat(stagedStdout),
+                    ...parseReviewNumstat(unstagedStdout),
+                  ]) {
+                    const existing = map.get(entry.path);
+                    map.set(
+                      entry.path,
+                      existing
+                        ? {
+                            ...existing,
+                            additions: existing.additions + entry.additions,
+                            deletions: existing.deletions + entry.deletions,
+                          }
+                        : entry,
+                    );
                   }
-                  return Array.from(map.entries())
-                    .map(([p, s]) => `${s.insertions}\t${s.deletions}\t${p}`)
-                    .join("\n");
+                  return Array.from(map.values());
                 },
               );
             }
@@ -1812,7 +1850,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
                 ...gitCommandContext({
                   operation: "GitVcsDriver.statusDetails.numstat",
                   cwd,
-                  args: ["diff", "HEAD", "--numstat", "--"],
+                  args: ["diff", "HEAD", "--numstat", "-z", "--"],
                 }),
                 detail: "git diff HEAD --numstat failed.",
                 exitCode: result.exitCode,
@@ -1831,17 +1869,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ],
       { concurrency: "unbounded" },
     );
-    const statusStdout = statusResult.stdout;
 
     let refName: string | null = null;
     let upstreamRef: string | null = null;
     let aheadCount = 0;
     let behindCount = 0;
     let aheadOfDefaultCount = 0;
-    let hasWorkingTreeChanges = false;
-    const changedFilesWithoutNumstat = new Set<string>();
+    const porcelain = parsePorcelainV2Status(statusResult.stdout);
+    const hasWorkingTreeChanges = porcelain.entries.length > 0;
 
-    for (const line of statusStdout.split(/\r?\n/g)) {
+    for (const line of porcelain.headers) {
       if (line.startsWith("# branch.head ")) {
         const value = line.slice("# branch.head ".length).trim();
         refName = value.startsWith("(") ? null : value;
@@ -1857,12 +1894,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         const parsed = parseBranchAb(value);
         aheadCount = parsed.ahead;
         behindCount = parsed.behind;
-        continue;
-      }
-      if (line.trim().length > 0 && !line.startsWith("#")) {
-        hasWorkingTreeChanges = true;
-        const pathValue = parsePorcelainPath(line);
-        if (pathValue) changedFilesWithoutNumstat.add(pathValue);
       }
     }
 
@@ -1887,27 +1918,23 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           : yield* computeAheadCountAgainstBase(cwd, refName).pipe(Effect.orElseSucceed(() => 0));
     }
 
-    const numstatEntries = parseNumstatEntries(numstatStdout);
-    const fileStatMap = new Map<string, { insertions: number; deletions: number }>();
-    for (const entry of numstatEntries) {
-      fileStatMap.set(entry.path, { insertions: entry.insertions, deletions: entry.deletions });
-    }
-
+    const fileStatMap = new Map(numstatEntries.map((entry) => [entry.path, entry]));
     let insertions = 0;
     let deletions = 0;
-    const files = Array.from(fileStatMap.entries())
-      .map(([filePath, stat]) => {
-        insertions += stat.insertions;
-        deletions += stat.deletions;
-        return { path: filePath, insertions: stat.insertions, deletions: stat.deletions };
+    for (const entry of numstatEntries) {
+      insertions += entry.additions;
+      deletions += entry.deletions;
+    }
+    const files = porcelain.entries
+      .map((entry) => {
+        const stat = fileStatMap.get(entry.path);
+        return {
+          ...entry,
+          insertions: stat?.additions ?? 0,
+          deletions: stat?.deletions ?? 0,
+        };
       })
       .toSorted((a, b) => a.path.localeCompare(b.path));
-
-    for (const filePath of changedFilesWithoutNumstat) {
-      if (fileStatMap.has(filePath)) continue;
-      files.push({ path: filePath, insertions: 0, deletions: 0 });
-    }
-    files.sort((a, b) => a.path.localeCompare(b.path));
 
     return {
       isRepo: true,
@@ -1979,8 +2006,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
 
   const prepareCommitContext: GitVcsDriver.GitVcsDriver["Service"]["prepareCommitContext"] =
-    Effect.fn("prepareCommitContext")(function* (cwd, filePaths) {
-      if (filePaths && filePaths.length > 0) {
+    Effect.fn("prepareCommitContext")(function* (cwd, selection) {
+      const filePaths = selection === "staged" ? undefined : selection;
+      if (selection === "staged") {
+        // Commit the index exactly as the user staged it.
+      } else if (filePaths && filePaths.length > 0) {
         yield* runGit("GitVcsDriver.prepareCommitContext.reset", cwd, ["reset"]).pipe(
           Effect.catchTags({
             GitCommandError: () => Effect.void,
@@ -2021,6 +2051,317 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         stagedPatch,
       };
     });
+
+  const resolveWorktreeRoot = Effect.fn("resolveWorktreeRoot")(function* (
+    operation: string,
+    cwd: string,
+  ) {
+    const root = (yield* runGitStdout(`${operation}.root`, cwd, [
+      "rev-parse",
+      "--show-toplevel",
+    ])).trim();
+    if (root.length > 0) return root;
+    return yield* new GitCommandError({
+      operation,
+      command: "git rev-parse --show-toplevel",
+      cwd,
+      detail: "Could not resolve the Git worktree root.",
+    });
+  });
+
+  // Status paths are repository-relative, so path commands run from the worktree root
+  // and read their pathspecs from stdin to stay literal and unbounded by argv limits.
+  const runPathspecCommand = (
+    operation: string,
+    root: string,
+    args: readonly string[],
+    paths: ReadonlyArray<string>,
+    env?: NodeJS.ProcessEnv,
+  ) =>
+    runGit(
+      operation,
+      root,
+      ["--literal-pathspecs", ...args, "--pathspec-from-file=-", "--pathspec-file-nul"],
+      { stdin: `${paths.join("\0")}\0`, ...(env ? { env } : {}) },
+    );
+
+  const stagePaths: GitVcsDriver.GitVcsDriver["Service"]["stagePaths"] = Effect.fn("stagePaths")(
+    function* (cwd, paths) {
+      const root = yield* resolveWorktreeRoot("GitVcsDriver.stagePaths", cwd);
+      yield* runPathspecCommand("GitVcsDriver.stagePaths", root, ["add", "-A"], paths);
+    },
+  );
+
+  const unstagePaths: GitVcsDriver.GitVcsDriver["Service"]["unstagePaths"] = Effect.fn(
+    "unstagePaths",
+  )(function* (cwd, paths) {
+    const root = yield* resolveWorktreeRoot("GitVcsDriver.unstagePaths", cwd);
+    const head = yield* executeGit(
+      "GitVcsDriver.unstagePaths.head",
+      root,
+      ["rev-parse", "--verify", "--quiet", "HEAD"],
+      { allowNonZeroExit: true },
+    );
+    yield* runPathspecCommand(
+      "GitVcsDriver.unstagePaths",
+      root,
+      head.exitCode === 0
+        ? ["restore", "--staged"]
+        : ["rm", "--cached", "-r", "-q", "--ignore-unmatch"],
+      paths,
+    );
+  });
+
+  const readDiscardPaths = (message: string): ReadonlyArray<string> | null => {
+    const body = message.slice(message.indexOf("\n\n") + 2).trim();
+    const decoded = decodeDiscardPaths(body);
+    return Result.isSuccess(decoded) ? decoded.success : null;
+  };
+
+  const discardPaths: GitVcsDriver.GitVcsDriver["Service"]["discardPaths"] = Effect.fn(
+    "discardPaths",
+  )(function* (cwd, paths) {
+    const operation = "GitVcsDriver.discardPaths";
+    const root = yield* resolveWorktreeRoot(operation, cwd);
+    const requested = new Set(paths);
+    const status = yield* runGitStdout(`${operation}.status`, root, STATUS_ARGS);
+    const entries = parsePorcelainV2Status(status).entries.filter(
+      (entry) =>
+        requested.has(entry.path) &&
+        entry.unstaged !== undefined &&
+        entry.unstaged !== "conflicted",
+    );
+    const untracked = entries.filter((entry) => entry.unstaged === "untracked");
+    const tracked = entries.filter((entry) => entry.unstaged !== "untracked");
+    const targets = entries.map((entry) => entry.path);
+    // A collapsed untracked directory (`dir/`) can hold ignored files such as `.env` or
+    // `node_modules`. Like `git clean -d` without `-x`, only its untracked files go.
+    const untrackedDirectories = untracked
+      .map((entry) => entry.path)
+      .filter((entryPath) => entryPath.endsWith("/"));
+    const untrackedFiles = [
+      ...untracked.map((entry) => entry.path).filter((entryPath) => !entryPath.endsWith("/")),
+      ...(untrackedDirectories.length === 0
+        ? []
+        : (yield* runGitStdout(`${operation}.listUntracked`, root, [
+            "--literal-pathspecs",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ...untrackedDirectories,
+          ]))
+            .split("\0")
+            .filter(Boolean)),
+      // `ls-files` lists an embedded repository as `dir/`. A snapshot could only record its
+      // commit, so it is left in place rather than deleted beyond undo.
+    ].filter((file) => !file.endsWith("/"));
+    const snapshotPaths = [...tracked.map((entry) => entry.path), ...untrackedFiles];
+    if (snapshotPaths.length === 0) {
+      return yield* new GitCommandError({
+        operation,
+        command: "git status",
+        cwd,
+        detail: "None of the selected files have unstaged changes to discard.",
+      });
+    }
+
+    // Snapshot the worktree versions into a commit before touching anything, so
+    // `restoreDiscard` can put them back. The real index is never modified here.
+    const backupId = `${DateTime.toEpochMillis(yield* DateTime.now)}-${(yield* Random.nextIntBetween(
+      0,
+      2 ** 31,
+    )).toString(36)}`;
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const indexPath = (yield* runGitStdout(`${operation}.indexPath`, root, [
+          "rev-parse",
+          "--git-path",
+          "index",
+        ])).trim();
+        const tempIndexPath = yield* fileSystem.makeTempFileScoped({
+          prefix: `e6code-discard-index-${process.pid}-`,
+        });
+        const absoluteIndexPath = path.isAbsolute(indexPath)
+          ? indexPath
+          : path.resolve(root, indexPath);
+        if (yield* fileSystem.exists(absoluteIndexPath)) {
+          yield* fileSystem.copyFile(absoluteIndexPath, tempIndexPath);
+        } else {
+          yield* runGit(`${operation}.emptyIndex`, root, ["read-tree", "--empty"], {
+            env: { GIT_INDEX_FILE: tempIndexPath },
+          });
+        }
+        const env = { GIT_INDEX_FILE: tempIndexPath } satisfies NodeJS.ProcessEnv;
+        yield* runPathspecCommand(`${operation}.snapshot`, root, ["add", "-A"], snapshotPaths, env);
+        const tree = (yield* runGitStdoutWithOptions(
+          `${operation}.writeTree`,
+          root,
+          ["write-tree"],
+          {
+            env,
+          },
+        )).trim();
+        const commit = (yield* runGitStdoutWithOptions(
+          `${operation}.commitTree`,
+          root,
+          ["commit-tree", tree, "-F", "-"],
+          { stdin: `e6 discard backup\n\n${encodeDiscardPaths(targets)}\n` },
+        )).trim();
+        yield* runGit(`${operation}.updateRef`, root, [
+          "update-ref",
+          `${DISCARD_BACKUP_REF_PREFIX}${backupId}`,
+          commit,
+        ]);
+      }),
+    ).pipe(
+      Effect.catchTags({
+        PlatformError: (cause) =>
+          Effect.fail(
+            new GitCommandError({
+              operation,
+              command: "git commit-tree",
+              cwd,
+              detail: "Could not back up the files before discarding.",
+              cause,
+            }),
+          ),
+      }),
+    );
+
+    if (tracked.length > 0) {
+      yield* runPathspecCommand(
+        `${operation}.restore`,
+        root,
+        ["restore", "--worktree"],
+        tracked.map((entry) => entry.path),
+      );
+    }
+    const emptiedDirectories = new Set<string>();
+    for (const file of untrackedFiles) {
+      const target = path.resolve(root, file);
+      if (!isPathWithinRoot(root, target)) continue;
+      yield* fileSystem.remove(target, { force: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: `${operation}.remove`,
+              command: "rm",
+              cwd,
+              detail: `Could not delete '${file}'.`,
+              cause,
+            }),
+        ),
+      );
+      const top = untrackedDirectories.find((directory) => file.startsWith(directory));
+      if (top !== undefined) {
+        // Every ancestor from the file's directory up to `top` itself (`top` minus its slash).
+        let parent = file.slice(0, file.lastIndexOf("/"));
+        while (parent.length >= top.length - 1) {
+          emptiedDirectories.add(parent);
+          parent = parent.slice(0, Math.max(parent.lastIndexOf("/"), 0));
+        }
+      }
+    }
+    // Deepest first, so a parent is checked after its children are gone.
+    for (const directory of [...emptiedDirectories].toSorted((a, b) => b.length - a.length)) {
+      const target = path.resolve(root, directory);
+      const remaining = yield* fileSystem
+        .readDirectory(target)
+        .pipe(Effect.orElseSucceed(() => [directory]));
+      if (remaining.length === 0) {
+        yield* fileSystem.remove(target, { recursive: true }).pipe(Effect.ignore);
+      }
+    }
+    yield* pruneDiscardBackups(root);
+    return { backupId };
+  });
+
+  const pruneDiscardBackups = (root: string) =>
+    runGitStdout("GitVcsDriver.discardPaths.listBackups", root, [
+      "for-each-ref",
+      "--sort=-committerdate",
+      "--format=%(refname)",
+      DISCARD_BACKUP_REF_PREFIX,
+    ]).pipe(
+      Effect.flatMap((stdout) => {
+        const stale = stdout.split("\n").filter(Boolean).slice(DISCARD_BACKUP_LIMIT);
+        if (stale.length === 0) return Effect.void;
+        return runGit("GitVcsDriver.discardPaths.pruneBackups", root, ["update-ref", "--stdin"], {
+          stdin: stale.map((ref) => `delete ${ref}\n`).join(""),
+        });
+      }),
+      Effect.ignore({ log: true }),
+    );
+
+  const restoreDiscard: GitVcsDriver.GitVcsDriver["Service"]["restoreDiscard"] = Effect.fn(
+    "restoreDiscard",
+  )(function* (cwd, backupId) {
+    const operation = "GitVcsDriver.restoreDiscard";
+    if (!/^[\w-]+$/.test(backupId)) {
+      return yield* new GitCommandError({
+        operation,
+        command: "git",
+        cwd,
+        detail: "Invalid discard backup id.",
+      });
+    }
+    const root = yield* resolveWorktreeRoot(operation, cwd);
+    const ref = `${DISCARD_BACKUP_REF_PREFIX}${backupId}`;
+    const message = yield* runGitStdout(`${operation}.message`, root, [
+      "log",
+      "-1",
+      "--format=%B",
+      ref,
+      "--",
+    ]);
+    const paths = readDiscardPaths(message);
+    if (!paths || paths.length === 0) {
+      return yield* new GitCommandError({
+        operation,
+        command: "git log",
+        cwd,
+        detail: "This discard can no longer be undone.",
+      });
+    }
+    const presentStdout = yield* runGitStdout(`${operation}.listTree`, root, [
+      "ls-tree",
+      "-r",
+      "-z",
+      "--name-only",
+      ref,
+    ]);
+    const presentFiles = presentStdout.split("\0").filter(Boolean);
+    const present = new Set(
+      // Untracked directories are discarded as `dir/` entries.
+      paths.filter((candidate) =>
+        candidate.endsWith("/")
+          ? presentFiles.some((file) => file.startsWith(candidate))
+          : presentFiles.includes(candidate),
+      ),
+    );
+    const restorable = paths.filter((candidate) => present.has(candidate));
+    if (restorable.length > 0) {
+      yield* runPathspecCommand(
+        `${operation}.restore`,
+        root,
+        ["restore", `--source=${ref}`, "--worktree"],
+        restorable,
+      );
+    }
+    // Files missing from the snapshot were deleted before the discard. A directory with
+    // nothing in the snapshot had nothing backed up, so it was never deleted either.
+    for (const candidate of paths) {
+      if (present.has(candidate) || candidate.endsWith("/")) continue;
+      const target = path.resolve(root, candidate);
+      if (!isPathWithinRoot(root, target)) continue;
+      yield* fileSystem.remove(target, { force: true, recursive: true }).pipe(Effect.ignore);
+    }
+    yield* runGit(`${operation}.deleteRef`, root, ["update-ref", "-d", ref]).pipe(
+      Effect.ignore({ log: true }),
+    );
+  });
 
   const commit: GitVcsDriver.GitVcsDriver["Service"]["commit"] = Effect.fn("commit")(function* (
     cwd,
@@ -2435,18 +2776,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     // the old blob can spend the whole command timeout inside rename detection.
     const patchArgs = [...diffArgs, "--minimal"];
     const readStats = Effect.fn("GitVcsDriver.getReviewDiffPreview.stat")(function* (
-      ref: string,
+      revisionArgs: ReadonlyArray<string>,
       env?: NodeJS.ProcessEnv,
     ) {
       const args = [...diffArgs, "--numstat", "-z"];
       const result = yield* executeGit(
         "GitVcsDriver.getReviewDiffPreview.stat",
         cwd,
-        [...args, ref, "--", ...pathArgs],
+        [...args, ...revisionArgs, "--", ...pathArgs],
         { allowNonZeroExit: true, maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES, env },
       );
-      if (result.exitCode === 0) return { ref, files: parseReviewNumstat(result.stdout) };
-      if (ref === "HEAD" && isUnbornHeadStderr(result.stderr)) {
+      if (result.exitCode === 0) return { revisionArgs, files: parseReviewNumstat(result.stdout) };
+      if (revisionArgs[0] === "HEAD" && isUnbornHeadStderr(result.stderr)) {
         const emptyTree = (yield* runGitStdout("GitVcsDriver.getReviewDiffPreview.emptyTree", cwd, [
           "hash-object",
           "-t",
@@ -2459,7 +2800,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           [...args, emptyTree, "--", ...pathArgs],
           { maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES, env },
         );
-        return { ref: emptyTree, files: parseReviewNumstat(stdout) };
+        return { revisionArgs: [emptyTree], files: parseReviewNumstat(stdout) };
       }
       return yield* new GitCommandError({
         operation: "GitVcsDriver.getReviewDiffPreview.stat",
@@ -2469,23 +2810,44 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         exitCode: result.exitCode,
       });
     });
+    const emptyDiff = { stdout: "", stdoutTruncated: false, files: [] };
     const readTrackedDiff = Effect.fn("GitVcsDriver.getReviewDiffPreview.tracked")(function* (
-      ref: string | null,
+      revisionArgs: ReadonlyArray<string> | null,
       env?: NodeJS.ProcessEnv,
     ) {
-      if (ref === null) return { stdout: "", stdoutTruncated: false, files: [] };
-      const stat = yield* readStats(ref, env);
-      if (stat.files.length === 0) return { stdout: "", stdoutTruncated: false, files: [] };
+      if (revisionArgs === null) return emptyDiff;
+      const stat = yield* readStats(revisionArgs, env);
+      if (stat.files.length === 0) return emptyDiff;
       const patch = yield* executeGit(
         "GitVcsDriver.getReviewDiffPreview.patch",
         cwd,
-        [...patchArgs, "--patch", stat.ref, "--", ...pathArgs],
+        [...patchArgs, "--patch", ...stat.revisionArgs, "--", ...pathArgs],
         { maxOutputBytes: patchLimit, appendTruncationMarker: true, env },
       );
       return { ...patch, files: stat.files };
     });
-    const readDirty = Effect.gen(function* () {
-      if (input.file?.sourceKind === "branch-range") return yield* readTrackedDiff(null);
+    const fileSourceKind = input.file?.sourceKind;
+    // The split replaces the legacy pair; clients render one source at a time.
+    const indexSplitOnly = fileSourceKind === undefined && input.includeIndexSplit === true;
+    const wantsSource = (kind: ReviewDiffPreviewSourceKind) =>
+      fileSourceKind !== undefined
+        ? fileSourceKind === kind
+        : indexSplitOnly
+          ? kind === "staged" || kind === "unstaged"
+          : kind === "working-tree" || kind === "branch-range";
+    // HEAD → worktree and index → worktree both need untracked files, which only a
+    // temporary intent-to-add index can show without touching the real index.
+    const readWorktreeDiffs = Effect.gen(function* () {
+      const dirtyArgs = wantsSource("working-tree") ? ["HEAD"] : null;
+      const unstagedArgs = wantsSource("unstaged") ? [] : null;
+      if (dirtyArgs === null && unstagedArgs === null) {
+        return { dirty: emptyDiff, unstaged: emptyDiff };
+      }
+      const readBoth = (env?: NodeJS.ProcessEnv) =>
+        Effect.all(
+          { dirty: readTrackedDiff(dirtyArgs, env), unstaged: readTrackedDiff(unstagedArgs, env) },
+          { concurrency: 2 },
+        );
       const untracked = yield* executeGit(
         "GitVcsDriver.review.listUntracked",
         cwd,
@@ -2498,13 +2860,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ),
       );
       if (untracked === null) {
-        const tracked = yield* readTrackedDiff("HEAD");
-        return { ...tracked, files: undefined, stdoutTruncated: true };
+        const tracked = yield* readBoth();
+        return {
+          dirty: { ...tracked.dirty, files: undefined, stdoutTruncated: true },
+          unstaged: { ...tracked.unstaged, files: undefined, stdoutTruncated: true },
+        };
       }
       const paths = splitNullSeparatedGitStdoutPaths(untracked).filter(
         (candidate) => !input.file || candidate === input.file.path,
       );
-      if (paths.length === 0) return yield* readTrackedDiff("HEAD");
+      if (paths.length === 0) return yield* readBoth();
       const env = yield* prepareReviewIndex(cwd, paths).pipe(
         Effect.catchTags({
           PlatformError: (cause) =>
@@ -2519,19 +2884,19 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ),
         }),
       );
-      return yield* readTrackedDiff("HEAD", env);
+      return yield* readBoth(env);
     }).pipe(Effect.scoped);
-    const [dirtyTrackedResult, baseResult] = yield* Effect.all(
+    const [worktreeDiffs, baseResult, stagedResult] = yield* Effect.all(
       [
-        readDirty,
+        readWorktreeDiffs,
         readTrackedDiff(
-          baseRef && branch && input.file?.sourceKind !== "working-tree"
-            ? `${baseRef}...HEAD`
-            : null,
+          baseRef && branch && wantsSource("branch-range") ? [`${baseRef}...HEAD`] : null,
         ),
+        readTrackedDiff(wantsSource("staged") ? ["--cached"] : null),
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
+    const dirtyTrackedResult = worktreeDiffs.dirty;
     const dirtyFiles = dirtyTrackedResult.files;
     const baseFiles = baseResult.files;
     const dirtyDiff = dirtyTrackedResult.stdout;
@@ -2550,35 +2915,64 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             }),
         ),
       );
-    const [dirtyDiffHash, baseDiffHash] = yield* Effect.all([
-      hashDiff(dirtyDiff, dirtyFiles ?? []),
-      hashDiff(baseDiff, baseFiles),
-    ]);
-
-    const sources: ReviewDiffPreviewSource[] = [
-      {
-        id: "working-tree",
-        kind: "working-tree",
-        title: "Dirty worktree",
+    const sources: ReviewDiffPreviewSource[] = [];
+    if (!indexSplitOnly) {
+      const [dirtyDiffHash, baseDiffHash] = yield* Effect.all([
+        hashDiff(dirtyDiff, dirtyFiles ?? []),
+        hashDiff(baseDiff, baseFiles),
+      ]);
+      sources.push(
+        {
+          id: "working-tree",
+          kind: "working-tree",
+          title: "Dirty worktree",
+          baseRef: "HEAD",
+          headRef: null,
+          diff: dirtyDiff,
+          ...(dirtyFiles === undefined ? {} : { files: dirtyFiles }),
+          diffHash: dirtyDiffHash,
+          truncated: dirtyTrackedResult.stdoutTruncated,
+        },
+        {
+          id: "branch-range",
+          kind: "branch-range",
+          title: baseRef ? `Against ${baseRef}` : "Against base branch",
+          baseRef,
+          headRef: branch ?? "HEAD",
+          diff: baseDiff,
+          files: baseFiles,
+          diffHash: baseDiffHash,
+          truncated: baseResult.stdoutTruncated,
+        },
+      );
+    }
+    if (wantsSource("staged")) {
+      sources.push({
+        id: "staged",
+        kind: "staged",
+        title: "Staged",
         baseRef: "HEAD",
         headRef: null,
-        diff: dirtyDiff,
-        ...(dirtyFiles === undefined ? {} : { files: dirtyFiles }),
-        diffHash: dirtyDiffHash,
-        truncated: dirtyTrackedResult.stdoutTruncated,
-      },
-      {
-        id: "branch-range",
-        kind: "branch-range",
-        title: baseRef ? `Against ${baseRef}` : "Against base branch",
-        baseRef,
-        headRef: branch ?? "HEAD",
-        diff: baseDiff,
-        files: baseFiles,
-        diffHash: baseDiffHash,
-        truncated: baseResult.stdoutTruncated,
-      },
-    ];
+        diff: stagedResult.stdout,
+        files: stagedResult.files,
+        diffHash: yield* hashDiff(stagedResult.stdout, stagedResult.files),
+        truncated: stagedResult.stdoutTruncated,
+      });
+    }
+    if (wantsSource("unstaged")) {
+      const unstaged = worktreeDiffs.unstaged;
+      sources.push({
+        id: "unstaged",
+        kind: "unstaged",
+        title: "Unstaged",
+        baseRef: null,
+        headRef: null,
+        diff: unstaged.stdout,
+        ...(unstaged.files === undefined ? {} : { files: unstaged.files }),
+        diffHash: yield* hashDiff(unstaged.stdout, unstaged.files ?? []),
+        truncated: unstaged.stdoutTruncated,
+      });
+    }
 
     return {
       cwd: input.cwd,
@@ -2693,7 +3087,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const getReviewDiffFileContents = Effect.fn("getReviewDiffFileContents")(function* (
     input: ReviewDiffFileContentsInput,
   ) {
-    if (input.sourceKind === "working-tree") {
+    if (input.sourceKind === "staged") {
+      // HEAD → index; an empty revision reads the stage-0 index entry (`:path`).
+      const [oldContents, newContents] = yield* Effect.all(
+        [
+          input.changeType === "new"
+            ? Effect.succeed("")
+            : readReviewFileAtRevision(input, input.baseRef ?? "HEAD", input.oldPath),
+          input.changeType === "deleted"
+            ? Effect.succeed("")
+            : readReviewFileAtRevision(input, "", input.newPath),
+        ],
+        { concurrency: 2 },
+      );
+      return { oldContents, newContents };
+    }
+    if (input.sourceKind === "working-tree" || input.sourceKind === "unstaged") {
       const repositoryRoot = yield* runGitStdout(
         "GitVcsDriver.getReviewDiffFileContents.repositoryRoot",
         input.cwd,
@@ -2706,7 +3115,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         [
           input.changeType === "new"
             ? Effect.succeed("")
-            : readReviewFileAtRevision(input, input.baseRef ?? "HEAD", input.oldPath),
+            : readReviewFileAtRevision(
+                input,
+                input.sourceKind === "unstaged" ? "" : (input.baseRef ?? "HEAD"),
+                input.oldPath,
+              ),
           input.changeType === "deleted"
             ? Effect.succeed("")
             : readWorkingTreeReviewFile(input, repositoryRoot),
@@ -3632,6 +4045,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     statusDetailsLocal,
     statusDetailsRemote,
     prepareCommitContext,
+    stagePaths,
+    unstagePaths,
+    discardPaths,
+    restoreDiscard,
     commit: (cwd, subject, body, options) =>
       withListRefsInvalidation(cwd, commit(cwd, subject, body, options)),
     pushCurrentBranch: (cwd, fallbackBranch, options) =>

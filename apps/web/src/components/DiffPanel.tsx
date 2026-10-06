@@ -17,6 +17,7 @@ import {
   ChevronsUpDownIcon,
   Columns2Icon,
   FolderTreeIcon,
+  ListChecksIcon,
   PilcrowIcon,
   Rows3Icon,
   TextWrapIcon,
@@ -31,7 +32,12 @@ import { type DraftId } from "../composerDraftStore";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
+import {
+  selectThreadDiffPanelSelection,
+  useDiffPanelStore,
+  type DiffPanelGitScope,
+} from "../diffPanelStore";
+import { derivePhase } from "../session-logic";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useTheme } from "../hooks/useTheme";
 import {
@@ -55,6 +61,7 @@ import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPanel";
 import { DiffFileTree } from "./diffs/DiffFileTree";
 import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
 import { Button } from "./ui/button";
@@ -94,6 +101,19 @@ import { DiffFileStatus } from "./diffs/DiffFileStatus";
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 const DIFF_FILE_TREE_STORAGE_KEY = "e6code.diffFileTreeOpen";
+const DIFF_CHANGES_PANEL_STORAGE_KEY = "e6code.diffChangesPanelOpen";
+const GIT_SCOPE_LABELS: Record<DiffPanelGitScope, string> = {
+  uncommitted: "Uncommitted",
+  staged: "Staged",
+  unstaged: "Unstaged",
+  branch: "Branch changes",
+};
+const GIT_SCOPE_SOURCE_KINDS = {
+  uncommitted: "working-tree",
+  staged: "staged",
+  unstaged: "unstaged",
+  branch: "branch-range",
+} as const satisfies Record<DiffPanelGitScope, string>;
 const fileEntryCache = new WeakMap<
   FileDiffMetadata,
   { fileDiff: FileDiffMetadata; fileKey: string; fileVersion: number }
@@ -140,6 +160,17 @@ export default function DiffPanel({
     false,
     Schema.Boolean,
   );
+  const [changesPanelOpen, setChangesPanelOpen] = useLocalStorage(
+    DIFF_CHANGES_PANEL_STORAGE_KEY,
+    true,
+    Schema.Boolean,
+  );
+  const [changedFileReveal, setChangedFileReveal] = useState<{
+    readonly path: string;
+    readonly section: DiffChangesSection;
+    readonly id: number;
+  } | null>(null);
+  const handledChangedFileRevealRef = useRef(0);
   const [baseRefQuery, setBaseRefQuery] = useState("");
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
     scopeKey: null,
@@ -214,7 +245,22 @@ export default function DiffPanel({
   }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
 
   const selectedTurnId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
-  const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
+  const selectedGitScope: DiffPanelGitScope =
+    diffSelection.kind === "branch"
+      ? "branch"
+      : diffSelection.kind === "index"
+        ? diffSelection.side
+        : "uncommitted";
+  const isWorkingTreeScope = selectedTurnId === null && selectedGitScope !== "branch";
+  const workingTreeFiles = gitStatusQuery.data?.workingTree.files;
+  // Older servers report files without index state; staging controls stay hidden there.
+  const stagingSupported =
+    workingTreeFiles !== undefined &&
+    (workingTreeFiles.length === 0 ||
+      workingTreeFiles.some((file) => file.staged !== undefined || file.unstaged !== undefined));
+  const showChangesPanel =
+    isWorkingTreeScope && stagingSupported && changesPanelOpen && activeCwd != null;
+  const agentRunning = derivePhase(activeThread?.session ?? null) === "running";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
@@ -230,9 +276,7 @@ export default function DiffPanel({
   const latestTurn = orderedTurnDiffSummaries[0];
   const selectedScopeLabel =
     selectedTurnId === null
-      ? selectedGitScope === "unstaged"
-        ? "Working tree"
-        : "Branch changes"
+      ? GIT_SCOPE_LABELS[selectedGitScope]
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
@@ -243,9 +287,8 @@ export default function DiffPanel({
   const codeViewMountKey = `${collapseScopeKey ?? reviewSectionId}:${codeViewRevision}`;
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
-    : selectedGitScope === "unstaged"
-      ? "Working tree"
-      : "Branch changes";
+    : GIT_SCOPE_LABELS[selectedGitScope];
+  const includeIndexSplit = selectedGitScope === "staged" || selectedGitScope === "unstaged";
   const selectedCheckpointRange = useMemo(
     () =>
       typeof selectedCheckpointTurnCount === "number"
@@ -275,6 +318,7 @@ export default function DiffPanel({
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            ...(includeIndexSplit ? { includeIndexSplit: true } : {}),
           },
         })
       : null,
@@ -292,6 +336,7 @@ export default function DiffPanel({
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            ...(includeIndexSplit ? { includeIndexSplit: true } : {}),
           },
         })
       : null,
@@ -306,7 +351,7 @@ export default function DiffPanel({
     : null;
 
   const selectedGitSource = branchDiffPreview.data?.sources.find(
-    (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
+    (source) => source.kind === GIT_SCOPE_SOURCE_KINDS[selectedGitScope],
   );
   const refreshPreviewQuery = branchDiffPreview.refresh;
   const refreshDiffFromUserAction = refreshPreviewQuery;
@@ -444,6 +489,26 @@ export default function DiffPanel({
     window.addEventListener("focus", refreshOnFocus);
     return () => window.removeEventListener("focus", refreshOnFocus);
   }, [canRefreshGitDiff, refreshBranchDiffPreview]);
+
+  // Staging, discards, commits, and terminal edits all land in the status stream first;
+  // follow it so the diff never shows a stale index.
+  const workingTreeSignature = useMemo(
+    () =>
+      workingTreeFiles
+        ?.map(
+          (file) =>
+            `${file.path}\0${file.staged ?? ""}\0${file.unstaged ?? ""}\0${file.insertions}\0${file.deletions}`,
+        )
+        .join("\n"),
+    [workingTreeFiles],
+  );
+  const previousWorkingTreeSignatureRef = useRef(workingTreeSignature);
+  useEffect(() => {
+    const previous = previousWorkingTreeSignatureRef.current;
+    previousWorkingTreeSignatureRef.current = workingTreeSignature;
+    if (!canRefreshGitDiff || previous === undefined || previous === workingTreeSignature) return;
+    refreshBranchDiffPreview();
+  }, [canRefreshGitDiff, refreshBranchDiffPreview, workingTreeSignature]);
 
   useWorkspaceMutationRefresh({
     enabled: canRefreshGitDiff,
@@ -637,7 +702,7 @@ export default function DiffPanel({
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectTurn(routeThreadRef, turnId);
   };
-  const selectGitScope = (scope: "branch" | "unstaged") => {
+  const selectGitScope = (scope: DiffPanelGitScope) => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
   };
@@ -645,6 +710,36 @@ export default function DiffPanel({
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
+
+  const selectChangedFile = useCallback(
+    (filePath: string, section: DiffChangesSection) => {
+      setChangedFileReveal((current) => ({
+        path: filePath,
+        section,
+        id: (current?.id ?? 0) + 1,
+      }));
+      const inCurrentDiff = renderableFileEntries.some(
+        (candidate) => resolveFileDiffPath(candidate.fileDiff) === filePath,
+      );
+      // "Uncommitted" shows both sections; otherwise jump to the side the row came from.
+      if (!inCurrentDiff && selectedGitScope !== "uncommitted" && selectedGitScope !== section) {
+        selectGitScope(section);
+      }
+    },
+    [renderableFileEntries, selectGitScope, selectedGitScope],
+  );
+  // Reveal once per click, as soon as the file is in the diff (possibly after a scope switch).
+  useEffect(() => {
+    if (!changedFileReveal || handledChangedFileRevealRef.current === changedFileReveal.id) return;
+    if (
+      renderableFileEntries.some(
+        (candidate) => resolveFileDiffPath(candidate.fileDiff) === changedFileReveal.path,
+      )
+    ) {
+      handledChangedFileRevealRef.current = changedFileReveal.id;
+      revealDiffFile(changedFileReveal.path);
+    }
+  }, [changedFileReveal, renderableFileEntries, revealDiffFile]);
 
   const headerRow = (
     <>
@@ -658,16 +753,24 @@ export default function DiffPanel({
             <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-60">
-            <DropdownMenuItem
-              className={
-                selectedTurnId === null && selectedGitScope === "unstaged"
-                  ? "bg-foreground/[0.08]"
-                  : undefined
-              }
-              onClick={() => selectGitScope("unstaged")}
-            >
-              <span>Working tree</span>
-            </DropdownMenuItem>
+            {(
+              [
+                "uncommitted",
+                ...(stagingSupported ? (["staged", "unstaged"] as const) : []),
+              ] as const
+            ).map((scope) => (
+              <DropdownMenuItem
+                key={scope}
+                className={
+                  selectedTurnId === null && selectedGitScope === scope
+                    ? "bg-foreground/[0.08]"
+                    : undefined
+                }
+                onClick={() => selectGitScope(scope)}
+              >
+                <span>{GIT_SCOPE_LABELS[scope]}</span>
+              </DropdownMenuItem>
+            ))}
             <DropdownMenuItem
               className={
                 selectedTurnId === null && selectedGitScope === "branch"
@@ -948,7 +1051,26 @@ export default function DiffPanel({
             {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
           </TooltipPopup>
         </Tooltip>
-        {diffFileKeys.length > 0 && (
+        {isWorkingTreeScope && stagingSupported ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  aria-label={changesPanelOpen ? "Hide changes" : "Show changes"}
+                  variant="ghost"
+                  size="sm"
+                  pressed={changesPanelOpen}
+                  onPressedChange={(pressed) => setChangesPanelOpen(Boolean(pressed))}
+                />
+              }
+            >
+              <ListChecksIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {changesPanelOpen ? "Hide changes" : "Show changes and commit"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : diffFileKeys.length > 0 ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -967,7 +1089,7 @@ export default function DiffPanel({
               {fileTreeOpen ? "Hide file tree" : "Show file tree"}
             </TooltipPopup>
           </Tooltip>
-        )}
+        ) : null}
       </div>
     </>
   );
@@ -987,7 +1109,7 @@ export default function DiffPanel({
           No completed turns yet.
         </div>
       ) : (
-        <>
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
             {isSelectedPatchTruncated && !lazySource && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
@@ -1006,9 +1128,9 @@ export default function DiffPanel({
                   label={
                     selectedTurn
                       ? "Loading checkpoint diff..."
-                      : selectedGitScope === "unstaged"
-                        ? "Loading working tree diff..."
-                        : "Loading branch diff..."
+                      : selectedGitScope === "branch"
+                        ? "Loading branch diff..."
+                        : `Loading ${GIT_SCOPE_LABELS[selectedGitScope].toLowerCase()} diff...`
                   }
                 />
               ) : (
@@ -1163,7 +1285,7 @@ export default function DiffPanel({
                     }}
                   />
                 </div>
-                {fileTreeOpen ? (
+                {fileTreeOpen && !(isWorkingTreeScope && stagingSupported) ? (
                   <aside className="flex w-[min(16rem,40%)] min-w-40 shrink-0 border-l border-border/60">
                     <DiffFileTree
                       ariaLabel={`${reviewSectionTitle} files`}
@@ -1195,7 +1317,19 @@ export default function DiffPanel({
               </div>
             )}
           </div>
-        </>
+          {showChangesPanel && activeThread && activeCwd ? (
+            <aside className="flex w-[min(19rem,45%)] min-w-48 shrink-0 flex-col border-l border-border/60 bg-background">
+              <DiffChangesPanel
+                environmentId={activeThread.environmentId}
+                cwd={activeCwd}
+                files={workingTreeFiles ?? []}
+                agentRunning={agentRunning}
+                selected={changedFileReveal}
+                onSelectFile={selectChangedFile}
+              />
+            </aside>
+          ) : null}
+        </div>
       )}
     </DiffPanelShell>
   );

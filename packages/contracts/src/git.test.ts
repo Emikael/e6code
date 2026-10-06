@@ -8,6 +8,7 @@ import {
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  VcsWorkingTreeFile,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -165,5 +166,15 @@ describe("GitRunStackedActionResult", () => {
     if (parsed.toast.cta.kind === "run_action") {
       expect(parsed.toast.cta.action.kind).toBe("create_pr");
     }
+  });
+});
+
+const decodeWorkingTreeFile = Schema.decodeUnknownSync(VcsWorkingTreeFile);
+const encodeWorkingTreeFile = Schema.encodeSync(VcsWorkingTreeFile);
+
+describe("VcsWorkingTreeFile", () => {
+  it("keeps surrounding spaces, since clients send the path back to stage or discard", () => {
+    const file = { path: " notes.txt ", insertions: 0, deletions: 0, unstaged: "untracked" };
+    expect(encodeWorkingTreeFile(decodeWorkingTreeFile(file))).toEqual(file);
   });
 });
