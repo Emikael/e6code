@@ -431,17 +431,24 @@ export function buildReviewSectionItems(input: {
     },
   );
 
-  const gitItems = input.gitSections.map<ReviewSectionItem>((section) => ({
-    id: `git:${section.kind}`,
-    kind: section.kind,
-    title: section.title,
-    subtitle: gitSubtitle(section),
-    diff: section.diff,
-    source: section,
-    ...(section.files ? { files: section.files } : {}),
-    truncated: section.truncated,
-    isLoading: false,
-  }));
+  // Mobile never requests the staged/unstaged split, so only these kinds can arrive.
+  const gitItems = input.gitSections.flatMap<ReviewSectionItem>((section) =>
+    section.kind === "staged" || section.kind === "unstaged"
+      ? []
+      : [
+          {
+            id: `git:${section.kind}`,
+            kind: section.kind,
+            title: section.title,
+            subtitle: gitSubtitle(section),
+            diff: section.diff,
+            source: section,
+            ...(section.files ? { files: section.files } : {}),
+            truncated: section.truncated,
+            isLoading: false,
+          },
+        ],
+  );
   const hasDirtyWorktreeItem = gitItems.some((item) => item.id === DIRTY_WORKTREE_SECTION_ID);
   const visibleGitItems =
     input.loadingGitSections && !hasDirtyWorktreeItem

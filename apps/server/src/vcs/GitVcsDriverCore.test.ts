@@ -26,6 +26,7 @@ import {
   GitCommandError,
   ReviewDiffPreviewInput,
   type ReviewDiffFileContentsInput,
+  type VcsWorkingTreeFile,
 } from "@e6tools/contracts";
 import { ServerConfig } from "../config.ts";
 import { gitCommandDuration } from "../observability/Metrics.ts";
@@ -331,7 +332,10 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
 
     assert.deepStrictEqual(commands, [
       { args: ["rev-parse", "--git-path", "index"], lcAll: "C" },
-      { args: ["status", "--porcelain=2", "--branch"], lcAll: "C" },
+      {
+        args: ["status", "--porcelain=2", "--branch", "-z"],
+        lcAll: "C",
+      },
       { args: ["rev-parse", "--abbrev-ref", "HEAD"], lcAll: "C" },
       { args: ["rev-parse", "--git-common-dir"], lcAll: "C" },
     ]);
@@ -1737,6 +1741,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           path: "HEAD",
           insertions: 1,
           deletions: 0,
+          unstaged: "modified",
         });
       }),
     );
@@ -2596,6 +2601,334 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         });
         assert.equal(addedForFork, "octocat");
         assert.equal(yield* git(cwd, ["remote"]), "octocat\norigin");
+      }),
+    );
+  });
+
+  describe("index staging", () => {
+    const fileByPath = (
+      status: { readonly workingTree: { readonly files: ReadonlyArray<VcsWorkingTreeFile> } },
+      filePath: string,
+    ) => status.workingTree.files.find((file) => file.path === filePath);
+
+    it.effect("reports staged and unstaged change kinds per file", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# staged then edited\n");
+        yield* writeTextFile(cwd, "added.txt", "new\n");
+        yield* git(cwd, ["add", "added.txt"]);
+        yield* writeTextFile(cwd, "notes with space.txt", "untracked\n");
+
+        const status = yield* driver.status({ cwd });
+
+        assert.deepInclude(fileByPath(status, "README.md"), {
+          staged: "modified",
+          unstaged: "modified",
+        });
+        const added = fileByPath(status, "added.txt");
+        assert.equal(added?.staged, "added");
+        assert.isUndefined(added?.unstaged);
+        const untracked = fileByPath(status, "notes with space.txt");
+        assert.isUndefined(untracked?.staged);
+        assert.equal(untracked?.unstaged, "untracked");
+      }),
+    );
+
+    it.effect("reports staged renames with their source path", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["mv", "README.md", "GUIDE.md"]);
+
+        const status = yield* driver.status({ cwd });
+
+        assert.deepInclude(fileByPath(status, "GUIDE.md"), {
+          staged: "renamed",
+          previousPath: "README.md",
+        });
+        assert.isUndefined(fileByPath(status, "README.md"));
+      }),
+    );
+
+    it.effect("stages and unstages literal paths, including untracked files", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# changed\n");
+        yield* writeTextFile(cwd, "-dash.txt", "dash\n");
+        yield* writeTextFile(cwd, "selected[1].txt", "literal\n");
+        yield* writeTextFile(cwd, "selected1.txt", "pattern match\n");
+
+        yield* driver.stagePaths(cwd, ["README.md", "-dash.txt", "selected[1].txt"]);
+        assert.deepEqual((yield* git(cwd, ["diff", "--cached", "--name-only"])).split("\n"), [
+          "-dash.txt",
+          "README.md",
+          "selected[1].txt",
+        ]);
+
+        yield* driver.unstagePaths(cwd, ["README.md", "-dash.txt"]);
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "selected[1].txt");
+        assert.equal(yield* git(cwd, ["diff", "--name-only"]), "README.md");
+      }),
+    );
+
+    it.effect("unstages files before the first commit", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+        yield* writeTextFile(cwd, "first.txt", "first\n");
+        yield* driver.stagePaths(cwd, ["first.txt"]);
+        assert.equal(fileByPath(yield* driver.status({ cwd }), "first.txt")?.staged, "added");
+
+        yield* driver.unstagePaths(cwd, ["first.txt"]);
+
+        assert.equal(fileByPath(yield* driver.status({ cwd }), "first.txt")?.unstaged, "untracked");
+      }),
+    );
+
+    it.effect("discards unstaged work, keeps staged work, and restores it on undo", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# staged then edited\n");
+        yield* writeTextFile(cwd, "scratch/notes.md", "draft\n");
+
+        const { backupId } = yield* driver.discardPaths(cwd, ["README.md", "scratch/"]);
+
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "README.md")),
+          "# staged\n",
+        );
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "scratch/notes.md")));
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "README.md");
+
+        yield* driver.restoreDiscard(cwd, backupId);
+
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "README.md")),
+          "# staged then edited\n",
+        );
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "scratch/notes.md")),
+          "draft\n",
+        );
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "README.md");
+        assert.equal(yield* git(cwd, ["diff", "--name-only"]), "README.md");
+      }),
+    );
+
+    it.effect("reports an untracked directory as one entry so status stays small", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        for (let index = 0; index < 50; index++) {
+          yield* writeTextFile(cwd, `generated/file-${index}.js`, "x\n");
+        }
+
+        const status = yield* driver.status({ cwd });
+
+        assert.deepEqual(
+          status.workingTree.files.map((file) => [file.path, file.unstaged]),
+          [["generated/", "untracked"]],
+        );
+      }),
+    );
+
+    it.effect("discards an untracked directory and restores it on undo", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "generated/a/one.js", "one\n");
+        yield* writeTextFile(cwd, "generated/two.js", "two\n");
+
+        const { backupId } = yield* driver.discardPaths(cwd, ["generated/"]);
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "generated")));
+
+        yield* driver.restoreDiscard(cwd, backupId);
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "generated/a/one.js")),
+          "one\n",
+        );
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "generated/two.js")),
+          "two\n",
+        );
+      }),
+    );
+
+    it.effect("discards an untracked directory but keeps its ignored files and nested repos", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, ".gitignore", ".env\nnode_modules/\n");
+        yield* git(cwd, ["add", ".gitignore"]);
+        yield* git(cwd, ["commit", "-m", "ignore"]);
+        yield* writeTextFile(cwd, "pkg/src/index.js", "code\n");
+        yield* writeTextFile(cwd, "pkg/.env", "SECRET=1\n");
+        yield* writeTextFile(cwd, "pkg/node_modules/dep/index.js", "dep\n");
+        yield* git(pathService.join(cwd, "pkg"), ["init", "-q", "nested"]);
+        yield* writeTextFile(cwd, "pkg/nested/file.txt", "nested\n");
+
+        const { backupId } = yield* driver.discardPaths(cwd, ["pkg/"]);
+
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "pkg/src")));
+        assert.isTrue(yield* fileSystem.exists(pathService.join(cwd, "pkg/.env")));
+        assert.isTrue(
+          yield* fileSystem.exists(pathService.join(cwd, "pkg/node_modules/dep/index.js")),
+        );
+        assert.isTrue(yield* fileSystem.exists(pathService.join(cwd, "pkg/nested/file.txt")));
+        assert.notInclude(
+          yield* git(cwd, ["ls-tree", "-r", "--name-only", `refs/e6/discards/${backupId}`]),
+          ".env",
+        );
+
+        yield* driver.restoreDiscard(cwd, backupId);
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "pkg/src/index.js")),
+          "code\n",
+        );
+        assert.isTrue(yield* fileSystem.exists(pathService.join(cwd, "pkg/nested/file.txt")));
+      }),
+    );
+
+    it.effect("discards a path with a trailing space without touching its trimmed twin", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "notes.txt ", "spaced\n");
+        yield* writeTextFile(cwd, "notes.txt", "plain\n");
+
+        const status = yield* driver.status({ cwd });
+        assert.isDefined(fileByPath(status, "notes.txt "));
+        yield* driver.discardPaths(cwd, ["notes.txt "]);
+
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "notes.txt ")));
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "notes.txt")),
+          "plain\n",
+        );
+      }),
+    );
+
+    it.effect("restores a discarded deletion", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* fileSystem.remove(pathService.join(cwd, "README.md"));
+
+        const { backupId } = yield* driver.discardPaths(cwd, ["README.md"]);
+        assert.isTrue(yield* fileSystem.exists(pathService.join(cwd, "README.md")));
+
+        yield* driver.restoreDiscard(cwd, backupId);
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "README.md")));
+      }),
+    );
+
+    it.effect("commits only the index when asked for the staged scope", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# staged then edited\n");
+        yield* writeTextFile(cwd, "other.txt", "left alone\n");
+
+        const context = yield* driver.prepareCommitContext(cwd, "staged");
+        assert.equal(context?.stagedSummary, "M\tREADME.md");
+        yield* driver.commit(cwd, "Commit staged", "");
+
+        assert.equal(yield* git(cwd, ["show", "HEAD:README.md"]), "# staged");
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+        assert.equal(yield* git(cwd, ["diff", "--name-only"]), "README.md");
+        assert.include(yield* git(cwd, ["status", "--porcelain"]), "?? other.txt");
+      }),
+    );
+
+    it.effect("returns nothing to commit for an empty index in the staged scope", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "other.txt", "unstaged\n");
+
+        assert.isNull(yield* driver.prepareCommitContext(cwd, "staged"));
+        assert.include(yield* git(cwd, ["status", "--porcelain"]), "?? other.txt");
+      }),
+    );
+
+    it.effect("splits the review diff into staged and unstaged sources on request", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# staged then edited\n");
+        yield* writeTextFile(cwd, "new.txt", "untracked\n");
+
+        const legacy = yield* driver.getReviewDiffPreview({ cwd });
+        assert.deepEqual(
+          legacy.sources.map((source) => source.kind),
+          ["working-tree", "branch-range"],
+        );
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd, includeIndexSplit: true });
+        assert.deepEqual(
+          preview.sources.map((source) => source.kind),
+          ["staged", "unstaged"],
+        );
+        const staged = preview.sources.find((source) => source.kind === "staged")!;
+        const unstaged = preview.sources.find((source) => source.kind === "unstaged")!;
+        assert.deepEqual(
+          staged.files?.map((file) => file.path),
+          ["README.md"],
+        );
+        assert.include(staged.diff, "+# staged");
+        assert.notInclude(staged.diff, "then edited");
+        assert.deepEqual(
+          unstaged.files?.map((file) => file.path),
+          ["README.md", "new.txt"],
+        );
+        assert.include(unstaged.diff, "-# staged");
+        assert.include(unstaged.diff, "+# staged then edited");
+
+        const stagedContents = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, { sourceKind: "staged" }),
+        );
+        assert.deepEqual(stagedContents, { oldContents: "# test\n", newContents: "# staged\n" });
+        const unstagedContents = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, { sourceKind: "unstaged", baseRef: null }),
+        );
+        assert.deepEqual(unstagedContents, {
+          oldContents: "# staged\n",
+          newContents: "# staged then edited\n",
+        });
       }),
     );
   });

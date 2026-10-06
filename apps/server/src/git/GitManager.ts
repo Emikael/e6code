@@ -1813,7 +1813,7 @@ export const make = Effect.gen(function* () {
       commitMessage?: string;
       /** When true, also produce a semantic feature branch name. */
       includeBranch?: boolean;
-      filePaths?: readonly string[];
+      filePaths?: readonly string[] | "staged";
       settings: SourceControlTextGenerationSettings;
     }) {
       const context = yield* gitCore.prepareCommitContext(input.cwd, input.filePaths);
@@ -1863,7 +1863,7 @@ export const make = Effect.gen(function* () {
     branch: string | null,
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
-    filePaths?: readonly string[],
+    filePaths?: readonly string[] | "staged",
     progressReporter?: GitActionProgressReporter,
     actionId?: string,
   ) {
@@ -2565,7 +2565,7 @@ export const make = Effect.gen(function* () {
     cwd: string,
     branch: string | null,
     commitMessage?: string,
-    filePaths?: readonly string[],
+    filePaths?: readonly string[] | "staged",
   ) {
     const suggestion = yield* resolveCommitAndBranchSuggestion({
       cwd,
@@ -2660,6 +2660,7 @@ export const make = Effect.gen(function* () {
 
         let branchStep: { status: "created" | "skipped_not_requested"; name?: string };
         let commitMessageForStep = input.commitMessage;
+        const commitSelection = input.commitScope === "staged" ? "staged" : input.filePaths;
         let preResolvedCommitSuggestion: CommitAndBranchSuggestion | undefined = undefined;
 
         const textGenerationSettings = yield* projectSettingsFor(input).pipe(
@@ -2702,7 +2703,7 @@ export const make = Effect.gen(function* () {
             input.cwd,
             initialStatus.branch,
             input.commitMessage,
-            input.filePaths,
+            commitSelection,
           );
           branchStep = result.branchStep;
           commitMessageForStep = result.resolvedCommitMessage;
@@ -2730,7 +2731,7 @@ export const make = Effect.gen(function* () {
                   currentBranch,
                   commitMessageForStep,
                   preResolvedCommitSuggestion,
-                  input.filePaths,
+                  commitSelection,
                   options?.progressReporter,
                   progress.actionId,
                 ),

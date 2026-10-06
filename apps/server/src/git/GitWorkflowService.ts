@@ -6,6 +6,9 @@ import {
   GitManagerError,
   GitCommandError,
   type VcsSwitchRefInput,
+  type VcsPathsInput,
+  type VcsDiscardResult,
+  type VcsRestoreDiscardInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
   type VcsCreateRefResult,
@@ -105,6 +108,14 @@ export class GitWorkflowService extends Context.Service<
     readonly switchRef: (
       input: VcsSwitchRefInput,
     ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
+    readonly stagePaths: (input: VcsPathsInput) => Effect.Effect<void, GitCommandError>;
+    readonly unstagePaths: (input: VcsPathsInput) => Effect.Effect<void, GitCommandError>;
+    readonly discardPaths: (
+      input: VcsPathsInput,
+    ) => Effect.Effect<VcsDiscardResult, GitCommandError>;
+    readonly restoreDiscard: (
+      input: VcsRestoreDiscardInput,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly renameBranch: (input: {
       readonly cwd: string;
       readonly oldBranch: string;
@@ -375,6 +386,22 @@ export const make = Effect.gen(function* () {
     switchRef: (input) =>
       ensureGitCommand("GitWorkflowService.switchRef", input.cwd).pipe(
         Effect.andThen(Effect.scoped(git.switchRef(input))),
+      ),
+    stagePaths: (input) =>
+      ensureGitCommand("GitWorkflowService.stagePaths", input.cwd).pipe(
+        Effect.andThen(git.stagePaths(input.cwd, input.paths)),
+      ),
+    unstagePaths: (input) =>
+      ensureGitCommand("GitWorkflowService.unstagePaths", input.cwd).pipe(
+        Effect.andThen(git.unstagePaths(input.cwd, input.paths)),
+      ),
+    discardPaths: (input) =>
+      ensureGitCommand("GitWorkflowService.discardPaths", input.cwd).pipe(
+        Effect.andThen(git.discardPaths(input.cwd, input.paths)),
+      ),
+    restoreDiscard: (input) =>
+      ensureGitCommand("GitWorkflowService.restoreDiscard", input.cwd).pipe(
+        Effect.andThen(git.restoreDiscard(input.cwd, input.backupId)),
       ),
     renameBranch: (input) =>
       ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(

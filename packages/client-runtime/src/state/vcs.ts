@@ -355,9 +355,35 @@ export function createVcsEnvironmentAtoms<R, E>(
       concurrency: vcsCommandConcurrency,
       onSettled: invalidateRefs,
     }),
+    // Index edits refresh the status stream server-side, so no ref invalidation is needed.
+    stage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stage",
+      tag: WS_METHODS.vcsStage,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    unstage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:unstage",
+      tag: WS_METHODS.vcsUnstage,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    discard: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:discard",
+      tag: WS_METHODS.vcsDiscard,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    restoreDiscard: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:restore-discard",
+      tag: WS_METHODS.vcsRestoreDiscard,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
   };
 }
 
 export * from "./gitActions.ts";
 export * from "./vcsAction.ts";
 export * from "./vcsRef.ts";
+export * from "./vcsChanges.ts";

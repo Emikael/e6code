@@ -62,6 +62,9 @@ import {
   VcsCreateWorktreeInput,
   VcsCreateWorktreeResult,
   VcsInitInput,
+  VcsPathsInput,
+  VcsDiscardResult,
+  VcsRestoreDiscardInput,
   VcsListRefsInput,
   VcsListRefsResult,
   GitManagerServiceError,
@@ -316,6 +319,10 @@ export const WS_METHODS = {
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
   vcsInit: "vcs.init",
+  vcsStage: "vcs.stage",
+  vcsUnstage: "vcs.unstage",
+  vcsDiscard: "vcs.discard",
+  vcsRestoreDiscard: "vcs.restoreDiscard",
 
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
@@ -1081,6 +1088,28 @@ const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   error: Schema.Union([VcsError, EnvironmentAuthorizationError]),
 });
 
+const WsVcsStageRpc = Rpc.make(WS_METHODS.vcsStage, {
+  payload: VcsPathsInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVcsUnstageRpc = Rpc.make(WS_METHODS.vcsUnstage, {
+  payload: VcsPathsInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+/** Reverts unstaged changes and deletes untracked files, keeping a backup for undo. */
+const WsVcsDiscardRpc = Rpc.make(WS_METHODS.vcsDiscard, {
+  payload: VcsPathsInput,
+  success: VcsDiscardResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVcsRestoreDiscardRpc = Rpc.make(WS_METHODS.vcsRestoreDiscard, {
+  payload: VcsRestoreDiscardInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 /**
  * Ephemeral live diff preview for compact/mobile surfaces.
  * Not the persisted E6 Review model. Future review sessions should use
@@ -1480,6 +1509,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
+  WsVcsStageRpc,
+  WsVcsUnstageRpc,
+  WsVcsDiscardRpc,
+  WsVcsRestoreDiscardRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
   WsTerminalOpenRpc,

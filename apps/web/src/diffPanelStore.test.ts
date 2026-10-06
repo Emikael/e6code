@@ -34,10 +34,23 @@ describe("diffPanelStore", () => {
     ).toEqual({ kind: "branch", baseRef: null });
   });
 
+  it("maps the staged and unstaged scopes to one side of the index", () => {
+    const store = useDiffPanelStore.getState();
+    store.selectGitScope(THREAD_REF, "staged");
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "index", side: "staged" });
+
+    store.selectGitScope(THREAD_REF, "unstaged");
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "index", side: "unstaged" });
+  });
+
   it("clears incompatible selection fields when changing scopes", () => {
     const store = useDiffPanelStore.getState();
     store.selectTurn(THREAD_REF, TurnId.make("turn-1"), "src/app.ts");
-    store.selectGitScope(THREAD_REF, "unstaged");
+    store.selectGitScope(THREAD_REF, "uncommitted");
 
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
@@ -59,7 +72,7 @@ describe("diffPanelStore", () => {
     store.selectTurn(THREAD_REF, TurnId.make("turn-1"), "src/app.ts");
     store.selectBranchBaseRef(otherThreadRef, "origin/main");
 
-    store.selectGitScope(THREAD_REF, "unstaged");
+    store.selectGitScope(THREAD_REF, "uncommitted");
 
     const { byThreadKey } = useDiffPanelStore.getState();
     expect(selectThreadDiffPanelSelection(byThreadKey, THREAD_REF)).toEqual({ kind: "unstaged" });
@@ -86,7 +99,7 @@ describe("diffPanelStore", () => {
 
   it("restores the selected branch base after visiting another scope", () => {
     useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "unstaged");
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "uncommitted");
     useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
 
     expect(
