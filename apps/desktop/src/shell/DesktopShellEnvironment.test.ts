@@ -100,6 +100,184 @@ function runShellEnvironment(input: {
 }
 
 describe("DesktopShellEnvironment", () => {
+  for (const platform of ["darwin", "linux"] as const) {
+    it.effect(`loads Bitbucket credentials from the login shell on ${platform}`, () =>
+      Effect.gen(function* () {
+        const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+
+        yield* runShellEnvironment({
+          env,
+          platform,
+          handler: () =>
+            envOutput({
+              PATH: "/usr/bin",
+              E6CODE_BITBUCKET_EMAIL: "user@example.com",
+              E6CODE_BITBUCKET_API_TOKEN: "shell-token",
+              E6CODE_BITBUCKET_API_BASE_URL: "https://shell.example.com/2.0",
+              UNRELATED_SECRET: "unrelated-token",
+            }),
+        });
+
+        assert.equal(env.E6CODE_BITBUCKET_EMAIL, "user@example.com");
+        assert.equal(env.E6CODE_BITBUCKET_API_TOKEN, "shell-token");
+        assert.equal(env.E6CODE_BITBUCKET_API_BASE_URL, "https://shell.example.com/2.0");
+        assert.equal(env.UNRELATED_SECRET, undefined);
+      }),
+    );
+  }
+
+  it.effect("loads a Bitbucket bearer token and API base from the login shell", () =>
+    Effect.gen(function* () {
+      const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+
+      yield* runShellEnvironment({
+        env,
+        platform: "darwin",
+        handler: () =>
+          envOutput({
+            PATH: "/usr/bin",
+            E6CODE_BITBUCKET_ACCESS_TOKEN: "shell-access-token",
+            E6CODE_BITBUCKET_API_BASE_URL: "https://api.example.com/2.0",
+          }),
+      });
+
+      assert.equal(env.E6CODE_BITBUCKET_ACCESS_TOKEN, "shell-access-token");
+      assert.equal(env.E6CODE_BITBUCKET_API_BASE_URL, "https://api.example.com/2.0");
+    }),
+  );
+
+  for (const platform of ["darwin", "linux"] as const) {
+    for (const inherited of [
+      {
+        E6CODE_BITBUCKET_EMAIL: "inherited@example.com",
+        E6CODE_BITBUCKET_API_TOKEN: "inherited-token",
+      },
+      { E6CODE_BITBUCKET_ACCESS_TOKEN: "inherited-access-token" },
+    ]) {
+      it.effect(
+        `keeps a shell-only API URL away from inherited ${"E6CODE_BITBUCKET_ACCESS_TOKEN" in inherited ? "Bearer" : "Basic"} credentials on ${platform}`,
+        () =>
+          Effect.gen(function* () {
+            const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin", ...inherited };
+
+            yield* runShellEnvironment({
+              env,
+              platform,
+              handler: () =>
+                envOutput({
+                  PATH: "/usr/bin",
+                  E6CODE_BITBUCKET_EMAIL: "shell@example.com",
+                  E6CODE_BITBUCKET_API_TOKEN: "shell-token",
+                  E6CODE_BITBUCKET_ACCESS_TOKEN: "shell-access-token",
+                  E6CODE_BITBUCKET_API_BASE_URL: "https://shell.example.com/2.0",
+                }),
+            });
+
+            assert.equal(env.E6CODE_BITBUCKET_EMAIL, inherited.E6CODE_BITBUCKET_EMAIL);
+            assert.equal(env.E6CODE_BITBUCKET_API_TOKEN, inherited.E6CODE_BITBUCKET_API_TOKEN);
+            assert.equal(
+              env.E6CODE_BITBUCKET_ACCESS_TOKEN,
+              inherited.E6CODE_BITBUCKET_ACCESS_TOKEN,
+            );
+            assert.equal(env.E6CODE_BITBUCKET_API_BASE_URL, undefined);
+          }),
+      );
+    }
+  }
+
+  it.effect("preserves an explicit API URL while importing shell credentials", () =>
+    Effect.gen(function* () {
+      const env: NodeJS.ProcessEnv = {
+        SHELL: "/bin/zsh",
+        PATH: "/usr/bin",
+        E6CODE_BITBUCKET_API_BASE_URL: "https://inherited.example.com/2.0",
+      };
+
+      yield* runShellEnvironment({
+        env,
+        platform: "darwin",
+        handler: () =>
+          envOutput({
+            PATH: "/usr/bin",
+            E6CODE_BITBUCKET_EMAIL: "shell@example.com",
+            E6CODE_BITBUCKET_API_TOKEN: "shell-token",
+            E6CODE_BITBUCKET_API_BASE_URL: "https://shell.example.com/2.0",
+          }),
+      });
+
+      assert.equal(env.E6CODE_BITBUCKET_EMAIL, "shell@example.com");
+      assert.equal(env.E6CODE_BITBUCKET_API_TOKEN, "shell-token");
+      assert.equal(env.E6CODE_BITBUCKET_API_BASE_URL, "https://inherited.example.com/2.0");
+    }),
+  );
+
+  for (const inherited of [
+    { E6CODE_BITBUCKET_EMAIL: "inherited@example.com" },
+    { E6CODE_BITBUCKET_API_TOKEN: "inherited-token" },
+    {
+      E6CODE_BITBUCKET_EMAIL: "inherited@example.com",
+      E6CODE_BITBUCKET_API_TOKEN: "inherited-token",
+    },
+    { E6CODE_BITBUCKET_ACCESS_TOKEN: "inherited-access-token" },
+  ]) {
+    it.effect(
+      `keeps inherited Bitbucket credentials together (${Object.keys(inherited).join(", ")})`,
+      () =>
+        Effect.gen(function* () {
+          const env: NodeJS.ProcessEnv = {
+            SHELL: "/bin/zsh",
+            PATH: "/usr/bin",
+            E6CODE_BITBUCKET_API_BASE_URL: "https://inherited.example.com/2.0",
+            ...inherited,
+          };
+
+          yield* runShellEnvironment({
+            env,
+            platform: "darwin",
+            handler: () =>
+              envOutput({
+                PATH: "/usr/bin",
+                E6CODE_BITBUCKET_EMAIL: "shell@example.com",
+                E6CODE_BITBUCKET_API_TOKEN: "shell-token",
+                E6CODE_BITBUCKET_ACCESS_TOKEN: "shell-access-token",
+                E6CODE_BITBUCKET_API_BASE_URL: "https://shell.example.com/2.0",
+              }),
+          });
+
+          assert.equal(env.E6CODE_BITBUCKET_EMAIL, inherited.E6CODE_BITBUCKET_EMAIL);
+          assert.equal(env.E6CODE_BITBUCKET_API_TOKEN, inherited.E6CODE_BITBUCKET_API_TOKEN);
+          assert.equal(env.E6CODE_BITBUCKET_ACCESS_TOKEN, inherited.E6CODE_BITBUCKET_ACCESS_TOKEN);
+          assert.equal(env.E6CODE_BITBUCKET_API_BASE_URL, "https://inherited.example.com/2.0");
+        }),
+    );
+  }
+
+  it.effect("treats empty inherited Bitbucket credentials as absent", () =>
+    Effect.gen(function* () {
+      const env: NodeJS.ProcessEnv = {
+        SHELL: "/bin/zsh",
+        PATH: "/usr/bin",
+        E6CODE_BITBUCKET_EMAIL: " ",
+        E6CODE_BITBUCKET_API_TOKEN: "",
+        E6CODE_BITBUCKET_ACCESS_TOKEN: " ",
+      };
+
+      yield* runShellEnvironment({
+        env,
+        platform: "darwin",
+        handler: () =>
+          envOutput({
+            PATH: "/usr/bin",
+            E6CODE_BITBUCKET_EMAIL: "user@example.com",
+            E6CODE_BITBUCKET_API_TOKEN: "shell-token",
+          }),
+      });
+
+      assert.equal(env.E6CODE_BITBUCKET_EMAIL, "user@example.com");
+      assert.equal(env.E6CODE_BITBUCKET_API_TOKEN, "shell-token");
+    }),
+  );
+
   it.effect("hydrates PATH and missing SSH_AUTH_SOCK from the login shell on macOS", () =>
     Effect.gen(function* () {
       const env: NodeJS.ProcessEnv = {
