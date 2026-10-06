@@ -206,7 +206,7 @@ const PORCELAIN_CHANGE_KINDS: Record<string, VcsFileChangeKind> = {
   T: "type-changed",
 };
 
-export interface PorcelainStatusEntry {
+interface PorcelainStatusEntry {
   readonly path: string;
   readonly previousPath?: string;
   readonly staged?: VcsFileChangeKind;
@@ -220,7 +220,7 @@ const PORCELAIN_PATH_FIELD_INDEX: Record<string, number> = { "1": 8, "2": 9, u: 
  * Parses `git status --porcelain=2 -z`. Paths are raw and repository-relative;
  * `2` (rename/copy) records carry their source path in the following NUL field.
  */
-export function parsePorcelainV2Status(stdout: string): {
+function parsePorcelainV2Status(stdout: string): {
   readonly headers: ReadonlyArray<string>;
   readonly entries: ReadonlyArray<PorcelainStatusEntry>;
 } {
