@@ -16,6 +16,7 @@ import {
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
+  type ThreadWorkspaceSelection,
   type ThreadLinkedPullRequest,
   type TurnId,
 } from "@e6tools/contracts";
@@ -458,12 +459,8 @@ export function startNewThreadForProject(
 export function resolveThreadMetadataUpdateForNextTurn(input: {
   currentModelSelection: ModelSelection;
   nextModelSelection?: ModelSelection;
-  currentBranch: string | null;
-  nextBranch?: string;
 }): {
   modelSelection?: ModelSelection;
-  branch?: string;
-  worktreePath?: null;
 } | null {
   const nextModelSelection = input.nextModelSelection;
   const modelSelectionChanged =
@@ -472,14 +469,39 @@ export function resolveThreadMetadataUpdateForNextTurn(input: {
       nextModelSelection.instanceId !== input.currentModelSelection.instanceId ||
       JSON.stringify(nextModelSelection.options ?? null) !==
         JSON.stringify(input.currentModelSelection.options ?? null));
-  const branchChanged = input.nextBranch !== undefined && input.nextBranch !== input.currentBranch;
-  if (!modelSelectionChanged && !branchChanged) {
+  if (!modelSelectionChanged) {
     return null;
   }
   return {
     ...(modelSelectionChanged ? { modelSelection: nextModelSelection } : {}),
-    ...(branchChanged ? { branch: input.nextBranch, worktreePath: null } : {}),
   };
+}
+
+export function resolveDraftWorkspaceSelection(input: {
+  branch: string | null;
+  worktreePath: string | null;
+  envMode: "local" | "worktree";
+  taskBranch: string;
+  startFromOrigin: boolean;
+  workspaceSelection?: ThreadWorkspaceSelection | null | undefined;
+}): ThreadWorkspaceSelection | undefined {
+  if (input.envMode === "worktree" && !input.worktreePath && input.branch) {
+    return {
+      kind: "new-worktree",
+      baseRef: input.branch,
+      branch: input.taskBranch,
+      ...(input.startFromOrigin ? { startFromOrigin: true } : {}),
+    };
+  }
+  if (input.workspaceSelection) return input.workspaceSelection;
+  if (input.worktreePath) {
+    return {
+      kind: "attach",
+      worktreePath: input.worktreePath,
+      ...(input.branch ? { branch: input.branch } : {}),
+    };
+  }
+  return input.branch ? { kind: "branch", branch: input.branch } : undefined;
 }
 
 export function buildLocalDraftThread(

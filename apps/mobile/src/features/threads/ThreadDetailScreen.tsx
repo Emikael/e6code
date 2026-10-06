@@ -38,6 +38,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   Alert,
@@ -152,6 +153,8 @@ export interface ThreadDetailScreenProps {
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
   readonly serverConfig: E6ServerConfig | null;
+  /** Pre-rendered handoff card shown above the composer when the active provider is limited. */
+  readonly handoffCard?: ReactNode | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
@@ -983,6 +986,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       environmentId={props.environmentId}
                       onClose={dismissUsageLimits}
                     />
+                  </Animated.View>
+                ) : null}
+                {props.handoffCard && activeUserInputRequestId === null ? (
+                  <Animated.View
+                    className="shrink-0 px-4 pb-3"
+                    entering={FadeInDown.duration(220)}
+                    exiting={FadeOut.duration(140)}
+                  >
+                    {props.handoffCard}
                   </Animated.View>
                 ) : null}
                 {props.creationState?.kind === "failed" ? (

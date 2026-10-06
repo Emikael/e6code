@@ -1,4 +1,5 @@
 import {
+  CommandId,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -241,6 +242,41 @@ describe("environment entity projections", () => {
       unsettledAt: "2026-03-09T12:00:00.000Z",
     });
     expect(merged?.messages).toBe(messages);
+  });
+
+  it("uses the confirmed shell workspace generation and operation after reconnect", () => {
+    const cachedOperation = {
+      commandId: CommandId.make("old-workspace-selection"),
+      status: "completed" as const,
+      selection: { kind: "branch" as const, branch: "old-branch" },
+    };
+    const currentOperation = {
+      commandId: CommandId.make("new-workspace-selection"),
+      status: "pending" as const,
+      selection: { kind: "branch" as const, branch: "new-branch" },
+    };
+    const detail = {
+      ...THREAD_SHELL,
+      environmentId: ENVIRONMENT_ID,
+      workspaceGeneration: 1,
+      workspaceOperation: cachedOperation,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    };
+    const shell = {
+      ...THREAD_SHELL,
+      environmentId: ENVIRONMENT_ID,
+      workspaceGeneration: 2,
+      workspaceOperation: currentOperation,
+    };
+
+    expect(mergeEnvironmentThread(detail, shell)).toMatchObject({
+      workspaceGeneration: 2,
+      workspaceOperation: currentOperation,
+    });
   });
 
   it("preserves untouched project and thread identities across unrelated shell updates", () => {

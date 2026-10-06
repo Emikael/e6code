@@ -3,9 +3,13 @@ import { CheckpointRef, ProjectId, type ThreadId } from "@e6tools/contracts";
 
 const CHECKPOINT_REFS_PREFIX = "refs/e6/checkpoints";
 
-export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number): CheckpointRef {
+export function checkpointRefForThreadTurn(
+  threadId: ThreadId,
+  turnCount: number,
+  generation = 0,
+): CheckpointRef {
   return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/turn/${turnCount}`,
+    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}${generation > 0 ? `/workspace/${generation}` : ""}/turn/${turnCount}`,
   );
 }
 

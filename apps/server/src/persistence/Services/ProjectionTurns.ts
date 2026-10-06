@@ -16,6 +16,7 @@ import {
   OrchestrationCheckpointStatus,
   ThreadId,
   TurnId,
+  ThreadWorkspaceProvenance,
 } from "@e6tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -48,6 +49,7 @@ export const ProjectionTurn = Schema.Struct({
   checkpointRef: Schema.NullOr(CheckpointRef),
   checkpointStatus: Schema.NullOr(OrchestrationCheckpointStatus),
   checkpointFiles: Schema.Array(OrchestrationCheckpointFile),
+  workspaceProvenance: Schema.optional(Schema.NullOr(ThreadWorkspaceProvenance)),
 });
 export type ProjectionTurn = typeof ProjectionTurn.Type;
 
@@ -66,6 +68,7 @@ export const ProjectionTurnById = Schema.Struct({
   checkpointRef: Schema.NullOr(CheckpointRef),
   checkpointStatus: Schema.NullOr(OrchestrationCheckpointStatus),
   checkpointFiles: Schema.Array(OrchestrationCheckpointFile),
+  workspaceProvenance: Schema.optional(Schema.NullOr(ThreadWorkspaceProvenance)),
 });
 export type ProjectionTurnById = typeof ProjectionTurnById.Type;
 

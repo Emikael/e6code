@@ -7,6 +7,7 @@ import {
   type ProjectId,
   type ProviderInteractionMode,
   type RuntimeMode,
+  type ThreadWorkspaceSelection,
 } from "@e6tools/contracts";
 import { assistantCitationsToPlainText } from "@e6tools/shared/assistantCitations";
 
@@ -39,9 +40,29 @@ export interface ProjectThreadStartTurnSpec {
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly workspaceSelection?: ThreadWorkspaceSelection;
+  readonly supportsWorkspaceSelection?: boolean;
   readonly startFromOrigin: boolean;
   /** Generated temp branch for worktree mode; unused for local mode. */
   readonly worktreeBranchName: string;
+}
+
+export function resolveProjectThreadWorkspaceSelection(
+  spec: Pick<
+    ProjectThreadStartTurnSpec,
+    "workspaceMode" | "branch" | "worktreePath" | "workspaceSelection"
+  >,
+): ThreadWorkspaceSelection | null {
+  if (spec.workspaceMode === "worktree") return null;
+  if (spec.workspaceSelection) return spec.workspaceSelection;
+  if (spec.worktreePath) {
+    return {
+      kind: "attach",
+      worktreePath: spec.worktreePath,
+      ...(spec.branch ? { branch: spec.branch } : {}),
+    };
+  }
+  return spec.branch ? { kind: "branch", branch: spec.branch } : { kind: "local" };
 }
 
 /**
@@ -52,6 +73,7 @@ export interface ProjectThreadStartTurnSpec {
 export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpec) {
   const title = deriveThreadTitleFromPrompt(spec.text);
   const isWorktree = spec.workspaceMode === "worktree";
+  const workspaceSelection = resolveProjectThreadWorkspaceSelection(spec);
   return {
     commandId: CommandId.make(spec.commandId),
     threadId: ThreadId.make(spec.threadId),
@@ -67,6 +89,9 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
     runtimeMode: spec.runtimeMode,
     interactionMode: spec.interactionMode,
     bootstrap: {
+      ...(workspaceSelection && spec.supportsWorkspaceSelection !== false
+        ? { workspaceSelection }
+        : {}),
       createThread: {
         projectId: spec.projectId,
         title,

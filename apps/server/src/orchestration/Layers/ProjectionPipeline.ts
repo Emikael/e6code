@@ -797,6 +797,28 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.workspace-selection-requested":
+        case "thread.workspace-selection-completed": {
+          const existing = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existing)) return;
+          yield* projectionThreadRepository.upsert({
+            ...existing.value,
+            workspaceOperation: event.payload.operation,
+            ...(event.type === "thread.workspace-selection-completed" &&
+            event.payload.operation.status === "completed"
+              ? {
+                  branch: event.payload.branch ?? null,
+                  worktreePath: event.payload.worktreePath ?? null,
+                  workspaceGeneration: event.payload.workspaceGeneration,
+                  workspaceProvenance: event.payload.workspaceProvenance,
+                }
+              : {}),
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
         case "thread.meta-updated": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -1750,6 +1772,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               checkpointRef: event.payload.checkpointRef,
               checkpointStatus: event.payload.status,
               checkpointFiles: event.payload.files,
+              workspaceProvenance: event.payload.workspaceProvenance,
               startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
               requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
               completedAt: event.payload.completedAt,
@@ -1771,6 +1794,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             checkpointRef: event.payload.checkpointRef,
             checkpointStatus: event.payload.status,
             checkpointFiles: event.payload.files,
+            workspaceProvenance: event.payload.workspaceProvenance,
           });
           return;
         }

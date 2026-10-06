@@ -3,11 +3,13 @@ import { resolveThreadCurrentPullRequestLink } from "@e6tools/shared/threadPullR
 import { useRightPanelStore } from "../rightPanelStore";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef, scopeThreadRef } from "@e6tools/client-runtime/environment";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@e6tools/client-runtime/state/runtime";
-import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@e6tools/contracts";
+import type {
+  ContextMenuItem,
+  EnvironmentId,
+  VcsRef,
+  ThreadId,
+  ThreadWorkspaceSelection,
+} from "@e6tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import {
@@ -18,10 +20,8 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
-  useOptimistic,
   useRef,
   useState,
-  useTransition,
   type MouseEvent as ReactMouseEvent,
   type Ref,
 } from "react";
@@ -34,8 +34,6 @@ import { shouldLoadNextBranchPageAfterScroll } from "../state/paginatedBranches"
 import { usePaginatedBranches } from "../state/queries";
 import { useProject, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
-import { threadEnvironment } from "../state/threads";
-import { useAtomCommand } from "../state/use-atom-command";
 import { vcsEnvironment } from "../state/vcs";
 import { cn } from "../lib/utils";
 import { parsePullRequestReference } from "../pullRequestReference";
@@ -45,7 +43,6 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
   resolveBranchToolbarPrBranch,
-  resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
@@ -87,6 +84,9 @@ interface BranchToolbarBranchSelectorProps {
   threadId: ThreadId;
   draftId?: DraftId;
   envLocked: boolean;
+  workspaceSelectionPending: boolean;
+  workspaceSelectionDisabled: boolean;
+  onSelectWorkspace: (selection: ThreadWorkspaceSelection) => Promise<void>;
   effectiveEnvModeOverride?: "local" | "worktree";
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
@@ -108,6 +108,9 @@ export function BranchToolbarBranchSelector({
   threadId,
   draftId,
   envLocked,
+  workspaceSelectionPending,
+  workspaceSelectionDisabled,
+  onSelectWorkspace,
   effectiveEnvModeOverride,
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
@@ -118,17 +121,6 @@ export function BranchToolbarBranchSelector({
 }: BranchToolbarBranchSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const startFromOriginSwitchId = useId();
-  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
-  const updateThreadMetadata = useAtomCommand(
-    threadEnvironment.updateMetadata,
-    "thread metadata update",
-  );
-  const switchRef = useAtomCommand(vcsEnvironment.switchRef, {
-    reportFailure: false,
-  });
-  const createRefMutation = useAtomCommand(vcsEnvironment.createRef, {
-    reportFailure: false,
-  });
   // ---------------------------------------------------------------------------
   // Thread / project state (pushed down from parent to colocate with mutation)
   // ---------------------------------------------------------------------------
@@ -140,7 +132,6 @@ export function BranchToolbarBranchSelector({
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
   const serverThread = useThreadShell(threadRef);
-  const serverSession = serverThread?.session ?? null;
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
   const activeProjectRef = serverThread
@@ -175,22 +166,6 @@ export function BranchToolbarBranchSelector({
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null, automatic = false) => {
       if (!activeThreadId || !activeProject) return;
-      if (serverSession && worktreePath !== activeWorktreePath) {
-        void stopThreadSession({
-          environmentId,
-          input: { threadId: activeThreadId },
-        });
-      }
-      if (hasServerThread) {
-        void updateThreadMetadata({
-          environmentId,
-          input: {
-            threadId: activeThreadId,
-            branch,
-            worktreePath,
-          },
-        });
-      }
       if (hasServerThread) {
         onActiveThreadBranchOverrideChange?.(branch);
         return;
@@ -211,7 +186,6 @@ export function BranchToolbarBranchSelector({
     [
       activeThreadId,
       activeProject,
-      serverSession,
       activeWorktreePath,
       hasServerThread,
       onActiveThreadBranchOverrideChange,
@@ -221,8 +195,6 @@ export function BranchToolbarBranchSelector({
       environmentId,
       effectiveEnvMode,
       draftThread?.environmentSelection,
-      stopThreadSession,
-      updateThreadMetadata,
     ],
   );
 
@@ -231,6 +203,10 @@ export function BranchToolbarBranchSelector({
   // ---------------------------------------------------------------------------
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
+  useEffect(() => {
+    setIsBranchMenuOpen(false);
+    setBranchQuery("");
+  }, [environmentId, threadId]);
   const deferredBranchQuery = useDeferredValue(branchQuery);
 
   const branchStatusQuery = useEnvironmentQuery(
@@ -324,10 +300,7 @@ export function BranchToolbarBranchSelector({
       normalizedDeferredBranchQuery,
     ],
   );
-  const [resolvedActiveBranch, setOptimisticBranch] = useOptimistic(
-    canonicalActiveBranch,
-    (_currentBranch: string | null, optimisticBranch: string | null) => optimisticBranch,
-  );
+  const resolvedActiveBranch = canonicalActiveBranch;
   const listedActiveBranch =
     resolvedActiveBranch === null ? null : (branchByName.get(resolvedActiveBranch) ?? null);
   const activeBranchRefQuery = useEnvironmentQuery(
@@ -351,7 +324,12 @@ export function BranchToolbarBranchSelector({
       : queriedActiveBranch
         ? queriedActiveBranch.isRemote === true
         : null;
-  const [isBranchActionPending, startBranchActionTransition] = useTransition();
+  const isBranchActionPending = workspaceSelectionPending;
+  const branchWorkspaceTooltip = isBranchActionPending
+    ? "Preparing the selected thread workspace"
+    : currentGitBranch && currentGitBranch !== resolvedActiveBranch
+      ? `Selected branch: ${resolvedActiveBranch ?? "none"}. Checkout HEAD: ${currentGitBranch}.`
+      : null;
   const totalBranchCount = branchRefState.data?.totalCount ?? 0;
   const branchStatusText = isInitialBranchesLoadPending
     ? "Loading refs..."
@@ -403,108 +381,58 @@ export function BranchToolbarBranchSelector({
     [copyBranchName],
   );
 
-  const runBranchAction = (action: () => Promise<void>) => {
-    startBranchActionTransition(async () => {
-      await action();
-      branchRefState.refresh();
-      branchStatusQuery.refresh();
-    });
-  };
-
   const selectBranch = (refName: VcsRef) => {
-    if (!branchCwd || !activeProjectCwd || isBranchActionPending) return;
-
-    if (isSelectingWorktreeBase) {
-      setThreadBranch(refName.name, null);
-      setIsBranchMenuOpen(false);
-      onComposerFocusRequest?.();
+    if (!branchCwd || !activeProjectCwd || isBranchActionPending || workspaceSelectionDisabled)
       return;
-    }
-
-    const selectionTarget = resolveBranchSelectionTarget({
-      activeProjectCwd,
-      activeWorktreePath,
-      refName,
-    });
-
-    if (selectionTarget.reuseExistingWorktree) {
-      setThreadBranch(refName.name, selectionTarget.nextWorktreePath);
-      setIsBranchMenuOpen(false);
-      onComposerFocusRequest?.();
-      return;
-    }
-
-    const selectedBranchName = refName.isRemote
-      ? deriveLocalBranchNameFromRemoteRef(refName.name)
-      : refName.name;
-
     setIsBranchMenuOpen(false);
     onComposerFocusRequest?.();
 
-    runBranchAction(async () => {
-      const previousBranch = resolvedActiveBranch;
-      setOptimisticBranch(selectedBranchName);
-      const checkoutResult = await switchRef({
-        environmentId,
-        input: {
-          cwd: selectionTarget.checkoutCwd,
-          refName: refName.name,
-        },
-      });
-      if (checkoutResult._tag === "Success") {
-        const nextBranchName = refName.isRemote
-          ? (checkoutResult.value.refName ?? selectedBranchName)
-          : selectedBranchName;
-        setOptimisticBranch(nextBranchName);
-        setThreadBranch(nextBranchName, selectionTarget.nextWorktreePath);
-        return;
-      }
-      setOptimisticBranch(previousBranch);
-      if (!isAtomCommandInterrupted(checkoutResult)) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to switch ref.",
-            description: toBranchActionErrorMessage(squashAtomCommandFailure(checkoutResult)),
-          }),
-        );
-      }
+    if (isSelectingWorktreeBase) {
+      setThreadBranch(refName.name, null);
+      return;
+    }
+
+    const selectedBranch = refName.isRemote
+      ? deriveLocalBranchNameFromRemoteRef(refName.name)
+      : refName.name;
+    const selection: ThreadWorkspaceSelection =
+      refName.worktreePath === activeProjectCwd
+        ? { kind: "local" }
+        : refName.worktreePath
+          ? { kind: "attach", worktreePath: refName.worktreePath, branch: selectedBranch }
+          : { kind: "branch", branch: refName.name };
+    if (hasServerThread) {
+      void onSelectWorkspace(selection);
+      return;
+    }
+    setDraftThreadContext(draftId ?? threadRef, {
+      branch: selectedBranch,
+      worktreePath:
+        refName.worktreePath === activeProjectCwd ? null : (refName.worktreePath ?? null),
+      envMode: "local",
+      workspaceSelection: selection,
+      environmentSelection: "manual",
     });
   };
 
   const createRef = (rawName: string) => {
     const name = sanitizeNewRefName(rawName);
-    if (!branchCwd || !name || isBranchActionPending) return;
-
+    const baseRef = activeThreadBranch ?? currentGitBranch;
+    if (!branchCwd || !name || !baseRef || isBranchActionPending || workspaceSelectionDisabled)
+      return;
     setIsBranchMenuOpen(false);
     onComposerFocusRequest?.();
-
-    runBranchAction(async () => {
-      const previousBranch = resolvedActiveBranch;
-      setOptimisticBranch(name);
-      const createBranchResult = await createRefMutation({
-        environmentId,
-        input: {
-          cwd: branchCwd,
-          refName: name,
-          switchRef: true,
-        },
-      });
-      if (createBranchResult._tag === "Success") {
-        setOptimisticBranch(createBranchResult.value.refName);
-        setThreadBranch(createBranchResult.value.refName, activeWorktreePath);
-        return;
-      }
-      setOptimisticBranch(previousBranch);
-      if (!isAtomCommandInterrupted(createBranchResult)) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to create and switch ref.",
-            description: toBranchActionErrorMessage(squashAtomCommandFailure(createBranchResult)),
-          }),
-        );
-      }
+    const selection: ThreadWorkspaceSelection = { kind: "create-branch", branch: name, baseRef };
+    if (hasServerThread) {
+      void onSelectWorkspace(selection);
+      return;
+    }
+    setDraftThreadContext(draftId ?? threadRef, {
+      branch: name,
+      worktreePath: null,
+      envMode: "local",
+      workspaceSelection: selection,
+      environmentSelection: "manual",
     });
   };
 
@@ -785,50 +713,63 @@ export function BranchToolbarBranchSelector({
       open={isBranchMenuOpen}
       value={resolvedActiveBranch}
     >
-      <div
-        className={cn("flex min-w-0 items-center gap-1", className)}
-        data-composer-context-control
-      >
-        <ThreadPullRequestBadgeControl
-          variant="ghost"
-          badge={prBadge}
-          number={prNumber}
-          url={prUrl}
-          status={displayedPrStatus}
-          onOpenStack={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
-          onOpenPullRequest={(event) => {
-            if (prUrl) openPrLink(event, prUrl);
-          }}
-        />
-        {/* Context menu lives on the wrapper: the disabled Button has
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <div
+              className={cn("flex min-w-0 items-center gap-1", className)}
+              data-composer-context-control
+            />
+          }
+        >
+          <ThreadPullRequestBadgeControl
+            variant="ghost"
+            badge={prBadge}
+            number={prNumber}
+            url={prUrl}
+            status={displayedPrStatus}
+            onOpenStack={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
+            onOpenPullRequest={(event) => {
+              if (prUrl) openPrLink(event, prUrl);
+            }}
+          />
+          {/* Context menu lives on the wrapper: the disabled Button has
             pointer-events-none, so the trigger itself never sees right-clicks
             while refs are loading or a branch action is pending. */}
-        <span
-          className="flex min-w-0"
-          onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
-        >
-          <ComboboxTrigger
-            render={<Button variant="ghost" size="xs" />}
-            // No press-scale: the popup aligns live to this trigger, so a
-            // momentary 0.97 shrink would drag the open popup ~3px sideways.
-            className="min-w-0 max-w-full font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80 active:scale-100"
-            disabled={isInitialBranchesLoadPending || isBranchActionPending}
+          <span
+            className="flex min-w-0"
+            onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
           >
-            <GitBranchIcon className="size-3 shrink-0 opacity-70" />
-            <span
-              data-composer-label
-              className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+            <ComboboxTrigger
+              render={<Button variant="ghost" size="xs" />}
+              // No press-scale: the popup aligns live to this trigger, so a
+              // momentary 0.97 shrink would drag the open popup ~3px sideways.
+              className="min-w-0 max-w-full font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80 active:scale-100"
+              disabled={
+                isInitialBranchesLoadPending || isBranchActionPending || workspaceSelectionDisabled
+              }
             >
-              <MiddleTruncate
-                value={triggerLabel}
-                data-composer-label-motion
-                className="flex w-full max-w-[240px] transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
-              />
-            </span>
-            <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
-          </ComboboxTrigger>
-        </span>
-      </div>
+              <GitBranchIcon className="size-3 shrink-0 opacity-70" />
+              <span
+                data-composer-label
+                className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+              >
+                <MiddleTruncate
+                  value={triggerLabel}
+                  data-composer-label-motion
+                  className="flex w-full max-w-[240px] transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+                />
+              </span>
+              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+            </ComboboxTrigger>
+          </span>
+        </TooltipTrigger>
+        {branchWorkspaceTooltip ? (
+          <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
+            {branchWorkspaceTooltip}
+          </TooltipPopup>
+        ) : null}
+      </Tooltip>
       <ComboboxPopup
         align="end"
         side="top"

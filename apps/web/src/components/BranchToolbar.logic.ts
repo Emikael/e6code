@@ -153,7 +153,7 @@ export function resolveEffectiveEnvMode(input: {
     }
     return draftThreadEnvMode === "worktree" ? "worktree" : "local";
   }
-  return activeWorktreePath ? "worktree" : "local";
+  return "local";
 }
 
 export function resolveDraftEnvModeAfterBranchChange(input: {
@@ -177,11 +177,7 @@ export function resolveBranchToolbarValue(input: {
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
 }): string | null {
-  const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
-  if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
-  }
-  return currentGitBranch ?? activeThreadBranch;
+  return input.activeThreadBranch ?? input.currentGitBranch;
 }
 
 export function resolveBranchTriggerLabel(input: {

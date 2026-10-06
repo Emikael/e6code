@@ -6,8 +6,11 @@ import {
   EMPTY_ENVIRONMENT_THREAD_STATE,
   type EnvironmentThreadState,
   createThreadEnvironmentAtoms,
+  mergeEnvironmentThread,
 } from "@e6tools/client-runtime/state/threads";
 import type { EnvironmentId, ThreadId } from "@e6tools/contracts";
+import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
+import { useMemo } from "react";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -31,6 +34,7 @@ export const environmentThreadShells = createEnvironmentThreadShellAtoms({
 const EMPTY_THREAD_STATE_ATOM = Atom.make(AsyncResult.success(EMPTY_ENVIRONMENT_THREAD_STATE)).pipe(
   Atom.withLabel("mobile-environment-thread:empty"),
 );
+const EMPTY_THREAD_SHELL_ATOM = Atom.make<EnvironmentThreadShell | null>(null);
 
 export function useEnvironmentThread(
   environmentId: EnvironmentId | null,
@@ -41,8 +45,21 @@ export function useEnvironmentThread(
       ? environmentThreads.stateAtom(environmentId, threadId)
       : EMPTY_THREAD_STATE_ATOM,
   );
-  return Option.getOrElse(
+  const shell = useAtomValue(
+    environmentId !== null && threadId !== null
+      ? environmentThreadShells.threadShellAtom({ environmentId, threadId })
+      : EMPTY_THREAD_SHELL_ATOM,
+  );
+  const state = Option.getOrElse(
     AsyncResult.value(result),
     () => EMPTY_ENVIRONMENT_THREAD_STATE,
   ) as EnvironmentThreadState;
+  return useMemo(() => {
+    const detail = Option.getOrNull(state.data);
+    if (detail === null || environmentId === null || shell === null) return state;
+    return {
+      ...state,
+      data: Option.fromNullishOr(mergeEnvironmentThread({ ...detail, environmentId }, shell)),
+    };
+  }, [state, environmentId, shell]);
 }

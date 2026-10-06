@@ -23,9 +23,18 @@ import {
   MessageId,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ProviderInstanceId,
   ThreadId,
   type ProjectScript,
 } from "@e6tools/contracts";
+import {
+  buildHandoffDocument,
+  buildHandoffTargets,
+  buildHandoffTurnInput,
+  shouldOfferHandoff,
+  type HandoffTargetOption,
+} from "@e6tools/client-runtime/state/thread-handoff";
+import { ThreadHandoffCard } from "./ThreadHandoffCard";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
@@ -438,6 +447,139 @@ function ThreadRouteContent(
     [composer.interactionMode, composer.modelSelection, composer.runtimeMode, selectedThread],
   );
 
+  /* ─── Provider handoff when the active provider hits its limit ────── */
+  const startHandoffTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const [dismissedHandoffKey, setDismissedHandoffKey] = useState<string | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const handoffProviders = routeEnvironmentRuntime?.serverConfig?.providers ?? null;
+  const handoffSourceInstanceId =
+    selectedThread?.session?.providerInstanceId ??
+    selectedThread?.modelSelection.instanceId ??
+    null;
+  const handoffTargets = useMemo(
+    () =>
+      buildHandoffTargets(
+        (handoffProviders ?? []).flatMap((provider) => {
+          const model =
+            provider.models.find((entry) => entry.isDefault)?.slug ??
+            provider.models.find((entry) => !entry.isLegacy)?.slug ??
+            provider.models[0]?.slug;
+          if (!model) return [];
+          return [
+            {
+              instanceId: provider.instanceId,
+              model,
+              label: provider.displayName ?? String(provider.instanceId),
+              usedPercent: provider.usageLimits
+                ? Math.max(...provider.usageLimits.windows.map((window) => window.usedPercent), 0)
+                : undefined,
+            },
+          ];
+        }),
+        handoffSourceInstanceId ?? "",
+      ),
+    [handoffProviders, handoffSourceInstanceId],
+  );
+  const handoffOffer = useMemo(() => {
+    if (!selectedThread || handoffSourceInstanceId === null) return false;
+    const sourceProvider = (handoffProviders ?? []).find(
+      (provider) => provider.instanceId === handoffSourceInstanceId,
+    );
+    if (
+      !shouldOfferHandoff({
+        sessionLastError: selectedThread.session?.lastError ?? null,
+        usageLimits: sourceProvider?.usageLimits,
+      })
+    ) {
+      return false;
+    }
+    if (
+      dismissedHandoffKey === `${selectedThread.id}:${handoffSourceInstanceId}` ||
+      !handoffTargets.some((target) => target.available)
+    ) {
+      return false;
+    }
+    return true;
+  }, [
+    selectedThread,
+    handoffProviders,
+    handoffSourceInstanceId,
+    dismissedHandoffKey,
+    handoffTargets,
+  ]);
+  const handleHandoffContinue = async (target: HandoffTargetOption) => {
+    if (!selectedThread || !selectedThreadDetail || handoffBusy) return;
+    setHandoffBusy(true);
+    try {
+      const doc = buildHandoffDocument(
+        {
+          id: selectedThread.id,
+          title: selectedThread.title,
+          branch: selectedThread.branch,
+          modelLabel: String(handoffSourceInstanceId ?? ""),
+          messages: selectedThreadDetail.messages.map((message) => ({
+            role: message.role,
+            text: message.text,
+            createdAt: message.createdAt,
+          })),
+        },
+        { recentCount: 10 },
+      );
+      const metadata = makeTurnCommandMetadata();
+      const input = buildHandoffTurnInput({
+        source: {
+          projectId: selectedThread.projectId,
+          title: selectedThread.title,
+          branch: selectedThread.branch,
+          worktreePath: selectedThread.worktreePath,
+          runtimeMode: selectedThread.runtimeMode,
+          interactionMode: selectedThread.interactionMode,
+        },
+        handoffMarkdown: doc.markdown,
+        target: { instanceId: ProviderInstanceId.make(target.instanceId), model: target.model },
+        ids: {
+          threadId: ThreadId.make(metadata.threadId),
+          commandId: metadata.commandId,
+          messageId: MessageId.make(metadata.messageId),
+          createdAt: metadata.createdAt,
+        },
+      });
+      const result = await startHandoffTurn({
+        environmentId: selectedThread.environmentId,
+        input,
+      });
+      if (result._tag === "Failure") {
+        Alert.alert(
+          "Could not start the new session",
+          "The other provider could not be reached. Try again.",
+        );
+        return;
+      }
+      setDismissedHandoffKey(`${selectedThread.id}:${handoffSourceInstanceId}`);
+      navigation.dispatch(
+        StackActions.replace("Thread", {
+          environmentId: String(selectedThread.environmentId),
+          threadId: String(metadata.threadId),
+        }),
+      );
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
+  const handoffCard: ReactNode = handoffOffer ? (
+    <ThreadHandoffCard
+      sourceTitle={selectedThread?.title ?? ""}
+      targets={handoffTargets}
+      busy={handoffBusy}
+      onContinue={(target) => void handleHandoffContinue(target)}
+      onDismiss={() =>
+        setDismissedHandoffKey(
+          selectedThread ? `${selectedThread.id}:${handoffSourceInstanceId}` : null,
+        )
+      }
+    />
+  ) : null;
+
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
   const headerSubtitle = [
@@ -766,7 +908,9 @@ function ThreadRouteContent(
     currentBranch: selectedThread?.branch ?? null,
     gitStatus: gitStatus.data,
     gitOperationLabel: gitState.gitOperationLabel,
-    canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
+    canOpenTerminal:
+      Boolean(selectedThreadProject?.workspaceRoot) &&
+      selectedThread?.workspaceOperation?.status !== "pending",
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),
     projectScripts: selectedThreadProject
       ? resolveProjectScripts(
@@ -1024,6 +1168,7 @@ function ThreadRouteContent(
           onNativePasteText={composer.onNativePasteText}
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
+          handoffCard={handoffCard}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}

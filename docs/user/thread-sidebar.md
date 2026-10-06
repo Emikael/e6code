@@ -1,7 +1,9 @@
 # Working with threads
 
-Use a new thread for a separate task. Choose **New worktree** when its code changes
-need a separate branch and working directory.
+Use a new thread for a separate task. Each thread keeps its branch and workspace selection.
+Choosing a different branch uses a separate worktree when needed, without switching the
+project checkout or another thread's branch. Choose **New worktree** to start a new task
+branch from a base branch.
 
 ## Start a thread
 
@@ -12,6 +14,16 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 
 When you change a new thread's project, E6 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
+
+A new thread's branch selection is prepared when you send its first message. An existing
+thread must be idle before changing its branch or workspace. If a branch is already checked
+out in another worktree, choose that worktree explicitly or create a different task branch
+from it. Threads sharing a worktree also share its file changes; selecting another branch
+in one thread leaves the others in their existing workspace.
+
+If the selected worktree is removed outside E6 Code, select another workspace before sending.
+Branch and workspace selection requires a server that supports it; update an older server
+to enable these actions.
 
 ### Start in the background
 

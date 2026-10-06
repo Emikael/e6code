@@ -3424,6 +3424,26 @@ describe("ProviderCommandReactor", () => {
       cwd: "/tmp/provider-project",
     });
 
+    // The workspace binding is only rebindable while idle.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-thread-workspace-idle"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          providerName: "claudeAgent",
+          status: "ready",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.meta.update",

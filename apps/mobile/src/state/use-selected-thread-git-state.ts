@@ -48,7 +48,10 @@ export function useSelectedThreadGitState() {
   );
 
   return {
-    gitOperationLabel: gitActionState.currentLabel,
+    gitOperationLabel:
+      selectedThread?.workspaceOperation?.status === "pending"
+        ? "Selecting workspace"
+        : gitActionState.currentLabel,
     sourceControlDiscovery,
     selectedThreadBranches,
     selectedThreadBranchesLoading: selectedThreadBranchState.isPending,

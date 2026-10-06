@@ -16,6 +16,8 @@ import {
   RuntimeMode,
   ThreadLinkedPullRequest,
   ThreadTitleState,
+  ThreadWorkspaceOperation,
+  ThreadWorkspaceProvenance,
   ThreadId,
   TurnId,
 } from "@e6tools/contracts";
@@ -36,6 +38,9 @@ export const ProjectionThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  workspaceGeneration: Schema.optional(NonNegativeInt),
+  workspaceOperation: Schema.optional(Schema.NullOr(ThreadWorkspaceOperation)),
+  workspaceProvenance: Schema.optional(Schema.NullOr(ThreadWorkspaceProvenance)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurnId: Schema.NullOr(TurnId),

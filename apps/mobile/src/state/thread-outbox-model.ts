@@ -15,6 +15,7 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
+  ThreadWorkspaceSelection,
   type ModelSelection as ModelSelectionType,
   type ProjectId as ProjectIdType,
   type ProviderInteractionMode as ProviderInteractionModeType,
@@ -42,6 +43,7 @@ const QueuedThreadCreationSchema = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
+  workspaceSelection: Schema.optional(ThreadWorkspaceSelection),
 });
 
 export const QueuedThreadMessageSchema = Schema.Struct({
@@ -73,6 +75,7 @@ export interface QueuedThreadCreation {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin?: boolean;
+  readonly workspaceSelection?: ThreadWorkspaceSelection;
 }
 
 export interface QueuedThreadMessage {

@@ -115,6 +115,20 @@ function queuedMessage(input: {
 }
 
 describe("thread outbox", () => {
+  it("retains an explicit shared workspace choice through offline persistence", () => {
+    const message = {
+      ...queuedMessage({ messageId: "shared-workspace", createdAt: "2026-10-06T12:00:00.000Z" }),
+      creation: {
+        projectId: ProjectId.make("project-1"),
+        workspaceMode: "local" as const,
+        branch: "main",
+        worktreePath: null,
+        workspaceSelection: { kind: "attach" as const, worktreePath: "/repo", branch: "main" },
+      },
+    };
+    expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(message))).toEqual(message);
+  });
+
   it("retains structured context through a persisted offline queue round trip", () => {
     const message: QueuedThreadMessage = {
       ...queuedMessage({ messageId: "context-message", createdAt: "2026-09-06T12:00:00.000Z" }),

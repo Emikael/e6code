@@ -249,6 +249,36 @@ export function applyThreadDetailEvent(
         },
       };
 
+    case "thread.workspace-selection-requested":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          workspaceOperation: event.payload.operation,
+          updatedAt: event.payload.createdAt,
+        },
+      };
+
+    case "thread.workspace-selection-completed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          workspaceOperation: event.payload.operation,
+          ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
+          ...(event.payload.worktreePath !== undefined
+            ? { worktreePath: event.payload.worktreePath }
+            : {}),
+          ...(event.payload.workspaceGeneration !== undefined
+            ? { workspaceGeneration: event.payload.workspaceGeneration }
+            : {}),
+          ...(event.payload.workspaceProvenance !== undefined
+            ? { workspaceProvenance: event.payload.workspaceProvenance }
+            : {}),
+          updatedAt: event.payload.createdAt,
+        },
+      };
+
     // ── Thread metadata ─────────────────────────────────────────────
     case "thread.meta-updated":
       return {
@@ -591,6 +621,9 @@ export function applyThreadDetailEvent(
         files: event.payload.files,
         assistantMessageId: event.payload.assistantMessageId,
         completedAt: event.payload.completedAt,
+        ...(event.payload.workspaceProvenance !== undefined
+          ? { workspaceProvenance: event.payload.workspaceProvenance }
+          : {}),
       };
 
       const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);

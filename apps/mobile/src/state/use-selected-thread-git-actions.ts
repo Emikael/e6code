@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import type { AtomCommandResult } from "@e6tools/client-runtime/state/runtime";
@@ -7,7 +7,7 @@ import {
   type VcsActionOperation,
   type VcsRef,
 } from "@e6tools/client-runtime/state/vcs";
-import type { GitRunStackedActionResult } from "@e6tools/contracts";
+import type { GitRunStackedActionResult, ThreadWorkspaceSelection } from "@e6tools/contracts";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   sanitizeFeatureBranchName,
@@ -16,7 +16,8 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 
 import { useBranches } from "../state/queries";
-import { threadEnvironment } from "../state/threads";
+import { threadEnvironment, environmentThreadShells } from "../state/threads";
+import { waitForThreadWorkspaceOperation } from "./thread-workspace-operation";
 import { vcsActionManager, vcsEnvironment } from "../state/vcs";
 import { uuidv4 } from "../lib/uuid";
 import { appAtomRegistry } from "./atom-registry";
@@ -27,16 +28,16 @@ import { useThreadSelection } from "./use-thread-selection";
 import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 
 export function useSelectedThreadGitActions() {
-  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+  const selectWorkspace = useAtomCommand(threadEnvironment.selectWorkspace, {
     reportFailure: false,
   });
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
-  const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
-  const createRef = useAtomCommand(vcsEnvironment.createRef, { reportFailure: false });
-  const createWorktree = useAtomCommand(vcsEnvironment.createWorktree, { reportFailure: false });
   const pull = useAtomCommand(vcsEnvironment.pull, { reportFailure: false });
-  const { selectedThread, selectedThreadProject } = useThreadSelection();
-  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
+  const { selectedThread, selectedThreadProject, selectedEnvironmentRuntime } =
+    useThreadSelection();
+  const selectionRef = useRef(selectedThread);
+  selectionRef.current = selectedThread;
+  const { selectedThreadCwd } = useSelectedThreadWorktree();
   const runStackedAction = useAtomCommand(
     vcsActionManager.runStackedAction({
       environmentId: selectedThread?.environmentId ?? null,
@@ -55,26 +56,6 @@ export function useSelectedThreadGitActions() {
     [selectedThread?.environmentId, selectedThreadGitRootCwd],
   );
   const branchState = useBranches(branchTarget);
-  const updateThreadGitContext = useCallback(
-    async (
-      thread: NonNullable<typeof selectedThread>,
-      nextState: {
-        readonly branch?: string | null;
-        readonly worktreePath?: string | null;
-      },
-    ) => {
-      return updateThreadMetadata({
-        environmentId: thread.environmentId,
-        input: {
-          threadId: thread.id,
-          ...(nextState.branch !== undefined ? { branch: nextState.branch } : {}),
-          ...(nextState.worktreePath !== undefined ? { worktreePath: nextState.worktreePath } : {}),
-        },
-      });
-    },
-    [updateThreadMetadata],
-  );
-
   const refreshSelectedThreadGitStatus = useCallback(
     async (options?: { readonly quiet?: boolean; readonly cwd?: string | null }) => {
       if (!selectedThread || !selectedThreadProject) {
@@ -155,8 +136,13 @@ export function useSelectedThreadGitActions() {
       if (AsyncResult.isFailure(result)) {
         const error = Cause.squash(result.cause);
         const message = error instanceof Error ? error.message : "Git action failed.";
-        setPendingConnectionError(message);
-        showGitActionResult({ type: "error", title: "Git action failed", description: message });
+        if (
+          selectionRef.current?.environmentId === selectedThread.environmentId &&
+          selectionRef.current?.id === selectedThread.id
+        ) {
+          setPendingConnectionError(message);
+          showGitActionResult({ type: "error", title: "Git action failed", description: message });
+        }
         return null;
       }
       return result.value;
@@ -171,125 +157,99 @@ export function useSelectedThreadGitActions() {
     );
   }, [branchState]);
 
-  const syncSelectedThreadBranchState = useCallback(
-    async (input: {
-      readonly thread: EnvironmentThreadShell;
-      readonly cwd: string;
-      readonly nextThreadState?: {
-        readonly branch?: string | null;
-        readonly worktreePath?: string | null;
-      };
-    }): Promise<AtomCommandResult<void, unknown>> => {
-      if (input.nextThreadState) {
-        const updateResult = await updateThreadGitContext(input.thread, input.nextThreadState);
-        if (AsyncResult.isFailure(updateResult)) {
-          return AsyncResult.failure(updateResult.cause);
-        }
-      }
-      branchState.refresh();
-      await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
-      return AsyncResult.success(undefined);
+  const onSelectSelectedThreadWorkspace = useCallback(
+    async (selection: ThreadWorkspaceSelection) => {
+      return runSelectedThreadGitMutation(
+        "switch_ref",
+        "Selecting workspace",
+        async ({ thread }) => {
+          if (
+            selectedEnvironmentRuntime?.serverConfig?.environment.capabilities
+              .threadWorkspaceSelection !== true
+          ) {
+            return AsyncResult.failure(
+              Cause.fail(
+                new Error(
+                  "This server does not support independent thread workspaces. Update the server to select one.",
+                ),
+              ),
+            );
+          }
+          const atom = environmentThreadShells.threadShellAtom({
+            environmentId: thread.environmentId,
+            threadId: thread.id,
+          });
+          const current = appAtomRegistry.get(atom) ?? thread;
+          const generation = current.workspaceGeneration ?? 0;
+          const result = await selectWorkspace({
+            environmentId: thread.environmentId,
+            input: {
+              threadId: thread.id,
+              expectedWorkspace: {
+                generation,
+                branch: current.branch,
+                worktreePath: current.worktreePath,
+              },
+              selection,
+            },
+          });
+          if (AsyncResult.isFailure(result)) return result;
+          const completed = await waitForThreadWorkspaceOperation({
+            registry: appAtomRegistry,
+            atom,
+            commandId: result.value.commandId,
+            expectedGeneration: generation,
+          });
+          branchState.refresh();
+          return completed;
+        },
+      );
     },
-    [branchState, refreshSelectedThreadGitStatus, updateThreadGitContext],
+    [
+      branchState,
+      runSelectedThreadGitMutation,
+      selectWorkspace,
+      selectedEnvironmentRuntime?.serverConfig,
+    ],
   );
 
   const onCheckoutSelectedThreadBranch = useCallback(
-    async (branch: string) => {
-      await runSelectedThreadGitMutation(
-        "switch_ref",
-        "Switching branch",
-        async ({ thread, cwd }) => {
-          const result = await switchRef({
-            environmentId: thread.environmentId,
-            input: { cwd, refName: branch },
-          });
-          if (AsyncResult.isFailure(result)) {
-            return result;
-          }
-          const syncResult = await syncSelectedThreadBranchState({
-            thread,
-            cwd,
-            nextThreadState: {
-              branch: result.value.refName ?? thread.branch,
-              worktreePath: selectedThreadWorktreePath,
-            },
-          });
-          return AsyncResult.isFailure(syncResult) ? AsyncResult.failure(syncResult.cause) : result;
-        },
+    (branch: string) => {
+      const ref = branchState.data?.refs.find(
+        (candidate) => candidate.name === branch && !candidate.isRemote,
+      );
+      return onSelectSelectedThreadWorkspace(
+        ref?.worktreePath
+          ? { kind: "attach", worktreePath: ref.worktreePath, branch }
+          : { kind: "branch", branch },
       );
     },
-    [
-      runSelectedThreadGitMutation,
-      selectedThreadWorktreePath,
-      syncSelectedThreadBranchState,
-      switchRef,
-    ],
+    [branchState.data?.refs, onSelectSelectedThreadWorkspace],
   );
 
   const onCreateSelectedThreadBranch = useCallback(
-    async (branch: string) => {
-      await runSelectedThreadGitMutation(
-        "create_ref",
-        "Creating branch",
-        async ({ thread, cwd }) => {
-          const result = await createRef({
-            environmentId: thread.environmentId,
-            input: { cwd, refName: branch, switchRef: true },
-          });
-          if (AsyncResult.isFailure(result)) {
-            return result;
-          }
-          const syncResult = await syncSelectedThreadBranchState({
-            thread,
-            cwd,
-            nextThreadState: {
-              branch: result.value.refName ?? thread.branch,
-              worktreePath: selectedThreadWorktreePath,
-            },
-          });
-          return AsyncResult.isFailure(syncResult) ? AsyncResult.failure(syncResult.cause) : result;
-        },
-      );
-    },
-    [
-      runSelectedThreadGitMutation,
-      selectedThreadWorktreePath,
-      syncSelectedThreadBranchState,
-      createRef,
-    ],
+    (branch: string) =>
+      onSelectSelectedThreadWorkspace({
+        kind: "create-branch",
+        branch: sanitizeFeatureBranchName(branch),
+        baseRef: selectedThread?.branch ?? "HEAD",
+      }),
+    [onSelectSelectedThreadWorkspace, selectedThread?.branch],
   );
 
   const onCreateSelectedThreadWorktree = useCallback(
-    async (nextWorktree: { readonly baseBranch: string; readonly newBranch: string }) => {
-      await runSelectedThreadGitMutation(
-        "create_worktree",
-        "Creating worktree",
-        async ({ thread, project }) => {
-          const result = await createWorktree({
-            environmentId: thread.environmentId,
-            input: {
-              cwd: project.workspaceRoot,
-              refName: nextWorktree.baseBranch,
-              newRefName: sanitizeFeatureBranchName(nextWorktree.newBranch),
-              path: null,
-            },
-          });
-          if (AsyncResult.isFailure(result)) {
-            return result;
-          }
-          const syncResult = await syncSelectedThreadBranchState({
-            thread,
-            cwd: result.value.worktree.path,
-            nextThreadState: {
-              branch: result.value.worktree.refName,
-              worktreePath: result.value.worktree.path,
-            },
-          });
-          return AsyncResult.isFailure(syncResult) ? AsyncResult.failure(syncResult.cause) : result;
-        },
-      );
-    },
-    [createWorktree, runSelectedThreadGitMutation, syncSelectedThreadBranchState],
+    (nextWorktree: { readonly baseBranch: string; readonly newBranch: string }) =>
+      onSelectSelectedThreadWorkspace({
+        kind: "new-worktree",
+        baseRef: nextWorktree.baseBranch,
+        branch: sanitizeFeatureBranchName(nextWorktree.newBranch),
+      }),
+    [onSelectSelectedThreadWorkspace],
+  );
+
+  const onUseProjectCheckout = useCallback(
+    () => onSelectSelectedThreadWorkspace({ kind: "local" }),
+    [onSelectSelectedThreadWorkspace],
   );
 
   const onPullSelectedThreadBranch = useCallback(async () => {
@@ -345,33 +305,14 @@ export function useSelectedThreadGitActions() {
               result.value.toast.cta.kind === "open_pr" ? result.value.toast.cta.url : undefined,
           });
 
-          if (result.value.branch.status === "created" && result.value.branch.name) {
-            const syncResult = await syncSelectedThreadBranchState({
-              thread,
-              cwd,
-              nextThreadState: {
-                branch: result.value.branch.name,
-                worktreePath: selectedThreadWorktreePath,
-              },
-            });
-            if (AsyncResult.isFailure(syncResult)) {
-              return AsyncResult.failure(syncResult.cause);
-            }
-          } else {
-            await refreshSelectedThreadGitStatus({ quiet: true, cwd });
-          }
+          branchState.refresh();
+          await refreshSelectedThreadGitStatus({ quiet: true, cwd });
           return result;
         },
         { managedExternally: true },
       );
     },
-    [
-      runStackedAction,
-      refreshSelectedThreadGitStatus,
-      runSelectedThreadGitMutation,
-      selectedThreadWorktreePath,
-      syncSelectedThreadBranchState,
-    ],
+    [runStackedAction, refreshSelectedThreadGitStatus, runSelectedThreadGitMutation, branchState],
   );
 
   return {
@@ -380,6 +321,7 @@ export function useSelectedThreadGitActions() {
     onCheckoutSelectedThreadBranch,
     onCreateSelectedThreadBranch,
     onCreateSelectedThreadWorktree,
+    onUseProjectCheckout,
     onPullSelectedThreadBranch,
     onRunSelectedThreadGitAction,
   };

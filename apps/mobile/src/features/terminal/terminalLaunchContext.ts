@@ -52,7 +52,7 @@ export function resolvePreferredThreadWorktreePath(input: {
   readonly threadShellWorktreePath: string | null;
   readonly threadDetailWorktreePath: string | null;
 }): string | null {
-  return input.threadDetailWorktreePath ?? input.threadShellWorktreePath ?? null;
+  return input.threadShellWorktreePath;
 }
 
 export function resolveTerminalOpenLocation(input: {

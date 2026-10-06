@@ -8,6 +8,14 @@ import {
 } from "@e6tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
+import { handoffBannerItem } from "./chat/ComposerHandoff";
+import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
+import {
+  buildHandoffDocument,
+  buildHandoffTargets,
+  buildHandoffTurnInput,
+  shouldOfferHandoff,
+} from "@e6tools/client-runtime/state/thread-handoff";
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
 import {
   questionAttachmentDraftId,
@@ -471,6 +479,7 @@ import {
   resolveProactiveTurnDiffAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolveDraftWorkspaceSelection,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -498,6 +507,7 @@ import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFi
 import { assetEnvironment } from "../state/assets";
 import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useThreadWorkspaceSelection } from "../hooks/useThreadWorkspaceSelection";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { Button } from "./ui/button";
 import {
@@ -1440,10 +1450,6 @@ type LocalThreadErrorEntry = {
   readonly at: number;
 };
 
-function chatActionErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "An error occurred.";
-}
-
 const ENVIRONMENT_UNAVAILABLE_SEND_TOAST_TRAIL_SIZE = 3;
 const EMPTY_HELD_TURN_DIFF_SUMMARIES: readonly never[] = [];
 const noopHeldTurnDiff = (_turnId: TurnId, _filePath?: string) => {};
@@ -1504,7 +1510,6 @@ export default function ChatView(props: ChatViewProps) {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  const switchGitRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const setThreadRuntimeMode = useAtomCommand(threadEnvironment.setRuntimeMode, {
     reportFailure: false,
   });
@@ -3211,6 +3216,17 @@ export default function ChatView(props: ChatViewProps) {
     activePendingApproval: activePendingApproval?.requestId ?? null,
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError,
+  });
+  const supportsWorkspaceSelection =
+    serverConfig?.environment.capabilities.threadWorkspaceSelection === true;
+  const {
+    selectWorkspace,
+    pending: workspaceSelectionPending,
+    interrupted: workspaceSelectionInterrupted,
+    retryWorkspaceSelection,
+  } = useThreadWorkspaceSelection({
+    thread: activeThreadShell,
+    supportsSelection: supportsWorkspaceSelection,
   });
   const optimisticCompactionMessage = optimisticUserMessages.at(-1);
   const pendingCompactionMessage =
@@ -5216,7 +5232,6 @@ export default function ChatView(props: ChatViewProps) {
       threadId: ThreadId;
       createdAt: string;
       modelSelection?: ModelSelection;
-      branch?: string;
       runtimeMode: RuntimeMode;
       interactionMode: ProviderInteractionMode;
     }): Promise<AtomCommandResult<void, unknown>> => {
@@ -5228,8 +5243,6 @@ export default function ChatView(props: ChatViewProps) {
       const metadataUpdate = resolveThreadMetadataUpdateForNextTurn({
         currentModelSelection: serverThread.modelSelection,
         ...(input.modelSelection ? { nextModelSelection: input.modelSelection } : {}),
-        currentBranch: serverThread.branch,
-        ...(input.branch ? { nextBranch: input.branch } : {}),
       });
       if (metadataUpdate) {
         result = mapAtomCommandResult(
@@ -6129,8 +6142,7 @@ export default function ChatView(props: ChatViewProps) {
       setUnsnoozingThreadKey((current) => (current === threadKey ? null : current));
     }
   }, [activeThreadRef, unsnoozeThreadMutation]);
-  const [isRestoringThreadBranch, setIsRestoringThreadBranch] = useState(false);
-  const [branchRestoreConfirmOpen, setBranchRestoreConfirmOpen] = useState(false);
+  const isRestoringThreadBranch = workspaceSelectionPending;
   // Once revealed for a given mismatch, the banner stays mounted until the
   // mismatch changes or resolves, so clearing the draft doesn't flicker it.
   const [revealedBranchMismatchKey, setRevealedBranchMismatchKey] = useState<string | null>(null);
@@ -6159,71 +6171,9 @@ export default function ChatView(props: ChatViewProps) {
     });
   }, [activeBranchMismatchKey, showBranchMismatchBanner]);
   const handleSwitchCheckoutToThread = useCallback(async () => {
-    if (
-      !activeProjectCwd ||
-      !activeThread ||
-      !localCheckoutBranchMismatch ||
-      isRestoringThreadBranch
-    ) {
-      return;
-    }
-    setIsRestoringThreadBranch(true);
-    const checkoutResult = await switchGitRef({
-      environmentId,
-      input: {
-        cwd: activeProjectCwd,
-        refName: localCheckoutBranchMismatch.threadBranch,
-      },
-    });
-    if (checkoutResult._tag === "Failure") {
-      setIsRestoringThreadBranch(false);
-      if (!isAtomCommandInterrupted(checkoutResult)) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to switch checkout",
-            description: chatActionErrorMessage(squashAtomCommandFailure(checkoutResult)),
-          }),
-        );
-      }
-      return;
-    }
-
-    const nextBranch = checkoutResult.value.refName ?? localCheckoutBranchMismatch.threadBranch;
-    if (nextBranch !== activeThread.branch) {
-      const updateResult = await updateThreadMetadata({
-        environmentId,
-        input: { threadId: activeThread.id, branch: nextBranch, worktreePath: null },
-      });
-      if (updateResult._tag === "Failure") {
-        setIsRestoringThreadBranch(false);
-        if (!isAtomCommandInterrupted(updateResult)) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Checkout switched, but the thread could not be updated",
-              description: chatActionErrorMessage(squashAtomCommandFailure(updateResult)),
-            }),
-          );
-        }
-        gitStatusQuery.refresh();
-        return;
-      }
-    }
-    gitStatusQuery.refresh();
-    setIsRestoringThreadBranch(false);
-    scheduleComposerFocus();
-  }, [
-    activeProjectCwd,
-    activeThread,
-    environmentId,
-    gitStatusQuery,
-    isRestoringThreadBranch,
-    localCheckoutBranchMismatch,
-    scheduleComposerFocus,
-    switchGitRef,
-    updateThreadMetadata,
-  ]);
+    if (!localCheckoutBranchMismatch || workspaceSelectionPending) return;
+    await selectWorkspace({ kind: "branch", branch: localCheckoutBranchMismatch.threadBranch });
+  }, [localCheckoutBranchMismatch, selectWorkspace, workspaceSelectionPending]);
   // Background work (subagent fleets, workflow runs, watch loops) can outlive
   // the turn; once it settles, the composer stop button is gone, so this
   // banner is the only visible stop affordance. Stop routes through the
@@ -6366,6 +6316,9 @@ export default function ChatView(props: ChatViewProps) {
   const [dismissedResumeCompactionKeys, setDismissedResumeCompactionKeys] = useState<
     ReadonlySet<string>
   >(new Set());
+  const [dismissedHandoffKeys, setDismissedHandoffKeys] = useState<ReadonlySet<string>>(new Set());
+  const [handoffStarting, setHandoffStarting] = useState(false);
+  const [handoffDialogOpen, setHandoffDialogOpen] = useState(false);
   const resumeCompactionKey =
     activeThread && activeContextWindow
       ? `${activeThread.id}:${activeContextWindow.updatedAt}`
@@ -6383,6 +6336,8 @@ export default function ChatView(props: ChatViewProps) {
     isWorking ||
     threadDetailLoading ||
     isPreparingWorktree ||
+    workspaceSelectionPending ||
+    localCheckoutBranchMismatch !== null ||
     activeEnvironmentUnavailable ||
     feedbackUploading ||
     pendingApprovals.length > 0 ||
@@ -6464,12 +6419,8 @@ export default function ChatView(props: ChatViewProps) {
     selectedProvider,
   ]);
   const handleRestoreThreadBranch = useCallback(() => {
-    if (gitStatusQuery.data?.hasWorkingTreeChanges) {
-      setBranchRestoreConfirmOpen(true);
-      return;
-    }
     void handleSwitchCheckoutToThread();
-  }, [gitStatusQuery.data?.hasWorkingTreeChanges, handleSwitchCheckoutToThread]);
+  }, [handleSwitchCheckoutToThread]);
   const feedbackBannerItems = useMemo(
     () =>
       feedbackSubmissions.flatMap((submission) => {
@@ -6485,7 +6436,166 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [feedbackSubmissions, routeThreadKey],
   );
+  const handoffSourceInstanceId =
+    activeThread?.session?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? null;
+  const handoffTargets = useMemo(
+    () =>
+      buildHandoffTargets(
+        providerStatuses.flatMap((snapshot) => {
+          const model =
+            snapshot.models.find((entry) => entry.isDefault)?.slug ??
+            snapshot.models.find((entry) => !entry.isLegacy)?.slug ??
+            snapshot.models[0]?.slug;
+          if (!model) return [];
+          return [
+            {
+              instanceId: snapshot.instanceId,
+              model,
+              label: snapshot.displayName ?? String(snapshot.instanceId),
+              usedPercent: snapshot.usageLimits
+                ? Math.max(...snapshot.usageLimits.windows.map((window) => window.usedPercent), 0)
+                : undefined,
+            },
+          ];
+        }),
+        handoffSourceInstanceId ?? "",
+      ),
+    [providerStatuses, handoffSourceInstanceId],
+  );
+  const handoffPreview = useMemo(() => {
+    if (!activeThread) return "";
+    return buildHandoffDocument(
+      {
+        id: activeThread.id,
+        title: activeThread.title,
+        branch: activeThread.branch,
+        modelLabel: String(handoffSourceInstanceId ?? ""),
+        messages: activeThread.messages.map((message) => ({
+          role: message.role,
+          text: message.text,
+          createdAt: message.createdAt,
+        })),
+      },
+      { recentCount: 10 },
+    ).markdown;
+  }, [activeThread, handoffSourceInstanceId]);
+  const handleHandoffConfirm = useCallback(
+    async (target: { readonly instanceId: string; readonly model: string }) => {
+      if (!activeThread || !activeProject || !isServerThread || handoffStarting) return;
+      setHandoffStarting(true);
+      try {
+        const nextThreadId = newThreadId();
+        const createdAt = new Date().toISOString();
+        const input = buildHandoffTurnInput({
+          source: {
+            projectId: activeProject.id,
+            title: activeThread.title,
+            branch: activeThread.branch,
+            worktreePath: activeThread.worktreePath,
+            runtimeMode: activeThread.runtimeMode,
+            interactionMode: activeThread.interactionMode,
+          },
+          handoffMarkdown: handoffPreview,
+          target: { instanceId: ProviderInstanceId.make(target.instanceId), model: target.model },
+          ids: {
+            threadId: nextThreadId,
+            commandId: randomUUID(),
+            messageId: newMessageId(),
+            createdAt,
+          },
+        });
+        const result = await startThreadTurn({ environmentId, input });
+        if (result._tag === "Failure") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add({
+              type: "error",
+              title: "Could not start the new session",
+              description: error instanceof Error ? error.message : "Failed to start handoff.",
+            });
+          }
+          return;
+        }
+        setHandoffDialogOpen(false);
+        const startedResult = await settlePromise(() =>
+          waitForStartedServerThread(scopeThreadRef(activeThread.environmentId, nextThreadId)),
+        );
+        if (startedResult._tag === "Failure") return;
+        await settlePromise(() =>
+          navigate({
+            to: "/$environmentId/$threadId",
+            params: { environmentId: activeThread.environmentId, threadId: nextThreadId },
+          }),
+        );
+      } finally {
+        setHandoffStarting(false);
+      }
+    },
+    [
+      activeProject,
+      activeThread,
+      environmentId,
+      handoffPreview,
+      handoffStarting,
+      isServerThread,
+      navigate,
+      scopeThreadRef,
+      settlePromise,
+      startThreadTurn,
+      waitForStartedServerThread,
+    ],
+  );
+  const handoffBanner = useMemo<ComposerBannerStackItem | null>(() => {
+    if (!activeThread || !isServerThread || handoffSourceInstanceId === null) return null;
+    const dismissKey = `${activeThread.id}:${handoffSourceInstanceId}`;
+    if (dismissedHandoffKeys.has(dismissKey)) return null;
+    const sourceSnapshot = providerStatuses.find(
+      (snapshot) => snapshot.instanceId === handoffSourceInstanceId,
+    );
+    if (
+      !shouldOfferHandoff({
+        sessionLastError: activeThread.session?.lastError ?? null,
+        usageLimits: sourceSnapshot?.usageLimits,
+      })
+    ) {
+      return null;
+    }
+    const suggested = handoffTargets.find((target) => target.available);
+    if (!suggested) return null;
+    return handoffBannerItem({
+      id: `handoff:${dismissKey}`,
+      sourceTitle: activeThread.title,
+      targetLabel: suggested.label,
+      busy: handoffStarting,
+      onContinue: () => setHandoffDialogOpen(true),
+      onDismiss: () => setDismissedHandoffKeys((current) => new Set(current).add(dismissKey)),
+    });
+  }, [
+    activeThread,
+    dismissedHandoffKeys,
+    handoffSourceInstanceId,
+    handoffStarting,
+    handoffTargets,
+    isServerThread,
+    providerStatuses,
+  ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const workspaceSelectionItems: ComposerBannerStackItem[] = workspaceSelectionInterrupted
+      ? [
+          {
+            id: "workspace-selection-interrupted",
+            variant: "info",
+            icon: <GitBranchIcon />,
+            title: "Workspace selection is awaiting confirmation",
+            description: "Reconnect and retry to confirm the same workspace request.",
+            actions: (
+              <Button size="xs" variant="ghost" onClick={() => void retryWorkspaceSelection()}>
+                Retry
+              </Button>
+            ),
+          },
+        ]
+      : [];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
@@ -6495,8 +6605,12 @@ export default function ChatView(props: ChatViewProps) {
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    const handoffItems = handoffBanner === null ? [] : [handoffBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
+        ...workspaceSelectionItems,
+        ...workspaceSelectionItems,
+        ...handoffItems,
         ...feedbackBannerItems,
         ...usageLimitsItems,
         ...projectCloneItems,
@@ -6508,6 +6622,8 @@ export default function ChatView(props: ChatViewProps) {
       ];
     }
     return [
+      ...workspaceSelectionItems,
+      ...handoffItems,
       ...feedbackBannerItems,
       ...usageLimitsItems,
       ...projectCloneItems,
@@ -6521,7 +6637,7 @@ export default function ChatView(props: ChatViewProps) {
         icon: <GitBranchIcon />,
         title: (
           <span className="flex min-w-0 items-baseline gap-1.5">
-            <span className="shrink-0 font-normal text-muted-foreground">Branch changed — was</span>
+            <span className="shrink-0 font-normal text-muted-foreground">Selected branch</span>
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -6531,8 +6647,9 @@ export default function ChatView(props: ChatViewProps) {
                 }
               />
               <TooltipPopup side="top" className="max-w-80">
-                This thread last ran on {localCheckoutBranchMismatch.threadBranch}. Sending will
-                continue on {localCheckoutBranchMismatch.currentBranch}.
+                This thread selects {localCheckoutBranchMismatch.threadBranch}, while the checkout
+                is on {localCheckoutBranchMismatch.currentBranch}. Prepare the selected branch
+                before sending. Files in the current checkout stay there.
               </TooltipPopup>
             </Tooltip>
           </span>
@@ -6544,7 +6661,7 @@ export default function ChatView(props: ChatViewProps) {
             disabled={isRestoringThreadBranch}
             onClick={handleRestoreThreadBranch}
           >
-            {isRestoringThreadBranch ? "Restoring..." : "Restore branch"}
+            {isRestoringThreadBranch ? "Preparing..." : "Prepare branch"}
           </Button>
         ),
         dismissLabel: "Dismiss branch change notice",
@@ -6557,8 +6674,11 @@ export default function ChatView(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
+    retryWorkspaceSelection,
+    workspaceSelectionInterrupted,
     backgroundLivenessBannerItem,
     feedbackBannerItems,
+    handoffBanner,
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
@@ -7169,9 +7289,6 @@ export default function ChatView(props: ChatViewProps) {
         threadId,
         createdAt,
         modelSelection: context.selectedModelSelection,
-        ...(localCheckoutBranchMismatch
-          ? { branch: localCheckoutBranchMismatch.currentBranch }
-          : {}),
         runtimeMode,
         interactionMode: context.interactionMode,
       });
@@ -7326,6 +7443,8 @@ export default function ChatView(props: ChatViewProps) {
     if (
       !activeThread ||
       isSendBusy ||
+      workspaceSelectionPending ||
+      localCheckoutBranchMismatch !== null ||
       isConnecting ||
       isRevertingCheckpoint ||
       !clientSettingsHydrated ||
@@ -7689,6 +7808,17 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
 
+    if (
+      (isLocalDraftThread || shouldCreateWorktree || multipleModelSelections !== null) &&
+      !supportsWorkspaceSelection
+    ) {
+      setThreadError(
+        threadIdForSend,
+        "Update this environment's E6 Code server before starting a thread with workspace selection.",
+      );
+      return;
+    }
+
     const composerImagesSnapshot = [...composerImages];
     const composerFilesSnapshot = [...composerFiles];
     const composerAttachmentsSnapshot = [...composerImagesSnapshot, ...composerFilesSnapshot];
@@ -8029,10 +8159,9 @@ export default function ChatView(props: ChatViewProps) {
                       worktreePath: null,
                       createdAt: messageCreatedAt,
                     },
-                    prepareWorktree: {
-                      projectCwd: activeProject.workspaceRoot,
-                      baseBranch: activeThreadBranch!,
-                      requireWorktree: true,
+                    workspaceSelection: {
+                      kind: "new-worktree",
+                      baseRef: activeThreadBranch!,
                       branch: buildTemporaryWorktreeBranchName(randomHex),
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
@@ -8325,9 +8454,6 @@ export default function ChatView(props: ChatViewProps) {
         threadId: threadIdForSend,
         createdAt: messageCreatedAt,
         ...(ctxSelectedModel ? { modelSelection: ctxSelectedModelSelection } : {}),
-        ...(localCheckoutBranchMismatch
-          ? { branch: localCheckoutBranchMismatch.currentBranch }
-          : {}),
         runtimeMode,
         interactionMode: sendInteractionMode,
       });
@@ -8351,8 +8477,19 @@ export default function ChatView(props: ChatViewProps) {
     let turnStartSucceeded = false;
     let backgroundDraftOpened = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
-      const bootstrap =
+      const workspaceSelection =
         isLocalDraftThread || baseBranchForWorktree
+          ? resolveDraftWorkspaceSelection({
+              branch: activeThreadBranch,
+              worktreePath: activeThread.worktreePath,
+              envMode: sendEnvMode,
+              taskBranch: buildTemporaryWorktreeBranchName(randomHex),
+              startFromOrigin,
+              workspaceSelection: draftThread?.workspaceSelection,
+            })
+          : undefined;
+      const bootstrap =
+        isLocalDraftThread || workspaceSelection
           ? {
               ...(isLocalDraftThread
                 ? {
@@ -8368,15 +8505,13 @@ export default function ChatView(props: ChatViewProps) {
                     },
                   }
                 : {}),
-              ...(baseBranchForWorktree
+              ...(workspaceSelection
                 ? {
-                    prepareWorktree: {
-                      projectCwd: activeProject.workspaceRoot,
-                      baseBranch: baseBranchForWorktree,
-                      branch: buildTemporaryWorktreeBranchName(randomHex),
-                      ...(startFromOrigin ? { startFromOrigin: true } : {}),
-                    },
-                    runSetupScript: true,
+                    workspaceSelection,
+                    runSetupScript:
+                      workspaceSelection.kind === "new-worktree" ||
+                      workspaceSelection.kind === "create-branch" ||
+                      workspaceSelection.kind === "branch",
                   }
                 : {}),
             }
@@ -8639,6 +8774,8 @@ export default function ChatView(props: ChatViewProps) {
     activeEnvironmentUnavailable ||
     !clientSettingsHydrated ||
     isRevertingCheckpoint ||
+    workspaceSelectionPending ||
+    localCheckoutBranchMismatch !== null ||
     threadDetailLoading ||
     needsLoadBalancing ||
     activeProviderStatus === null;
@@ -9015,9 +9152,6 @@ export default function ChatView(props: ChatViewProps) {
         threadId: threadIdForSend,
         createdAt: messageCreatedAt,
         modelSelection: ctxSelectedModelSelection,
-        ...(localCheckoutBranchMismatch
-          ? { branch: localCheckoutBranchMismatch.currentBranch }
-          : {}),
         runtimeMode,
         interactionMode: nextInteractionMode,
       });
@@ -9119,6 +9253,8 @@ export default function ChatView(props: ChatViewProps) {
       !activeProposedPlan ||
       !isServerThread ||
       isSendBusy ||
+      workspaceSelectionPending ||
+      localCheckoutBranchMismatch !== null ||
       isConnecting ||
       activeEnvironmentUnavailable ||
       sendInFlightRef.current
@@ -9374,6 +9510,24 @@ export default function ChatView(props: ChatViewProps) {
         scheduleComposerFocus();
         return;
       }
+      if (isServerThread && activeThread) {
+        if (mode === "worktree") {
+          const baseRef = activeThread.branch ?? gitStatusQuery.data?.refName;
+          if (baseRef)
+            void selectWorkspace({
+              kind: "new-worktree",
+              baseRef,
+              branch: buildTemporaryWorktreeBranchName(randomHex),
+              ...(activeProjectSettings.settings.newWorktreesStartFromOrigin
+                ? { startFromOrigin: true }
+                : {}),
+            });
+        } else {
+          void selectWorkspace({ kind: "local" });
+        }
+        scheduleComposerFocus();
+        return;
+      }
       if (isLocalDraftThread) {
         setDraftThreadContext(composerDraftTarget, {
           envMode: mode,
@@ -9381,6 +9535,7 @@ export default function ChatView(props: ChatViewProps) {
             envMode: mode,
             newWorktreesStartFromOrigin: activeProjectSettings.settings.newWorktreesStartFromOrigin,
           }),
+          workspaceSelection: null,
           ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
         });
       }
@@ -9388,6 +9543,10 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       canOverrideServerThreadEnvMode,
+      activeThread,
+      isServerThread,
+      gitStatusQuery.data?.refName,
+      selectWorkspace,
       composerDraftTarget,
       draftThread?.worktreePath,
       isLocalDraftThread,
@@ -9793,6 +9952,16 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
         </WizardPopup>
       </Dialog>
+      <ThreadHandoffDialog
+        open={handoffDialogOpen}
+        sourceTitle={activeThread?.title ?? ""}
+        sourceLabel={String(handoffSourceInstanceId ?? "")}
+        targets={handoffTargets}
+        preview={handoffPreview}
+        busy={handoffStarting}
+        onOpenChange={setHandoffDialogOpen}
+        onConfirm={(target) => void handleHandoffConfirm(target)}
+      />
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(
@@ -10079,15 +10248,19 @@ export default function ChatView(props: ChatViewProps) {
                             isSendBusy={isSendBusy}
                             isRevertingCheckpoint={isRevertingCheckpoint}
                             sendDisabledReason={
-                              isRevertingCheckpoint
-                                ? "Rewinding conversation"
-                                : feedbackUploading
-                                  ? "Sending feedback"
-                                  : threadDetailLoading
-                                    ? "Messages loading"
-                                    : worktreeSetupBlocksSend
-                                      ? "Preparing worktree"
-                                      : projectCloneSendBlockReason
+                              workspaceSelectionPending
+                                ? "Preparing thread workspace"
+                                : localCheckoutBranchMismatch
+                                  ? "Prepare the selected branch before sending"
+                                  : isRevertingCheckpoint
+                                    ? "Rewinding conversation"
+                                    : feedbackUploading
+                                      ? "Sending feedback"
+                                      : threadDetailLoading
+                                        ? "Messages loading"
+                                        : worktreeSetupBlocksSend
+                                          ? "Preparing worktree"
+                                          : projectCloneSendBlockReason
                             }
                             isPreparingWorktree={isPreparingWorktree}
                             bannerItems={composerBannerItems}
@@ -10212,6 +10385,16 @@ export default function ChatView(props: ChatViewProps) {
                                     }
                                   : {})}
                                 envLocked={envLocked}
+                                workspaceSelectionPending={workspaceSelectionPending}
+                                workspaceSelectionDisabled={
+                                  isWorking ||
+                                  activeEnvironmentUnavailable ||
+                                  pendingApprovals.length > 0 ||
+                                  pendingUserInputs.length > 0 ||
+                                  activeThreadShell?.backgroundLiveness != null ||
+                                  (isServerThread && !supportsWorkspaceSelection)
+                                }
+                                onSelectWorkspace={selectWorkspace}
                                 onComposerFocusRequest={scheduleComposerFocus}
                                 {...(canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialog }
@@ -10252,36 +10435,6 @@ export default function ChatView(props: ChatViewProps) {
                 composerOverlayElement={isDraftHeroState ? null : composerOverlayElement}
               />
             ) : null}
-
-            <AlertDialog open={branchRestoreConfirmOpen} onOpenChange={setBranchRestoreConfirmOpen}>
-              <AlertDialogPopup>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Switch to{" "}
-                    <code className="font-medium">
-                      {localCheckoutBranchMismatch?.threadBranch ?? ""}
-                    </code>
-                    ?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    You have uncommitted changes. They'll carry over to the other branch, or block
-                    the switch if they conflict.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-                  <Button
-                    variant="default"
-                    onClick={() => {
-                      setBranchRestoreConfirmOpen(false);
-                      void handleSwitchCheckoutToThread();
-                    }}
-                  >
-                    Switch branch
-                  </Button>
-                </AlertDialogFooter>
-              </AlertDialogPopup>
-            </AlertDialog>
 
             {pullRequestDialogState ? (
               <PullRequestThreadDialog

@@ -97,6 +97,12 @@ describe("new thread on an existing branch", () => {
       });
       expect(input.bootstrap).not.toHaveProperty("prepareWorktree");
       expect(input.bootstrap).not.toHaveProperty("runSetupScript");
+      expect(input.bootstrap).toHaveProperty(
+        "workspaceSelection",
+        worktreePath
+          ? { kind: "attach", worktreePath, branch: "feature/existing" }
+          : { kind: "branch", branch: "feature/existing" },
+      );
       expect(input.threadId).toBe("new-thread");
     },
   );

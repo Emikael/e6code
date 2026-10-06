@@ -39,6 +39,7 @@ import {
   type UnsettleThreadInput,
   type UnsnoozeThreadInput,
   type UpdateThreadMetadataInput,
+  type SelectThreadWorkspaceInput,
   archiveThread,
   createThread,
   deleteThread,
@@ -63,6 +64,7 @@ import {
   unsettleThread,
   unsnoozeThread,
   updateThreadMetadata,
+  selectThreadWorkspace,
 } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
@@ -91,6 +93,7 @@ export type {
   UnsettleThreadInput,
   UnsnoozeThreadInput,
   UpdateThreadMetadataInput,
+  SelectThreadWorkspaceInput,
 } from "../operations/commands.ts";
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -179,6 +182,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     updateMetadata: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:update-metadata",
       execute: (input: UpdateThreadMetadataInput) => updateThreadMetadata(input),
+      scheduler,
+      concurrency,
+    }),
+    selectWorkspace: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:select-workspace",
+      execute: (input: SelectThreadWorkspaceInput) => selectThreadWorkspace(input),
       scheduler,
       concurrency,
     }),

@@ -48,6 +48,93 @@ const baseThread: OrchestrationThread = {
 };
 
 describe("applyThreadDetailEvent", () => {
+  describe("workspace selection", () => {
+    const createdAt = "2026-04-01T01:00:00.000Z";
+    const selection = { kind: "branch" as const, branch: "feature/isolated" };
+    const operation = {
+      commandId: CommandId.make("workspace-selection"),
+      status: "pending" as const,
+      selection,
+    };
+
+    it("keeps the confirmed checkout while a selection is pending", () => {
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 2,
+        occurredAt: createdAt,
+        aggregateKind: "thread",
+        aggregateId: baseThread.id,
+        type: "thread.workspace-selection-requested",
+        payload: {
+          threadId: baseThread.id,
+          operation,
+          expectedWorkspace: { generation: 0, branch: null, worktreePath: null },
+          createdAt,
+        },
+      });
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.branch).toBeNull();
+      expect(result.thread.worktreePath).toBeNull();
+      expect(result.thread.workspaceOperation).toEqual(operation);
+    });
+
+    it("updates the workspace only after preparation completes and preserves conversation data", () => {
+      const provenance = {
+        generation: 1,
+        cwd: "/repo/worktrees/isolated",
+        repositoryRoot: "/repo",
+      };
+      const completed = { ...operation, status: "completed" as const };
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 3,
+        occurredAt: createdAt,
+        aggregateKind: "thread",
+        aggregateId: baseThread.id,
+        type: "thread.workspace-selection-completed",
+        payload: {
+          threadId: baseThread.id,
+          operation: completed,
+          branch: selection.branch,
+          worktreePath: provenance.cwd,
+          workspaceGeneration: 1,
+          workspaceProvenance: provenance,
+          createdAt,
+        },
+      });
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread).toMatchObject({
+        branch: selection.branch,
+        worktreePath: provenance.cwd,
+        workspaceGeneration: 1,
+        workspaceProvenance: provenance,
+        workspaceOperation: completed,
+      });
+      expect(result.thread.messages).toBe(baseThread.messages);
+      expect(result.thread.checkpoints).toBe(baseThread.checkpoints);
+    });
+
+    it("retains the original workspace after preparation fails", () => {
+      const failed = { ...operation, status: "failed" as const, error: "Branch is already in use" };
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 3,
+        occurredAt: createdAt,
+        aggregateKind: "thread",
+        aggregateId: baseThread.id,
+        type: "thread.workspace-selection-completed",
+        payload: { threadId: baseThread.id, operation: failed, createdAt },
+      });
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.worktreePath).toBeNull();
+      expect(result.thread.branch).toBeNull();
+      expect(result.thread.workspaceOperation).toEqual(failed);
+    });
+  });
+
   it("completes a local turn after an earlier turn without creating a provider session", () => {
     const now = "2026-04-01T01:00:00.000Z";
     const turnId = TurnId.make("local-turn");
@@ -1482,6 +1569,37 @@ describe("applyThreadDetailEvent", () => {
   });
 
   describe("thread.turn-diff-completed", () => {
+    it("retains execution workspace provenance on streamed checkpoints", () => {
+      const now = "2026-04-01T01:00:00.000Z";
+      const workspaceProvenance = {
+        generation: 2,
+        cwd: "/repo/worktrees/current",
+        repositoryRoot: "/repo",
+      };
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 2,
+        occurredAt: now,
+        aggregateKind: "thread",
+        aggregateId: baseThread.id,
+        type: "thread.turn-diff-completed",
+        payload: {
+          threadId: baseThread.id,
+          turnId: TurnId.make("turn-workspace"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("refs/e6/checkpoints/turn-workspace"),
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: now,
+          workspaceProvenance,
+        },
+      });
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.checkpoints[0]).toMatchObject({ workspaceProvenance });
+    });
+
     it.each([null, "interrupted"] as const)(
       "adds a checkpoint without replacing a %s turn outcome",
       (previousState) => {

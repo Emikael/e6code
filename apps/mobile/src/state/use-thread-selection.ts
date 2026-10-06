@@ -63,6 +63,8 @@ function threadDetailToShell(
     interactionMode: thread.interactionMode,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    workspaceGeneration: thread.workspaceGeneration,
+    workspaceOperation: thread.workspaceOperation,
     linkedPullRequest: thread.linkedPullRequest ?? null,
     pullRequests: thread.pullRequests,
     branchPullRequest: thread.branchPullRequest ?? null,

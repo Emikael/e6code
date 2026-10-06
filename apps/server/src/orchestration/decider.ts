@@ -896,12 +896,154 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.workspace.rename-observed": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (
+        thread.branch !== command.expectedBranch ||
+        thread.worktreePath !== command.worktreePath ||
+        thread.workspaceOperation?.status === "pending"
+      )
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "stale observed branch rename",
+        });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: yield* nowIso,
+          commandId: command.commandId,
+        })),
+        type: "thread.meta-updated",
+        payload: { threadId: command.threadId, branch: command.branch, updatedAt: yield* nowIso },
+      };
+    }
+    case "thread.workspace.select": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (
+        (thread.workspaceGeneration ?? 0) !== command.expectedWorkspace.generation ||
+        thread.branch !== command.expectedWorkspace.branch ||
+        thread.worktreePath !== command.expectedWorkspace.worktreePath
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "stale binding: the thread workspace changed; refresh and select again",
+        });
+      }
+      if (
+        thread.workspaceOperation?.status === "pending" ||
+        thread.session?.activeTurnId != null ||
+        thread.session?.status === "running" ||
+        thread.session?.status === "starting" ||
+        thread.latestTurn?.state === "running" ||
+        openRequests(thread).size > 0 ||
+        hasQueuedTurnStartForThread(thread, command.createdAt) ||
+        (thread.latestTurn?.completedAt != null &&
+          !thread.checkpoints.some(
+            (c) => c.turnId === thread.latestTurn?.turnId && c.status !== "missing",
+          ))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "busy: wait for the turn, approvals, background work, and checkpoint to finish before selecting a workspace",
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.workspace-selection-requested",
+        payload: {
+          threadId: command.threadId,
+          operation: {
+            commandId: command.commandId,
+            status: "pending",
+            selection: command.selection,
+            expectedWorkspace: command.expectedWorkspace,
+          },
+          expectedWorkspace: command.expectedWorkspace,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+    case "thread.workspace.complete": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (
+        thread.workspaceOperation?.status !== "pending" ||
+        thread.workspaceOperation.commandId !== command.operation.commandId ||
+        command.operation.status === "pending"
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "stale workspace operation completion",
+        });
+      }
+      if (
+        command.operation.status === "completed" &&
+        (command.branch === undefined ||
+          command.worktreePath === undefined ||
+          command.workspaceGeneration !== (thread.workspaceGeneration ?? 0) + 1 ||
+          command.workspaceProvenance === undefined)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "workspace preparation must confirm a new generation and provenance",
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.workspace-selection-completed",
+        payload: {
+          threadId: command.threadId,
+          operation: command.operation,
+          ...(command.operation.status === "completed"
+            ? {
+                branch: command.branch,
+                worktreePath: command.worktreePath,
+                workspaceGeneration: command.workspaceGeneration,
+                workspaceProvenance: command.workspaceProvenance,
+              }
+            : {}),
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.meta.update": {
       const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      const changesWorkspace =
+        (command.branch !== undefined && command.branch !== thread.branch) ||
+        (command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath);
+      // Idle server flows (bootstrap worktree checkout, drift adoption) still record
+      // the observed binding through this legacy route. A running turn must not
+      // have its workspace moved underneath it; clients use thread.workspace.select,
+      // which prepares a checkout instead of only relabeling.
+      if (
+        changesWorkspace &&
+        (thread.workspaceOperation?.status === "pending" ||
+          thread.session?.activeTurnId != null ||
+          thread.session?.status === "running" ||
+          thread.session?.status === "starting" ||
+          openRequests(thread).size > 0)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "busy: wait for the current turn to finish before changing the thread workspace",
+        });
+      }
       // Old clients only see the derived single link. Unlink that request through
       // the same command path as modern clients, including stack dismissal, while
       // retaining other links they cannot see. Historical metadata events still replay unchanged.
@@ -1377,6 +1519,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      if (targetThread.workspaceOperation?.status === "pending") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "busy: workspace preparation is still pending",
+        });
+      }
       const sourceProposedPlan = command.sourceProposedPlan;
       const sourceThread = sourceProposedPlan
         ? yield* requireThread({
@@ -1797,11 +1945,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "thread.conversation.revert":
     case "thread.checkpoint.revert": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (thread.workspaceOperation?.status === "pending")
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "busy: workspace preparation is still pending",
+        });
+      if (command.type === "thread.checkpoint.revert" && (thread.workspaceGeneration ?? 0) > 0) {
+        const provenance =
+          command.turnCount === 0
+            ? thread.workspaceProvenance
+            : thread.checkpoints.find((c) => c.checkpointTurnCount === command.turnCount)
+                ?.workspaceProvenance;
+        if (
+          provenance == null ||
+          provenance.generation !== thread.workspaceGeneration ||
+          provenance.cwd !== thread.workspaceProvenance?.cwd ||
+          provenance.repositoryRoot !== thread.workspaceProvenance?.repositoryRoot
+        )
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail:
+              "Checkpoint belongs to another workspace generation or has unknown legacy provenance. Rewind the conversation without restoring files.",
+          });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -2179,6 +2346,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           turnId: command.turnId,
           checkpointTurnCount: command.checkpointTurnCount,
           checkpointRef: command.checkpointRef,
+          ...(command.workspaceProvenance
+            ? { workspaceProvenance: command.workspaceProvenance }
+            : {}),
           status: command.status,
           files: command.files,
           assistantMessageId: command.assistantMessageId ?? null,

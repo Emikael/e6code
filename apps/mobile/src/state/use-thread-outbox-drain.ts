@@ -18,7 +18,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 import { scopedThreadKey } from "../lib/scopedEntities";
-import { buildProjectThreadStartTurnInput } from "../lib/projectThreadStartTurn";
+import {
+  buildProjectThreadStartTurnInput,
+  resolveProjectThreadWorkspaceSelection,
+} from "../lib/projectThreadStartTurn";
 import { serializeComposerMessageForServer, uploadedComposerContext } from "../lib/composerContext";
 import { prepareTurnAttachments, type PreparedTurnAttachments } from "../lib/attachmentUpload";
 import { randomHex } from "../lib/uuid";
@@ -417,6 +420,7 @@ export async function restoreRejectedQueuedMessage(
               mode: queuedMessage.creation.workspaceMode,
               branch: queuedMessage.creation.branch,
               worktreePath: queuedMessage.creation.worktreePath,
+              selection: queuedMessage.creation.workspaceSelection,
               ...(queuedMessage.creation.startFromOrigin !== undefined
                 ? { startFromOrigin: queuedMessage.creation.startFromOrigin }
                 : {}),
@@ -694,6 +698,7 @@ export function useThreadOutboxDrain(): void {
         serverEnvironment.configValueAtom(queuedMessage.environmentId),
       );
       if (!serverConfig) return false;
+      if (thread.workspaceOperation?.status === "pending") return false;
       const settings = resolveQueuedThreadSettings(queuedMessage, thread, serverConfig.providers);
       if (isModelSelectionUnavailable(serverConfig, settings.modelSelection)) {
         return restoreQueuedMessage(
@@ -863,6 +868,17 @@ export function useThreadOutboxDrain(): void {
         serverEnvironment.configValueAtom(queuedMessage.environmentId),
       );
       if (!serverConfig) return false;
+      const workspaceSelection = resolveProjectThreadWorkspaceSelection(creation);
+      if (
+        workspaceSelection &&
+        workspaceSelection.kind !== "local" &&
+        serverConfig.environment.capabilities.threadWorkspaceSelection !== true
+      ) {
+        return restoreQueuedMessage(
+          queuedMessage,
+          "This server does not support independent thread workspaces. Update the server before sending this task.",
+        );
+      }
       const settings = resolveQueuedThreadSettings(
         queuedMessage,
         {
@@ -952,6 +968,9 @@ export function useThreadOutboxDrain(): void {
           workspaceMode: creation.workspaceMode,
           branch: creation.branch,
           worktreePath: creation.worktreePath,
+          workspaceSelection: creation.workspaceSelection,
+          supportsWorkspaceSelection:
+            currentConfig.environment.capabilities.threadWorkspaceSelection === true,
           startFromOrigin: creation.startFromOrigin ?? false,
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
         }),
@@ -1080,6 +1099,7 @@ export function useThreadOutboxDrain(): void {
       }
 
       const creation = nextQueuedMessage.creation;
+      if (thread?.workspaceOperation?.status === "pending") continue;
       const environment = connectedEnvironments.find(
         (candidate) => candidate.environmentId === nextQueuedMessage.environmentId,
       );
@@ -1197,6 +1217,7 @@ export function useThreadOutboxDrain(): void {
           );
           const liveThreadBusy =
             liveThread?.session?.status === "running" || liveThread?.session?.status === "starting";
+          if (liveThread?.workspaceOperation?.status === "pending") return true;
           const liveDeliveryAction = resolveThreadOutboxDeliveryAction({
             isCreation: creation !== undefined,
             threadExists: liveThread !== undefined,

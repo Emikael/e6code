@@ -592,6 +592,30 @@ export function projectEvent(
         })),
       );
 
+    case "thread.workspace-selection-requested":
+    case "thread.workspace-selection-completed":
+      return Effect.succeed({
+        ...nextBase,
+        threads: nextBase.threads.map((thread) =>
+          thread.id === event.payload.threadId
+            ? {
+                ...thread,
+                workspaceOperation: event.payload.operation,
+                ...(event.type === "thread.workspace-selection-completed" &&
+                event.payload.operation.status === "completed"
+                  ? {
+                      branch: event.payload.branch ?? null,
+                      worktreePath: event.payload.worktreePath ?? null,
+                      workspaceGeneration: event.payload.workspaceGeneration,
+                      workspaceProvenance: event.payload.workspaceProvenance,
+                    }
+                  : {}),
+                updatedAt: event.payload.createdAt,
+              }
+            : thread,
+        ),
+      });
+
     case "thread.meta-updated":
       return decodeForEvent(ThreadMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
@@ -951,6 +975,7 @@ export function projectEvent(
             turnId: payload.turnId,
             checkpointTurnCount: payload.checkpointTurnCount,
             checkpointRef: payload.checkpointRef,
+            workspaceProvenance: payload.workspaceProvenance,
             status: payload.status,
             files: payload.files,
             assistantMessageId: payload.assistantMessageId,

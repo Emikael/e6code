@@ -656,13 +656,20 @@ export function NewTaskDraftScreen(props: {
             return;
           }
           if (!flow.draftKey) return;
-          // The route completes checkout before mounting this composer. Local
-          // mode reuses an existing worktree; worktree mode would create another.
+          // Local mode selects this exact branch or existing workspace. The server
+          // prepares it at submission; worktree mode would create a task branch.
           updateComposerDraftSettings(flow.draftKey, {
             workspaceSelection: {
               mode: "local",
               branch: props.initialProjectRef.branch,
               worktreePath: props.initialProjectRef.worktreePath ?? null,
+              selection: props.initialProjectRef.worktreePath
+                ? {
+                    kind: "attach",
+                    worktreePath: props.initialProjectRef.worktreePath,
+                    branch: props.initialProjectRef.branch,
+                  }
+                : { kind: "branch", branch: props.initialProjectRef.branch },
               startFromOrigin: false,
             },
           });

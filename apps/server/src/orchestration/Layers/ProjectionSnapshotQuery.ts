@@ -1,3 +1,4 @@
+import { ThreadWorkspaceOperation, ThreadWorkspaceProvenance } from "@e6tools/contracts";
 import {
   AgentSessionImportSource,
   ApprovalRequestId,
@@ -91,6 +92,20 @@ const decodeImportedTranscriptsPayload = Schema.decodeUnknownOption(
   ),
 );
 const decodeAgentSessionImportSource = Schema.decodeUnknownOption(AgentSessionImportSource);
+
+// Workspace binding fields stay absent when unset so legacy rows and the
+// default generation keep their original read-model shape and payload size.
+function withWorkspaceBindingFields(row: {
+  readonly workspaceGeneration?: number | undefined;
+  readonly workspaceOperation?: ThreadWorkspaceOperation | null | undefined;
+  readonly workspaceProvenance?: ThreadWorkspaceProvenance | null | undefined;
+}) {
+  return {
+    ...(row.workspaceGeneration ? { workspaceGeneration: row.workspaceGeneration } : {}),
+    ...(row.workspaceOperation ? { workspaceOperation: row.workspaceOperation } : {}),
+    ...(row.workspaceProvenance ? { workspaceProvenance: row.workspaceProvenance } : {}),
+  };
+}
 // Keep detail reads consistent with the in-memory projector's retained
 // activity window. Applying the limit in SQL avoids decoding an unbounded
 // payload_json set before the projector can enforce that invariant.
@@ -130,6 +145,12 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
+    workspaceOperation: Schema.optional(
+      Schema.NullOr(Schema.fromJsonString(ThreadWorkspaceOperation)),
+    ),
+    workspaceProvenance: Schema.optional(
+      Schema.NullOr(Schema.fromJsonString(ThreadWorkspaceProvenance)),
+    ),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
   }),
@@ -156,6 +177,9 @@ const ProjectionCheckpointDbRowSchema = Schema.Struct({
   turnId: TurnId,
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
+  workspaceProvenance: Schema.optional(
+    Schema.NullOr(Schema.fromJsonString(ThreadWorkspaceProvenance)),
+  ),
   status: OrchestrationCheckpointStatus,
   files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
   assistantMessageId: Schema.NullOr(MessageId),
@@ -587,6 +611,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          workspace_generation AS "workspaceGeneration", workspace_operation_json AS "workspaceOperation", workspace_provenance_json AS "workspaceProvenance",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -628,6 +653,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          workspace_generation AS "workspaceGeneration", workspace_operation_json AS "workspaceOperation", workspace_provenance_json AS "workspaceProvenance",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -701,6 +727,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          workspace_generation AS "workspaceGeneration", workspace_operation_json AS "workspaceOperation", workspace_provenance_json AS "workspaceProvenance",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -944,6 +971,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           checkpoint_ref AS "checkpointRef",
           checkpoint_status AS "status",
           checkpoint_files_json AS "files",
+          workspace_provenance_json AS "workspaceProvenance",
           assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_turns
@@ -1269,6 +1297,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          workspace_generation AS "workspaceGeneration", workspace_operation_json AS "workspaceOperation", workspace_provenance_json AS "workspaceProvenance",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -1679,6 +1708,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           checkpoint_ref AS "checkpointRef",
           checkpoint_status AS "status",
           checkpoint_files_json AS "files",
+          workspace_provenance_json AS "workspaceProvenance",
           assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_turns
@@ -2053,6 +2083,7 @@ pending_approval_requests AS (
           threads.project_id AS "projectId",
           projects.workspace_root AS "workspaceRoot",
           threads.worktree_path AS "worktreePath",
+          threads.workspace_generation AS "workspaceGeneration", threads.workspace_operation_json AS "workspaceOperation", threads.workspace_provenance_json AS "workspaceProvenance",
           (
             SELECT MAX(turns.checkpoint_turn_count)
             FROM projection_turns AS turns
@@ -2251,6 +2282,9 @@ pending_approval_requests AS (
                   turnId: row.turnId,
                   checkpointTurnCount: row.checkpointTurnCount,
                   checkpointRef: row.checkpointRef,
+                  ...(row.workspaceProvenance != null
+                    ? { workspaceProvenance: row.workspaceProvenance }
+                    : {}),
                   status: row.status,
                   files: row.files,
                   assistantMessageId: row.assistantMessageId,
@@ -2319,6 +2353,7 @@ pending_approval_requests AS (
                 interactionMode: row.interactionMode,
                 branch: row.branch,
                 worktreePath: row.worktreePath,
+                ...withWorkspaceBindingFields(row),
                 ...mapThreadPullRequests(
                   pullRequestsByThread.get(row.threadId) ?? [],
                   row.projectId,
@@ -2564,6 +2599,7 @@ pending_approval_requests AS (
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  ...withWorkspaceBindingFields(row),
                   ...mapThreadPullRequests(
                     pullRequestsByThread.get(row.threadId) ?? [],
                     row.projectId,
@@ -2720,6 +2756,7 @@ pending_approval_requests AS (
                         interactionMode: row.interactionMode,
                         branch: row.branch,
                         worktreePath: row.worktreePath,
+                        ...withWorkspaceBindingFields(row),
                         branchPullRequest: row.branchPullRequest,
                         ...mapThreadPullRequests(
                           pullRequestsByThread.get(row.threadId) ?? [],
@@ -2883,6 +2920,7 @@ pending_approval_requests AS (
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  ...withWorkspaceBindingFields(row),
                   branchPullRequest: row.branchPullRequest,
                   ...mapThreadPullRequests(
                     pullRequestsByThread.get(row.threadId) ?? [],
@@ -3149,6 +3187,9 @@ pending_approval_requests AS (
           turnId: row.turnId,
           checkpointTurnCount: row.checkpointTurnCount,
           checkpointRef: row.checkpointRef,
+          ...(row.workspaceProvenance != null
+            ? { workspaceProvenance: row.workspaceProvenance }
+            : {}),
           status: row.status,
           files: row.files,
           assistantMessageId: row.assistantMessageId,
@@ -3236,6 +3277,7 @@ pending_approval_requests AS (
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
+        ...withWorkspaceBindingFields(threadRow.value),
         ...mapThreadPullRequests(
           pullRequestRows.map(mapPullRequestRow),
           threadRow.value.projectId,
@@ -3537,6 +3579,7 @@ pending_approval_requests AS (
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
+        ...withWorkspaceBindingFields(threadRow.value),
         ...mapThreadPullRequests(
           pullRequestRows.map(mapPullRequestRow),
           threadRow.value.projectId,
@@ -3585,6 +3628,9 @@ pending_approval_requests AS (
           turnId: row.turnId,
           checkpointTurnCount: row.checkpointTurnCount,
           checkpointRef: row.checkpointRef,
+          ...(row.workspaceProvenance != null
+            ? { workspaceProvenance: row.workspaceProvenance }
+            : {}),
           status: row.status,
           files: row.files,
           assistantMessageId: row.assistantMessageId,

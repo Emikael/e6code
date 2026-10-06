@@ -165,15 +165,17 @@ describe("resolveBranchToolbarValue", () => {
     ).toBe("feature/base");
   });
 
-  it("shows the actual checked-out ref when not selecting a new worktree base", () => {
-    expect(
-      resolveBranchToolbarValue({
-        envMode: "local",
-        activeWorktreePath: null,
-        activeThreadBranch: "feature/base",
-        currentGitBranch: "main",
-      }),
-    ).toBe("main");
+  it("retains each thread's selected ref while navigating a shared project checkout", () => {
+    for (const selectedBranch of ["feature/a", "feature/b", "feature/a", "feature/b"]) {
+      expect(
+        resolveBranchToolbarValue({
+          envMode: "local",
+          activeWorktreePath: null,
+          activeThreadBranch: selectedBranch,
+          currentGitBranch: "main",
+        }),
+      ).toBe(selectedBranch);
+    }
   });
 });
 
@@ -488,6 +490,18 @@ describe("resolveEffectiveEnvMode", () => {
         draftThreadEnvMode: "worktree",
       }),
     ).toBe("worktree");
+  });
+
+  it("uses current-checkout mode for started threads even when they run in a worktree", () => {
+    // A started thread's workspace is authoritative; the composer must not
+    // advertise a new-worktree intent it cannot honor.
+    expect(
+      resolveEffectiveEnvMode({
+        activeWorktreePath: "/repo/.e6/worktrees/feature-a",
+        hasServerThread: true,
+        draftThreadEnvMode: "worktree",
+      }),
+    ).toBe("local");
   });
 });
 

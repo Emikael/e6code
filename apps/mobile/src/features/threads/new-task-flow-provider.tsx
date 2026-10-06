@@ -785,6 +785,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           mode,
           branch: mode === "local" ? localSelection.branch : selectedBranchName,
           worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
+          ...(mode === "local"
+            ? {
+                selection: {
+                  kind: "local" as const,
+                  ...(localSelection.branch ? { branch: localSelection.branch } : {}),
+                },
+              }
+            : {}),
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
         },
       });
@@ -822,6 +830,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         mode: "local",
         branch: localSelection.branch,
         worktreePath: localSelection.worktreePath,
+        selection: {
+          kind: "local",
+          ...(localSelection.branch ? { branch: localSelection.branch } : {}),
+        },
         ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
       },
     });
@@ -848,6 +860,17 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             projectCwd: selectedProject.workspaceRoot,
             branchWorktreePath: branch.worktreePath,
           }),
+          ...(workspaceMode === "local"
+            ? {
+                selection: branch.worktreePath
+                  ? {
+                      kind: "attach" as const,
+                      worktreePath: branch.worktreePath,
+                      branch: branch.name,
+                    }
+                  : { kind: "branch" as const, branch: branch.name },
+              }
+            : {}),
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
         },
       });
@@ -865,11 +888,20 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           mode: workspaceMode,
           branch: selectedBranchName,
           worktreePath: selectedWorktreePath,
+          ...(selectedProjectDraft.workspaceSelection?.selection
+            ? { selection: selectedProjectDraft.workspaceSelection.selection }
+            : {}),
           startFromOrigin: value,
         },
       });
     },
-    [selectedBranchName, selectedProjectDraftKey, selectedWorktreePath, workspaceMode],
+    [
+      selectedBranchName,
+      selectedProjectDraftKey,
+      selectedWorktreePath,
+      workspaceMode,
+      selectedProjectDraft.workspaceSelection?.selection,
+    ],
   );
 
   const refreshBranches = branchState.refresh;
@@ -956,6 +988,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch: message.creation.branch,
           worktreePath: message.creation.worktreePath,
           startFromOrigin: message.creation.startFromOrigin ?? false,
+          selection: message.creation.workspaceSelection,
         },
       });
     }
@@ -1039,6 +1072,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             currentCheckoutBranch: options?.currentCheckoutBranch ?? null,
           }),
           worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
+          ...(workspaceSelection?.selection
+            ? { workspaceSelection: workspaceSelection.selection }
+            : {}),
           // The draft only carries the flag when the user touched it; fall
           // back to the resolved default (server settings) so queued tasks
           // drain with the same origin mode the composer displayed.

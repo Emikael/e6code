@@ -111,7 +111,10 @@ leave workspace files as they are, or **Revert files too** to restore them as we
 File restore is only offered for threads running in a worktree, and it is
 refused when another thread or agent session also uses that directory, since
 restoring would erase their changes. A thread that works in the project directory
-rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
+rewinds the conversation only. After changing a thread's workspace, checkpoints from its
+previous workspace can rewind the conversation but cannot restore files into the selected
+workspace. Older checkpoints whose workspace cannot be verified may also require
+conversation-only rewind. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
 This removes the selected message and later conversation from the active thread

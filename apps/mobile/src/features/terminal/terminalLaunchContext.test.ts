@@ -9,13 +9,13 @@ import {
 } from "./terminalLaunchContext";
 
 describe("resolvePreferredThreadWorktreePath", () => {
-  it("prefers thread detail worktree paths over thread shell paths", () => {
+  it("prefers the confirmed shell workspace over stale thread detail", () => {
     expect(
       resolvePreferredThreadWorktreePath({
         threadShellWorktreePath: "/repo/root",
         threadDetailWorktreePath: "/repo/worktrees/feature",
       }),
-    ).toBe("/repo/worktrees/feature");
+    ).toBe("/repo/root");
   });
 
   it("falls back to the thread shell worktree path when detail is unavailable", () => {
@@ -29,7 +29,7 @@ describe("resolvePreferredThreadWorktreePath", () => {
 });
 
 describe("resolveTerminalOpenLocation", () => {
-  it("uses the thread detail worktree path before the workspace root for a fresh mobile open", () => {
+  it("uses the project checkout after a confirmed return despite stale detail", () => {
     expect(
       resolveTerminalOpenLocation({
         terminalLocation: null,
@@ -39,8 +39,8 @@ describe("resolveTerminalOpenLocation", () => {
         threadDetailWorktreePath: "/repo/worktrees/feature",
       }),
     ).toEqual({
-      cwd: "/repo/worktrees/feature",
-      worktreePath: "/repo/worktrees/feature",
+      cwd: "/repo/root",
+      worktreePath: null,
     });
   });
 

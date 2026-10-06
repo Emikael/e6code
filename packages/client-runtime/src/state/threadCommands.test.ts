@@ -101,6 +101,37 @@ const makeHarness = Effect.fn("TestThreadCommands.makeHarness")(function* () {
 });
 
 describe("remote thread lifecycle commands", () => {
+  it.effect(
+    "selects a workspace without adopting an unconfirmed checkout and preserves the retry ID",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness();
+        const commandId = CommandId.make("select-exact-branch");
+        const input = {
+          commandId,
+          threadId: THREAD_ID,
+          expectedWorkspace: { generation: 0, branch: null, worktreePath: null },
+          selection: { kind: "branch" as const, branch: "feature/isolated" },
+          createdAt: NOW,
+        };
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const result = h.commands.selectWorkspace.run(h.registry, {
+            environmentId: ENVIRONMENT_ID,
+            input,
+          });
+          const request = yield* Queue.take(h.requests);
+          expect(request.command).toEqual({ ...input, type: "thread.workspace.select" });
+          expect(h.registry.get(h.visibleAtom)).toBe(SNAPSHOT);
+          yield* Deferred.succeed(request.reply, { sequence: 3 });
+          expect(yield* Effect.promise(() => result)).toMatchObject({
+            _tag: "Success",
+            value: { sequence: 3, commandId },
+          });
+          expect(h.registry.get(h.visibleAtom)?.threads[0]?.worktreePath).toBeNull();
+        }
+      }),
+  );
+
   const actions = [
     ["settle", {}, { settledOverride: "settled", pinnedAt: null, snoozedUntil: null }],
     ["unsettle", { reason: "user" }, { settledOverride: "active", settledAt: null }],

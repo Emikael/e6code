@@ -1,4 +1,12 @@
+import {
+  prepareThreadWorkspace,
+  ThreadWorkspacePreparationError,
+} from "../../workspace/ThreadWorkspaceResolver.ts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
+import { ServerConfig } from "../../config.ts";
+import { CheckpointStore } from "../../checkpointing/CheckpointStore.ts";
 import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
+import { ProviderValidationError } from "../../provider/Errors.ts";
 import {
   type ChatAttachment,
   CommandId,
@@ -25,6 +33,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -80,6 +89,7 @@ type ProviderIntentEvent = Extract<
   OrchestrationEvent,
   {
     type:
+      | "thread.workspace-selection-requested"
       | "thread.meta-updated"
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
@@ -215,6 +225,9 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 }
 
 const make = Effect.gen(function* () {
+  const workspaceGit = yield* Effect.serviceOption(GitVcsDriver);
+  const workspaceConfig = yield* Effect.serviceOption(ServerConfig);
+  const workspaceCheckpoints = yield* Effect.serviceOption(CheckpointStore);
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -1054,8 +1067,9 @@ const make = Effect.gen(function* () {
 
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
       yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.workspace.rename-observed",
         commandId: yield* serverCommandId("worktree-branch-rename"),
+        expectedBranch: oldBranch,
         threadId: input.threadId,
         branch: renamed.branch,
         worktreePath: cwd,
@@ -1968,6 +1982,84 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const processWorkspaceSelection = Effect.fn("processWorkspaceSelection")(function* (
+    event: Extract<OrchestrationEvent, { type: "thread.workspace-selection-requested" }>,
+  ) {
+    const thread = yield* projectionSnapshotQuery.getThreadDetailById(event.payload.threadId, {
+      activityKinds: [],
+    });
+    if (
+      Option.isNone(thread) ||
+      thread.value.workspaceOperation?.status !== "pending" ||
+      thread.value.workspaceOperation.commandId !== event.payload.operation.commandId
+    )
+      return;
+    const project = yield* projectionSnapshotQuery.getProjectShellById(thread.value.projectId);
+    const prepared = yield* Effect.exit(
+      Effect.gen(function* () {
+        if (
+          Option.isNone(project) ||
+          Option.isNone(workspaceGit) ||
+          Option.isNone(workspaceConfig) ||
+          Option.isNone(workspaceCheckpoints)
+        )
+          return yield* new ThreadWorkspacePreparationError({
+            message: "Workspace selection is unavailable in this environment",
+          });
+        // Keep provider-specific resume tokens. The next start reconciles the changed cwd;
+        // OpenCode forks history there rather than reusing its directory-bound session.
+        // A thread that never established a provider session has nothing to stop.
+        yield* providerService.stopSession({ threadId: thread.value.id }).pipe(
+          Effect.catchIf(
+            (error) =>
+              Schema.is(ProviderValidationError)(error) &&
+              error.issue.includes("no persisted provider binding"),
+            () => Effect.void,
+          ),
+        );
+        return yield* prepareThreadWorkspace({
+          projectId: thread.value.projectId,
+          threadId: thread.value.id,
+          commandId: event.payload.operation.commandId,
+          projectCwd: project.value.workspaceRoot,
+          selection: event.payload.operation.selection,
+          generation: (thread.value.workspaceGeneration ?? 0) + 1,
+          checkpointTurnCount: thread.value.checkpoints.reduce(
+            (max, c) => Math.max(max, c.checkpointTurnCount),
+            0,
+          ),
+        }).pipe(
+          Effect.provideService(GitVcsDriver, workspaceGit.value),
+          Effect.provideService(ServerConfig, workspaceConfig.value),
+          Effect.provideService(CheckpointStore, workspaceCheckpoints.value),
+          Effect.provideService(GitWorkflowService, gitWorkflow),
+        );
+      }),
+    );
+    if (Exit.isFailure(prepared) && Cause.hasInterruptsOnly(prepared.cause))
+      return yield* Effect.interrupt;
+    const operation = {
+      ...event.payload.operation,
+      status: Exit.isSuccess(prepared) ? ("completed" as const) : ("failed" as const),
+      ...(Exit.isFailure(prepared)
+        ? {
+            error:
+              Cause.squash(prepared.cause) instanceof Error
+                ? (Cause.squash(prepared.cause) as Error).message
+                : Cause.pretty(prepared.cause),
+          }
+        : {}),
+    };
+    yield* orchestrationEngine.dispatch({
+      type: "thread.workspace.complete",
+      commandId: CommandId.make(`workspace-complete:${event.payload.operation.commandId}`),
+      threadId: thread.value.id,
+      operation,
+      ...(Exit.isSuccess(prepared) ? prepared.value : {}),
+      createdAt: DateTime.formatIso(yield* DateTime.now),
+    });
+  });
+
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (
     event: ProviderIntentEvent,
   ) {
@@ -1980,6 +2072,9 @@ const make = Effect.gen(function* () {
       eventType: event.type,
     });
     switch (event.type) {
+      case "thread.workspace-selection-requested":
+        yield* processWorkspaceSelection(event);
+        return;
       case "thread.meta-updated":
         if (event.payload.regenerateTitle) yield* threadTitleRegenerationWorker.enqueue(event);
         else if (event.payload.titleState?.needsRefinement)
@@ -2086,6 +2181,7 @@ const make = Effect.gen(function* () {
           (event.payload.regenerateTitle === true ||
             event.payload.titleState?.needsRefinement === true)) ||
         (event.type === "thread.session-set" && event.payload.session.status === "ready") ||
+        event.type === "thread.workspace-selection-requested" ||
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
@@ -2101,6 +2197,49 @@ const make = Effect.gen(function* () {
     // Subscribe before returning, even while event handling waits for server activation.
     const domainEvents = yield* orchestrationEngine.subscribeDomainEvents;
     yield* forkParked(Stream.runForEach(domainEvents, processEvent));
+
+    const recoverWorkspaces = Effect.gen(function* () {
+      const snapshot = yield* projectionSnapshotQuery.getCommandReadModel();
+      for (const thread of snapshot.threads) {
+        if (
+          thread.workspaceOperation?.status !== "pending" ||
+          thread.workspaceOperation.expectedWorkspace === undefined
+        )
+          continue;
+        yield* processWorkspaceSelection({
+          eventId: EventId.make(`recover-workspace:${thread.workspaceOperation.commandId}`),
+          sequence: snapshot.snapshotSequence,
+          aggregateKind: "thread",
+          aggregateId: thread.id,
+          occurredAt: thread.updatedAt,
+          commandId: thread.workspaceOperation.commandId,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          type: "thread.workspace-selection-requested",
+          payload: {
+            threadId: thread.id,
+            operation: thread.workspaceOperation,
+            expectedWorkspace: thread.workspaceOperation.expectedWorkspace,
+            createdAt: thread.updatedAt,
+          },
+        });
+      }
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.interrupt
+          : Effect.logWarning("workspace selection recovery failed", {
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    );
+    yield* forkParked(
+      recoverWorkspaces.pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      ),
+    );
 
     // Earlier events do not replay. Clear interrupted requests by their captured
     // IDs, then schedule persisted refinements after subscribing to their events.

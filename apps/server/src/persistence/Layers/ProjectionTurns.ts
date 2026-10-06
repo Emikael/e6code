@@ -1,4 +1,4 @@
-import { OrchestrationCheckpointFile } from "@e6tools/contracts";
+import { OrchestrationCheckpointFile, ThreadWorkspaceProvenance } from "@e6tools/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import * as Effect from "effect/Effect";
@@ -24,12 +24,18 @@ import {
 const ProjectionTurnDbRowSchema = ProjectionTurn.mapFields(
   Struct.assign({
     checkpointFiles: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
+    workspaceProvenance: Schema.optional(
+      Schema.NullOr(Schema.fromJsonString(ThreadWorkspaceProvenance)),
+    ),
   }),
 );
 
 const ProjectionTurnByIdDbRowSchema = ProjectionTurnById.mapFields(
   Struct.assign({
     checkpointFiles: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
+    workspaceProvenance: Schema.optional(
+      Schema.NullOr(Schema.fromJsonString(ThreadWorkspaceProvenance)),
+    ),
   }),
 );
 
@@ -61,7 +67,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           checkpoint_turn_count,
           checkpoint_ref,
           checkpoint_status,
-          checkpoint_files_json
+          checkpoint_files_json, workspace_provenance_json
         )
         VALUES (
           ${row.threadId},
@@ -77,7 +83,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           ${row.checkpointTurnCount},
           ${row.checkpointRef},
           ${row.checkpointStatus},
-          ${row.checkpointFiles}
+          ${row.checkpointFiles}, ${row.workspaceProvenance ?? null}
         )
         ON CONFLICT (thread_id, turn_id)
         DO UPDATE SET
@@ -92,7 +98,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           checkpoint_turn_count = excluded.checkpoint_turn_count,
           checkpoint_ref = excluded.checkpoint_ref,
           checkpoint_status = excluded.checkpoint_status,
-          checkpoint_files_json = excluded.checkpoint_files_json
+          checkpoint_files_json = excluded.checkpoint_files_json, workspace_provenance_json = excluded.workspace_provenance_json
       `,
   });
 
@@ -188,7 +194,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
           checkpoint_status AS "checkpointStatus",
-          checkpoint_files_json AS "checkpointFiles"
+          checkpoint_files_json AS "checkpointFiles", workspace_provenance_json AS "workspaceProvenance"
         FROM projection_turns
         WHERE thread_id = ${threadId}
         ORDER BY
@@ -221,7 +227,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
           checkpoint_status AS "checkpointStatus",
-          checkpoint_files_json AS "checkpointFiles"
+          checkpoint_files_json AS "checkpointFiles", workspace_provenance_json AS "workspaceProvenance"
         FROM projection_turns
         WHERE thread_id = ${threadId}
           AND turn_id = ${turnId}

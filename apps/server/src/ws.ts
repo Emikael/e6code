@@ -1,3 +1,4 @@
+import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils.ts";
 import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
@@ -1049,6 +1050,7 @@ const makeWsRpcLayer = (
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
         Effect.gen(function* () {
           const bootstrap = command.bootstrap;
+
           const { bootstrap: _bootstrap, ...finalTurnStartCommand } = command;
           let createdThread = false;
           let targetProjectId = bootstrap?.createThread?.projectId;
@@ -1392,7 +1394,7 @@ const makeWsRpcLayer = (
             if (bootstrap?.createThread) {
               const created = yield* dispatchFromClient({
                 type: "thread.create",
-                commandId: yield* serverCommandId("bootstrap-thread-create"),
+                commandId: CommandId.make(`bootstrap-thread-create:${command.commandId}`),
                 threadId: command.threadId,
                 projectId: bootstrap.createThread.projectId,
                 title: bootstrap.createThread.title,
@@ -1409,6 +1411,62 @@ const makeWsRpcLayer = (
               // terminals and provider sessions under the reused thread id.
               createdThread = true;
               yield* threadDeletionReactor.drainThrough(created.sequence);
+              if (bootstrap.workspaceSelection !== undefined) {
+                const current = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+                if (Option.isNone(current))
+                  return yield* new OrchestrationDispatchCommandError({
+                    message: "Thread disappeared while selecting its workspace",
+                  });
+                const operationId = CommandId.make(`bootstrap-workspace:${command.commandId}`);
+                const selection = bootstrap.workspaceSelection;
+                // Subscribe before dispatching so a fast completion is not missed.
+                yield* Effect.scoped(
+                  Effect.gen(function* () {
+                    const events = yield* orchestrationEngine.subscribeDomainEvents;
+                    yield* dispatchFromClient({
+                      type: "thread.workspace.select",
+                      commandId: operationId,
+                      threadId,
+                      selection,
+                      expectedWorkspace: {
+                        generation: current.value.workspaceGeneration ?? 0,
+                        branch: current.value.branch,
+                        worktreePath: current.value.worktreePath,
+                      },
+                      createdAt: command.createdAt,
+                    });
+                    yield* Stream.runCollect(
+                      events.pipe(
+                        Stream.filter(
+                          (event) =>
+                            event.type === "thread.workspace-selection-completed" &&
+                            event.payload.threadId === threadId &&
+                            event.payload.operation.commandId === operationId,
+                        ),
+                        Stream.take(1),
+                      ),
+                    );
+                  }),
+                );
+                const confirmed = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+                if (
+                  Option.isNone(confirmed) ||
+                  confirmed.value.workspaceOperation?.status !== "completed"
+                )
+                  return yield* new OrchestrationDispatchCommandError({
+                    message: Option.isSome(confirmed)
+                      ? (confirmed.value.workspaceOperation?.error ??
+                        "Workspace preparation failed")
+                      : "Thread disappeared",
+                  });
+                targetWorktreePath = confirmed.value.worktreePath;
+                const selectedProject = yield* projectionSnapshotQuery.getProjectShellById(
+                  confirmed.value.projectId,
+                );
+                targetProjectCwd = Option.isSome(selectedProject)
+                  ? selectedProject.value.workspaceRoot
+                  : targetProjectCwd;
+              }
               // Persist the send now rather than with the turn: the thread is
               // real from here on, so any client (or a reload) sees the message
               // while the worktree is still being prepared. The turn start
@@ -1837,6 +1895,19 @@ const makeWsRpcLayer = (
             Effect.gen(function* () {
               yield* ProjectCloneTracker.rejectCommandsDuringClone(projectCloneTracker, command);
               const normalizedCommand = yield* normalizeDispatchCommand(command);
+              // Clients must not move a thread's workspace by relabeling it.
+              // The legacy compare-and-swap (branch + expectedBranch) remains
+              // only for Source Control's post-action reality sync.
+              if (
+                normalizedCommand.type === "thread.meta.update" &&
+                (normalizedCommand.worktreePath !== undefined ||
+                  (normalizedCommand.branch !== undefined &&
+                    normalizedCommand.expectedBranch === undefined))
+              ) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "Changing a thread's workspace must go through thread.workspace.select.",
+                });
+              }
               // Archive removes the thread from the client, so this transport
               // closes its session and terminals after the command lands.
               // Settlement cleanup is driven by thread.settled events in the

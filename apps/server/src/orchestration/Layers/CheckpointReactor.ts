@@ -1,3 +1,5 @@
+import { type ThreadWorkspaceProvenance } from "@e6tools/contracts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 import {
   CommandId,
   type CheckpointRef,
@@ -78,6 +80,7 @@ function checkpointStatusFromRuntime(status: string | undefined): "ready" | "mis
 }
 
 const make = Effect.gen(function* () {
+  const provenanceGit = yield* Effect.serviceOption(GitVcsDriver);
   const crypto = yield* Crypto.Crypto;
   const randomUUID = crypto.randomUUIDv4;
   const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
@@ -247,6 +250,8 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly turnId: TurnId;
     readonly thread: {
+      readonly workspaceGeneration?: number | undefined;
+      readonly workspaceProvenance?: ThreadWorkspaceProvenance | null | undefined;
       readonly messages: ReadonlyArray<{
         readonly id: MessageId;
         readonly role: string;
@@ -260,8 +265,16 @@ const make = Effect.gen(function* () {
     readonly createdAt: string;
   }) {
     const fromTurnCount = Math.max(0, input.turnCount - 1);
-    const fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, fromTurnCount);
-    const targetCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.turnCount);
+    const fromCheckpointRef = checkpointRefForThreadTurn(
+      input.threadId,
+      fromTurnCount,
+      input.thread.workspaceGeneration ?? 0,
+    );
+    const targetCheckpointRef = checkpointRefForThreadTurn(
+      input.threadId,
+      input.turnCount,
+      input.thread.workspaceGeneration ?? 0,
+    );
 
     const fromCheckpointExists = yield* checkpointStore
       .hasCheckpointRef({
@@ -342,6 +355,19 @@ const make = Effect.gen(function* () {
         .find((entry) => entry.role === "assistant" && entry.turnId === input.turnId)?.id ??
       MessageId.make(`assistant:${input.turnId}`);
 
+    let workspaceProvenance = input.thread.workspaceProvenance ?? undefined;
+    if (Option.isSome(provenanceGit)) {
+      const identity = yield* provenanceGit.value.execute({
+        operation: "checkpoint.workspaceProvenance",
+        cwd: input.cwd,
+        args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      });
+      workspaceProvenance = {
+        generation: input.thread.workspaceGeneration ?? 0,
+        cwd: yield* fileSystem.realPath(input.cwd),
+        repositoryRoot: yield* fileSystem.realPath(identity.stdout.trim()),
+      };
+    }
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.diff.complete",
       commandId: yield* serverCommandId("checkpoint-turn-diff-complete"),
@@ -349,6 +375,7 @@ const make = Effect.gen(function* () {
       turnId: input.turnId,
       completedAt: input.createdAt,
       checkpointRef: targetCheckpointRef,
+      workspaceProvenance,
       status: input.status,
       files,
       assistantMessageId,
@@ -495,7 +522,11 @@ const make = Effect.gen(function* () {
         (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
         0,
       );
-      const baselineCheckpointRef = checkpointRefForThreadTurn(thread.id, currentTurnCount);
+      const baselineCheckpointRef = checkpointRefForThreadTurn(
+        thread.id,
+        currentTurnCount,
+        thread.workspaceGeneration ?? 0,
+      );
       const baselineExists = yield* checkpointStore.hasCheckpointRef({
         cwd: checkpointCwd,
         checkpointRef: baselineCheckpointRef,
@@ -707,7 +738,11 @@ const make = Effect.gen(function* () {
       (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
       0,
     );
-    const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, currentTurnCount);
+    const baselineCheckpointRef = checkpointRefForThreadTurn(
+      threadId,
+      currentTurnCount,
+      thread.workspaceGeneration ?? 0,
+    );
     const baselineExists = yield* checkpointStore.hasCheckpointRef({
       cwd: checkpointCwd,
       checkpointRef: baselineCheckpointRef,
@@ -837,6 +872,27 @@ const make = Effect.gen(function* () {
     }
 
     if (event.payload.restoreFiles !== false) {
+      const targetProvenance =
+        event.payload.turnCount === 0
+          ? thread.workspaceProvenance
+          : thread.checkpoints.find((c) => c.checkpointTurnCount === event.payload.turnCount)
+              ?.workspaceProvenance;
+      if (
+        (thread.workspaceGeneration ?? 0) > 0 &&
+        (targetProvenance == null ||
+          targetProvenance.generation !== thread.workspaceGeneration ||
+          targetProvenance.cwd !== checkpointCwd ||
+          targetProvenance.repositoryRoot !== thread.workspaceProvenance?.repositoryRoot)
+      ) {
+        yield* appendRevertFailureActivity({
+          threadId: thread.id,
+          turnCount: event.payload.turnCount,
+          detail:
+            "Checkpoint belongs to another workspace generation or has unknown legacy provenance. Rewind the conversation without restoring files.",
+          createdAt: now,
+        });
+        return;
+      }
       if (!checkpointCwd) {
         yield* appendRevertFailureActivity({
           threadId: event.payload.threadId,
@@ -860,7 +916,7 @@ const make = Effect.gen(function* () {
 
       const targetCheckpointRef =
         event.payload.turnCount === 0
-          ? checkpointRefForThreadTurn(event.payload.threadId, 0)
+          ? checkpointRefForThreadTurn(event.payload.threadId, 0, thread.workspaceGeneration ?? 0)
           : thread.checkpoints.find(
               (checkpoint) => checkpoint.checkpointTurnCount === event.payload.turnCount,
             )?.checkpointRef;

@@ -20,6 +20,7 @@ import {
   type ScopedProjectRef,
   type ScopedThreadRef,
   ThreadId,
+  ThreadWorkspaceSelection,
   SnapShotSource,
 } from "@e6tools/contracts";
 import {
@@ -321,6 +322,7 @@ const PersistedDraftThreadState = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  workspaceSelection: Schema.optionalKey(Schema.NullOr(ThreadWorkspaceSelection)),
   envMode: DraftThreadEnvModeSchema,
   startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   promotedTo: Schema.optionalKey(
@@ -448,6 +450,7 @@ export interface DraftSessionState {
   interactionMode: ProviderInteractionMode;
   branch: string | null;
   worktreePath: string | null;
+  workspaceSelection?: ThreadWorkspaceSelection | null;
   envMode: DraftThreadEnvMode;
   startFromOrigin: boolean;
   promotedTo?: ScopedThreadRef | null;
@@ -517,6 +520,7 @@ interface ComposerDraftStoreState {
       threadId?: ThreadId;
       branch?: string | null;
       worktreePath?: string | null;
+      workspaceSelection?: ThreadWorkspaceSelection | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
@@ -534,6 +538,7 @@ interface ComposerDraftStoreState {
       threadId?: ThreadId;
       branch?: string | null;
       worktreePath?: string | null;
+      workspaceSelection?: ThreadWorkspaceSelection | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
@@ -549,6 +554,7 @@ interface ComposerDraftStoreState {
     options: {
       branch?: string | null;
       worktreePath?: string | null;
+      workspaceSelection?: ThreadWorkspaceSelection | null;
       projectRef?: ScopedProjectRef;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
@@ -1501,6 +1507,7 @@ function createDraftThreadState(
     threadId?: ThreadId;
     branch?: string | null;
     worktreePath?: string | null;
+    workspaceSelection?: ThreadWorkspaceSelection | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     startFromOrigin?: boolean;
@@ -1536,6 +1543,15 @@ function createDraftThreadState(
       : options.startFromOrigin;
   const environmentSelection =
     options?.environmentSelection ?? existingThread?.environmentSelection;
+  const nextWorkspaceSelection =
+    options?.workspaceSelection !== undefined
+      ? options.workspaceSelection
+      : projectChanged ||
+          options?.branch !== undefined ||
+          options?.worktreePath !== undefined ||
+          options?.envMode !== undefined
+        ? null
+        : existingThread?.workspaceSelection;
   return {
     threadId,
     environmentId: projectRef.environmentId,
@@ -1557,6 +1573,7 @@ function createDraftThreadState(
       options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     branch: nextBranch,
     worktreePath: nextWorktreePath,
+    ...(nextWorkspaceSelection ? { workspaceSelection: nextWorkspaceSelection } : {}),
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
@@ -1594,6 +1611,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    Equal.equals(left.workspaceSelection, right.workspaceSelection) &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -2487,6 +2505,9 @@ function toHydratedDraftThreadState(
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
+    ...(persistedDraftThread.workspaceSelection
+      ? { workspaceSelection: persistedDraftThread.workspaceSelection }
+      : {}),
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
       : {}),
@@ -2787,6 +2808,18 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               interactionMode: options.interactionMode ?? existing.interactionMode,
               branch: nextBranch,
               worktreePath: nextWorktreePath,
+              ...((
+                options.workspaceSelection !== undefined
+                  ? options.workspaceSelection
+                  : projectChanged ||
+                      options.branch !== undefined ||
+                      options.worktreePath !== undefined ||
+                      options.envMode !== undefined
+                    ? null
+                    : existing.workspaceSelection
+              )
+                ? { workspaceSelection: options.workspaceSelection ?? existing.workspaceSelection }
+                : {}),
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
@@ -2805,6 +2838,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.worktreePath === existing.worktreePath &&
               nextDraftThread.envMode === existing.envMode &&
               nextDraftThread.startFromOrigin === existing.startFromOrigin &&
+              Equal.equals(nextDraftThread.workspaceSelection, existing.workspaceSelection) &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
             if (isUnchanged) {
               return state;

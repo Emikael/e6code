@@ -29,6 +29,7 @@ interface BranchToolbarEnvModeSelectorProps {
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel?: string | null;
   onUsePreviousWorktree?: () => void;
+  onReturnToProjectCheckout?: (() => void) | undefined;
 }
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
@@ -39,6 +40,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
+  onReturnToProjectCheckout,
 }: BranchToolbarEnvModeSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const showPreviousWorktree = Boolean(previousWorktreeLabel && onUsePreviousWorktree);
@@ -46,11 +48,14 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
     () => [
       { value: "local", label: resolveCurrentWorkspaceLabel(activeWorktreePath) },
       { value: "worktree", label: resolveEnvModeLabel("worktree") },
+      ...(onReturnToProjectCheckout
+        ? [{ value: "project-checkout", label: "Project checkout" }]
+        : []),
       ...(showPreviousWorktree && previousWorktreeLabel
         ? [{ value: PREVIOUS_WORKTREE_SELECT_VALUE, label: previousWorktreeLabel }]
         : []),
     ],
-    [activeWorktreePath, previousWorktreeLabel, showPreviousWorktree],
+    [activeWorktreePath, onReturnToProjectCheckout, previousWorktreeLabel, showPreviousWorktree],
   );
 
   if (envLocked || forceNewWorktree) {
@@ -98,6 +103,10 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       onValueChange={(value: string | null) => {
         if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
           onUsePreviousWorktree?.();
+          return;
+        }
+        if (value === "project-checkout") {
+          onReturnToProjectCheckout?.();
           return;
         }
         onEnvModeChange(value as EnvMode);
@@ -161,6 +170,14 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               {resolveEnvModeLabel("worktree")}
             </span>
           </SelectItem>
+          {onReturnToProjectCheckout ? (
+            <SelectItem value="project-checkout">
+              <span className="inline-flex items-center gap-1.5">
+                <FolderIcon className="size-3" />
+                Project checkout
+              </span>
+            </SelectItem>
+          ) : null}
           {showPreviousWorktree && previousWorktreeLabel ? (
             <SelectItem value={PREVIOUS_WORKTREE_SELECT_VALUE}>
               <span className="inline-flex items-center gap-1.5">

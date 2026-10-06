@@ -64,6 +64,7 @@ import {
   resolveProactiveTurnDiffAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolveDraftWorkspaceSelection,
   threadShellHasStarted,
   resolveDraftHeroState,
   isPaintOnlyThreadTimeline,
@@ -1146,14 +1147,13 @@ describe("resolveThreadMetadataUpdateForNextTurn", () => {
     model: "gpt-5.4",
   };
 
-  it("updates a stale local thread branch to the active checkout", () => {
-    expect(
-      resolveThreadMetadataUpdateForNextTurn({
-        currentModelSelection: modelSelection,
-        currentBranch: "feature/thread",
-        nextBranch: "feature/checkout",
-      }),
-    ).toEqual({ branch: "feature/checkout", worktreePath: null });
+  it("does not adopt another checkout's branch while preparing a turn", () => {
+    const nextTurn = {
+      currentModelSelection: modelSelection,
+      currentBranch: "feature/thread",
+      nextBranch: "feature/checkout",
+    };
+    expect(resolveThreadMetadataUpdateForNextTurn(nextTurn)).toBeNull();
   });
 
   it("does not write metadata when the model and branch are unchanged", () => {
@@ -1161,8 +1161,6 @@ describe("resolveThreadMetadataUpdateForNextTurn", () => {
       resolveThreadMetadataUpdateForNextTurn({
         currentModelSelection: modelSelection,
         nextModelSelection: modelSelection,
-        currentBranch: "feature/current",
-        nextBranch: "feature/current",
       }),
     ).toBeNull();
   });
@@ -2556,6 +2554,55 @@ describe("worktree setup visibility", () => {
     expect(pick({ ...settledDone, sequence: 9 }, { ...base, sequence: 1 })).toEqual({
       ...settledDone,
       sequence: 9,
+    });
+  });
+});
+
+describe("draft workspace bootstrap intent", () => {
+  const draft = {
+    branch: "feature/chosen",
+    worktreePath: null,
+    envMode: "local" as const,
+    taskBranch: "e6/generated",
+    startFromOrigin: false,
+  };
+
+  it("prepares the exact selected branch instead of running on project HEAD", () => {
+    expect(resolveDraftWorkspaceSelection(draft)).toEqual({
+      kind: "branch",
+      branch: "feature/chosen",
+    });
+  });
+
+  it("explicitly attaches a draft to an existing shared checkout", () => {
+    expect(
+      resolveDraftWorkspaceSelection({ ...draft, worktreePath: "/repo/worktrees/follow-up" }),
+    ).toEqual({
+      kind: "attach",
+      branch: "feature/chosen",
+      worktreePath: "/repo/worktrees/follow-up",
+    });
+  });
+
+  it("creates an exact named branch only during bootstrap", () => {
+    const workspaceSelection = {
+      kind: "create-branch" as const,
+      branch: "feature/new",
+      baseRef: "main",
+    };
+    expect(
+      resolveDraftWorkspaceSelection({ ...draft, branch: "feature/new", workspaceSelection }),
+    ).toEqual(workspaceSelection);
+  });
+
+  it("preserves New worktree's base to generated task branch behavior", () => {
+    expect(
+      resolveDraftWorkspaceSelection({ ...draft, envMode: "worktree", startFromOrigin: true }),
+    ).toEqual({
+      kind: "new-worktree",
+      baseRef: "feature/chosen",
+      branch: "e6/generated",
+      startFromOrigin: true,
     });
   });
 });

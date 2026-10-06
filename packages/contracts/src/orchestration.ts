@@ -639,11 +639,57 @@ export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Typ
 export const OrchestrationCheckpointStatus = Schema.Literals(["ready", "missing", "error"]);
 export type OrchestrationCheckpointStatus = typeof OrchestrationCheckpointStatus.Type;
 
+export const ThreadWorkspaceSelection = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("branch"), branch: TrimmedNonEmptyString }),
+  Schema.Struct({
+    kind: Schema.Literal("create-branch"),
+    branch: TrimmedNonEmptyString,
+    baseRef: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("attach"),
+    worktreePath: TrimmedNonEmptyString,
+    branch: Schema.optional(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({ kind: Schema.Literal("local"), branch: Schema.optional(TrimmedNonEmptyString) }),
+  Schema.Struct({
+    kind: Schema.Literal("new-worktree"),
+    baseRef: TrimmedNonEmptyString,
+    branch: Schema.optional(TrimmedNonEmptyString),
+    startFromOrigin: Schema.optional(Schema.Boolean),
+  }),
+]);
+export type ThreadWorkspaceSelection = typeof ThreadWorkspaceSelection.Type;
+
+export const ThreadWorkspaceBinding = Schema.Struct({
+  generation: NonNegativeInt,
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ThreadWorkspaceBinding = typeof ThreadWorkspaceBinding.Type;
+
+export const ThreadWorkspaceProvenance = Schema.Struct({
+  generation: NonNegativeInt,
+  cwd: TrimmedNonEmptyString,
+  repositoryRoot: TrimmedNonEmptyString,
+});
+export type ThreadWorkspaceProvenance = typeof ThreadWorkspaceProvenance.Type;
+
+export const ThreadWorkspaceOperation = Schema.Struct({
+  commandId: CommandId,
+  status: Schema.Literals(["pending", "completed", "failed"]),
+  selection: ThreadWorkspaceSelection,
+  expectedWorkspace: Schema.optional(ThreadWorkspaceBinding),
+  error: Schema.optional(Schema.String),
+});
+export type ThreadWorkspaceOperation = typeof ThreadWorkspaceOperation.Type;
+
 export const OrchestrationCheckpointSummary = Schema.Struct({
   turnId: TurnId,
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
+  workspaceProvenance: Schema.optional(ThreadWorkspaceProvenance),
   files: Schema.Array(OrchestrationCheckpointFile),
   assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
@@ -806,6 +852,9 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workspaceGeneration: Schema.optional(NonNegativeInt),
+  workspaceOperation: Schema.optional(Schema.NullOr(ThreadWorkspaceOperation)),
+  workspaceProvenance: Schema.optional(Schema.NullOr(ThreadWorkspaceProvenance)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   // Optional so payloads from pre-link servers still decode.
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
@@ -893,6 +942,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workspaceGeneration: Schema.optional(NonNegativeInt),
+  workspaceOperation: Schema.optional(Schema.NullOr(ThreadWorkspaceOperation)),
+  workspaceProvenance: Schema.optional(Schema.NullOr(ThreadWorkspaceProvenance)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -1230,6 +1282,34 @@ const ThreadActiveReorderCommand = Schema.Struct({
   orderKey: TrimmedNonEmptyString,
 });
 
+export const ThreadWorkspaceSelectCommand = Schema.Struct({
+  type: Schema.Literal("thread.workspace.select"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  expectedWorkspace: ThreadWorkspaceBinding,
+  selection: ThreadWorkspaceSelection,
+  createdAt: IsoDateTime,
+});
+const ThreadWorkspaceRenameObservedCommand = Schema.Struct({
+  type: Schema.Literal("thread.workspace.rename-observed"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  expectedBranch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
+});
+const ThreadWorkspaceCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.workspace.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  operation: ThreadWorkspaceOperation,
+  branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  workspaceGeneration: Schema.optional(NonNegativeInt),
+  workspaceProvenance: Schema.optional(ThreadWorkspaceProvenance),
+  createdAt: IsoDateTime,
+});
+
 const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
@@ -1303,6 +1383,7 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
 const ThreadTurnStartBootstrap = Schema.Struct({
   createThread: Schema.optional(ThreadTurnStartBootstrapCreateThread),
   prepareWorktree: Schema.optional(ThreadTurnStartBootstrapPrepareWorktree),
+  workspaceSelection: Schema.optional(ThreadWorkspaceSelection),
   runSetupScript: Schema.optional(Schema.Boolean),
 });
 
@@ -1433,6 +1514,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
+  ThreadWorkspaceSelectCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
   ThreadRuntimeModeSetCommand,
@@ -1466,6 +1548,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
+  ThreadWorkspaceSelectCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
   ThreadRuntimeModeSetCommand,
@@ -1587,6 +1670,7 @@ const ThreadTurnDiffCompleteCommand = Schema.Struct({
   completedAt: IsoDateTime,
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
+  workspaceProvenance: Schema.optional(ThreadWorkspaceProvenance),
   files: Schema.Array(OrchestrationCheckpointFile),
   assistantMessageId: Schema.optional(MessageId),
   checkpointTurnCount: NonNegativeInt,
@@ -1661,6 +1745,8 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
 });
 
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadWorkspaceRenameObservedCommand,
+  ThreadWorkspaceCompleteCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
@@ -1724,6 +1810,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.workspace-selection-requested",
+  "thread.workspace-selection-completed",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1994,6 +2082,7 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
+  workspaceProvenance: Schema.optional(ThreadWorkspaceProvenance),
   files: Schema.Array(OrchestrationCheckpointFile),
   assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
@@ -2046,6 +2135,30 @@ const EventBaseFields = {
 } as const;
 
 export const OrchestrationEvent = Schema.Union([
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.workspace-selection-requested"),
+    payload: Schema.Struct({
+      threadId: ThreadId,
+      operation: ThreadWorkspaceOperation,
+      expectedWorkspace: ThreadWorkspaceBinding,
+      createdAt: IsoDateTime,
+    }),
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.workspace-selection-completed"),
+    payload: Schema.Struct({
+      threadId: ThreadId,
+      operation: ThreadWorkspaceOperation,
+      branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+      worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+      workspaceGeneration: Schema.optional(NonNegativeInt),
+      workspaceProvenance: Schema.optional(ThreadWorkspaceProvenance),
+      createdAt: IsoDateTime,
+    }),
+  }),
+
   Schema.Struct({
     ...EventBaseFields,
     type: Schema.Literal("project.created"),

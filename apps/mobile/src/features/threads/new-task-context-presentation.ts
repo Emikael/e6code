@@ -73,11 +73,3 @@ export function resolveNewTaskBranchLabel(input: {
   const baseRef = input.startFromOrigin ? `origin/${input.branchName}` : input.branchName;
   return `From ${baseRef}`;
 }
-
-export function shouldCheckoutNewTaskBranch(input: {
-  readonly branchIsCurrent: boolean;
-  readonly branchWorktreePath: string | null | undefined;
-  readonly workspaceMode: WorkspaceMode;
-}): boolean {
-  return input.workspaceMode === "local" && !input.branchIsCurrent && !input.branchWorktreePath;
-}

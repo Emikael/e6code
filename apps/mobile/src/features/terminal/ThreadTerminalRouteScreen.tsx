@@ -357,6 +357,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     if (!selectedThread || !selectedThreadProject?.workspaceRoot) {
       return null;
     }
+    if (selectedThread.workspaceOperation?.status === "pending" && !activeKnownSession) return null;
     if (pendingLaunch) {
       return {
         cwd: pendingLaunch.cwd,
@@ -392,7 +393,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       hasResolvedFontPreference &&
       hasMeasuredSurface &&
       isEnvironmentReady &&
-      !shouldRedirectToRunningTerminal
+      !shouldRedirectToRunningTerminal &&
+      (selectedThread.workspaceOperation?.status !== "pending" || activeKnownSession !== null)
         ? {
             threadId: selectedThread.id,
             terminalId,
@@ -415,6 +417,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       selectedThread,
       shouldRedirectToRunningTerminal,
       terminalId,
+      activeKnownSession,
     ],
   );
   const terminal = useAttachedTerminalSession({

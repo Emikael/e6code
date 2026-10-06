@@ -26,7 +26,8 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const { selectedThread } = useThreadSelection();
+  const { selectedThread, selectedThreadProject, selectedEnvironmentRuntime } =
+    useThreadSelection();
   const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
@@ -40,25 +41,20 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
       : null,
   );
 
-  const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const currentBranchLabel = selectedThread?.branch ?? gitStatus.data?.refName ?? "Detached HEAD";
   const currentWorktreePath = selectedThreadWorktreePath;
   const availableBranches = gitState.selectedThreadBranches;
   const branchesLoading = gitState.selectedThreadBranchesLoading;
-  const busy = gitState.gitOperationLabel !== null;
+  const supportsWorkspaceSelection =
+    selectedEnvironmentRuntime?.serverConfig?.environment.capabilities.threadWorkspaceSelection ===
+    true;
+  const busy = gitState.gitOperationLabel !== null || !supportsWorkspaceSelection;
 
   const [newBranchName, setNewBranchName] = useState("");
   const [worktreeBaseBranch, setWorktreeBaseBranch] = useState(
     currentBranchLabel === "Detached HEAD" ? "main" : currentBranchLabel,
   );
   const [worktreeBranchName, setWorktreeBranchName] = useState("");
-
-  const disabledExistingBranchNames: Array<string> = [];
-  for (const branch of availableBranches) {
-    if (branch.worktreePath !== null && branch.worktreePath !== currentWorktreePath) {
-      disabledExistingBranchNames.push(branch.name);
-    }
-  }
-  const disabledExistingBranches = new Set(disabledExistingBranchNames);
 
   return (
     <View
@@ -94,6 +90,41 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               : undefined
           }
         >
+          {!supportsWorkspaceSelection ? (
+            <Text className="px-4 text-sm text-foreground-secondary">
+              Update this server to select an independent thread workspace.
+            </Text>
+          ) : null}
+          {selectedThread?.workspaceOperation?.status === "pending" ? (
+            <Text
+              className="px-4 text-sm text-foreground-secondary"
+              accessibilityLiveRegion="polite"
+            >
+              Selecting workspace…
+            </Text>
+          ) : selectedThread?.workspaceOperation?.status === "failed" ? (
+            <Text className="px-4 text-sm text-danger" accessibilityLiveRegion="polite">
+              {selectedThread.workspaceOperation.error ?? "The workspace could not be selected."}
+            </Text>
+          ) : null}
+          {selectedThread?.branch &&
+          gitStatus.data?.refName &&
+          selectedThread.branch !== gitStatus.data.refName ? (
+            <Text className="px-4 text-sm text-foreground-secondary">
+              Selected {selectedThread.branch}; checkout is on {gitStatus.data.refName}. Select a
+              workspace to continue.
+            </Text>
+          ) : null}
+          <SheetActionButton
+            icon="folder"
+            label="Use project checkout (shared)"
+            disabled={busy || !selectedThreadProject}
+            onPress={() => {
+              void gitActions.onUseProjectCheckout().then((result) => {
+                if (result && navigation.isFocused()) navigation.goBack();
+              });
+            }}
+          />
           <View
             className={
               Platform.OS === "android"
@@ -119,13 +150,14 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
             />
             <SheetActionButton
               icon="plus"
-              label="Create & checkout"
+              label="Create branch in worktree"
               tone="primary"
               disabled={busy || newBranchName.trim().length === 0}
               onPress={() => {
                 const branch = sanitizeFeatureBranchName(newBranchName.trim());
                 if (branch.length === 0) return;
-                void gitActions.onCreateSelectedThreadBranch(branch).then(() => {
+                void gitActions.onCreateSelectedThreadBranch(branch).then((result) => {
+                  if (!result || !navigation.isFocused()) return;
                   setNewBranchName("");
                   navigation.goBack();
                 });
@@ -184,7 +216,8 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                 if (baseBranch.length === 0 || newBranch.length === 0) return;
                 void gitActions
                   .onCreateSelectedThreadWorktree({ baseBranch, newBranch })
-                  .then(() => {
+                  .then((result) => {
+                    if (!result || !navigation.isFocused()) return;
                     setWorktreeBranchName("");
                     navigation.goBack();
                   });
@@ -223,11 +256,11 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               </Text>
             ) : null}
             {availableBranches.map((branch) => {
-              const disabled = disabledExistingBranches.has(branch.name);
+              const selected = branch.name === selectedThread?.branch;
               const subtitle = branch.worktreePath
                 ? branch.worktreePath === currentWorktreePath
-                  ? "Checked out in this thread"
-                  : "Checked out in another worktree"
+                  ? "Selected workspace"
+                  : "Use existing workspace (shared)"
                 : branch.isDefault
                   ? "Default branch"
                   : "Local branch";
@@ -238,21 +271,18 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                   className={cn(
                     "gap-1 px-4 py-3 disabled:opacity-[0.45]",
                     Platform.OS === "android"
-                      ? cn(
-                          "rounded-[20px] active:bg-subtle",
-                          branch.current ? "bg-secondary" : "bg-card",
-                        )
+                      ? cn("rounded-[20px] active:bg-subtle", selected ? "bg-secondary" : "bg-card")
                       : cn(
                           "rounded-[18px] border",
-                          branch.current ? "border-subtle-strong" : "border-border",
+                          selected ? "border-subtle-strong" : "border-border",
                         ),
                   )}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: branch.current, disabled: busy || disabled }}
-                  disabled={busy || disabled}
+                  accessibilityState={{ selected, disabled: busy }}
+                  disabled={busy}
                   onPress={() => {
-                    void gitActions.onCheckoutSelectedThreadBranch(branch.name).then(() => {
-                      navigation.goBack();
+                    void gitActions.onCheckoutSelectedThreadBranch(branch.name).then((result) => {
+                      if (result && navigation.isFocused()) navigation.goBack();
                     });
                   }}
                 >

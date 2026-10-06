@@ -11,6 +11,7 @@ import {
   ProjectId as ProjectIdSchema,
   ProviderInteractionMode as ProviderInteractionModeSchema,
   RuntimeMode as RuntimeModeSchema,
+  ThreadWorkspaceSelection,
   type EnvironmentId,
   type ModelSelection,
   type ProjectId,
@@ -353,6 +354,7 @@ export interface ComposerDraftWorkspaceSelection {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin?: boolean;
+  readonly selection?: ThreadWorkspaceSelection;
 }
 
 export type ComposerDraftSettingsUpdate = Pick<
@@ -365,6 +367,7 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
+  selection: Schema.optional(ThreadWorkspaceSelection),
 });
 
 const ComposerDraftProjectSchema = Schema.Struct({
@@ -1152,6 +1155,8 @@ export async function removeDeliveredCloudQueuedMessage(
           (editor.workspaceSelection.mode !== message.creation?.workspaceMode ||
             editor.workspaceSelection.branch !== message.creation?.branch ||
             editor.workspaceSelection.worktreePath !== message.creation?.worktreePath ||
+            JSON.stringify(editor.workspaceSelection.selection) !==
+              JSON.stringify(message.creation?.workspaceSelection) ||
             (editor.workspaceSelection.startFromOrigin ?? false) !==
               (message.creation?.startFromOrigin ?? false))))
     )
