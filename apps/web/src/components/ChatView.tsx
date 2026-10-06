@@ -6609,7 +6609,6 @@ export default function ChatView(props: ChatViewProps) {
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...workspaceSelectionItems,
-        ...workspaceSelectionItems,
         ...handoffItems,
         ...feedbackBannerItems,
         ...usageLimitsItems,
