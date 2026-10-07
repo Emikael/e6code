@@ -89,7 +89,7 @@ export function DeviceSetup(props: {
         />
       </WizardHeader>
 
-      <WizardPanel>
+      <WizardPanel step={step}>
         <DeviceHostUpdates state={props.state} environmentId={props.environmentId} />
         {step === 0 ? (
           <section className="space-y-3 text-sm">

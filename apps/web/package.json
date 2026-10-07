@@ -41,6 +41,7 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
+    "animejs": "^4.5.0",
     "class-variance-authority": "^0.7.1",
     "culori": "^4.0.2",
     "effect": "catalog:",

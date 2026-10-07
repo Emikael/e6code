@@ -205,7 +205,8 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
-import { createSidebarListMotion } from "./Sidebar.motion";
+import { createSidebarListMotion, playSidebarStatusSettle } from "./Sidebar.motion";
+import { canAnimate } from "~/lib/motion";
 import {
   ThreadPullRequestBadgeControl,
   ThreadPullRequestsMiniList,
@@ -1287,6 +1288,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     }
                   : null;
   const isWokeStatus = topStatus?.icon === "woke";
+  const statusCellRef = useRef<HTMLSpanElement>(null);
+  const previousStatusIconRef = useRef(topStatus?.icon);
+  const statusIcon = topStatus?.icon;
+  useLayoutEffect(() => {
+    const previous = previousStatusIconRef.current;
+    previousStatusIconRef.current = statusIcon;
+    const cell = statusCellRef.current;
+    if (previous !== "working" || statusIcon === "working" || !canAnimate(cell)) return;
+    const motion = playSidebarStatusSettle(cell);
+    return () => motion.cancel();
+  }, [statusIcon]);
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -1893,6 +1905,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     itself an action, so it stays pointer-enabled and visible
                     while the other controls appear beside it. */}
                   <span
+                    ref={statusCellRef}
                     className={cn(
                       isWokeStatus
                         ? "pointer-events-auto"

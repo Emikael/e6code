@@ -310,7 +310,7 @@ export function SnapShotSetupDialog({
             }}
           />
         </WizardHeader>
-        <WizardPanel>
+        <WizardPanel step={stepIndex}>
           <div className="space-y-4 text-sm">
             <div className="space-y-2" aria-live="polite">
               <h3 className="flex items-center gap-2 font-medium">{title}</h3>

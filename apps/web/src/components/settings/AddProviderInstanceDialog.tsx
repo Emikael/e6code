@@ -242,7 +242,7 @@ export function AddProviderInstanceDialog({
           />
         </WizardHeader>
 
-        <WizardPanel>
+        <WizardPanel step={wizardStep}>
           <div className={cn("grid gap-2", wizardStep !== 0 && "hidden")}>
             <div id="add-instance-driver-label" className="text-sm font-medium text-foreground">
               Driver

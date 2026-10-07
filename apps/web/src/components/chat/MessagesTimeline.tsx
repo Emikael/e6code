@@ -250,6 +250,22 @@ import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
+import {
+  canAnimate,
+  EASE_OUT,
+  MOTION_MS,
+  playTransient,
+  prefersReducedMotion,
+  type TransientMotion,
+} from "~/lib/motion";
+import {
+  isLiveTurnLanding,
+  isTurnLandingPending,
+  markTurnLanded,
+  playTurnLanding,
+  settleTurnLanding,
+} from "./turnLanding";
+import { pendingMessageFlight, playMessageArrival, settleMessageFlight } from "./messageFlight";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@e6tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
@@ -724,6 +740,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
     if (latestTurn.turnId === previous.turnId) {
+      if (isLiveTurnLanding(previous, latestTurn)) markTurnLanded(latestTurn.turnId);
       if (previous.state === "running" && latestTurn.state === "interrupted") {
         setExpandedTurnIds((existing) => {
           const next = new Set(existing);
@@ -1934,6 +1951,29 @@ function MessageAuthorHeading({ children }: { children: string }) {
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const messageId = row.message.id;
+  // Hidden before paint, measured a frame later: LegendList places rows in
+  // its own layout effects, which run after this row's.
+  useLayoutEffect(() => {
+    const bubble = bubbleRef.current;
+    const from = pendingMessageFlight(messageId);
+    if (!from || !canAnimate(bubble)) return;
+    bubble.style.opacity = "0";
+    let motion: TransientMotion | null = null;
+    const frame = requestAnimationFrame(() => {
+      // Unhide first: playTransient restores the inline styles it found on revert.
+      bubble.style.removeProperty("opacity");
+      motion = playMessageArrival(bubble, from);
+      if (motion) void motion.finished.then(() => settleMessageFlight(messageId));
+      else settleMessageFlight(messageId);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      motion?.cancel();
+      bubble.style.removeProperty("opacity");
+    };
+  }, [messageId]);
   const resources = useMemo(
     () => selectMessageImageResources(row.message.attachments),
     [row.message.attachments],
@@ -2089,7 +2129,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+      <div
+        ref={bubbleRef}
+        className="relative max-w-[80%] origin-bottom-right rounded-2xl bg-message p-3 text-message-foreground"
+      >
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
@@ -2335,9 +2378,36 @@ function TimelineRowTimestamp({
 function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-fold" }> }) {
   const ctx = use(TimelineRowCtx);
   const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
+  const stripeRef = useRef<HTMLSpanElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const stripe = stripeRef.current;
+    const label = labelRef.current;
+    if (!canAnimate(stripe) || !canAnimate(label)) return;
+    // The timeline marks the landing in its own effect, which runs after this
+    // row's effects in the commit that folds the turn; check a frame later.
+    let stop: (() => void) | undefined;
+    const frame = requestAnimationFrame(() => {
+      if (!isTurnLandingPending(row.turnId)) return;
+      stop = playTurnLanding(stripe, label, () => settleTurnLanding(row.turnId));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      stop?.();
+    };
+  }, [row.turnId]);
 
   return (
     <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
+      <span
+        ref={stripeRef}
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -bottom-px flex h-px opacity-0"
+      >
+        <span className="flex-1 origin-left bg-(--brand-cyan)" />
+        <span className="flex-1 origin-left bg-(--brand-orange)" />
+      </span>
       <button
         type="button"
         aria-expanded={row.expanded}
@@ -2345,7 +2415,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
         className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
-        <span>{row.label}</span>
+        <span ref={labelRef}>{row.label}</span>
         <Icon className="size-3.5" />
       </button>
       <TimelineRowTimestamp
@@ -3236,6 +3306,23 @@ function LiveActivityContent({
 
 function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "work-live" }> }) {
   const ctx = use(TimelineRowCtx);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const shownEntryIdRef = useRef(row.entry.id);
+  // The live row is reused as each tool call arrives; a remount (scroll,
+  // thread switch) keeps the entry id and stays still.
+  useLayoutEffect(() => {
+    if (shownEntryIdRef.current === row.entry.id) return;
+    shownEntryIdRef.current = row.entry.id;
+    const button = buttonRef.current;
+    if (!canAnimate(button) || prefersReducedMotion()) return;
+    const motion = playTransient(button, {
+      opacity: [0, 1],
+      transform: ["translateY(4px)", "none"],
+      duration: MOTION_MS.state,
+      ease: EASE_OUT,
+    });
+    return () => motion.cancel();
+  }, [row.entry.id]);
   if (row.entry.agentSpawn) {
     return (
       <AgentSpawnRow
@@ -3250,6 +3337,7 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={failed ? `${label}, tool call failed` : undefined}

@@ -1,6 +1,13 @@
 import { CheckIcon } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import { useLayoutEffect, useRef, type ComponentProps, type ReactNode } from "react";
 
+import {
+  canAnimate,
+  EASE_OUT,
+  MOTION_MS,
+  playTransient,
+  prefersReducedMotion,
+} from "../../lib/motion";
 import { cn } from "../../lib/utils";
 import { AnimatedHeight } from "../AnimatedHeight";
 import { DialogPopup, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "./dialog";
@@ -128,19 +135,45 @@ export function WizardSteps({
   );
 }
 
+/** `step` is the current step index; changing it slides the content in from the direction of travel. */
 export function WizardPanel({
   children,
   holdHeight = false,
+  step,
 }: {
   readonly children: ReactNode;
   readonly holdHeight?: boolean;
+  readonly step?: number;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const shownStepRef = useRef(step);
+
+  useLayoutEffect(() => {
+    const previous = shownStepRef.current;
+    shownStepRef.current = step;
+    const content = contentRef.current;
+    if (previous === undefined || step === undefined || previous === step) return;
+    if (!canAnimate(content)) return;
+    const travel = prefersReducedMotion() ? 0 : Math.sign(step - previous) * 24;
+    const motion = playTransient(content, {
+      opacity: [0, 1],
+      ...(travel === 0 ? {} : { transform: [`translateX(${travel}px)`, "none"] }),
+      duration: travel === 0 ? MOTION_MS.instant : MOTION_MS.layout,
+      ease: EASE_OUT,
+    });
+    return () => motion.cancel();
+  }, [step]);
+
   return (
     <div
       data-slot="dialog-panel"
       className="min-w-0 space-y-4 bg-zinc-25/80 px-6 py-5 ring-1 ring-black/5 dark:bg-white/2 dark:ring-white/5"
     >
-      <AnimatedHeight holdHeight={holdHeight}>{children}</AnimatedHeight>
+      <AnimatedHeight holdHeight={holdHeight}>
+        <div ref={contentRef} className={holdHeight ? "h-full" : undefined}>
+          {children}
+        </div>
+      </AnimatedHeight>
     </div>
   );
 }

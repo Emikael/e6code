@@ -267,7 +267,7 @@ export function DraftHeroHeadline({
             "radial-gradient(42% 50% at 34% 56%, color-mix(in oklab, var(--brand-cyan) 55%, transparent), transparent 70%), radial-gradient(42% 50% at 68% 52%, color-mix(in oklab, var(--brand-orange) 50%, transparent), transparent 70%)",
         }}
       />
-      <E6Monogram className="size-11 shadow-[0_8px_24px_-8px_rgb(0_0_0/0.45)]" />
+      <E6Monogram assemble className="size-11 shadow-[0_8px_24px_-8px_rgb(0_0_0/0.45)]" />
       <h1
         aria-label={headingLabel}
         className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.15] font-medium tracking-[-0.03em] text-balance text-muted-foreground sm:text-[2.5rem]"

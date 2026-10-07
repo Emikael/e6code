@@ -615,7 +615,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
           />
         </WizardHeader>
 
-        <WizardPanel>
+        <WizardPanel step={publishWizardStep}>
           <div className={cn("space-y-2", publishWizardStep !== 0 && "hidden")}>
             <span id="publish-provider-cards-label" className="text-xs font-medium text-foreground">
               Provider

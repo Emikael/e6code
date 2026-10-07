@@ -395,6 +395,14 @@ const EMPTY_PULL_REQUEST_LIST_TARGETS: ReadonlyArray<EnvironmentQueryTarget<Pull
 
 const COMPOSER_SCROLL_COLLAPSE_THRESHOLD_PX = 24;
 const COMPOSER_SCROLL_GESTURE_RESET_MS = 120;
+// Approvals, questions, and plan prompts arrive from the composer's edge; a
+// queued approval keyed by request id slides in after the previous answer.
+// The drawer surface only moves: fading it would clip its backdrop blur.
+const COMPOSER_DRAWER_ARRIVAL_CLASS =
+  "transition-[translate] duration-300 ease-(--ease-spring-snappy) starting:translate-y-2 motion-reduce:starting:translate-y-0";
+const COMPOSER_DRAWER_CONTENT_ARRIVAL_CLASS =
+  "transition-[opacity] duration-300 ease-(--ease-spring-snappy) starting:opacity-0";
+
 const COMPOSER_RESTING_TRANSITION_DURATION_MS = 280;
 const COMPOSER_RESTING_TRANSITION_CLEANUP_BUFFER_MS = 50;
 const COMPOSER_RESTING_TRANSITION_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
@@ -6196,12 +6204,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
                 data-chat-composer-top-drawer="true"
+                className={COMPOSER_DRAWER_ARRIVAL_CLASS}
                 variant={activePendingApproval ? "warning" : "info"}
                 density={activePendingApproval ? "spacious" : "default"}
               >
                 {activePendingApproval ? (
                   <ComposerBanner.Row
+                    key={activePendingApproval.requestId}
                     layout="approval"
+                    className={COMPOSER_DRAWER_CONTENT_ARRIVAL_CLASS}
                     data-chat-composer-collapsed-controls="true"
                   >
                     <ComposerBanner.Icon>

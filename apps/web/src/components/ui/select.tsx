@@ -102,7 +102,7 @@ function SelectPopup({
         sideOffset={sideOffset}
       >
         <SelectPrimitive.Popup
-          className="origin-(--transform-origin) rounded-lg text-foreground outline-none"
+          className="origin-(--transform-origin) rounded-lg text-foreground outline-none transition-[scale,opacity] duration-150 ease-(--ease-spring-snappy) data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-98 data-ending-style:opacity-0 data-ending-style:duration-100 data-ending-style:ease-out motion-reduce:data-starting-style:scale-100 motion-reduce:data-ending-style:scale-100 data-[side=none]:data-starting-style:scale-100"
           data-slot="select-popup"
           {...props}
         >

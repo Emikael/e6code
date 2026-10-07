@@ -13,11 +13,14 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+import { installMotionTokens } from "./lib/motion";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 
 const router = getRouter(history);
+
+installMotionTokens();
 
 if (isElectron) {
   syncDocumentElectronPlatformClasses(navigator.platform);

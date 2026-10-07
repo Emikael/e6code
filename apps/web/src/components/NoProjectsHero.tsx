@@ -5,6 +5,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { Button } from "./ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
+import { E6Monogram } from "./E6Monogram";
 
 export function NoProjectsHero() {
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
@@ -15,6 +16,7 @@ export function NoProjectsHero() {
         <Empty className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">
+              <E6Monogram assemble className="mx-auto mb-5 size-10" />
               <EmptyTitle className="text-foreground text-2xl sm:text-3xl">
                 What should we work on?
               </EmptyTitle>
