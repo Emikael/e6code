@@ -7,7 +7,15 @@ import {
   isUsageLimitsCommand,
 } from "@e6tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
+import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
+import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
+import {
+  buildHandoffDocument,
+  buildHandoffTargets,
+  buildHandoffTurnInput,
+  shouldOfferHandoff,
+} from "@e6tools/client-runtime/state/thread-handoff";
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
 import {
   questionAttachmentDraftId,
@@ -6366,6 +6374,9 @@ export default function ChatView(props: ChatViewProps) {
   const [dismissedResumeCompactionKeys, setDismissedResumeCompactionKeys] = useState<
     ReadonlySet<string>
   >(new Set());
+  const [dismissedHandoffKeys, setDismissedHandoffKeys] = useState<ReadonlySet<string>>(new Set());
+  const [handoffStarting, setHandoffStarting] = useState(false);
+  const [handoffDialogOpen, setHandoffDialogOpen] = useState(false);
   const resumeCompactionKey =
     activeThread && activeContextWindow
       ? `${activeThread.id}:${activeContextWindow.updatedAt}`
@@ -6485,6 +6496,149 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [feedbackSubmissions, routeThreadKey],
   );
+  const handoffSourceInstanceId =
+    activeThread?.session?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? null;
+  const handoffTargets = useMemo(
+    () =>
+      buildHandoffTargets(
+        providerStatuses.flatMap((snapshot) => {
+          const model =
+            snapshot.models.find((entry) => entry.isDefault)?.slug ??
+            snapshot.models.find((entry) => !entry.isLegacy)?.slug ??
+            snapshot.models[0]?.slug;
+          if (!model) return [];
+          return [
+            {
+              instanceId: snapshot.instanceId,
+              model,
+              label: snapshot.displayName ?? String(snapshot.instanceId),
+              usedPercent: snapshot.usageLimits
+                ? Math.max(...snapshot.usageLimits.windows.map((window) => window.usedPercent), 0)
+                : undefined,
+            },
+          ];
+        }),
+        handoffSourceInstanceId ?? "",
+      ),
+    [providerStatuses, handoffSourceInstanceId],
+  );
+  const handoffPreview = useMemo(() => {
+    if (!activeThread) return "";
+    return buildHandoffDocument(
+      {
+        id: activeThread.id,
+        title: activeThread.title,
+        branch: activeThread.branch,
+        modelLabel: String(handoffSourceInstanceId ?? ""),
+        messages: activeThread.messages.map((message) => ({
+          role: message.role,
+          text: message.text,
+          createdAt: message.createdAt,
+        })),
+      },
+      { recentCount: 10 },
+    ).markdown;
+  }, [activeThread, handoffSourceInstanceId]);
+  const handleHandoffConfirm = useCallback(
+    async (target: { readonly instanceId: string; readonly model: string }) => {
+      if (!activeThread || !activeProject || !isServerThread || handoffStarting) return;
+      setHandoffStarting(true);
+      try {
+        const nextThreadId = newThreadId();
+        const createdAt = new Date().toISOString();
+        const input = buildHandoffTurnInput({
+          source: {
+            projectId: activeProject.id,
+            title: activeThread.title,
+            branch: activeThread.branch,
+            worktreePath: activeThread.worktreePath,
+            runtimeMode: activeThread.runtimeMode,
+            interactionMode: activeThread.interactionMode,
+          },
+          handoffMarkdown: handoffPreview,
+          target: { instanceId: ProviderInstanceId.make(target.instanceId), model: target.model },
+          ids: {
+            threadId: nextThreadId,
+            commandId: randomUUID(),
+            messageId: newMessageId(),
+            createdAt,
+          },
+        });
+        const result = await startThreadTurn({ environmentId, input });
+        if (result._tag === "Failure") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add({
+              type: "error",
+              title: "Could not start the new session",
+              description: error instanceof Error ? error.message : "Failed to start handoff.",
+            });
+          }
+          return;
+        }
+        setHandoffDialogOpen(false);
+        const startedResult = await settlePromise(() =>
+          waitForStartedServerThread(scopeThreadRef(activeThread.environmentId, nextThreadId)),
+        );
+        if (startedResult._tag === "Failure") return;
+        await settlePromise(() =>
+          navigate({
+            to: "/$environmentId/$threadId",
+            params: { environmentId: activeThread.environmentId, threadId: nextThreadId },
+          }),
+        );
+      } finally {
+        setHandoffStarting(false);
+      }
+    },
+    [
+      activeProject,
+      activeThread,
+      environmentId,
+      handoffPreview,
+      handoffStarting,
+      isServerThread,
+      navigate,
+      scopeThreadRef,
+      settlePromise,
+      startThreadTurn,
+      waitForStartedServerThread,
+    ],
+  );
+  const handoffBanner = useMemo<ComposerBannerStackItem | null>(() => {
+    if (!activeThread || !isServerThread || handoffSourceInstanceId === null) return null;
+    const dismissKey = `${activeThread.id}:${handoffSourceInstanceId}`;
+    if (dismissedHandoffKeys.has(dismissKey)) return null;
+    const sourceSnapshot = providerStatuses.find(
+      (snapshot) => snapshot.instanceId === handoffSourceInstanceId,
+    );
+    if (
+      !shouldOfferHandoff({
+        sessionLastError: activeThread.session?.lastError ?? null,
+        usageLimits: sourceSnapshot?.usageLimits,
+      })
+    ) {
+      return null;
+    }
+    const suggested = handoffTargets.find((target) => target.available);
+    if (!suggested) return null;
+    return handoffBannerItem({
+      id: `handoff:${dismissKey}`,
+      sourceTitle: activeThread.title,
+      targetLabel: suggested.label,
+      busy: handoffStarting,
+      onContinue: () => setHandoffDialogOpen(true),
+      onDismiss: () => setDismissedHandoffKeys((current) => new Set(current).add(dismissKey)),
+    });
+  }, [
+    activeThread,
+    dismissedHandoffKeys,
+    handoffSourceInstanceId,
+    handoffStarting,
+    handoffTargets,
+    isServerThread,
+    providerStatuses,
+  ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
@@ -6495,8 +6649,10 @@ export default function ChatView(props: ChatViewProps) {
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    const handoffItems = handoffBanner === null ? [] : [handoffBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
+        ...handoffItems,
         ...feedbackBannerItems,
         ...usageLimitsItems,
         ...projectCloneItems,
@@ -6508,6 +6664,7 @@ export default function ChatView(props: ChatViewProps) {
       ];
     }
     return [
+      ...handoffItems,
       ...feedbackBannerItems,
       ...usageLimitsItems,
       ...projectCloneItems,
@@ -6559,6 +6716,7 @@ export default function ChatView(props: ChatViewProps) {
     activeBranchMismatchKey,
     backgroundLivenessBannerItem,
     feedbackBannerItems,
+    handoffBanner,
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
@@ -9793,6 +9951,16 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
         </WizardPopup>
       </Dialog>
+      <ThreadHandoffDialog
+        open={handoffDialogOpen}
+        sourceTitle={activeThread?.title ?? ""}
+        sourceLabel={String(handoffSourceInstanceId ?? "")}
+        targets={handoffTargets}
+        preview={handoffPreview}
+        busy={handoffStarting}
+        onOpenChange={setHandoffDialogOpen}
+        onConfirm={(target) => void handleHandoffConfirm(target)}
+      />
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(
