@@ -84,6 +84,18 @@ or endpoint configurations do not report subscription limits.
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
+## Continue on another provider
+
+When the active thread's provider hits its usage limit, the composer offers **Continue with
+&lt;provider&gt;**. Choosing it starts a new thread on another provider so you keep working without
+waiting for the limit to reset. The original thread is left untouched.
+
+The new thread gets a short handoff summary and the last several turns from the original, and it
+reuses the same branch and worktree, so no code is lost. Pick a different provider or model in the
+dialog first; limited providers are shown but cannot be selected. Dismiss the offer to hide it for
+that thread. The summary is built locally from the thread, so it works even while the provider is
+blocked.
+
 ## Connect a CLIProxyAPI hub
 
 To see pooled accounts, open **Settings → Providers → Usage providers → Add hub**. Choose the
