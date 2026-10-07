@@ -53,16 +53,30 @@ Set an access token in the server's environment:
 export E6CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
 ```
 
-Or use an Atlassian account email and API token with read/write access to repositories and pull
-requests, plus user read access (`read:user:bitbucket`):
+Or use an Atlassian account email and scoped Bitbucket API token:
 
 ```bash
 export E6CODE_BITBUCKET_EMAIL="you@example.com"
 export E6CODE_BITBUCKET_API_TOKEN="your-token"
 ```
 
-The access token takes precedence if both are configured. Restart the server after changing these
-variables.
+For browsing pull requests, grant `read:user:bitbucket`, `read:repository:bitbucket`, and
+`read:pullrequest:bitbucket`. Add write permissions for the actions you want to perform, such as
+creating or merging pull requests. The pull request browser needs an account identity; a repository
+or project access token may not provide one.
+
+Configure these variables on the machine running the server, including when connecting from web
+or mobile on another device. On macOS and Linux, the desktop app also reads them from your login
+shell configuration, such as `.zshrc`. Explicitly inherited credentials take priority over shell
+credentials; keep the email and API token together in the same configuration. A shell-provided
+API URL is used only when loading credentials from the shell; an explicitly inherited URL takes
+priority. On Windows, set them in the environment that starts the desktop app or server.
+
+If slow shell startup prevents desktop from loading the variables, launch the desktop executable
+from a terminal where they are already exported.
+
+The access token takes precedence when both credential types are configured in the same source.
+Restart the server after changing the variables. For desktop, fully quit and reopen the app.
 
 ### Azure DevOps
 

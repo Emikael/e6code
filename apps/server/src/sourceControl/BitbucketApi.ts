@@ -45,7 +45,14 @@ const BitbucketApiEnvConfig = Config.all({
   accessToken: Config.String("E6CODE_BITBUCKET_ACCESS_TOKEN").pipe(Config.option),
   email: Config.String("E6CODE_BITBUCKET_EMAIL").pipe(Config.option),
   apiToken: Config.String("E6CODE_BITBUCKET_API_TOKEN").pipe(Config.option),
-});
+}).pipe(
+  Config.map((config) => ({
+    ...config,
+    accessToken: Option.flatMap(config.accessToken, nonEmpty),
+    email: Option.flatMap(config.email, nonEmpty),
+    apiToken: Option.flatMap(config.apiToken, nonEmpty),
+  })),
+);
 
 const BitbucketApiOperation = Schema.Literals([
   "resolveRepository",
@@ -568,6 +575,45 @@ function authFromConfig(
   };
 }
 
+function authFromError(
+  config: Config.Success<typeof BitbucketApiEnvConfig>,
+  error: BitbucketApiError,
+): SourceControlProviderAuth {
+  const configured = authFromConfig(config);
+  if (error._tag === "BitbucketResponseError" || error._tag === "BitbucketResponseBodyReadError") {
+    switch (error.status) {
+      case 401:
+        return {
+          ...configured,
+          status: "unauthenticated",
+          detail: Option.some(
+            "Bitbucket credentials were rejected (HTTP 401). Check the token and its expiry.",
+          ),
+        };
+      case 403:
+        return {
+          ...configured,
+          detail: Option.some(
+            "Bitbucket refused the account check (HTTP 403). An API token needs read:user:bitbucket; repository access tokens may not have a user identity.",
+          ),
+        };
+      case 429:
+        return {
+          ...configured,
+          detail: Option.some("Bitbucket's rate limit was reached (HTTP 429). Try again later."),
+        };
+    }
+  }
+  return {
+    ...configured,
+    detail: Option.some(
+      error._tag === "BitbucketRequestError"
+        ? "Could not connect to Bitbucket. Check the server's network connection and API base URL."
+        : error.detail,
+    ),
+  };
+}
+
 /** Null for anything that is not a url at all, which is never the configured Bitbucket. */
 function originOf(value: string): string | null {
   try {
@@ -902,19 +948,22 @@ export const make = Effect.gen(function* () {
 
   return BitbucketApi.of({
     request,
-    probeAuth: executeJson(
-      "probeAuth",
-      HttpClientRequest.get(apiUrl("/user")),
-      BitbucketUserSchema,
-    ).pipe(
-      Effect.map((user) => ({
-        status: "authenticated" as const,
-        account: nonEmpty(user.username ?? user.display_name ?? user.account_id),
-        host: Option.some("bitbucket.org"),
-        detail: Option.none<string>(),
-      })),
-      Effect.orElseSucceed(() => authFromConfig(config)),
-    ),
+    probeAuth:
+      authFromConfig(config).status === "unauthenticated"
+        ? Effect.succeed(authFromConfig(config))
+        : executeJson(
+            "probeAuth",
+            HttpClientRequest.get(apiUrl("/user")),
+            BitbucketUserSchema,
+          ).pipe(
+            Effect.map((user) => ({
+              status: "authenticated" as const,
+              account: nonEmpty(user.username ?? user.display_name ?? user.account_id),
+              host: Option.some("bitbucket.org"),
+              detail: Option.none<string>(),
+            })),
+            Effect.catch((error) => Effect.succeed(authFromError(config, error))),
+          ),
     listPullRequests: (input) =>
       resolveRepository(input).pipe(
         Effect.flatMap((repository) => {

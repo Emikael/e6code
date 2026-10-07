@@ -235,7 +235,7 @@ function itemSummary({
     }
 
     if (!item.executable) {
-      return <span>Available. {item.installHint}</span>;
+      return <span>{optionLabel(auth.detail) ?? `Available. ${item.installHint}`}</span>;
     }
 
     if (auth.status === "unauthenticated") {

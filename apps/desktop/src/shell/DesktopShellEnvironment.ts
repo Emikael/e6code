@@ -67,6 +67,11 @@ export class DesktopShellEnvironment extends Context.Service<
   }
 >()("@e6tools/desktop/shell/DesktopShellEnvironment") {}
 
+const BITBUCKET_CREDENTIAL_ENV_NAMES = [
+  "E6CODE_BITBUCKET_EMAIL",
+  "E6CODE_BITBUCKET_API_TOKEN",
+  "E6CODE_BITBUCKET_ACCESS_TOKEN",
+] as const;
 const LOGIN_SHELL_ENV_NAMES = [
   "PATH",
   "DBUS_SESSION_BUS_ADDRESS",
@@ -85,6 +90,8 @@ const LOGIN_SHELL_ENV_NAMES = [
   "XDG_SESSION_DESKTOP",
   "XDG_SESSION_TYPE",
   "WAYLAND_DISPLAY",
+  ...BITBUCKET_CREDENTIAL_ENV_NAMES,
+  "E6CODE_BITBUCKET_API_BASE_URL",
 ] as const;
 const WINDOWS_PROFILE_ENV_NAMES = ["PATH", "FNM_DIR", "FNM_MULTISHELL_PATH"] as const;
 const LOCALE_ENV_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
@@ -427,6 +434,21 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
     }
     if (!config.env.SSH_AUTH_SOCK && shellEnvironment.SSH_AUTH_SOCK) {
       config.env.SSH_AUTH_SOCK = shellEnvironment.SSH_AUTH_SOCK;
+    }
+
+    // Keep credentials and a shell-provided API URL together: per-variable fallbacks can mix
+    // accounts or send inherited credentials to a different host. Explicit API URLs still win.
+    if (
+      BITBUCKET_CREDENTIAL_ENV_NAMES.every((name) => Option.isNone(trimNonEmpty(config.env[name])))
+    ) {
+      for (const name of BITBUCKET_CREDENTIAL_ENV_NAMES) {
+        const value = trimNonEmpty(shellEnvironment[name]);
+        if (Option.isSome(value)) config.env[name] = value.value;
+      }
+      if (Option.isNone(trimNonEmpty(config.env.E6CODE_BITBUCKET_API_BASE_URL))) {
+        const baseUrl = trimNonEmpty(shellEnvironment.E6CODE_BITBUCKET_API_BASE_URL);
+        if (Option.isSome(baseUrl)) config.env.E6CODE_BITBUCKET_API_BASE_URL = baseUrl.value;
+      }
     }
 
     const shellPreferredEnvNames = [

@@ -64,6 +64,7 @@ function makeLayer(input: {
     request: HttpClientRequest.HttpClientRequest,
   ) => HttpClientError.HttpClientError;
   readonly git?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }) {
   const execute = vi.fn((request: HttpClientRequest.HttpClientRequest) =>
     input.requestFailure
@@ -154,6 +155,7 @@ function makeLayer(input: {
             E6CODE_BITBUCKET_API_BASE_URL: "https://api.test.local/2.0",
             E6CODE_BITBUCKET_EMAIL: "user@example.com",
             E6CODE_BITBUCKET_API_TOKEN: "token",
+            ...input.env,
           },
         }),
       ),
@@ -508,6 +510,126 @@ it.effect("reports auth status through the Bitbucket REST /user endpoint", () =>
     });
   }).pipe(Effect.provide(layer));
 });
+
+for (const scenario of [
+  {
+    name: "no credentials",
+    env: { E6CODE_BITBUCKET_EMAIL: undefined, E6CODE_BITBUCKET_API_TOKEN: undefined },
+  },
+  { name: "missing email", env: { E6CODE_BITBUCKET_EMAIL: undefined } },
+  { name: "missing API token", env: { E6CODE_BITBUCKET_API_TOKEN: undefined } },
+  {
+    name: "empty credentials",
+    env: { E6CODE_BITBUCKET_EMAIL: " ", E6CODE_BITBUCKET_API_TOKEN: "" },
+  },
+]) {
+  it.effect(`reports missing Bitbucket credentials without a request (${scenario.name})`, () => {
+    const { execute, layer } = makeLayer({ response: () => Response.json({}), env: scenario.env });
+
+    return Effect.gen(function* () {
+      const bitbucket = yield* BitbucketApi.BitbucketApi;
+      const auth = yield* bitbucket.probeAuth;
+
+      assert.equal(auth.status, "unauthenticated");
+      assert.match(
+        Option.getOrElse(auth.detail, () => ""),
+        /E6CODE_BITBUCKET_API_TOKEN/u,
+      );
+      assert.equal(execute.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer));
+  });
+}
+
+for (const scenario of [
+  { status: 401, expected: "unauthenticated", detail: /rejected/u },
+  { status: 403, expected: "unknown", detail: /read:user:bitbucket/u },
+  { status: 429, expected: "unknown", detail: /rate limit/u },
+  { status: 503, expected: "unknown", detail: /HTTP 503/u },
+]) {
+  it.effect(`reports the Bitbucket auth check's HTTP ${scenario.status} failure`, () => {
+    const { layer } = makeLayer({
+      response: () => new Response("credential-bearing body", { status: scenario.status }),
+    });
+
+    return Effect.gen(function* () {
+      const bitbucket = yield* BitbucketApi.BitbucketApi;
+      const auth = yield* bitbucket.probeAuth;
+      const detail = Option.getOrElse(auth.detail, () => "");
+
+      assert.equal(auth.status, scenario.expected);
+      assert.match(detail, scenario.detail);
+      assert.notMatch(detail, /credential-bearing body/u);
+    }).pipe(Effect.provide(layer));
+  });
+}
+
+it.effect("reports a Bitbucket connection failure without exposing its cause", () => {
+  const { layer } = makeLayer({
+    response: () => Response.json({}),
+    requestFailure: (request) =>
+      new HttpClientError.HttpClientError({
+        reason: new HttpClientError.TransportError({
+          request,
+          cause: new Error("private-credential-in-cause"),
+        }),
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const auth = yield* bitbucket.probeAuth;
+    const detail = Option.getOrElse(auth.detail, () => "");
+
+    assert.equal(auth.status, "unknown");
+    assert.match(detail, /connect/u);
+    assert.deepEqual(auth, {
+      status: "unknown",
+      account: Option.some("user@example.com"),
+      host: Option.some("bitbucket.org"),
+      detail: Option.some(
+        "Could not connect to Bitbucket. Check the server's network connection and API base URL.",
+      ),
+    });
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("reports an invalid Bitbucket auth response", () => {
+  const { layer } = makeLayer({ response: () => new Response("not-json") });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const auth = yield* bitbucket.probeAuth;
+
+    assert.equal(auth.status, "unknown");
+    assert.match(
+      Option.getOrElse(auth.detail, () => ""),
+      /invalid JSON/u,
+    );
+  }).pipe(Effect.provide(layer));
+});
+
+for (const accessToken of ["access-token", " "]) {
+  it.effect(
+    `selects ${accessToken.trim() ? "Bearer" : "Basic"} authentication for the configured token`,
+    () => {
+      const { execute, layer } = makeLayer({
+        response: () => Response.json({ username: "bitbucket-user" }),
+        env: { E6CODE_BITBUCKET_ACCESS_TOKEN: accessToken },
+      });
+
+      return Effect.gen(function* () {
+        const bitbucket = yield* BitbucketApi.BitbucketApi;
+        const auth = yield* bitbucket.probeAuth;
+
+        assert.equal(auth.status, "authenticated");
+        assert.equal(
+          execute.mock.calls[0]?.[0].headers.authorization,
+          accessToken.trim() ? "Bearer access-token" : "Basic dXNlckBleGFtcGxlLmNvbTp0b2tlbg==",
+        );
+      }).pipe(Effect.provide(layer));
+    },
+  );
+}
 
 it.effect("preserves the HTTP client failure without deriving the domain message from it", () => {
   const transportCause = new Error("socket reset by peer");
