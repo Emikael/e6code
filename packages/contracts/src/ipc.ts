@@ -47,6 +47,9 @@ export type QuitShortcutHintEvent =
   | { readonly state: "down"; readonly mode: Exclude<QuitConfirmationMode, "direct"> }
   | { readonly state: "up" };
 
+/** How long the desktop quit accelerator must be held. The hint lingers for the same time after release, and the overlay fill uses it as its progress. */
+export const QUIT_HOLD_DURATION_MS = 1200;
+
 export interface ContextMenuItemSchemaType {
   readonly id: string;
   readonly label: string;

@@ -123,10 +123,10 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
         <div
           key={frontItem.id}
           className={cn(
-            "relative z-10 transition-[translate,opacity] duration-220 ease-in",
+            "relative z-10 transition-[translate,opacity]",
             exitingItemId === frontItem.id
-              ? "pointer-events-none translate-y-16 opacity-0"
-              : "opacity-100",
+              ? "pointer-events-none translate-y-16 opacity-0 duration-220 ease-in"
+              : "opacity-100 duration-300 ease-(--ease-spring-snappy) starting:translate-y-2 starting:opacity-0 motion-reduce:starting:translate-y-0",
           )}
           onPointerDownCapture={() => {
             setStackExpanded(false);

@@ -230,7 +230,7 @@ function ConfiguredConnectOnboardingDialog() {
             />
           ) : null}
         </WizardHeader>
-        <WizardPanel>
+        <WizardPanel step={steps.indexOf(step)}>
           {step === "publish" ? (
             <PublishStep
               exposeEnvironment={exposeEnvironment}

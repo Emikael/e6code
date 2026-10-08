@@ -210,7 +210,7 @@ export function WelcomeWizard({
           />
         </WizardHeader>
 
-        <WizardPanel holdHeight={isLoadingProjects}>
+        <WizardPanel holdHeight={isLoadingProjects} step={stageIndex}>
           {step === "connection" ? (
             <ConnectionStep
               expandPairingInitially={!localAvailable && !hasCloudPublicConfig()}

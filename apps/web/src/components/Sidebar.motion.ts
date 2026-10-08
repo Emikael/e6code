@@ -1,3 +1,5 @@
+import { MOTION_MS, playTransient, prefersReducedMotion, SPRING_SNAPPY } from "~/lib/motion";
+
 const motionTiming = { duration: 150, easing: "ease-out" };
 // Rows normally ride their displaced neighbour's travel. Absent a moving
 // neighbour, a row still travels on its own, clamped so a tall card does not
@@ -263,4 +265,14 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
       disposed = true;
     },
   };
+}
+
+/** A thread that stops working settles its status cell into the new state. */
+export function playSidebarStatusSettle(cell: HTMLElement) {
+  const reduced = prefersReducedMotion();
+  return playTransient(cell, {
+    opacity: [0, 1],
+    ...(reduced ? {} : { transform: ["translateY(3px) scale(0.94)", "none"] }),
+    ...(reduced ? { duration: MOTION_MS.instant, ease: "linear" } : { ease: SPRING_SNAPPY }),
+  });
 }
