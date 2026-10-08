@@ -37,6 +37,25 @@ afterEach(() => {
 });
 
 describe("client settings hydration", () => {
+  it("enables plan controls on a fresh client", async () => {
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings().planModeEnabled).toBe(true);
+  });
+
+  it.each([false, true])(
+    "retains plan controls preference %s after restart",
+    async (planModeEnabled) => {
+      const saved = await persistClientSettingsUpdate((current) => ({
+        ...current,
+        planModeEnabled,
+      }));
+      __resetClientSettingsPersistenceForTests();
+      persistenceMocks.getClientSettings.mockResolvedValue(saved);
+      await ensureClientSettingsHydrated();
+      expect(getClientSettings().planModeEnabled).toBe(planModeEnabled);
+    },
+  );
+
   const savedSettings = {
     ...DEFAULT_CLIENT_SETTINGS,
     timestampFormat: "12-hour" as const,

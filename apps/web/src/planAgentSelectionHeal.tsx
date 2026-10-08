@@ -26,9 +26,7 @@ export function PlanAgentSelectionHeal() {
   const updateSettings = useUpdatePrimarySettings();
 
   useEffect(() => {
-    // planModeEnabled reads as false until client settings hydrate, so never
-    // heal before then: we would strip a stored plan selection from a user
-    // whose plan mode is actually on.
+    // Wait for the saved preference before healing stored plan selections.
     if (!settingsHydrated) {
       return;
     }
