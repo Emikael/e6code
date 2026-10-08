@@ -1,9 +1,27 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  resolveLegacyPlanModeEnabled,
   resolvePendingTaskInteractionMode,
   resolveProviderInteractionMode,
 } from "./legacy-plan-mode";
+
+describe("resolveLegacyPlanModeEnabled", () => {
+  it.each([undefined, false, true])(
+    "hides controls until preferences load, saved=%s",
+    (preference) => {
+      expect(resolveLegacyPlanModeEnabled({ loaded: false, preference })).toBe(false);
+    },
+  );
+
+  it.each([
+    [undefined, true],
+    [false, false],
+    [true, true],
+  ] as const)("resolves loaded preference %s to %s", (preference, expected) => {
+    expect(resolveLegacyPlanModeEnabled({ loaded: true, preference })).toBe(expected);
+  });
+});
 
 describe("resolveProviderInteractionMode", () => {
   it("clears saved plan mode when the provider cannot use E6 interaction modes", () => {

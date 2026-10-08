@@ -6,8 +6,7 @@ import { resolveLegacyPlanModeEnabled } from "./legacy-plan-mode";
 
 /**
  * Mobile preferences are device-local, matching the desktop client setting.
- * Keep the legacy composer mode hidden until the preference has loaded and is
- * explicitly enabled.
+ * Keep the legacy composer mode hidden until the preference has loaded.
  */
 export function useLegacyPlanModeState(): { readonly enabled: boolean; readonly loaded: boolean } {
   const preferences = useAtomValue(mobilePreferencesAtom);

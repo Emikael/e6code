@@ -104,6 +104,26 @@ describe("systemOne settings", () => {
   });
 });
 
+describe("ClientSettings legacy plan mode", () => {
+  it("enables the controls when no preference is saved", () => {
+    expect(decodeClientSettings({}).planModeEnabled).toBe(true);
+    expect(decodeClientSettings({ sendShortcut: "mod-enter" }).planModeEnabled).toBe(true);
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("planModeEnabled");
+  });
+
+  it.each([false, true])(
+    "preserves saved %s through patches and persistence",
+    (planModeEnabled) => {
+      const preference = { planModeEnabled };
+      expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+      expect(
+        decodeClientSettings(encodeClientSettings(decodeClientSettings(preference)))
+          .planModeEnabled,
+      ).toBe(planModeEnabled);
+    },
+  );
+});
+
 describe("ClientSettings rich text composer", () => {
   it("enables rich text for new and existing settings without a saved preference", () => {
     expect(decodeClientSettings({}).composerRichTextEnabled).toBe(true);
