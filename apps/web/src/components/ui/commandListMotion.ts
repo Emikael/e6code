@@ -9,8 +9,50 @@ import {
 
 const ITEM_SELECTOR = "[data-slot=command-item]";
 const ENTRANCE_ITEMS = 8;
+const OVERLAY_SELECTOR = "[data-command-highlight-overlay]";
 // Past this the eye has lost the old row; a glide would read as lag.
 const MAX_GLIDE_PX = 180;
+
+/** Box of the highlight ghost inside an overlay that covers the visible list, not the scrolled content. */
+export function highlightGhostFrame(
+  origin: { readonly top: number; readonly left: number },
+  target: {
+    readonly top: number;
+    readonly left: number;
+    readonly width: number;
+    readonly height: number;
+  },
+) {
+  return {
+    top: target.top - origin.top,
+    left: target.left - origin.left,
+    width: target.width,
+    height: target.height,
+  };
+}
+
+function highlightHost(list: HTMLElement): HTMLElement | null {
+  const viewport = list.closest("[data-slot=scroll-area-viewport]");
+  const host = viewport?.parentElement;
+  return host instanceof HTMLElement ? host : null;
+}
+
+function highlightOverlay(list: HTMLElement): HTMLElement | null {
+  const host = highlightHost(list);
+  if (!host) return null;
+  // The scroll root is the visible frame. The viewport inside it scrolls, so a
+  // ghost parented there would travel with the rows. `isolation` keeps the
+  // negative z-index above the frame background.
+  host.style.isolation = "isolate";
+  const existing = host.querySelector(`:scope > ${OVERLAY_SELECTOR}`);
+  if (existing instanceof HTMLElement) return existing;
+  const overlay = document.createElement("div");
+  overlay.dataset.commandHighlightOverlay = "";
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.className = "pointer-events-none absolute inset-0 -z-1 overflow-hidden";
+  host.append(overlay);
+  return overlay;
+}
 
 /**
  * Callback ref for command lists. Rows rise in on open, and the highlight
@@ -54,27 +96,29 @@ export function observeCommandListMotion(list: HTMLElement | null) {
       endGlide();
       return;
     }
-    const listRect = list.getBoundingClientRect();
     const fromRect = from.getBoundingClientRect();
     const toRect = next.getBoundingClientRect();
     const travel = fromRect.top - toRect.top;
     endGlide();
     if (travel === 0 || Math.abs(travel) > MAX_GLIDE_PX) return;
+    const overlay = highlightOverlay(list);
+    if (!overlay) return;
 
     // Read the highlight's paint before muting it, so every list variant keeps its own look.
     const { backgroundColor, borderRadius } = getComputedStyle(next);
+    const frame = highlightGhostFrame(overlay.getBoundingClientRect(), toRect);
     ghost = document.createElement("span");
     ghost.setAttribute("aria-hidden", "true");
-    ghost.className = "pointer-events-none absolute -z-1";
+    ghost.className = "pointer-events-none absolute";
     Object.assign(ghost.style, {
       backgroundColor,
       borderRadius,
-      top: `${toRect.top - listRect.top + list.scrollTop - list.clientTop}px`,
-      left: `${toRect.left - listRect.left + list.scrollLeft - list.clientLeft}px`,
-      width: `${toRect.width}px`,
-      height: `${toRect.height}px`,
+      top: `${frame.top}px`,
+      left: `${frame.left}px`,
+      width: `${frame.width}px`,
+      height: `${frame.height}px`,
     });
-    list.append(ghost);
+    overlay.append(ghost);
     list.dataset.highlightGliding = "";
     glide = playTransient(ghost, {
       transform: [`translateY(${travel}px)`, "none"],
@@ -96,5 +140,6 @@ export function observeCommandListMotion(list: HTMLElement | null) {
     observer.disconnect();
     entrance?.cancel();
     endGlide();
+    highlightHost(list)?.querySelector(`:scope > ${OVERLAY_SELECTOR}`)?.remove();
   };
 }

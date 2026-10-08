@@ -6,6 +6,7 @@ import {
   isTurnLandingPending,
   markTurnLanded,
   settleTurnLanding,
+  turnLandingMotion,
 } from "./turnLanding";
 
 const turn = (id: string, state: "running" | "completed" | "interrupted" | "error") => ({
@@ -26,6 +27,26 @@ describe("isLiveTurnLanding", () => {
     expect(isLiveTurnLanding(null, turn("a", "completed"))).toBe(false);
     expect(isLiveTurnLanding(turn("a", "completed"), turn("a", "completed"))).toBe(false);
     expect(isLiveTurnLanding(turn("a", "running"), turn("b", "completed"))).toBe(false);
+  });
+});
+
+describe("turnLandingMotion", () => {
+  it("settles immediately when reduced motion is on", () => {
+    expect(turnLandingMotion(true)).toEqual({ kind: "settle" });
+  });
+
+  it("draws the stripe and settles the label without a blur", () => {
+    const motion = turnLandingMotion(false);
+    expect(motion.kind).toBe("play");
+    if (motion.kind !== "play") return;
+    expect(motion.label).toEqual({
+      opacity: [0.4, 1],
+      transform: ["translateY(3px)", "none"],
+      duration: 360,
+    });
+    expect(motion.label).not.toHaveProperty("filter");
+    expect(motion.stripe.opacity).toEqual([1, 1, 1, 0]);
+    expect(motion.stripe.duration).toBe(1_600);
   });
 });
 

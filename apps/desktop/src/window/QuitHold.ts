@@ -1,11 +1,16 @@
 // @effect-diagnostics globalDate:off globalTimers:off -- Synchronous before-input-event handler; key events must be timed and the watchdog scheduled outside any Effect runtime.
 
-import type { QuitConfirmationMode, QuitShortcutHintEvent } from "@e6tools/contracts";
+import {
+  QUIT_HOLD_DURATION_MS,
+  type QuitConfirmationMode,
+  type QuitShortcutHintEvent,
+} from "@e6tools/contracts";
+
+export { QUIT_HOLD_DURATION_MS };
 
 // The quit accelerator is intercepted in before-input-event, which runs
 // before the native menu accelerator. Quitting from the application menu is
 // untouched and always quits immediately.
-export const QUIT_HOLD_DURATION_MS = 1200;
 export const QUIT_DOUBLE_PRESS_MS = 500;
 // "Still held" is proven by auto-repeat keydowns, not by the absence of a
 // release: macOS suppresses a letter keyUp while the command key is down, so a

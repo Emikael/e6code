@@ -44,6 +44,37 @@ export function settleTurnLanding(turnId: TurnId) {
   landings.settle(turnId);
 }
 
+export type TurnLandingMotion =
+  | { readonly kind: "settle" }
+  | {
+      readonly kind: "play";
+      readonly stripe: {
+        readonly opacity: readonly [number, number, number, number];
+        readonly duration: number;
+      };
+      readonly label: {
+        readonly opacity: readonly [number, number];
+        readonly transform: readonly [string, string];
+        readonly duration: number;
+      };
+      readonly bars: { readonly duration: number; readonly staggerMs: number };
+    };
+
+/** Reduced motion skips the decorative stripe and settles at once. The label moves with opacity and translate only. */
+export function turnLandingMotion(reducedMotion: boolean): TurnLandingMotion {
+  if (reducedMotion) return { kind: "settle" };
+  return {
+    kind: "play",
+    stripe: { opacity: [1, 1, 1, 0], duration: 1_600 },
+    label: {
+      opacity: [0.4, 1],
+      transform: ["translateY(3px)", "none"],
+      duration: MOTION_MS.layout,
+    },
+    bars: { duration: 420, staggerMs: 120 },
+  };
+}
+
 /**
  * The landing moment: the brand stripe draws along the fold row's rule, cyan
  * then orange, holds, and fades back into the plain border while the summary
@@ -54,34 +85,35 @@ export function playTurnLanding(
   label: HTMLElement,
   onPlayed: () => void,
 ): () => void {
-  const reduced = prefersReducedMotion();
+  const motion = turnLandingMotion(prefersReducedMotion());
+  if (motion.kind === "settle") {
+    onPlayed();
+    return () => {};
+  }
   const animations = [
     playTransient(stripe, {
-      opacity: reduced ? [1, 1, 0] : [1, 1, 1, 0],
-      duration: reduced ? 900 : 1_600,
+      opacity: [...motion.stripe.opacity],
+      duration: motion.stripe.duration,
       ease: "linear",
     }),
     playTransient(label, {
-      opacity: [0.4, 1],
-      ...(reduced
-        ? {}
-        : { filter: ["blur(3px)", "blur(0px)"], transform: ["translateY(3px)", "none"] }),
-      duration: reduced ? MOTION_MS.instant : MOTION_MS.layout,
+      opacity: [...motion.label.opacity],
+      transform: [...motion.label.transform],
+      duration: motion.label.duration,
+      ease: EASE_OUT,
+    }),
+    playTransient(Array.from(stripe.children).filter(canAnimate), {
+      transform: ["scaleX(0)", "scaleX(1)"],
+      duration: motion.bars.duration,
+      delay: staggerDelay(motion.bars.staggerMs),
       ease: EASE_OUT,
     }),
   ];
-  if (!reduced) {
-    animations.push(
-      playTransient(Array.from(stripe.children).filter(canAnimate), {
-        transform: ["scaleX(0)", "scaleX(1)"],
-        duration: 420,
-        delay: staggerDelay(120),
-        ease: EASE_OUT,
-      }),
-    );
-  }
-  void Promise.all(animations.map((motion) => motion.finished)).then(onPlayed);
+  void Promise.all(animations.map((animation) => animation.finished)).then(onPlayed);
   return () => {
-    for (const motion of animations) motion.cancel();
+    // `cancel()` reverts and does not resolve `finished`, so an interrupted
+    // landing stays pending. A remount inside the moment window retries;
+    // after the window the fold stays still.
+    for (const animation of animations) animation.cancel();
   };
 }
