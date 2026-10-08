@@ -1,4 +1,4 @@
-export const QUIT_HOLD_DRAIN_MS = 200;
+const QUIT_HOLD_DRAIN_MS = 200;
 
 /** X scale from a computed transform. `getComputedStyle` returns a matrix; a raw `scaleX()` is accepted too. */
 export function scaleXFromTransform(transform: string): number {
