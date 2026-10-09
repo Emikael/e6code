@@ -770,7 +770,7 @@ function SidebarProjectGroupHeader(props: {
           {props.project ? (
             <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
           ) : (
-            <FolderIcon className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+            <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
           )}
         </span>
         <span className="truncate">{group.displayName}</span>
@@ -792,6 +792,7 @@ function SidebarProjectGroupHeader(props: {
         ) : null}
         <span className="ml-auto shrink-0 rounded-full bg-sidebar-control-surface px-1.5 text-[11px] leading-4 font-medium text-sidebar-muted-foreground tabular-nums">
           {group.threadCount}
+          <span className="sr-only"> threads</span>
         </span>
       </button>
       {props.onNewThread ? (
@@ -1876,12 +1877,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       className={cn(
         "list-none [content-visibility:auto]",
         nested
-          ? // Hangs off a rail under the group header's icon tile (2px header
-            // inset + 6px button padding + half the 20px tile = 18px). -mt-px
-            // pulls the row over the list's 1px gap so the rail stays unbroken;
-            // pt-[3px] puts the content back. Intrinsic size matches h-14.
+          ? // Hangs off a rail under the group header's icon tile: header
+            // mx-0.5 (0.125rem) + button px-1.5 (0.375rem) + half the 20px
+            // tile. -mt-px pulls the row over the list's 1px gap so the rail
+            // stays unbroken; pt-[3px] puts the content back. Intrinsic size
+            // matches h-14.
             cn(
-              "-mt-px ml-[1.125rem] border-l pt-[3px] pb-0.5 pl-1.5 [contain-intrinsic-size:auto_56px]",
+              "-mt-px ml-[calc(0.125rem+0.375rem+10px)] border-l pt-[3px] pb-0.5 pl-1.5 [contain-intrinsic-size:auto_56px]",
               props.isActive ? "border-sidebar-foreground/45" : "border-sidebar-border",
             )
           : // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
@@ -1950,7 +1952,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       isWokeStatus
                         ? "pointer-events-auto"
                         : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-hover/sidebar-row:absolute group-hover/sidebar-row:right-0 group-hover/sidebar-row:opacity-0",
-                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity",
+                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity motion-reduce:transition-none",
                       snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
                     )}
                   >
@@ -2018,7 +2020,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         // would keep the controls pinned over the status label
                         // once the pointer moves away (e.g. after a failed
                         // settle) instead of cross-fading back.
-                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
+                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity motion-reduce:transition-none has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
                         snoozeMenuOpen && "pointer-events-auto static opacity-100",
                       )}
                     >
