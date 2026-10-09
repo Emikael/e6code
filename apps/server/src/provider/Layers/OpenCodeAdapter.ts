@@ -277,7 +277,7 @@ type NativeOpenCodeRoutedRequestEvent = Extract<
   }
 >;
 
-export function openCodeRequestId(event: OpenCodeRoutedRequestEvent): string {
+function openCodeRequestId(event: OpenCodeRoutedRequestEvent): string {
   switch (event.type) {
     case "permission.asked":
       return event.data.id;
@@ -291,9 +291,7 @@ export function openCodeRequestId(event: OpenCodeRoutedRequestEvent): string {
   }
 }
 
-export function openCodeAskedRequest(
-  event: OpenCodeAskedRequestEvent,
-): PermissionRequest | OpenCodeForm {
+function openCodeAskedRequest(event: OpenCodeAskedRequestEvent): PermissionRequest | OpenCodeForm {
   return event.type === "permission.asked" ? event.data : event.data.form;
 }
 
