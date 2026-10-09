@@ -47,8 +47,11 @@ export interface RouteTurnInput {
   readonly hasAttachments: boolean;
   readonly threadTitle?: string;
   readonly projectName?: string;
-  /** Prior user and assistant text, excluding this turn's message. */
-  readonly recentTurns?: string;
+  /**
+   * Prior user and assistant text, excluding this turn's message. Run only
+   * when the turn is about to be classified, so rejected turns never load it.
+   */
+  readonly loadRecentTurns?: Effect.Effect<string | undefined>;
 }
 
 export type RouteOutcome =
@@ -152,15 +155,20 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
       } as RouteOutcome;
     }
 
-    const classifyInput = {
+    const messageInput = {
       lastMessage: input.text,
       ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
       ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-      ...(input.recentTurns !== undefined ? { recentTurns: input.recentTurns } : {}),
     };
-    if (buildClassifyState(classifyInput).lastMessage !== input.text) {
+    if (buildClassifyState(messageInput).lastMessage !== input.text) {
       return { _tag: "FullLlm", reason: "text-too-long" } as RouteOutcome;
     }
+    const recentTurns =
+      input.loadRecentTurns === undefined ? undefined : yield* input.loadRecentTurns;
+    const classifyInput = {
+      ...messageInput,
+      ...(recentTurns !== undefined ? { recentTurns } : {}),
+    };
     const outcome = yield* engine.classifyTurn(classifyInput, settings.systemOne.timeoutMs);
     if (outcome._tag === "Skipped") {
       return { _tag: "FullLlm", reason: `jev-skipped:${outcome.reason}` } as RouteOutcome;

@@ -56,7 +56,6 @@ import {
 } from "../Services/ProviderCommandReactor.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import { trimForFastPath } from "../../systemOne/fastPath.ts";
-import { answerDeterministic } from "../../systemOne/deterministicResponder.ts";
 import { formatRecentTurns } from "../../systemOne/stateBuilder.ts";
 import { SystemOneRouter, type RouteOutcome } from "../../systemOne/SystemOneRouter.ts";
 import { forkParked, ServerActivation } from "../../serverActivation.ts";
@@ -329,53 +328,35 @@ const make = Effect.gen(function* () {
     hasAttachments: boolean;
   }) {
     if (Option.isNone(systemOneRouter)) return null;
-    const settings = yield* serverSettingsService.getPersistedSettings.pipe(
-      Effect.catchCause((cause) => {
-        if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-        return Effect.succeed(null);
-      }),
-    );
-    const recentTurns =
-      settings !== null &&
-      settings.systemOne.enabled &&
-      !input.hasAttachments &&
-      input.messageText.trim().length > 0 &&
-      answerDeterministic({
-        text: input.messageText,
-        ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
-        ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-      }) === null
-        ? yield* projectionSnapshotQuery
-            .getThreadDetailSnapshot(input.threadId, { turnLimit: 2 })
-            .pipe(
-              Effect.catchCause((cause) => {
-                if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-                return Effect.succeed(Option.none());
-              }),
-              Effect.map((snapshot) => {
-                if (Option.isNone(snapshot)) return undefined;
-                const excerpt = formatRecentTurns(
-                  snapshot.value.thread.messages.map((message) => ({
-                    id: message.id,
-                    role: message.role,
-                    text:
-                      message.role === "assistant"
-                        ? assistantCitationsToPlainText(message.text)
-                        : message.text,
-                  })),
-                  input.messageId,
-                );
-                return excerpt.length > 0 ? excerpt : undefined;
-              }),
-            )
-        : undefined;
+    const loadRecentTurns = projectionSnapshotQuery
+      .getThreadDetailSnapshot(input.threadId, { turnLimit: 2 })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.succeed(Option.none()),
+        ),
+        Effect.map((snapshot) => {
+          if (Option.isNone(snapshot)) return undefined;
+          const excerpt = formatRecentTurns(
+            snapshot.value.thread.messages.map((message) => ({
+              id: message.id,
+              role: message.role,
+              text:
+                message.role === "assistant"
+                  ? assistantCitationsToPlainText(message.text)
+                  : message.text,
+            })),
+            input.messageId,
+          );
+          return excerpt.length > 0 ? excerpt : undefined;
+        }),
+      );
     const outcome = yield* systemOneRouter.value
       .routeTurn({
         text: input.messageText,
         hasAttachments: input.hasAttachments,
         ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
         ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-        ...(recentTurns !== undefined ? { recentTurns } : {}),
+        loadRecentTurns,
       })
       .pipe(
         Effect.catchCause((cause) => {

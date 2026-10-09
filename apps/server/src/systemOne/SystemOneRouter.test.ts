@@ -77,7 +77,9 @@ const routeWith = (
       hasAttachments,
       ...(extra?.projectName !== undefined ? { projectName: extra.projectName } : {}),
       ...(extra?.threadTitle !== undefined ? { threadTitle: extra.threadTitle } : {}),
-      ...(extra?.recentTurns !== undefined ? { recentTurns: extra.recentTurns } : {}),
+      ...(extra?.recentTurns !== undefined
+        ? { loadRecentTurns: Effect.succeed(extra.recentTurns) }
+        : {}),
     });
   }).pipe(Effect.provide(routerLayer));
 
@@ -218,6 +220,34 @@ describe("SystemOneRouter", () => {
       ).toMatchObject({ _tag: "FullLlm", reason: "depends-on-earlier-turns" });
     }),
   );
+
+  it.live("loads recent turns only for turns it classifies", () => {
+    let loads = 0;
+    const loadRecentTurns = Effect.sync(() => {
+      loads += 1;
+      return "user: rename the button\nassistant: Renamed it.";
+    });
+    const routerLayer = Layer.provide(
+      layer(),
+      Layer.mergeAll(engineWith("trimmed_provider"), settingsOn),
+    );
+    const route = (text: string, hasAttachments = false) =>
+      Effect.gen(function* () {
+        const router = yield* SystemOneRouter;
+        return yield* router.routeTurn({ text, hasAttachments, loadRecentTurns });
+      }).pipe(Effect.provide(routerLayer));
+    return Effect.gen(function* () {
+      expect(yield* route("hi")).toMatchObject({ _tag: "Deterministic" });
+      expect(yield* route("see attached", true)).toMatchObject({ reason: "has-attachments" });
+      expect(yield* route("  ")).toMatchObject({ reason: "empty-text" });
+      expect(yield* route("x".repeat(MAX_STATE_TOKENS * 8))).toMatchObject({
+        reason: "text-too-long",
+      });
+      expect(loads).toBe(0);
+      expect(yield* route("summarize this")).toMatchObject({ _tag: "FastPath" });
+      expect(loads).toBe(1);
+    });
+  });
 
   it.live("fails open when the engine cannot load", () =>
     Effect.gen(function* () {
