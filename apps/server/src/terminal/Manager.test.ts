@@ -41,6 +41,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
+import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 
 class WaitForConditionError extends Data.TaggedError("WaitForConditionError")<{
   readonly message: string;
@@ -816,6 +817,58 @@ it.layer(
             event.terminalId === DEFAULT_TERMINAL_ID,
         ),
       ).toBe(true);
+    }),
+  );
+
+  it.effect("restart through a symlink waits for cleanup of the canonical checkout", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const leaseResolved = yield* Deferred.make<"resolved">();
+      const spawned = yield* Deferred.make<"spawned">();
+      let restarting = false;
+      let alias = "";
+      const fixture = yield* createManager().pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          realPath: (target) =>
+            fs
+              .realPath(target)
+              .pipe(
+                Effect.tap(() =>
+                  restarting && target === alias
+                    ? Deferred.succeed(leaseResolved, "resolved")
+                    : Effect.void,
+                ),
+              ),
+        }),
+      );
+      const root = yield* fs.realPath(fixture.baseDir);
+      alias = path.join(root, "alias");
+      const checkout = path.join(root, "checkout");
+      yield* fs.makeDirectory(checkout);
+      yield* fs.symlink(checkout, alias);
+      yield* fixture.manager.open(openInput({ cwd: alias, worktreePath: null }));
+      const originalSpawn = fixture.ptyAdapter.spawn.bind(fixture.ptyAdapter);
+      fixture.ptyAdapter.spawn = (input) =>
+        originalSpawn(input).pipe(Effect.tap(() => Deferred.succeed(spawned, "spawned")));
+      const release = yield* Deferred.make<void>();
+      const cleanup = yield* withWorkspaceLease(checkout, Deferred.await(release)).pipe(
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      restarting = true;
+      const restart = yield* fixture.manager
+        .restart(restartInput({ cwd: alias, worktreePath: null }))
+        .pipe(Effect.forkScoped({ startImmediately: true }));
+      assert.strictEqual(
+        yield* Effect.race(Deferred.await(leaseResolved), Deferred.await(spawned)),
+        "resolved",
+      );
+      assert.strictEqual(fixture.ptyAdapter.spawnInputs.length, 1);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(cleanup);
+      yield* Fiber.join(restart);
+      assert.strictEqual(fixture.ptyAdapter.spawnInputs.length, 2);
     }),
   );
 

@@ -1,3 +1,4 @@
+import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
@@ -36,7 +37,6 @@ import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -2248,7 +2248,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       : undefined);
   const managedNativeEventLogger =
     options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventQueue = yield* makeQueuedRuntimeEventStream;
   const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
 
   const startSession: CodexAdapterShape["startSession"] = (input) =>
@@ -2456,7 +2456,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               });
               return;
             }
-            yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
+            yield* Effect.sync(() => runtimeEvents.forEach(runtimeEventQueue.publishUnsafe));
           }),
         ).pipe(Effect.forkIn(sessionScope));
 
@@ -2712,7 +2712,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   yield* Effect.acquireRelease(Effect.void, () =>
     stopAll().pipe(
-      Effect.andThen(Queue.shutdown(runtimeEventQueue)),
+      Effect.andThen(runtimeEventQueue.shutdown),
       Effect.andThen(managedNativeEventLogger?.close() ?? Effect.void),
       Effect.ignore,
     ),
@@ -2737,8 +2737,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     listSessions,
     hasSession,
     stopAll,
+    runtimeEventSequence: runtimeEventQueue.runtimeEventSequence,
+    subscribeRuntimeEvents: runtimeEventQueue.subscribeRuntimeEvents,
     get streamEvents() {
-      return Stream.fromQueue(runtimeEventQueue);
+      return runtimeEventQueue.streamEvents;
     },
   } satisfies CodexAdapterShape;
 });

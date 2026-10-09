@@ -1,3 +1,4 @@
+import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
 import {
   EventId,
   type OpenCodeSettings,
@@ -962,7 +963,7 @@ export function makeOpenCodeAdapter(
     // `options.nativeEventLogger`, they own its lifecycle.
     const managedNativeEventLogger =
       options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
-    const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
+    const runtimeEvents = yield* makeQueuedRuntimeEventStream;
     const sessions = new Map<ThreadId, OpenCodeSessionContext>();
     const deleteContextIfCurrent = (context: OpenCodeSessionContext) => {
       if (sessions.get(context.session.threadId) === context) {
@@ -1073,16 +1074,15 @@ export function makeOpenCodeAdapter(
         if (managedNativeEventLogger !== undefined) {
           yield* managedNativeEventLogger.close();
         }
-      }).pipe(Effect.ensuring(Queue.shutdown(runtimeEvents))),
+      }).pipe(Effect.ensuring(runtimeEvents.shutdown)),
     );
 
-    const emit = (event: ProviderRuntimeEvent) =>
-      Queue.offer(runtimeEvents, event).pipe(Effect.asVoid);
+    const emit = (event: ProviderRuntimeEvent) => runtimeEvents.publish(event);
     // Synchronous publish for callers that must not yield between a state
     // check and the enqueue, e.g. reopening an approval only if its terminal
     // event has not landed yet.
     const emitUnsafe = (event: ProviderRuntimeEvent) => {
-      Queue.offerUnsafe(runtimeEvents, event);
+      runtimeEvents.publishUnsafe(event);
     };
     const writeNativeEvent = (
       threadId: ThreadId,
@@ -4039,8 +4039,10 @@ export function makeOpenCodeAdapter(
       readThread,
       rollbackThread,
       stopAll,
+      runtimeEventSequence: runtimeEvents.runtimeEventSequence,
+      subscribeRuntimeEvents: runtimeEvents.subscribeRuntimeEvents,
       get streamEvents() {
-        return Stream.fromQueue(runtimeEvents);
+        return runtimeEvents.streamEvents;
       },
     } satisfies OpenCodeAdapterShape;
   });

@@ -11,8 +11,7 @@ import {
   ProviderDriverKind,
 } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Queue from "effect/Queue";
-import * as Stream from "effect/Stream";
+import { makeQueuedRuntimeEventStream } from "../src/provider/runtimeEventStream.ts";
 
 import {
   ProviderAdapterSessionNotFoundError,
@@ -225,7 +224,7 @@ function missingSessionEffect(
 export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapterHarnessOptions) =>
   Effect.gen(function* () {
     const provider = options?.provider ?? ProviderDriverKind.make("codex");
-    const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
+    const runtimeEvents = yield* makeQueuedRuntimeEventStream;
     let sessionCount = 0;
     let eventCount = 0;
     const sessions = new Map<ThreadId, SessionState>();
@@ -240,7 +239,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       }>
     >();
 
-    const emit = (event: ProviderRuntimeEvent) => Queue.offer(runtimeEvents, event);
+    const emit = runtimeEvents.publish;
     const nextEventId = (threadId: ThreadId) => {
       eventCount += 1;
       return EventId.make(`test-provider:${provider}:${threadId}:${eventCount}`);
@@ -495,7 +494,9 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       readThread,
       rollbackThread,
       stopAll,
-      streamEvents: Stream.fromQueue(runtimeEvents),
+      runtimeEventSequence: runtimeEvents.runtimeEventSequence,
+      subscribeRuntimeEvents: runtimeEvents.subscribeRuntimeEvents,
+      streamEvents: runtimeEvents.streamEvents,
     };
 
     const queueTurnResponse = (

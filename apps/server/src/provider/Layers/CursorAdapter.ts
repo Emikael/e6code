@@ -1,3 +1,4 @@
+import { makeRuntimeEventStream } from "../runtimeEventStream.ts";
 /**
  * CursorAdapterLive — Cursor CLI (`agent acp`) via ACP.
  *
@@ -30,7 +31,6 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -347,7 +347,7 @@ export function makeCursorAdapter(
 
     const sessions = new Map<ThreadId, CursorSessionContext>();
     const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
-    const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+    const runtimeEventPubSub = yield* makeRuntimeEventStream;
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
     const randomUUIDv4 = crypto.randomUUIDv4.pipe(
@@ -374,8 +374,7 @@ export function makeCursorAdapter(
         ),
       );
 
-    const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
-      PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+    const offerRuntimeEvent = (event: ProviderRuntimeEvent) => runtimeEventPubSub.publish(event);
 
     const getThreadSemaphore = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
@@ -1261,12 +1260,12 @@ export function makeCursorAdapter(
         Effect.catch((cause) =>
           Effect.logError("Failed to emit Cursor session shutdown event.", { cause }),
         ),
-        Effect.tap(() => PubSub.shutdown(runtimeEventPubSub)),
+        Effect.tap(() => runtimeEventPubSub.shutdown),
         Effect.tap(() => managedNativeEventLogger?.close() ?? Effect.void),
       ),
     );
 
-    const streamEvents = Stream.fromPubSub(runtimeEventPubSub);
+    const streamEvents = runtimeEventPubSub.streamEvents;
 
     return {
       provider: PROVIDER,
@@ -1283,6 +1282,8 @@ export function makeCursorAdapter(
       listSessions,
       hasSession,
       stopAll,
+      runtimeEventSequence: runtimeEventPubSub.runtimeEventSequence,
+      subscribeRuntimeEvents: runtimeEventPubSub.subscribeRuntimeEvents,
       streamEvents,
     } satisfies CursorAdapterShape;
   });

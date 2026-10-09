@@ -41,6 +41,7 @@ import { causeErrorTag } from "@e6tools/shared/observability";
 import { getModelSelectionStringOptionValue } from "@e6tools/shared/model";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 import * as DateTime from "effect/DateTime";
+import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -50,8 +51,11 @@ import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import * as Scope from "effect/Scope";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stream from "effect/Stream";
+import * as TxRef from "effect/TxRef";
 
 import { appendUserInputAttachmentPaths } from "../userInputAttachments.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -476,6 +480,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   // no-op.
   const canonicalEventLogger = options?.canonicalEventLogger ?? eventLoggers.canonical;
 
+  const providerScope = yield* Scope.Scope;
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -486,7 +491,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
   const fileSystem = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
-  const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventPubSub = yield* PubSub.unbounded<{
+    readonly sequence: number;
+    readonly event: ProviderRuntimeEvent;
+  }>();
+  const runtimeEventSequence = yield* Ref.make(0);
+  const runtimeEventPublishLock = yield* Semaphore.make(1);
   const pendingCompactions = new Map<ThreadId, PendingCompaction>();
   const timedOutNativeCompactions = new Set<ThreadId>();
   const settleCompaction = (threadId: ThreadId, pending: PendingCompaction, terminal: string) =>
@@ -969,7 +979,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ? canonicalEventLogger.write(canonicalEvent, canonicalEvent.threadId)
           : Effect.void,
       ),
-      Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
+      Effect.flatMap((canonicalEvent) =>
+        runtimeEventPublishLock.withPermit(
+          Effect.gen(function* () {
+            const sequence = (yield* Ref.get(runtimeEventSequence)) + 1;
+            yield* Ref.set(runtimeEventSequence, sequence);
+            yield* PubSub.publish(runtimeEventPubSub, { sequence, event: canonicalEvent });
+          }).pipe(Effect.uninterruptible),
+        ),
+      ),
       Effect.asVoid,
     );
 
@@ -1181,6 +1199,46 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     new Map<ProviderInstanceId, ProviderAdapterShape<ProviderAdapterError>>(),
   );
 
+  const adapterIngestionProgress = new WeakMap<
+    ProviderAdapterShape<ProviderAdapterError>,
+    TxRef.TxRef<{ readonly sequence: number; readonly ended: boolean }>
+  >();
+  const adapterSubscriptionLock = yield* Semaphore.make(1);
+  const ensureAdapterSubscription = (
+    instanceId: ProviderInstanceId,
+    adapter: ProviderAdapterShape<ProviderAdapterError>,
+  ) =>
+    adapterSubscriptionLock
+      .withPermit(
+        Effect.gen(function* () {
+          const existing = adapterIngestionProgress.get(adapter);
+          if (existing) return existing;
+          const subscription = yield* adapter.subscribeRuntimeEvents;
+          const progress = yield* TxRef.make({ sequence: subscription.sequence, ended: false });
+          adapterIngestionProgress.set(adapter, progress);
+          yield* Stream.runForEach(subscription.events, ({ sequence, event }) =>
+            processRuntimeEvent({ instanceId, provider: adapter.provider }, event).pipe(
+              Effect.catchCause((cause) =>
+                Cause.hasInterrupts(cause)
+                  ? Effect.failCause(cause)
+                  : Effect.logWarning("provider runtime event canonicalization failed", {
+                      instanceId,
+                      eventId: event.eventId,
+                      cause: Cause.pretty(cause),
+                    }),
+              ),
+              Effect.andThen(TxRef.update(progress, (current) => ({ ...current, sequence }))),
+            ),
+          ).pipe(
+            // Hot-reloading an adapter can discard its buffered events.
+            Effect.ensuring(TxRef.update(progress, (current) => ({ ...current, ended: true }))),
+            Effect.forkScoped,
+          );
+          return progress;
+        }),
+      )
+      .pipe(Scope.provide(providerScope));
+
   const getAdapterEntries = Ref.get(subscribedAdapters).pipe(
     Effect.map((map) => Array.from(map.entries())),
   );
@@ -1203,15 +1261,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const adapter = adapterOption.value;
       next.set(id, adapter);
       if (previous.get(id) !== adapter) {
-        yield* Stream.runForEach(adapter.streamEvents, (event) =>
-          processRuntimeEvent(
-            {
-              instanceId: id,
-              provider: adapter.provider,
-            },
-            event,
-          ),
-        ).pipe(Effect.forkScoped);
+        yield* ensureAdapterSubscription(id, adapter);
       }
     }
     yield* Ref.set(subscribedAdapters, next);
@@ -2049,6 +2099,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.kind": routed.adapter.provider,
           "provider.thread_id": input.threadId,
         });
+        const progress = yield* ensureAdapterSubscription(routed.instanceId, routed.adapter);
         if (routed.isActive) {
           const session = (yield* routed.adapter.listSessions()).find(
             (session) => session.threadId === routed.threadId,
@@ -2061,6 +2112,23 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           }
           yield* routed.adapter.stopSession(routed.threadId);
         }
+        const watermark = yield* routed.adapter.runtimeEventSequence;
+        yield* TxRef.get(progress).pipe(
+          Effect.flatMap(({ sequence, ended }) =>
+            sequence >= watermark
+              ? Effect.void
+              : ended
+                ? Effect.fail(
+                    new ProviderAdapterRequestError({
+                      provider: routed.adapter.provider,
+                      method: "stopSession",
+                      detail: "Runtime event stream ended before stop events were processed.",
+                    }),
+                  )
+                : Effect.txRetry,
+          ),
+          Effect.tx,
+        );
         const pendingCompaction = pendingCompactions.get(input.threadId);
         if (pendingCompaction !== undefined) {
           yield* settleCompaction(input.threadId, pendingCompaction, "turn.aborted");
@@ -2412,11 +2480,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     assertConversationRollbackSupported,
     rollbackConversation,
     uploadFeedback,
-    // Each access creates a fresh PubSub subscription so that multiple
-    // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
-    // independently receive all runtime events.
+    runtimeEventSequence: Ref.get(runtimeEventSequence),
+    subscribeRuntimeEvents: runtimeEventPublishLock.withPermit(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(runtimeEventPubSub);
+        const sequence = yield* Ref.get(runtimeEventSequence);
+        return { sequence, events: Stream.fromSubscription(subscription) };
+      }),
+    ),
+    // Each consumer independently receives all runtime events.
     get streamEvents(): ProviderServiceMethod<"streamEvents"> {
-      return Stream.fromPubSub(runtimeEventPubSub);
+      return Stream.fromPubSub(runtimeEventPubSub).pipe(Stream.map(({ event }) => event));
     },
   } satisfies ProviderService.ProviderService["Service"];
 });

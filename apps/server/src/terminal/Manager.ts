@@ -2642,10 +2642,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     return snapshot(liveSession);
   });
 
+  const canonicalWorkspacePath = (cwd: string) =>
+    fileSystem.realPath(path.resolve(cwd)).pipe(Effect.orElseSucceed(() => path.resolve(cwd)));
+
   const openLocked = (input: TerminalOpenInput) =>
-    withWorkspaceLease(
-      path.resolve(input.worktreePath ?? input.cwd),
-      openWithWorkspaceLease(input),
+    canonicalWorkspacePath(input.worktreePath ?? input.cwd).pipe(
+      Effect.flatMap((cwd) => withWorkspaceLease(cwd, openWithWorkspaceLease(input))),
     );
 
   const open: TerminalManager["Service"]["open"] = (input) =>
@@ -3021,9 +3023,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       input.threadId,
       resolveLaunchInputEnvironment(input).pipe(
         Effect.flatMap((resolved) =>
-          withWorkspaceLease(
-            path.resolve(resolved.worktreePath ?? resolved.cwd),
-            restartResolved(resolved),
+          canonicalWorkspacePath(resolved.worktreePath ?? resolved.cwd).pipe(
+            Effect.flatMap((cwd) => withWorkspaceLease(cwd, restartResolved(resolved))),
           ),
         ),
       ),

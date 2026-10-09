@@ -125,6 +125,8 @@ const startupDependencies = Layer.mergeAll(
     getInstanceInfo: () => Effect.die("unused"),
     rollbackConversation: () => Effect.die("unused"),
     uploadFeedback: () => Effect.die("unused"),
+    runtimeEventSequence: Effect.succeed(0),
+    subscribeRuntimeEvents: Effect.succeed({ sequence: 0, events: Stream.empty }),
     streamEvents: Stream.empty,
   }),
 );

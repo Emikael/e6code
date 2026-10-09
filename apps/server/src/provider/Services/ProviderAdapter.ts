@@ -24,6 +24,7 @@ import type {
 } from "@e6tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
+import type * as Scope from "effect/Scope";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
 
@@ -70,6 +71,18 @@ export interface ProviderAdapterShape<TError> {
    */
   readonly provider: ProviderDriverKind;
   readonly capabilities: ProviderAdapterCapabilities;
+  readonly runtimeEventSequence: Effect.Effect<number>;
+  readonly subscribeRuntimeEvents: Effect.Effect<
+    {
+      readonly sequence: number;
+      readonly events: Stream.Stream<{
+        readonly sequence: number;
+        readonly event: ProviderRuntimeEvent;
+      }>;
+    },
+    never,
+    Scope.Scope
+  >;
 
   /**
    * Start a provider-backed session.

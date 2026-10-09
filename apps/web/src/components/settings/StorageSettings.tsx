@@ -200,7 +200,7 @@ export function StorageSettingsPanel() {
             <SettingsRow
               title="Delete worktrees with deleted threads"
               status={ruleStatus("worktreeOnDelete")}
-              description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
+              description="Remove unused worktrees when active or archived threads are deleted, including ignored files. Uncommitted source changes are kept."
               serverScoped={!isProjectScope}
               control={
                 <Switch
@@ -213,7 +213,7 @@ export function StorageSettingsPanel() {
             <SettingsRow
               title="Delete inactive worktrees"
               status={ruleStatus("worktreeAfterDays")}
-              description="Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept."
+              description="Remove worktrees, including ignored files, after their threads have been inactive for this many days. Eligible archived sessions are stopped. Branches and thread history are kept."
               serverScoped={!isProjectScope}
               control={
                 <RetentionControl
@@ -226,7 +226,7 @@ export function StorageSettingsPanel() {
             <SettingsRow
               title="Delete merged worktrees"
               status={ruleStatus("worktreeOnMerge")}
-              description="Remove worktrees whose pull request is merged and whose commits are included in the default branch."
+              description="Remove worktrees, including ignored files, whose pull request is merged and whose commits are included in the default branch."
               serverScoped={!isProjectScope}
               control={
                 <Switch
@@ -239,7 +239,7 @@ export function StorageSettingsPanel() {
             <SettingsRow
               title="Delete unchanged worktrees"
               status={ruleStatus("worktreeUnchanged")}
-              description="Remove worktrees with no commits beyond the default branch."
+              description="Remove worktrees, including ignored files, with no commits beyond the default branch."
               serverScoped={!isProjectScope}
               control={
                 <Switch
