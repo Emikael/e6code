@@ -114,11 +114,16 @@ export const buildClassifyState = (input: TurnClassifyInput): Record<string, str
   });
   if (alone.lastMessage !== input.lastMessage) return alone;
   if (input.recentTurns === undefined || input.recentTurns.length === 0) return alone;
-  let excerpt = truncateToTokenBudget(input.recentTurns, RECENT_TURNS_TOKEN_BUDGET);
+  // The excerpt ends with the latest reply, which a follow-up usually refers
+  // to, so trimming drops text from the front.
+  let excerpt =
+    estimateTokens(input.recentTurns) <= RECENT_TURNS_TOKEN_BUDGET
+      ? input.recentTurns
+      : input.recentTurns.slice(-RECENT_TURNS_TOKEN_BUDGET * 4);
   while (excerpt.length > 0) {
     const candidate = { ...withoutRecent, lastMessage: input.lastMessage, recentTurns: excerpt };
     if (estimateTokens(JSON.stringify(candidate)) <= MAX_STATE_TOKENS) return candidate;
-    excerpt = excerpt.slice(0, Math.max(0, excerpt.length - 64));
+    excerpt = excerpt.slice(64);
   }
   return alone;
 };

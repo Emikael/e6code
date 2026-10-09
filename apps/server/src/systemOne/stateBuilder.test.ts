@@ -58,6 +58,19 @@ describe("buildClassifyState", () => {
     expect(estimateTokens(JSON.stringify(state))).toBeLessThanOrEqual(MAX_STATE_TOKENS);
     expect(state.lastMessage).not.toBe("y".repeat(MAX_STATE_TOKENS * 8));
   });
+
+  it("keeps the latest reply when the excerpt is over budget", () => {
+    const state = buildClassifyState({
+      lastMessage: "do that again",
+      recentTurns:
+        "user: " + "q".repeat(RECENT_TURNS_TOKEN_BUDGET * 8) + "\nassistant: Renamed it.",
+    });
+    expect(typeof state.recentTurns).toBe("string");
+    expect(estimateTokens(String(state.recentTurns))).toBeLessThanOrEqual(
+      RECENT_TURNS_TOKEN_BUDGET,
+    );
+    expect(String(state.recentTurns).endsWith("\nassistant: Renamed it.")).toBe(true);
+  });
 });
 
 describe("formatRecentTurns", () => {
