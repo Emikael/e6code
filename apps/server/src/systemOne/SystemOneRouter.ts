@@ -14,7 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { decideRoute, type PolicyThresholds } from "./confidencePolicy.ts";
-import { answerDeterministic } from "./deterministicResponder.ts";
+import { answerDeterministic, answerLocalFact } from "./deterministicResponder.ts";
 import { JevEngine } from "./JevEngine.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
@@ -47,6 +47,8 @@ export interface RouteTurnInput {
   readonly hasAttachments: boolean;
   readonly threadTitle?: string;
   readonly projectName?: string;
+  /** Prior user and assistant text, excluding this turn's message. */
+  readonly recentTurns?: string;
 }
 
 export type RouteOutcome =
@@ -131,10 +133,30 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
       return { _tag: "FullLlm", reason: "key-like-material" } as RouteOutcome;
     }
 
+    const context = {
+      text: input.text,
+      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+    };
+    // Exact templates are known rules. Answer them here so "hi" never waits
+    // on Jev, and do not meter them as Jev calls.
+    const exact = answerDeterministic(context);
+    if (exact !== null) {
+      return {
+        _tag: "Deterministic",
+        text: exact,
+        route: "local_lookup",
+        confidence: 1,
+        latencyMs: 0,
+        inputTokens: 0,
+      } as RouteOutcome;
+    }
+
     const classifyInput = {
       lastMessage: input.text,
       ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
       ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+      ...(input.recentTurns !== undefined ? { recentTurns: input.recentTurns } : {}),
     };
     if (buildClassifyState(classifyInput).lastMessage !== input.text) {
       return { _tag: "FullLlm", reason: "text-too-long" } as RouteOutcome;
@@ -167,11 +189,7 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
         ...classified,
       } as RouteOutcome;
     }
-    const text = answerDeterministic({
-      text: input.text,
-      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
-      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-    });
+    const text = answerLocalFact(outcome.localFact, context);
     if (text === null) {
       yield* note("full-llm", outcome.latencyMs, outcome.inputTokens);
       return { _tag: "FullLlm", reason: "no-deterministic-template" } as RouteOutcome;

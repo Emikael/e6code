@@ -22,7 +22,6 @@ import {
   choice,
   noul,
   PermissionDeniedError,
-  score,
   TypeSafeClient,
   type Questions,
   type SystemOneRequest,
@@ -54,8 +53,10 @@ export interface ClassifiedTurn {
   readonly _tag: "Classified";
   readonly route: string;
   readonly routeConfidence: number;
-  readonly complexityScore: number;
-  readonly selfContained: number;
+  /** Speculative Choice, consumed only when `route` is `local_lookup`. */
+  readonly localFact: string;
+  /** Probability that the turn depends on earlier thread context. */
+  readonly dependsOnEarlierTurns: number;
   readonly sensitive: number;
   readonly latencyMs: number;
   readonly inputTokens: number;
@@ -96,8 +97,8 @@ export interface JevEngineOptions {
 interface CachedClassification {
   readonly route: string;
   readonly routeConfidence: number;
-  readonly complexityScore: number;
-  readonly selfContained: number;
+  readonly localFact: string;
+  readonly dependsOnEarlierTurns: number;
   readonly sensitive: number;
   readonly inputTokens: number;
   readonly model: string;
@@ -116,14 +117,14 @@ function toClassified(result: JevAnswerSet): CachedClassification {
     | undefined
   >;
   const route = answers["handling_route"];
-  const complexity = answers["complexity"];
-  const selfContained = answers["is_self_contained"];
+  const localFact = answers["local_fact"];
+  const dependsOnEarlierTurns = answers["depends_on_earlier_turns"];
   const sensitive = answers["is_sensitive_or_risky"];
   if (
     typeof route?.choice !== "string" ||
     typeof route.confidence !== "number" ||
-    typeof complexity?.score !== "number" ||
-    typeof selfContained?.noul !== "number" ||
+    typeof localFact?.choice !== "string" ||
+    typeof dependsOnEarlierTurns?.noul !== "number" ||
     typeof sensitive?.noul !== "number" ||
     typeof result.usage?.input_tokens !== "number" ||
     typeof result.model !== "string"
@@ -133,8 +134,8 @@ function toClassified(result: JevAnswerSet): CachedClassification {
   return {
     route: route.choice,
     routeConfidence: route.confidence,
-    complexityScore: complexity.score,
-    selfContained: selfContained.noul,
+    localFact: localFact.choice,
+    dependsOnEarlierTurns: dependsOnEarlierTurns.noul,
     sensitive: sensitive.noul,
     inputTokens: result.usage.input_tokens,
     model: result.model,
@@ -206,13 +207,14 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
 
   const resultCache = new Map<string, CachedClassification>();
 
-  /** Cache key: the v1 question set is fixed, so the packed state suffices. */
+  /** Cache key: the question set is fixed, so the packed state suffices. */
   const cacheKeyFor = (state: Record<string, unknown>): string =>
     [
       `${state["lastMessage"] ?? ""}`,
       `${state["threadTitle"] ?? ""}`,
       `${state["projectName"] ?? ""}`,
       `${state["turnIndex"] ?? ""}`,
+      `${state["recentTurns"] ?? ""}`,
     ].join("\n");
 
   const status: Effect.Effect<EngineStatus> = Effect.gen(function* () {
@@ -256,9 +258,18 @@ export const make = Effect.fn("JevEngine.make")(function* (options: JevEngineOpt
         questions.handling_route.instructions,
         questions.handling_route.criteria as Record<string, string>,
       ),
-      complexity: score(questions.complexity.instructions, questions.complexity.criteria),
-      is_self_contained: noul(questions.is_self_contained.instructions),
-      is_sensitive_or_risky: noul(questions.is_sensitive_or_risky.instructions),
+      local_fact: choice(
+        questions.local_fact.instructions,
+        questions.local_fact.criteria as Record<string, string>,
+      ),
+      depends_on_earlier_turns: noul(
+        questions.depends_on_earlier_turns.instructions,
+        questions.depends_on_earlier_turns.criteria,
+      ),
+      is_sensitive_or_risky: noul(
+        questions.is_sensitive_or_risky.instructions,
+        questions.is_sensitive_or_risky.criteria,
+      ),
     };
     const response = yield* Effect.tryPromise(() =>
       Promise.resolve(instance.systemOne({ state, model: JEV_MODEL_ID, questions: requested })),

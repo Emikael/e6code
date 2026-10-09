@@ -31,9 +31,10 @@ export type RouteDecision =
   | { readonly _tag: "FullLlm"; readonly reason: string };
 
 /**
- * Deterministic answers need near-certainty on every axis: the right route,
- * a self-contained question, and no sensitive or destructive content.
- * Anything else degrades to fast-path or the full model.
+ * Local replies need a confident `local_lookup`. Trimming needs a confident
+ * `trimmed_provider` and an earlier-turn probability below the self-contained
+ * threshold. A risk probability at or above the risk threshold, including one
+ * near 0.5, stays on the full provider.
  */
 export const decideRoute = (
   classified: ClassifiedTurn,
@@ -46,31 +47,23 @@ export const decideRoute = (
     return { _tag: "FullLlm", reason: "sensitive-or-risky" };
   }
   switch (classified.route) {
-    case "answer_deterministic": {
-      if (
-        classified.routeConfidence >= thresholds.deterministicThreshold &&
-        classified.selfContained >= thresholds.selfContainedThreshold
-      ) {
+    case "local_lookup": {
+      if (classified.routeConfidence >= thresholds.deterministicThreshold) {
         return { _tag: "Deterministic" };
       }
       return { _tag: "FullLlm", reason: "deterministic-below-threshold" };
     }
-    case "fast_llm_trimmed": {
-      if (classified.routeConfidence >= thresholds.fastPathThreshold) {
-        return { _tag: "FastPath" };
+    case "trimmed_provider": {
+      if (classified.routeConfidence < thresholds.fastPathThreshold) {
+        return { _tag: "FullLlm", reason: "fast-path-below-threshold" };
       }
-      return { _tag: "FullLlm", reason: "fast-path-below-threshold" };
+      if (classified.dependsOnEarlierTurns >= thresholds.selfContainedThreshold) {
+        return { _tag: "FullLlm", reason: "depends-on-earlier-turns" };
+      }
+      return { _tag: "FastPath" };
     }
     default: {
-      return {
-        _tag: "FullLlm",
-        reason:
-          classified.route === "needs_tools"
-            ? "needs-tools"
-            : classified.route === "out_of_scope"
-              ? "out-of-scope"
-              : "full-model-requested",
-      };
+      return { _tag: "FullLlm", reason: "full-provider" };
     }
   }
 };

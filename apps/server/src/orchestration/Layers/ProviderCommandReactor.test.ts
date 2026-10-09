@@ -934,7 +934,7 @@ describe("ProviderCommandReactor", () => {
           Effect.succeed({
             _tag: "Deterministic",
             text: "Hello! How can I help with your code today?",
-            route: "answer_deterministic",
+            route: "local_lookup",
             confidence: 0.95,
             latencyMs: 120,
             inputTokens: 100,
@@ -978,7 +978,7 @@ describe("ProviderCommandReactor", () => {
       expect.objectContaining({
         type: "systemOne.turn.decided",
         outcome: "deterministic",
-        route: "answer_deterministic",
+        route: "local_lookup",
       }),
     );
     expect(thread?.session).toBeNull();
@@ -1075,8 +1075,8 @@ describe("ProviderCommandReactor", () => {
             routeTurn: () =>
               Effect.succeed({
                 _tag: "FullLlm",
-                reason: "needs-tools",
-                policyRoute: "needs_tools",
+                reason: "full-provider",
+                policyRoute: "full_provider",
                 confidence: 0.9,
               }),
           }),
@@ -1105,7 +1105,7 @@ describe("ProviderCommandReactor", () => {
         expect.objectContaining({
           type: "systemOne.turn.decided",
           outcome: "full-llm",
-          reason: "needs-tools",
+          reason: "full-provider",
         }),
       );
     }),
@@ -1119,7 +1119,7 @@ describe("ProviderCommandReactor", () => {
             routeTurn: () =>
               Effect.succeed({
                 _tag: "FastPath",
-                route: "fast_llm_trimmed",
+                route: "trimmed_provider",
                 confidence: 0.7,
                 latencyMs: 110,
                 inputTokens: 90,
@@ -1166,7 +1166,7 @@ describe("ProviderCommandReactor", () => {
         expect.objectContaining({
           type: "systemOne.turn.decided",
           outcome: "fast-path",
-          route: "fast_llm_trimmed",
+          route: "trimmed_provider",
           droppedRecords: 2,
         }),
       );

@@ -120,7 +120,8 @@ Turn on **Jev routing** in Settings (per environment) and add your Jev API key t
 through TypeSafe's Jev decision API. Greetings and simple lookups answer without calling your
 provider at all, and straightforward questions send trimmed context.
 
-Turn content leaves the machine for the Jev API; the key itself stays on your server. Jev calls
+Exact greetings and lookups are answered on the server and are not sent to Jev. Other classified
+turns still leave the machine for the Jev API; the key itself stays on your server. Jev calls
 cost $0.042 per million input tokens, metered per call. **Usage** gains a **Jev routing** section
 showing avoided provider calls alongside metered Jev tokens and cost.
 

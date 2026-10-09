@@ -16,18 +16,17 @@ const stubAnswers = () => ({
   answers: {
     handling_route: {
       type: "choice",
-      choice: "answer_deterministic",
-      probabilities: { answer_deterministic: 0.9, full_llm: 0.1 },
+      choice: "local_lookup",
+      probabilities: { local_lookup: 0.9, full_provider: 0.1 },
       confidence: 0.85,
     },
-    complexity: {
-      type: "score",
-      score: 0.2,
-      legend: { 0: "simple" },
-      probabilities: { 0: 0.9 },
+    local_fact: {
+      type: "choice",
+      choice: "greeting",
+      probabilities: { greeting: 0.9, none: 0.1 },
       confidence: 0.9,
     },
-    is_self_contained: { type: "noul", noul: 0.95 },
+    depends_on_earlier_turns: { type: "noul", noul: 0.05 },
     is_sensitive_or_risky: { type: "noul", noul: 0.05 },
   },
   usage: { input_tokens: 120, output_tokens: 0 },
@@ -72,7 +71,7 @@ describe("JevEngine", () => {
       const outcome = yield* engine.classifyTurn({ lastMessage: "hello" });
       expect(outcome._tag).toBe("Classified");
       if (outcome._tag !== "Classified") return;
-      expect(outcome.route).toBe("answer_deterministic");
+      expect(outcome.route).toBe("local_lookup");
       expect(outcome.inputTokens).toBe(120);
       expect(outcome.model).toBe(JEV_MODEL_ID);
       expect(yield* engine.status).toEqual({ _tag: "Ready" });
@@ -207,11 +206,16 @@ describe("JevEngine", () => {
       expect(first).toMatchObject({ inputTokens: 120 });
       expect(second).toMatchObject({
         _tag: "Classified",
-        route: "answer_deterministic",
+        route: "local_lookup",
         inputTokens: 0,
       });
       expect(third._tag).toBe("Classified");
-      expect(inferences).toBe(2);
+      const fourth = yield* engine.classifyTurn({
+        lastMessage: "hello",
+        recentTurns: "user: earlier\nassistant: noted",
+      });
+      expect(fourth._tag).toBe("Classified");
+      expect(inferences).toBe(3);
     }).pipe(Effect.provide(stubLayer({ createBackend: () => counting })));
   });
 

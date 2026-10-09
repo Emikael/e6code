@@ -17,7 +17,11 @@ import { layer as usageLayer, SystemOneUsageTracker } from "./systemOneUsageTrac
 
 const settingsOn = ServerSettingsService.layerTest({ systemOne: { enabled: true } });
 
-const stubBackend = (choice: string, confidence = 0.95): JevBackend => ({
+const stubBackend = (
+  choice: string,
+  confidence = 0.95,
+  options?: { readonly localFact?: string; readonly dependsOnEarlierTurns?: number },
+): JevBackend => ({
   systemOne: () =>
     Promise.resolve({
       model: "jev-1.13.0",
@@ -28,26 +32,31 @@ const stubBackend = (choice: string, confidence = 0.95): JevBackend => ({
           probabilities: { [choice]: confidence },
           confidence,
         },
-        complexity: {
-          type: "score",
-          score: 0.2,
-          legend: { 0: "simple" },
-          probabilities: { 0: 0.9 },
+        local_fact: {
+          type: "choice",
+          choice: options?.localFact ?? "none",
+          probabilities: { [options?.localFact ?? "none"]: 0.9 },
           confidence: 0.9,
         },
-        is_self_contained: { type: "noul", noul: 0.95 },
+        depends_on_earlier_turns: {
+          type: "noul",
+          noul: options?.dependsOnEarlierTurns ?? 0.05,
+        },
         is_sensitive_or_risky: { type: "noul", noul: 0.05 },
       },
       usage: { input_tokens: 60, output_tokens: 0 },
     }),
 });
 
-const engineWith = (choice: string) =>
+const engineWith = (
+  choice: string,
+  options?: { readonly localFact?: string; readonly dependsOnEarlierTurns?: number },
+) =>
   Layer.effect(
     JevEngine,
     makeEngine({
       resolveApiKey: Effect.succeed("router-test-key"),
-      createBackend: () => stubBackend(choice),
+      createBackend: () => stubBackend(choice, 0.95, options),
     }),
   );
 
@@ -55,10 +64,21 @@ const routeWith = (
   routerLayer: Layer.Layer<SystemOneRouter, ServerSettingsError, never>,
   text: string,
   hasAttachments = false,
+  extra?: {
+    readonly projectName?: string;
+    readonly threadTitle?: string;
+    readonly recentTurns?: string;
+  },
 ) =>
   Effect.gen(function* () {
     const router = yield* SystemOneRouter;
-    return yield* router.routeTurn({ text, hasAttachments });
+    return yield* router.routeTurn({
+      text,
+      hasAttachments,
+      ...(extra?.projectName !== undefined ? { projectName: extra.projectName } : {}),
+      ...(extra?.threadTitle !== undefined ? { threadTitle: extra.threadTitle } : {}),
+      ...(extra?.recentTurns !== undefined ? { recentTurns: extra.recentTurns } : {}),
+    });
   }).pipe(Effect.provide(routerLayer));
 
 describe("SystemOneRouter", () => {
@@ -83,16 +103,58 @@ describe("SystemOneRouter", () => {
     }),
   );
 
-  it.live("answers deterministically from templates", () =>
-    Effect.gen(function* () {
+  it.live("answers exact greetings without calling Jev", () => {
+    let calls = 0;
+    const counting = Layer.effect(
+      JevEngine,
+      makeEngine({
+        resolveApiKey: Effect.succeed("router-test-key"),
+        createBackend: () => ({
+          systemOne: (request) => {
+            calls += 1;
+            return stubBackend("full_provider").systemOne(request);
+          },
+        }),
+      }),
+    );
+    return Effect.gen(function* () {
       const outcome = yield* routeWith(
-        Layer.provide(layer(), Layer.mergeAll(engineWith("answer_deterministic"), settingsOn)),
+        Layer.provide(layer(), Layer.mergeAll(counting, settingsOn, usageLayer)),
         "hi",
       );
-      expect(outcome._tag).toBe("Deterministic");
+      expect(outcome).toMatchObject({
+        _tag: "Deterministic",
+        route: "local_lookup",
+        confidence: 1,
+        inputTokens: 0,
+        latencyMs: 0,
+      });
       if (outcome._tag !== "Deterministic") return;
       expect(outcome.text).toContain("Hello!");
-      expect(outcome.confidence).toBe(0.95);
+      expect(outcome.model).toBeUndefined();
+      expect(calls).toBe(0);
+    });
+  });
+
+  it.live("answers a paraphrased lookup from the local-fact choice", () =>
+    Effect.gen(function* () {
+      const outcome = yield* routeWith(
+        Layer.provide(
+          layer(),
+          Layer.mergeAll(engineWith("local_lookup", { localFact: "project_name" }), settingsOn),
+        ),
+        "remind me what this codebase is named",
+        false,
+        { projectName: "shop" },
+      );
+      expect(outcome).toMatchObject({
+        _tag: "Deterministic",
+        text: 'This project is called "shop".',
+        route: "local_lookup",
+        confidence: 0.95,
+        inputTokens: 60,
+        model: "jev-1.13.0",
+      });
     }),
   );
 
@@ -100,34 +162,60 @@ describe("SystemOneRouter", () => {
     Effect.gen(function* () {
       expect(
         yield* routeWith(
-          Layer.provide(layer(), Layer.mergeAll(engineWith("answer_deterministic"), settingsOn)),
+          Layer.provide(
+            layer(),
+            Layer.mergeAll(engineWith("local_lookup", { localFact: "none" }), settingsOn),
+          ),
           "refactor the auth module",
         ),
       ).toMatchObject({ _tag: "FullLlm", reason: "no-deterministic-template" });
     }),
   );
 
-  it.live("passes full-model routes through with policy detail", () =>
+  it.live("passes full-provider routes through with policy detail", () =>
     Effect.gen(function* () {
       expect(
         yield* routeWith(
-          Layer.provide(layer(), Layer.mergeAll(engineWith("full_llm"), settingsOn)),
+          Layer.provide(layer(), Layer.mergeAll(engineWith("full_provider"), settingsOn)),
           "build it",
         ),
-      ).toMatchObject({ _tag: "FullLlm", reason: "full-model-requested", policyRoute: "full_llm" });
+      ).toMatchObject({
+        _tag: "FullLlm",
+        reason: "full-provider",
+        policyRoute: "full_provider",
+      });
     }),
   );
 
   it.live("passes fast-path routes through with policy detail", () =>
     Effect.gen(function* () {
       const outcome = yield* routeWith(
-        Layer.provide(layer(), Layer.mergeAll(engineWith("fast_llm_trimmed"), settingsOn)),
+        Layer.provide(layer(), Layer.mergeAll(engineWith("trimmed_provider"), settingsOn)),
         "summarize this",
       );
       expect(outcome._tag).toBe("FastPath");
       if (outcome._tag !== "FastPath") return;
-      expect(outcome.route).toBe("fast_llm_trimmed");
+      expect(outcome.route).toBe("trimmed_provider");
       expect(outcome.confidence).toBe(0.95);
+    }),
+  );
+
+  it.live("keeps full context when the turn depends on earlier messages", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* routeWith(
+          Layer.provide(
+            layer(),
+            Layer.mergeAll(
+              engineWith("trimmed_provider", { dependsOnEarlierTurns: 0.9 }),
+              settingsOn,
+            ),
+          ),
+          "do that again",
+          false,
+          { recentTurns: "user: rename the button\nassistant: Renamed it." },
+        ),
+      ).toMatchObject({ _tag: "FullLlm", reason: "depends-on-earlier-turns" });
     }),
   );
 
@@ -141,7 +229,10 @@ describe("SystemOneRouter", () => {
         }),
       );
       expect(
-        yield* routeWith(Layer.provide(layer(), Layer.mergeAll(failingEngine, settingsOn)), "hi"),
+        yield* routeWith(
+          Layer.provide(layer(), Layer.mergeAll(failingEngine, settingsOn)),
+          "build it",
+        ),
       ).toMatchObject({ _tag: "FullLlm", reason: "jev-skipped:inference-error" });
     }),
   );
@@ -156,7 +247,9 @@ describe("SystemOneRouter", () => {
           createBackend: () => ({
             systemOne: (request) => {
               calls += 1;
-              return stubBackend("answer_deterministic").systemOne(request);
+              return stubBackend("local_lookup", 0.95, { localFact: "greeting" }).systemOne(
+                request,
+              );
             },
           }),
         }),
@@ -213,7 +306,9 @@ describe("SystemOneRouter", () => {
     Effect.gen(function* () {
       const router = yield* SystemOneRouter;
       const tracker = yield* SystemOneUsageTracker;
-      expect(yield* router.routeTurn({ text: "hi", hasAttachments: false })).toMatchObject({
+      expect(
+        yield* router.routeTurn({ text: "refactor the auth module", hasAttachments: false }),
+      ).toMatchObject({
         _tag: "FullLlm",
         reason: "jev-skipped:disabled",
       });
@@ -252,8 +347,11 @@ describe("SystemOneRouter", () => {
   it.live("carries the answering model on routed outcomes", () =>
     Effect.gen(function* () {
       const outcome = yield* routeWith(
-        Layer.provide(layer(), Layer.mergeAll(engineWith("answer_deterministic"), settingsOn)),
-        "hi",
+        Layer.provide(
+          layer(),
+          Layer.mergeAll(engineWith("local_lookup", { localFact: "greeting" }), settingsOn),
+        ),
+        "howdy",
       );
       expect(outcome._tag).toBe("Deterministic");
       if (outcome._tag !== "Deterministic") return;
