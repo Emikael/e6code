@@ -14,7 +14,7 @@
   "dependencies": {
     "@e6tools/shared": "workspace:*",
     "astro": "^7.2.8",
-    "sharp": "0.35.4"
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
