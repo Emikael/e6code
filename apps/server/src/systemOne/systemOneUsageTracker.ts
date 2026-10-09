@@ -2,8 +2,10 @@
  * systemOneUsageTracker - in-memory pre-router counters, day-bucketed.
  *
  * Records every turn where Jev classified a result (deterministic answers,
- * fast-path routes, and classified fallbacks alike). Skipped calls never
- * reached Jev and are not counted. Totals live for the process lifetime and
+ * fast-path routes, and classified fallbacks alike), plus exact templates
+ * answered locally, which count as avoided provider calls but not Jev calls.
+ * Skipped calls never reached Jev and are not counted. Totals live for the
+ * process lifetime and
  * reset on restart; the usage summary labels them as since-boot. Token counts
  * are metered Jev input tokens; cost scales them by the pinned Jev input
  * price.
@@ -20,7 +22,8 @@ import * as Ref from "effect/Ref";
 /** Pinned Jev input price, USD per million tokens. */
 export const JEV_INPUT_COST_USD_PER_MTOK = 0.042;
 
-export type SystemOneRecordOutcome = "deterministic" | "fast-path" | "full-llm";
+/** `local` is an exact template answered on the server without a Jev call. */
+export type SystemOneRecordOutcome = "local" | "deterministic" | "fast-path" | "full-llm";
 
 export interface SystemOneRecordInput {
   readonly outcome: SystemOneRecordOutcome;
@@ -72,12 +75,13 @@ export const make = Effect.fn("SystemOneUsageTracker.make")(function* () {
     yield* Ref.update(daysRef, (days) => {
       const next = new Map(days);
       const counters = next.get(day) ?? emptyCounters();
+      const answered = input.outcome === "deterministic" || input.outcome === "local" ? 1 : 0;
       const updated: DayCounters = {
-        calls: counters.calls + 1,
-        deterministic: counters.deterministic + (input.outcome === "deterministic" ? 1 : 0),
+        calls: counters.calls + (input.outcome === "local" ? 0 : 1),
+        deterministic: counters.deterministic + answered,
         fastPath: counters.fastPath + (input.outcome === "fast-path" ? 1 : 0),
         fallback: counters.fallback + (input.outcome === "full-llm" ? 1 : 0),
-        llmCallsAvoided: counters.llmCallsAvoided + (input.outcome === "deterministic" ? 1 : 0),
+        llmCallsAvoided: counters.llmCallsAvoided + answered,
         jevInputTokens: counters.jevInputTokens + (input.jevInputTokens ?? 0),
         latencySumMs: counters.latencySumMs + (input.latencyMs ?? 0),
         latencyCount: counters.latencyCount + (input.latencyMs !== undefined ? 1 : 0),

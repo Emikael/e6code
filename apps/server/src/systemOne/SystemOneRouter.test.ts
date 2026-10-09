@@ -120,10 +120,15 @@ describe("SystemOneRouter", () => {
       }),
     );
     return Effect.gen(function* () {
-      const outcome = yield* routeWith(
-        Layer.provide(layer(), Layer.mergeAll(counting, settingsOn, usageLayer)),
-        "hi",
-      );
+      const router = yield* SystemOneRouter;
+      const tracker = yield* SystemOneUsageTracker;
+      const outcome = yield* router.routeTurn({ text: "hi", hasAttachments: false });
+      expect(yield* tracker.readTotals).toMatchObject({
+        calls: 0,
+        deterministic: 1,
+        llmCallsAvoided: 1,
+        jevInputTokens: 0,
+      });
       expect(outcome).toMatchObject({
         _tag: "Deterministic",
         route: "local_lookup",
@@ -135,7 +140,9 @@ describe("SystemOneRouter", () => {
       expect(outcome.text).toContain("Hello!");
       expect(outcome.model).toBeUndefined();
       expect(calls).toBe(0);
-    });
+    }).pipe(
+      Effect.provide(Layer.provideMerge(layer(), Layer.mergeAll(counting, settingsOn, usageLayer))),
+    );
   });
 
   it.live("answers a paraphrased lookup from the local-fact choice", () =>

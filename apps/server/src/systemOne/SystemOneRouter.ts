@@ -17,7 +17,7 @@ import { decideRoute, type PolicyThresholds } from "./confidencePolicy.ts";
 import { answerDeterministic, answerLocalFact } from "./deterministicResponder.ts";
 import { JevEngine } from "./JevEngine.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
+import { type SystemOneRecordOutcome, SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
 import { buildClassifyState } from "./stateBuilder.ts";
 
 /**
@@ -109,7 +109,7 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
   >;
 
   const note = (
-    outcome: "deterministic" | "fast-path" | "full-llm",
+    outcome: SystemOneRecordOutcome,
     latencyMs?: number,
     jevInputTokens?: number,
   ): Effect.Effect<void> => {
@@ -142,9 +142,10 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
       ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
     };
     // Exact templates are known rules. Answer them here so "hi" never waits
-    // on Jev, and do not meter them as Jev calls.
+    // on Jev; they count as avoided provider calls, not Jev calls.
     const exact = answerDeterministic(context);
     if (exact !== null) {
+      yield* note("local");
       return {
         _tag: "Deterministic",
         text: exact,
