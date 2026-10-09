@@ -61,21 +61,37 @@ describe("decideRoute", () => {
     });
   });
 
-  it("does not trim when the turn depends on earlier context", () => {
+  it("does not trim unless the turn is confidently self-contained", () => {
+    for (const dependsOnEarlierTurns of [0.25, 0.5, 0.7, 0.8]) {
+      expect(
+        decideRoute(
+          classified({
+            route: "trimmed_provider",
+            routeConfidence: 0.9,
+            dependsOnEarlierTurns,
+            localFact: "none",
+          }),
+          thresholds,
+        ),
+      ).toEqual({
+        _tag: "FullLlm",
+        reason: "depends-on-earlier-turns",
+      });
+    }
+  });
+
+  it("trims at exactly the self-contained threshold", () => {
     expect(
       decideRoute(
         classified({
           route: "trimmed_provider",
           routeConfidence: 0.9,
-          dependsOnEarlierTurns: 0.8,
+          dependsOnEarlierTurns: 0.2,
           localFact: "none",
         }),
         thresholds,
       ),
-    ).toEqual({
-      _tag: "FullLlm",
-      reason: "depends-on-earlier-turns",
-    });
+    ).toEqual({ _tag: "FastPath" });
   });
 
   it("sends the full provider when that is the handler", () => {

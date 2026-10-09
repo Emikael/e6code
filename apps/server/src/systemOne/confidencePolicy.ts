@@ -32,9 +32,11 @@ export type RouteDecision =
 
 /**
  * Local replies need a confident `local_lookup`. Trimming needs a confident
- * `trimmed_provider` and an earlier-turn probability below the self-contained
- * threshold. A risk probability at or above the risk threshold, including one
- * near 0.5, stays on the full provider.
+ * `trimmed_provider` and a stand-alone probability (one minus the
+ * earlier-turn probability) at or above the self-contained threshold, so the
+ * default 0.8 trims only when earlier turns are at most 0.2 likely to matter.
+ * A risk probability at or above the risk threshold, including one near 0.5,
+ * stays on the full provider.
  */
 export const decideRoute = (
   classified: ClassifiedTurn,
@@ -57,7 +59,7 @@ export const decideRoute = (
       if (classified.routeConfidence < thresholds.fastPathThreshold) {
         return { _tag: "FullLlm", reason: "fast-path-below-threshold" };
       }
-      if (classified.dependsOnEarlierTurns >= thresholds.selfContainedThreshold) {
+      if (1 - classified.dependsOnEarlierTurns < thresholds.selfContainedThreshold) {
         return { _tag: "FullLlm", reason: "depends-on-earlier-turns" };
       }
       return { _tag: "FastPath" };
