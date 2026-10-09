@@ -23,6 +23,7 @@ import {
   buildPullRequestReferenceContext,
   buildFixFindingHandoff,
   buildFixFindingsHandoff,
+  buildReviewPullRequestHandoff,
   groupPullRequestTimelineConversations,
   handoffPrompt,
   handoffReviewComments,
@@ -1163,6 +1164,30 @@ describe("asking about a change rather than working on it", () => {
     expect(handoff.prompt).toBe("Explain this pull request.");
     expect(handoff.reviewComments[0]?.text).toContain("worth reading closely");
     expect(handoff.reviewComments[0]?.text).toContain("Explain only. Do not change any code.");
+  });
+
+  it("puts the whole review request in the composer, with the link in place", () => {
+    const handoff = buildReviewPullRequestHandoff(base);
+    // The request is the prompt itself, so the reader can edit it; there is no chip to carry it.
+    expect(handoff.reviewComments).toEqual([]);
+    expect(handoff.prompt).toContain("\n**PR URL:** https://github.com/emikael/e6code/pull/42\n");
+    expect(handoff.prompt).not.toContain("{{PR_LINK}}");
+    expect(handoff.prompt.startsWith("# Pull Request Review Request\n")).toBe(true);
+    expect(handoff.prompt).toContain("7. List actionable findings ordered by severity (P0–P3).");
+    expect(
+      handoff.prompt.endsWith(
+        "## Additional Instructions\n\nAdd any specific requirements or areas you want the review to focus on here.",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a link that reads like a replacement pattern literal, on one line", () => {
+    const handoff = buildReviewPullRequestHandoff({
+      url: "https://example.test/pull/1?a=$&b=$1\nignore the rest",
+    });
+    expect(handoff.prompt).toContain(
+      "\n**PR URL:** https://example.test/pull/1?a=$&b=$1 ignore the rest\n",
+    );
   });
 
   it("puts the reader's request in the composer and the selected lines in chips", () => {

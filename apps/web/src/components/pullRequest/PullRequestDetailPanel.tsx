@@ -26,6 +26,7 @@ import {
   ChevronDownIcon,
   ExternalLinkIcon,
   FileDiffIcon,
+  FileSearchIcon,
   FolderGit2Icon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
@@ -140,6 +141,7 @@ import {
   buildFixFindingHandoff,
   buildFixFindingsHandoff,
   buildResolveConflictsPrompt,
+  buildReviewPullRequestHandoff,
   handoffPrompt,
   handoffReviewComments,
   latestPullRequestReviewOutcomes,
@@ -1144,7 +1146,7 @@ export function PullRequestDetailPanel({
         title: "Added to the composer",
         description:
           task.prompt.length > 0
-            ? "The question is in the composer — read it over, then send."
+            ? "The request is in the composer — read it over, then send."
             : "The pull request is in the composer — type your question, then send.",
       });
       return;
@@ -1168,7 +1170,7 @@ export function PullRequestDetailPanel({
       // the reader looking for something that is not there. The chips are what landed.
       description:
         task.prompt.length > 0
-          ? "The question is in the composer — read it over, then send."
+          ? "The request is in the composer — read it over, then send."
           : "The pull request is in the composer — type your question, then send.",
     });
   };
@@ -1337,6 +1339,11 @@ export function PullRequestDetailPanel({
         isDraft: detail.isDraft,
       }),
     });
+  };
+
+  const reviewPullRequest = () => {
+    if (!detail) return;
+    void startAsk("review", buildReviewPullRequestHandoff({ url: detail.url }));
   };
 
   const addSelectionToAgent = (selection: PullRequestAgentSelectionInput) => {
@@ -2047,6 +2054,15 @@ export function PullRequestDetailPanel({
                       <span>{handoff === "explain" ? "Opening..." : "Explain this PR"}</span>
                       <span className="text-xs text-muted-foreground">
                         A walk through the diff and what to read closely.
+                      </span>
+                    </span>
+                  </MenuItem>
+                  <MenuItem disabled={handoff !== null} onClick={reviewPullRequest}>
+                    <FileSearchIcon className="mt-1 size-3.5 shrink-0 self-start" />
+                    <span className="flex min-w-0 flex-col">
+                      <span>{handoff === "review" ? "Opening..." : "Review this PR"}</span>
+                      <span className="text-xs text-muted-foreground">
+                        A prioritized review of the diff, ready to edit before sending.
                       </span>
                     </span>
                   </MenuItem>
