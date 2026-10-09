@@ -1,3 +1,4 @@
+import { makeRuntimeEventStream } from "../runtimeEventStream.ts";
 import {
   ApprovalRequestId,
   type GrokSettings,
@@ -26,7 +27,6 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -368,7 +368,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
     const sessions = new Map<ThreadId, GrokSessionContext>();
     const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
-    const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+    const runtimeEventPubSub = yield* makeRuntimeEventStream;
     const requestedTurnInactivityTimeoutMs = options?.turnInactivityTimeoutMs;
     const turnInactivityTimeoutMs =
       typeof requestedTurnInactivityTimeoutMs === "number" &&
@@ -410,8 +410,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
         ),
       );
 
-    const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
-      PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+    const offerRuntimeEvent = (event: ProviderRuntimeEvent) => runtimeEventPubSub.publish(event);
 
     const getThreadSemaphore = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
@@ -2179,12 +2178,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
     yield* Effect.addFinalizer(() =>
       Effect.ignore(stopAll()).pipe(
-        Effect.tap(() => PubSub.shutdown(runtimeEventPubSub)),
+        Effect.tap(() => runtimeEventPubSub.shutdown),
         Effect.tap(() => managedNativeEventLogger?.close() ?? Effect.void),
       ),
     );
 
-    const streamEvents = Stream.fromPubSub(runtimeEventPubSub);
+    const streamEvents = runtimeEventPubSub.streamEvents;
 
     return {
       provider: PROVIDER,
@@ -2201,6 +2200,8 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
       listSessions,
       hasSession,
       stopAll,
+      runtimeEventSequence: runtimeEventPubSub.runtimeEventSequence,
+      subscribeRuntimeEvents: runtimeEventPubSub.subscribeRuntimeEvents,
       streamEvents,
     } satisfies GrokAdapterShape;
   });

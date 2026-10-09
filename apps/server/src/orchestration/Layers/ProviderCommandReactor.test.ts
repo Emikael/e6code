@@ -405,6 +405,8 @@ describe("ProviderCommandReactor", () => {
       },
       rollbackConversation: () => unsupported(),
       uploadFeedback: () => unsupported(),
+      runtimeEventSequence: Effect.succeed(0),
+      subscribeRuntimeEvents: Effect.succeed({ sequence: 0, events: Stream.empty }),
       get streamEvents() {
         return Stream.fromPubSub(runtimeEventPubSub);
       },

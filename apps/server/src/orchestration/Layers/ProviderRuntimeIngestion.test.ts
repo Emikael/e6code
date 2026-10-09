@@ -115,11 +115,15 @@ function isLegacyTurnCompletedEvent(
 function createProviderServiceHarness() {
   const runtimeEventPubSub = Effect.runSync(
     PubSub.unbounded<{
-      readonly events: ReadonlyArray<ProviderRuntimeEvent>;
+      readonly events: ReadonlyArray<{
+        readonly sequence: number;
+        readonly event: ProviderRuntimeEvent;
+      }>;
       readonly enqueued?: Deferred.Deferred<void>;
     }>(),
   );
   const runtimeSessions: ProviderSession[] = [];
+  let publishedSequence = 0;
 
   const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
   const service: ProviderServiceShape = {
@@ -148,8 +152,18 @@ function createProviderServiceHarness() {
     },
     rollbackConversation: () => unsupported(),
     uploadFeedback: () => unsupported(),
+    runtimeEventSequence: Effect.sync(() => publishedSequence),
     get streamEvents() {
-      return Stream.fromPubSub(runtimeEventPubSub).pipe(
+      return Stream.unwrap(
+        Effect.map(service.subscribeRuntimeEvents, ({ events }) =>
+          events.pipe(Stream.map(({ event }) => event)),
+        ),
+      );
+    },
+    subscribeRuntimeEvents: Effect.gen(function* () {
+      const subscription = yield* PubSub.subscribe(runtimeEventPubSub);
+      const sequence = publishedSequence;
+      const events = Stream.fromSubscription(subscription).pipe(
         Stream.flatMap(({ events, enqueued }) =>
           Stream.concat(
             Stream.fromIterable(events),
@@ -159,7 +173,8 @@ function createProviderServiceHarness() {
           ),
         ),
       );
-    },
+      return { sequence, events };
+    }),
   };
 
   const setSession = (session: ProviderSession): void => {
@@ -187,7 +202,11 @@ function createProviderServiceHarness() {
   };
 
   const emit = (event: LegacyProviderRuntimeEvent): void => {
-    Effect.runSync(PubSub.publish(runtimeEventPubSub, { events: [normalizeLegacyEvent(event)] }));
+    Effect.runSync(
+      PubSub.publish(runtimeEventPubSub, {
+        events: [{ sequence: ++publishedSequence, event: normalizeLegacyEvent(event) }],
+      }),
+    );
   };
 
   const emitAndWaitForEnqueue = Effect.fnUntraced(function* (
@@ -195,7 +214,10 @@ function createProviderServiceHarness() {
   ) {
     const enqueued = yield* Deferred.make<void>();
     yield* PubSub.publish(runtimeEventPubSub, {
-      events: events.map(normalizeLegacyEvent),
+      events: events.map((event) => ({
+        sequence: ++publishedSequence,
+        event: normalizeLegacyEvent(event),
+      })),
       enqueued,
     });
     yield* Deferred.await(enqueued);
@@ -437,8 +459,51 @@ describe("ProviderRuntimeIngestion", () => {
       sqlCount: sqlCounter.count,
       setProviderSession: provider.setSession,
       drain,
+      flush: () => testRuntime.runPromise(ingestion.flush),
     };
   }
+
+  it("flush waits for published runtime events before the subscriber enqueues them", async () => {
+    const harness = await createHarness();
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-flush-before-enqueue"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-flush"),
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+    await harness.flush();
+    const thread = (await harness.readModel()).threads[0];
+    expect(thread?.session?.activeTurnId).toBe(asTurnId("turn-flush"));
+  });
+
+  it("ignores an old exit delivered after a new turn starts", async () => {
+    const harness = await createHarness();
+    await harness.emitAndDrain([
+      {
+        type: "turn.started",
+        eventId: asEventId("evt-new-turn-before-old-exit"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-new-session"),
+        createdAt: "2026-01-01T00:00:03.000Z",
+      },
+    ]);
+    await harness.emitAndDrain([
+      {
+        type: "session.exited",
+        eventId: asEventId("evt-delayed-old-exit"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:02.000Z",
+        payload: { exitKind: "graceful" },
+      },
+    ]);
+    const thread = (await harness.readModel()).threads[0];
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe(asTurnId("turn-new-session"));
+  });
 
   it("maps turn started/completed events into thread session updates", async () => {
     const harness = await createHarness();

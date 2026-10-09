@@ -1,3 +1,4 @@
+import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * ClaudeAdapterLive - Scoped live implementation for the Claude Agent provider adapter.
@@ -2106,7 +2107,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }) as ClaudeQueryRuntime);
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventQueue = yield* makeQueuedRuntimeEventStream;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const randomUUIDv4 = crypto.randomUUIDv4.pipe(
@@ -2124,7 +2125,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
+    runtimeEventQueue.publish(event);
 
   const logNativeSdkMessage = Effect.fnUntraced(function* (
     context: ClaudeSessionContext,
@@ -5560,7 +5561,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       Effect.catch((cause) =>
         Effect.logError("Failed to emit Claude session shutdown event.", { cause }),
       ),
-      Effect.tap(() => Queue.shutdown(runtimeEventQueue)),
+      Effect.tap(() => runtimeEventQueue.shutdown),
       Effect.tap(() => managedNativeEventLogger?.close() ?? Effect.void),
     ),
   );
@@ -5582,8 +5583,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     listSessions,
     hasSession,
     stopAll,
+    runtimeEventSequence: runtimeEventQueue.runtimeEventSequence,
+    subscribeRuntimeEvents: runtimeEventQueue.subscribeRuntimeEvents,
     get streamEvents() {
-      return Stream.fromQueue(runtimeEventQueue);
+      return runtimeEventQueue.streamEvents;
     },
   } satisfies ClaudeAdapterShape;
 });

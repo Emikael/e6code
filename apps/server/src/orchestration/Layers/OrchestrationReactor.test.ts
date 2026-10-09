@@ -43,6 +43,7 @@ describe("OrchestrationReactor", () => {
         ),
         Layer.provideMerge(
           Layer.succeed(ProviderRuntimeIngestionService, {
+            flush: Effect.void,
             start: () => {
               started.push("provider-runtime-ingestion");
               return Effect.void;

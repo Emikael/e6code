@@ -1,3 +1,4 @@
+import { makeQueuedRuntimeEventStream, makeRuntimeEventStream } from "../runtimeEventStream.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -64,7 +65,7 @@ import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
-import { makeProviderServiceLive } from "./ProviderService.ts";
+import { makeProviderServiceLive, type ProviderServiceLiveOptions } from "./ProviderService.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -141,7 +142,8 @@ function makeFakeCodexAdapter(
   supportsConversationRollback?: boolean,
 ) {
   const sessions = new Map<ThreadId, ProviderSession>();
-  const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
+  const runtimeEventStream = Effect.runSync(makeRuntimeEventStream);
+  const eventSubscriptionReady = Deferred.makeUnsafe<void>();
 
   const startSession = vi.fn((input: ProviderSessionStartInput) =>
     Effect.sync(() => {
@@ -296,13 +298,17 @@ function makeFakeCodexAdapter(
     rollbackThread,
     ...(provider === CODEX_DRIVER ? { uploadFeedback } : {}),
     stopAll,
+    runtimeEventSequence: runtimeEventStream.runtimeEventSequence,
+    subscribeRuntimeEvents: runtimeEventStream.subscribeRuntimeEvents.pipe(
+      Effect.tap(() => Deferred.succeed(eventSubscriptionReady, undefined)),
+    ),
     get streamEvents() {
-      return Stream.fromPubSub(runtimeEventPubSub);
+      return runtimeEventStream.streamEvents;
     },
   };
 
   const emit = (event: LegacyProviderRuntimeEvent): void => {
-    Effect.runSync(PubSub.publish(runtimeEventPubSub, event as unknown as ProviderRuntimeEvent));
+    runtimeEventStream.publishUnsafe(event as unknown as ProviderRuntimeEvent);
   };
 
   const updateSession = (
@@ -319,6 +325,7 @@ function makeFakeCodexAdapter(
   return {
     adapter,
     emit,
+    eventSubscriptionReady: Deferred.await(eventSubscriptionReady),
     updateSession,
     startSession,
     sendTurn,
@@ -419,6 +426,7 @@ function makeProviderServiceLayer(
     readonly supportsConversationRollback?: boolean;
     readonly analyticsLayer?: Layer.Layer<AnalyticsService.AnalyticsService>;
     readonly registry?: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"];
+    readonly canonicalEventLogger?: ProviderServiceLiveOptions["canonicalEventLogger"];
   } = {},
 ) {
   const codex = makeFakeCodexAdapter(CODEX_DRIVER, input.supportsConversationRollback);
@@ -446,7 +454,11 @@ function makeProviderServiceLayer(
 
   const layer = it.layer(
     Layer.mergeAll(
-      makeProviderServiceLive().pipe(
+      makeProviderServiceLive(
+        input.canonicalEventLogger === undefined
+          ? undefined
+          : { canonicalEventLogger: input.canonicalEventLogger },
+      ).pipe(
         Layer.provide(NodeServices.layer),
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
@@ -3247,8 +3259,152 @@ routing.layer("ProviderServiceLive routing", (it) => {
   );
 });
 
+const releaseStopEvent = Deferred.makeUnsafe<void>();
+const adapterWatermarkCaptured = Deferred.makeUnsafe<void>();
+const stopFence = makeProviderServiceLayer({
+  canonicalEventLogger: {
+    filePath: "memory://stop-fence",
+    write: () => Deferred.await(releaseStopEvent),
+    close: () => Effect.void,
+  },
+});
+stopFence.layer("ProviderService stop fence", (it) => {
+  it.effect("waits for adapter events still being canonicalized after stop", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-stop-fence");
+      yield* provider.startSession(threadId, {
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      stopFence.codex.stopSession.mockImplementation(() =>
+        Effect.sync(() =>
+          stopFence.codex.emit({
+            type: "session.exited",
+            eventId: asEventId("evt-stop-before-canonicalized"),
+            provider: ProviderDriverKind.make("codex"),
+            threadId,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            payload: { exitKind: "graceful" },
+          }),
+        ),
+      );
+      Object.assign(stopFence.codex.adapter, {
+        runtimeEventSequence: stopFence.codex.adapter.runtimeEventSequence.pipe(
+          Effect.tap(() => Deferred.succeed(adapterWatermarkCaptured, undefined)),
+        ),
+      });
+      yield* Deferred.await(adapterWatermarkCaptured).pipe(
+        Effect.andThen(Deferred.succeed(releaseStopEvent, undefined)),
+        Effect.forkChild,
+      );
+      yield* provider.stopSession({ threadId });
+      assert.equal(yield* provider.runtimeEventSequence, 1);
+    }),
+  );
+});
+
+const closingAdapterEvents = Effect.runSync(makeQueuedRuntimeEventStream);
+const closingAdapterEventEntered = Deferred.makeUnsafe<void>();
+const releaseClosingAdapterEvent = Deferred.makeUnsafe<void>();
+const closingAdapterFence = makeProviderServiceLayer({
+  canonicalEventLogger: {
+    filePath: "memory://closing-adapter-fence",
+    write: () =>
+      Deferred.succeed(closingAdapterEventEntered, undefined).pipe(
+        Effect.andThen(Deferred.await(releaseClosingAdapterEvent)),
+      ),
+    close: () => Effect.void,
+  },
+});
+Object.assign(closingAdapterFence.codex.adapter, {
+  runtimeEventSequence: closingAdapterEvents.runtimeEventSequence,
+  subscribeRuntimeEvents: closingAdapterEvents.subscribeRuntimeEvents,
+});
+closingAdapterFence.layer("ProviderService closing adapter stop fence", (it) => {
+  it.effect("fails the stop fence when adapter shutdown discards queued events", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-closing-adapter");
+      yield* provider.startSession(threadId, {
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const event: ProviderRuntimeEvent = {
+        type: "session.exited",
+        eventId: asEventId("evt-before-adapter-shutdown"),
+        provider: CODEX_DRIVER,
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        payload: { exitKind: "graceful" },
+      };
+      yield* closingAdapterEvents.publish(event);
+      yield* Deferred.await(closingAdapterEventEntered);
+      closingAdapterFence.codex.stopSession.mockImplementation(() =>
+        closingAdapterEvents
+          .publish({ ...event, eventId: asEventId("evt-discarded-on-shutdown") })
+          .pipe(
+            Effect.andThen(closingAdapterEvents.shutdown),
+            Effect.andThen(Deferred.succeed(releaseClosingAdapterEvent, undefined)),
+            Effect.asVoid,
+          ),
+      );
+      const result = yield* provider.stopSession({ threadId }).pipe(Effect.result);
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.equal(result.failure._tag, "ProviderAdapterRequestError");
+        assert.match(result.failure.message, /stream ended before/);
+      }
+      const binding = yield* directory.getBinding(threadId);
+      assert(Option.isSome(binding));
+      assert.notEqual(binding.value.status, "stopped");
+    }),
+  );
+});
+
 const fanout = makeProviderServiceLayer();
 fanout.layer("ProviderServiceLive fanout", (it) => {
+  it.effect("subscribes atomically with an ordered ingestion watermark", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* fanout.codex.eventSubscriptionReady;
+      const baseline = yield* provider.runtimeEventSequence;
+      const subscription = yield* provider.subscribeRuntimeEvents;
+      assert.equal(subscription.sequence, baseline);
+      const sequenced = yield* Stream.toPull(subscription.events);
+      const event: ProviderRuntimeEvent = {
+        type: "session.exited",
+        eventId: asEventId("evt-ingestion-watermark"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-watermark"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        payload: { exitKind: "graceful" },
+      };
+      fanout.codex.emit(event);
+      const entries = yield* sequenced;
+      assert.deepEqual(entries, [
+        {
+          sequence: baseline + 1,
+          event: {
+            ...event,
+            providerInstanceId: codexInstanceId,
+          },
+        },
+      ]);
+      assert.equal(yield* provider.runtimeEventSequence, baseline + 1);
+      const later = yield* provider.subscribeRuntimeEvents;
+      assert.equal(later.sequence, baseline + 1);
+      const laterPull = yield* Stream.toPull(later.events);
+      fanout.codex.emit({ ...event, eventId: asEventId("evt-after-subscription-baseline") });
+      const laterEntries = yield* laterPull;
+      assert.equal(laterEntries[0].sequence, baseline + 2);
+      assert.equal(laterEntries[0].event.eventId, asEventId("evt-after-subscription-baseline"));
+    }),
+  );
+
   it.effect("fans out adapter turn completion events", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

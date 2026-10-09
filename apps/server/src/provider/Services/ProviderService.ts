@@ -30,6 +30,7 @@ import type {
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
+import type * as Scope from "effect/Scope";
 
 import type { ProviderServiceError } from "../Errors.ts";
 import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
@@ -39,6 +40,20 @@ import type { ProviderInstanceRoutingInfo } from "./ProviderAdapterRegistry.ts";
  * ProviderServiceShape - Service API for provider session and turn orchestration.
  */
 export interface ProviderServiceShape {
+  /** Internal canonical-stream watermark for ingestion fences. */
+  readonly runtimeEventSequence: Effect.Effect<number>;
+  readonly subscribeRuntimeEvents: Effect.Effect<
+    {
+      readonly sequence: number;
+      readonly events: Stream.Stream<{
+        readonly sequence: number;
+        readonly event: ProviderRuntimeEvent;
+      }>;
+    },
+    never,
+    Scope.Scope
+  >;
+
   /**
    * Start a provider session.
    */

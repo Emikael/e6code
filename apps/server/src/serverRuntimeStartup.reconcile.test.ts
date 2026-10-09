@@ -70,6 +70,8 @@ const makeProviderService = (liveThreadIds: ReadonlyArray<ThreadId> = []) =>
     rollbackConversation: () => Effect.die("unused"),
     uploadFeedback: () => Effect.die("unused"),
     streamEvents: Stream.empty,
+    runtimeEventSequence: Effect.succeed(0),
+    subscribeRuntimeEvents: Effect.succeed({ sequence: 0, events: Stream.empty }),
   }) satisfies ProviderService.ProviderService["Service"];
 
 const queryWithThreads = (threads: ReadonlyArray<ReturnType<typeof makeThread>>) =>

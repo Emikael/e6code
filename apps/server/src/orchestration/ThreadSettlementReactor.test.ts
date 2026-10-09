@@ -1,6 +1,8 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   EventId,
+  GitCommandError,
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   ProviderDriverKind,
@@ -46,6 +48,10 @@ import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import * as ThreadSettlementReactor from "./ThreadSettlementReactor.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Path from "effect/Path";
+import * as Option from "effect/Option";
+import { ProjectionTurnRepository } from "../persistence/Services/ProjectionTurns.ts";
+import { ProviderRuntimeIngestionService } from "./Services/ProviderRuntimeIngestion.ts";
+import { ProviderAdapterRequestError } from "../provider/Errors.ts";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { ServerConfig } from "../config.ts";
 import * as StorageCleanup from "../storageCleanup.ts";
@@ -1410,6 +1416,26 @@ describe("storage cleanup", () => {
     "nested-project",
     "new-nested-project",
     "session",
+    "archived-ready",
+    "archived-running",
+    "archived-approval",
+    "archived-user-input",
+    "archived-background",
+    "archived-start",
+    "outside-root",
+    "server-cwd",
+    "server-home",
+    "shared-alias",
+    "symlink",
+    "main-checkout",
+    "remove-failed",
+    "archived-recent",
+    "archived-stop-failed",
+    "archived-unarchived",
+    "archived-policy-disabled",
+    "pending-turn",
+    "archived-pending-turn",
+    "live-provider",
     "terminal-cwd",
     "terminal-worktree",
     "recent",
@@ -1447,9 +1473,20 @@ describe("storage cleanup", () => {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           const config = yield* ServerConfig;
-          const worktreePath = path.join(config.worktreesDir, "feature");
+          const worktreePath = path.join(
+            protection === "outside-root" ? config.baseDir : config.worktreesDir,
+            "feature",
+          );
           yield* fs.makeDirectory(worktreePath, { recursive: true });
-          yield* fs.writeFileString(path.join(worktreePath, ".git"), "gitdir: /test/admin");
+          if (protection === "symlink") {
+            yield* fs.remove(worktreePath, { recursive: true });
+            const target = path.join(config.baseDir, "symlink-target");
+            yield* fs.makeDirectory(target);
+            yield* fs.symlink(target, worktreePath);
+          }
+          if (protection === "main-checkout")
+            yield* fs.makeDirectory(path.join(worktreePath, ".git"));
+          else yield* fs.writeFileString(path.join(worktreePath, ".git"), "gitdir: /test/admin");
           const secondWorktreePath = path.join(config.worktreesDir, "feature-two");
           if (protection === "unchanged-two-worktrees") {
             yield* fs.makeDirectory(secondWorktreePath);
@@ -1477,16 +1514,24 @@ describe("storage cleanup", () => {
           yield* fs.writeFileString(recentImage, "recent");
           const recent = DateTime.toDateUtc(DateTime.makeUnsafe(NOW));
           yield* fs.utimes(recentImage, recent, recent);
-          const thread = makeThread("storage-thread", {
+          let thread = makeThread("storage-thread", {
             branch: "feature",
             worktreePath,
             latestUserMessageAt:
-              protection === "recent" ? "2026-08-26T00:00:00.000Z" : "2026-08-01T00:00:00.000Z",
-            ...(protection === "session"
+              protection === "recent" || protection === "archived-recent"
+                ? "2026-08-26T00:00:00.000Z"
+                : "2026-08-01T00:00:00.000Z",
+            archivedAt: protection.startsWith("archived-") ? NOW : null,
+            hasPendingApprovals: protection === "archived-approval",
+            hasPendingUserInput: protection === "archived-user-input",
+            ...(protection === "archived-background"
+              ? { backgroundLiveness: "working" as const }
+              : {}),
+            ...(protection === "session" || protection.startsWith("archived-")
               ? {
                   session: {
                     threadId: ThreadId.make("storage-thread"),
-                    status: "ready",
+                    status: protection === "archived-running" ? "running" : "ready",
                     providerName: "codex",
                     runtimeMode: "full-access",
                     activeTurnId: null,
@@ -1504,6 +1549,9 @@ describe("storage cleanup", () => {
           const deleteRule = protection.startsWith("deleted");
           let tombstoned = deleteRule && protection !== "deleted-event";
           const removals: string[] = [];
+          let stopped = false;
+          let flushed = false;
+          let queuedDuringStop = false;
           const mergeRule = protection === "merged" || protection === "unmerged";
           const unchangedRule =
             protection === "unchanged" ||
@@ -1549,10 +1597,20 @@ describe("storage cleanup", () => {
               }),
             ),
           );
+          const sharedAlias = path.join(config.baseDir, "shared-alias");
+          if (protection === "shared-alias") yield* fs.symlink(worktreePath, sharedAlias);
           const cleanup = yield* StorageCleanup.make.pipe(
             Effect.provide(
               Layer.mergeAll(
                 Layer.succeed(ServerSettingsService, settingsService),
+                Layer.succeed(ServerConfig, {
+                  ...config,
+                  ...(protection === "server-cwd"
+                    ? { cwd: worktreePath }
+                    : protection === "server-home"
+                      ? { baseDir: path.join(worktreePath, ".e6") }
+                      : {}),
+                }),
                 Layer.succeed(FileSystem.FileSystem, {
                   ...fs,
                   stat: (target) =>
@@ -1644,11 +1702,13 @@ describe("storage cleanup", () => {
                   getArchivedShellSnapshot: () =>
                     Effect.succeed(
                       makeSnapshot(
-                        protection === "shared"
+                        protection === "shared" || protection === "shared-alias"
                           ? [
                               {
                                 ...thread,
                                 id: ThreadId.make("archived-sharing-thread"),
+                                worktreePath:
+                                  protection === "shared-alias" ? sharedAlias : worktreePath,
                                 archivedAt: NOW,
                               },
                             ]
@@ -1665,7 +1725,33 @@ describe("storage cleanup", () => {
                     );
                   },
                 }),
+                Layer.mock(ProjectionTurnRepository)({
+                  getPendingTurnStartByThreadId: () =>
+                    Effect.succeed(
+                      protection.endsWith("pending-turn") || queuedDuringStop
+                        ? Option.some({
+                            threadId: thread.id,
+                            messageId: MessageId.make("queued"),
+                            sourceProposedPlanThreadId: null,
+                            sourceProposedPlanId: null,
+                            requestedAt: "2026-08-01T00:00:00.000Z",
+                          })
+                        : Option.none(),
+                    ),
+                }),
+                Layer.mock(ProviderRuntimeIngestionService)({
+                  flush: Effect.sync(() => {
+                    flushed = true;
+                  }),
+                }),
                 Layer.mock(OrchestrationEngineService)({
+                  dispatch: (command) =>
+                    Effect.sync(() => {
+                      assert.strictEqual(command.type, "thread.session.set");
+                      if (command.type === "thread.session.set")
+                        thread = { ...thread, session: command.session };
+                      return { sequence: 2 };
+                    }),
                   subscribeDomainEvents: PubSub.subscribe(domainEvents).pipe(
                     Effect.map((subscription) => Stream.fromSubscription(subscription)),
                   ),
@@ -1679,12 +1765,40 @@ describe("storage cleanup", () => {
                   },
                 }),
                 Layer.mock(ProviderService)({
+                  stopSession: () =>
+                    protection === "archived-stop-failed"
+                      ? Effect.fail(
+                          new ProviderAdapterRequestError({
+                            provider: "codex",
+                            method: "stopSession",
+                            detail: "failed",
+                          }),
+                        )
+                      : Effect.sync(() => {
+                          stopped = true;
+                        }).pipe(
+                          Effect.tap(() => {
+                            if (protection === "archived-unarchived")
+                              thread = { ...thread, archivedAt: null };
+                            if (protection === "archived-start") queuedDuringStop = true;
+                            if (protection === "archived-policy-disabled")
+                              return settingsService
+                                .updateSettings({ storageCleanup: { worktreeAfterDays: null } })
+                                .pipe(Effect.asVoid, Effect.orDie);
+                            return Effect.void;
+                          }),
+                        ),
                   listSessions: () =>
                     Effect.succeed(
-                      protection === "deleted-provider"
+                      protection === "deleted-provider" ||
+                        protection === "live-provider" ||
+                        (protection.startsWith("archived-") && !stopped)
                         ? [
                             {
-                              threadId: thread.id,
+                              threadId:
+                                protection === "live-provider"
+                                  ? ThreadId.make("foreign")
+                                  : thread.id,
                               provider: ProviderDriverKind.make("codex"),
                               status: "ready",
                               runtimeMode: "full-access",
@@ -1720,7 +1834,33 @@ describe("storage cleanup", () => {
                             ? "c".repeat(40)
                             : "a".repeat(40),
                       };
-                    }),
+                    }).pipe(
+                      Effect.tap(() =>
+                        (protection.startsWith("policy-") ||
+                          protection === "project-policy-disabled") &&
+                        headReads > 1
+                          ? settingsService
+                              .updateSettings({
+                                ...(protection === "project-policy-disabled"
+                                  ? {
+                                      projectSettingsOverrides: {
+                                        [PROJECT_ID]: { worktreeCleanup: { mode: "off" as const } },
+                                      },
+                                    }
+                                  : {}),
+                                ...(protection === "project-policy-disabled"
+                                  ? {}
+                                  : {
+                                      storageCleanup: {
+                                        worktreeAfterDays:
+                                          protection === "policy-disabled" ? null : 60,
+                                      },
+                                    }),
+                              })
+                              .pipe(Effect.orDie)
+                          : Effect.void,
+                      ),
+                    ),
                   statusDetailsLocal: (cwd) =>
                     Effect.succeed({
                       isRepo: true,
@@ -1753,35 +1893,18 @@ describe("storage cleanup", () => {
                       stderr: "",
                       stdoutTruncated: false,
                       stderrTruncated: false,
-                    }).pipe(
-                      Effect.tap(() =>
-                        (protection.startsWith("policy-") ||
-                          protection === "project-policy-disabled") &&
-                        headReads > 1
-                          ? settingsService
-                              .updateSettings({
-                                ...(protection === "project-policy-disabled"
-                                  ? {
-                                      projectSettingsOverrides: {
-                                        [PROJECT_ID]: { worktreeCleanup: { mode: "off" as const } },
-                                      },
-                                    }
-                                  : {}),
-                                ...(protection === "project-policy-disabled"
-                                  ? {}
-                                  : {
-                                      storageCleanup: {
-                                        worktreeAfterDays:
-                                          protection === "policy-disabled" ? null : 60,
-                                      },
-                                    }),
-                              })
-                              .pipe(Effect.orDie)
-                          : Effect.void,
-                      ),
-                    ),
+                    }),
                   removeWorktree: (input) => {
                     assert.strictEqual(input.force, false);
+                    if (protection === "remove-failed")
+                      return Effect.fail(
+                        new GitCommandError({
+                          operation: "remove",
+                          command: "git",
+                          cwd: input.cwd,
+                          detail: "failed",
+                        }),
+                      );
                     removals.push(input.path);
                     return fs.remove(input.path, { recursive: true }).pipe(Effect.orDie);
                   },
@@ -1847,6 +1970,10 @@ describe("storage cleanup", () => {
             protection === "project-custom" ||
             protection === "deleted-project-custom" ||
             protection === "none" ||
+            protection === "archived-ready" ||
+            protection === "ignored" ||
+            protection === "ignored-directory" ||
+            protection === "deleted-ignored" ||
             protection === "deleted" ||
             protection === "deleted-event" ||
             protection === "deleted-owner" ||
@@ -1865,6 +1992,16 @@ describe("storage cleanup", () => {
                 : [],
           );
           assert.strictEqual(fetches, mergeRule || unchangedRule ? 1 : 0);
+          assert.strictEqual(
+            stopped,
+            [
+              "archived-ready",
+              "archived-unarchived",
+              "archived-policy-disabled",
+              "archived-start",
+            ].includes(protection),
+          );
+          assert.strictEqual(flushed, stopped);
           assert.strictEqual(thread.worktreePath, worktreePath);
           assert.strictEqual(thread.branch, "feature");
           assert.strictEqual(yield* fs.exists(oldImage), protection.startsWith("files-"));
@@ -1873,9 +2010,17 @@ describe("storage cleanup", () => {
           assert.strictEqual(yield* fs.exists(activeLog), true);
         }).pipe(
           Effect.provide(
-            ServerConfig.layerTest(process.cwd(), { prefix: "e6-storage-cleanup-" }).pipe(
-              Layer.provideMerge(NodeServices.layer),
-            ),
+            Layer.effect(
+              ServerConfig,
+              Effect.gen(function* () {
+                const fs = yield* FileSystem.FileSystem;
+                const temp = yield* fs.makeTempDirectoryScoped({ prefix: "e6-storage-cleanup-" });
+                const baseDir = yield* fs.realPath(temp);
+                return yield* ServerConfig.pipe(
+                  Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+                );
+              }),
+            ).pipe(Layer.provideMerge(NodeServices.layer)),
           ),
           Effect.scoped,
         ),

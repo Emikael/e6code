@@ -1,3 +1,4 @@
+import { makeRuntimeEventStream } from "../runtimeEventStream.ts";
 import {
   ApprovalRequestId,
   EventId,
@@ -26,7 +27,6 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -314,7 +314,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
   const makeNativeLoggers = yield* makeAcpNativeLoggerFactory();
   const sessions = new Map<ThreadId, SessionContext>();
   const locks = yield* SynchronizedRef.make(new Map<ThreadId, Semaphore.Semaphore>());
-  const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  const events = yield* makeRuntimeEventStream;
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const randomId = crypto.randomUUIDv4.pipe(
     Effect.mapError(
@@ -331,7 +331,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
     eventId: Effect.map(randomId, EventId.make),
     createdAt: nowIso,
   });
-  const emit = (event: ProviderRuntimeEvent) => PubSub.publish(events, event).pipe(Effect.asVoid);
+  const emit = (event: ProviderRuntimeEvent) => events.publish(event);
 
   const withThreadLock = <A, E, R>(threadId: ThreadId, task: Effect.Effect<A, E, R>) =>
     SynchronizedRef.modifyEffect(locks, (current) => {
@@ -1241,7 +1241,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           ? Effect.void
           : Effect.logError("Could not stop an Antigravity session."),
       ),
-      Effect.ensuring(PubSub.shutdown(events)),
+      Effect.ensuring(events.shutdown),
     ),
   );
 
@@ -1274,6 +1274,8 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           issue: "Antigravity does not support conversation rewind. Start a new thread instead.",
         }),
       ),
-    streamEvents: Stream.fromPubSub(events),
+    runtimeEventSequence: events.runtimeEventSequence,
+    subscribeRuntimeEvents: events.subscribeRuntimeEvents,
+    streamEvents: events.streamEvents,
   } satisfies Adapter;
 });

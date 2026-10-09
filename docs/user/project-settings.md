@@ -64,15 +64,20 @@ manually. Custom applies separate worktree rules to the selected project or chec
 captures and log retention remain machine-wide.
 
 Worktrees can be removed after a chosen number of inactive days, after merging, or when they
-have no commits beyond the default branch. Only E6-managed worktrees are eligible. Active
-sessions, shared worktrees, uncommitted changes, and ignored files other than `node_modules`
-prevent removal. Branches and thread history stay; starting another turn recreates the checkout.
+have no commits beyond the default branch. Only E6-managed worktrees are eligible. Running sessions and terminals, shared worktrees, pending requests or turns, and uncommitted
+source changes prevent removal. Ignored files are deleted with qualifying worktrees, including
+local configuration, datasets, build outputs, and agent metadata. These files are not restored.
+Branches and thread history stay; starting another turn recreates the checkout.
+Archived threads follow the same inactivity, merged, and unchanged rules. Archiving alone does
+not qualify a worktree for removal; eligible archived threads have their idle sessions stopped.
 Merge cleanup requires the commits to be included in the remote default branch, so squash merges
 may need the inactivity rule instead.
 
 Enable **Delete worktrees with deleted threads** to remove safe worktrees after their last
 thread is deleted, including archived threads and worktrees left by earlier deletions. The
-server waits for sessions and terminals to stop and retries skipped worktrees after restart.
+server waits for sessions and terminals to stop and retries skipped worktrees after restart,
+when cleanup settings or relevant chat and terminal states change, and every hour. Conversation
+deletion completes independently of worktree cleanup.
 Existing prompts for deleting a worktree manually remain available when this policy is off.
 
 Browser captures and rotated logs have separate retention periods. Expired capture links stop

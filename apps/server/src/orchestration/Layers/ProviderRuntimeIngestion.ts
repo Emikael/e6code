@@ -30,6 +30,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Stream from "effect/Stream";
+import * as TxRef from "effect/TxRef";
 import { makeDrainableWorker } from "@e6tools/shared/DrainableWorker";
 import { formatTokens } from "@e6tools/shared/usageFormat";
 
@@ -1769,6 +1770,22 @@ const make = Effect.gen(function* () {
       const thread = yield* resolveThreadRuntimeContext(event.threadId);
       if (!thread) return;
 
+      // Old adapter exits can reach this subscriber after the session has resumed.
+      if (
+        event.type === "session.exited" &&
+        thread.session &&
+        ((event.providerInstanceId !== undefined &&
+          thread.session.providerInstanceId !== undefined &&
+          event.providerInstanceId !== thread.session.providerInstanceId) ||
+          (event.turnId !== undefined &&
+            thread.session.activeTurnId !== null &&
+            event.turnId !== thread.session.activeTurnId) ||
+          (thread.session.status !== "stopped" &&
+            Date.parse(event.createdAt) < Date.parse(thread.session.updatedAt)))
+      ) {
+        return;
+      }
+
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
       const activeTurnId = thread.session?.activeTurnId ?? null;
@@ -2683,13 +2700,18 @@ const make = Effect.gen(function* () {
     detectProviderDiffRepository(event).pipe(logIngestionFailure("diff", event)),
   );
 
+  const enqueuedRuntimeSequence = yield* TxRef.make(0);
+
   const start: ProviderRuntimeIngestionShape["start"] = () =>
     Effect.gen(function* () {
+      const subscription = yield* providerService.subscribeRuntimeEvents;
+      yield* TxRef.set(enqueuedRuntimeSequence, subscription.sequence);
       yield* forkParked(
-        Stream.runForEach(providerService.streamEvents, (event) =>
-          event.type === "turn.diff.updated"
+        Stream.runForEach(subscription.events, ({ sequence, event }) =>
+          (event.type === "turn.diff.updated"
             ? diffWorker.enqueue(event)
-            : worker.enqueue({ source: "runtime", event }),
+            : worker.enqueue({ source: "runtime", event })
+          ).pipe(Effect.andThen(TxRef.set(enqueuedRuntimeSequence, sequence))),
         ),
       );
       yield* forkParked(
@@ -2702,10 +2724,21 @@ const make = Effect.gen(function* () {
       );
     });
 
+  // The diff worker feeds the lifecycle worker, so drain it first.
+  const drain = diffWorker.drain.pipe(Effect.andThen(worker.drain));
+  const flush = Effect.gen(function* () {
+    const watermark = yield* providerService.runtimeEventSequence;
+    yield* TxRef.get(enqueuedRuntimeSequence).pipe(
+      Effect.tap((sequence) => (sequence < watermark ? Effect.txRetry : Effect.void)),
+      Effect.tx,
+    );
+    yield* drain;
+  });
+
   return {
     start,
-    // The diff worker feeds the lifecycle worker, so drain it first.
-    drain: diffWorker.drain.pipe(Effect.andThen(worker.drain)),
+    drain,
+    flush,
   } satisfies ProviderRuntimeIngestionShape;
 });
 
