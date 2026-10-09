@@ -730,7 +730,7 @@ function SidebarSectionHeader(props: {
             const rect = event.currentTarget.getBoundingClientRect();
             onMenu({ x: rect.left, y: rect.bottom + 4 });
           }}
-          className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground/70 opacity-0 outline-hidden ring-ring group-focus-within/shelf:opacity-100 group-hover/shelf:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+          className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground/70 opacity-0 outline-hidden ring-ring group-focus-within/shelf:opacity-100 group-hover/shelf:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
         >
           <EllipsisIcon aria-hidden className="size-3.5" />
         </button>
@@ -753,27 +753,34 @@ function SidebarProjectGroupHeader(props: {
     <li
       data-thread-selection-safe
       data-testid="sidebar-project-group"
-      className="group/project mx-0.5 mt-2 flex h-7 list-none items-center first:mt-0"
+      className="group/project mx-0.5 mt-3 flex h-8 list-none items-center first:mt-0"
     >
       <button
         type="button"
         onClick={props.onToggle}
         aria-expanded={group.expanded}
-        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground/80 outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
+        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left text-[13px] font-semibold text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2"
       >
+        {/* The tile is the project's mark; nested thread cards hang off a
+            rail aligned to its center. */}
+        <span
+          aria-hidden
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-sidebar-control-surface ring-1 ring-sidebar-border/60 ring-inset"
+        >
+          {props.project ? (
+            <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+          ) : (
+            <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+          )}
+        </span>
+        <span className="truncate">{group.displayName}</span>
         <ChevronDownIcon
           aria-hidden
           className={cn(
-            "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+            "size-3 shrink-0 text-sidebar-muted-foreground/70 transition-transform motion-reduce:transition-none",
             !group.expanded && "-rotate-90",
           )}
         />
-        {props.project ? (
-          <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
-        ) : (
-          <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
-        )}
-        <span className="truncate">{group.displayName}</span>
         {waiting ? (
           <span
             className="inline-flex shrink-0 items-center gap-1 text-amber-600 tabular-nums dark:text-amber-300/90"
@@ -783,8 +790,9 @@ function SidebarProjectGroupHeader(props: {
             {group.attentionCount}
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 font-normal text-sidebar-muted-foreground tabular-nums">
+        <span className="ml-auto shrink-0 rounded-full bg-sidebar-control-surface px-1.5 text-[11px] leading-4 font-medium text-sidebar-muted-foreground tabular-nums">
           {group.threadCount}
+          <span className="sr-only"> threads</span>
         </span>
       </button>
       {props.onNewThread ? (
@@ -795,7 +803,7 @@ function SidebarProjectGroupHeader(props: {
                 type="button"
                 aria-label={`New thread in ${group.displayName}`}
                 onClick={props.onNewThread}
-                className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+                className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
               />
             }
           >
@@ -1073,6 +1081,10 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
+  // Under a project group header: the header owns the project identity, so
+  // the row drops its favicon, hangs off the group rail, and cards fold the
+  // title into the top line.
+  nested: boolean;
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
@@ -1133,6 +1145,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 }) {
   const {
     isRenaming,
+    nested,
     onCancelRename,
     onCommitRename,
     onContextMenu,
@@ -1845,6 +1858,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   }
 
   const diff = latestTurnDiff(thread);
+  const titleWithStatus = (
+    <>
+      {title}
+      {isRegeneratingTitle ? (
+        <span role="status" className="sr-only">
+          Regenerating title
+        </span>
+      ) : null}
+    </>
+  );
 
   return (
     <li
@@ -1852,8 +1875,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
+        "list-none [content-visibility:auto]",
+        nested
+          ? // Hangs off a rail under the group header's icon tile: header
+            // mx-0.5 (0.125rem) + button px-1.5 (0.375rem) + half the 20px
+            // tile. -mt-px pulls the row over the list's 1px gap so the rail
+            // stays unbroken; pt-[3px] puts the content back. Intrinsic size
+            // matches h-14.
+            cn(
+              "-mt-px ml-[calc(0.125rem+0.375rem+10px)] border-l pt-[3px] pb-0.5 pl-1.5 [contain-intrinsic-size:auto_56px]",
+              props.isActive ? "border-sidebar-foreground/45" : "border-sidebar-border",
+            )
+          : // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
+            "py-0.5 [contain-intrinsic-size:auto_78px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -1874,13 +1908,20 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             />
           }
         >
-          <div className="relative z-10 h-[4.875rem] px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]">
+          <div
+            className={cn(
+              "relative z-10 px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]",
+              nested ? "h-14" : "h-[4.875rem]",
+            )}
+          >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
-              {props.project ? (
+              {nested ? (
+                titleWithStatus
+              ) : props.project ? (
                 <ProjectFavicon project={props.project} className="size-4 shrink-0" />
               ) : null}
-              {props.projectDisplayName ? (
+              {nested ? null : props.projectDisplayName ? (
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate text-secondary-label text-xs",
@@ -1895,8 +1936,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {pinIndicator}
               {/* The visible state owns this slot's width: status at rest,
                   actions on hover/keyboard focus or while the popover is open. Keeping
-                  the hidden state out of flow lets the project label reclaim
-                  space without either state overlapping it. */}
+                  the hidden state out of flow lets the project label (or the
+                  title, in nested rows) reclaim space without either state
+                  overlapping it. */}
               {sortable?.isDragging ? (
                 dragDestination
               ) : (
@@ -1910,7 +1952,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       isWokeStatus
                         ? "pointer-events-auto"
                         : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-hover/sidebar-row:absolute group-hover/sidebar-row:right-0 group-hover/sidebar-row:opacity-0",
-                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity",
+                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity motion-reduce:transition-none",
                       snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
                     )}
                   >
@@ -1978,7 +2020,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         // would keep the controls pinned over the status label
                         // once the pointer moves away (e.g. after a failed
                         // settle) instead of cross-fading back.
-                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
+                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity motion-reduce:transition-none has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
                         snoozeMenuOpen && "pointer-events-auto static opacity-100",
                       )}
                     >
@@ -2030,15 +2072,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 </span>
               )}
             </div>
-            <div className="mt-1 flex min-w-0">
-              {title}
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
+            {nested ? null : <div className="mt-1 flex min-w-0">{titleWithStatus}</div>}
+            <div
+              className={cn(
+                "flex min-w-0 items-center gap-1.5 text-secondary-label text-xs",
+                nested ? "mt-1" : "mt-0.5",
+              )}
+            >
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. */}
@@ -4983,6 +5023,7 @@ export default function Sidebar() {
                             key={`${threadKey}:${rowVariant}`}
                             thread={thread}
                             variant={rowVariant}
+                            nested={activeProjectGroups !== null && section === "active"}
                             // Snoozed rows wake, settled rows un-settle, and cards settle.
                             variantAction={
                               section === "snoozed"
