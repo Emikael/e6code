@@ -304,6 +304,33 @@ describe("SystemOneRouter", () => {
     }),
   );
 
+  it.live("does not upload secrets from earlier turns", () =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const counting = Layer.effect(
+        JevEngine,
+        makeEngine({
+          resolveApiKey: Effect.succeed("router-test-key"),
+          createBackend: () => ({
+            systemOne: (request) => {
+              calls += 1;
+              return stubBackend("trimmed_provider").systemOne(request);
+            },
+          }),
+        }),
+      );
+      expect(
+        yield* routeWith(
+          Layer.provide(layer(), Layer.mergeAll(counting, settingsOn)),
+          "thanks, what should I do next?",
+          false,
+          { recentTurns: "user: deploy with AKIAIOSFODNN7EXAMPLE\nassistant: Deployed." },
+        ),
+      ).toEqual({ _tag: "FullLlm", reason: "key-like-material" });
+      expect(calls).toBe(0);
+    }),
+  );
+
   it.live("does not materialize secrets when routing is off", () => {
     let materialized = 0;
     const settingsLayer = Layer.succeed(

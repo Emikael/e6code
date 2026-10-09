@@ -22,9 +22,9 @@ import { buildClassifyState } from "./stateBuilder.ts";
 
 /**
  * Best-effort tripwire for bearer material. Sensitivity is judged by the
- * model only after upload, so turns that already look like keys route
- * straight to the full LLM without ever leaving the machine. The
- * sensitivity noul still judges everything else.
+ * model only after upload, so turns whose message or recent-turn excerpt
+ * already looks like keys route straight to the full LLM without ever
+ * leaving the machine. The sensitivity noul still judges everything else.
  */
 const KEY_LIKE_PATTERNS = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
@@ -165,6 +165,9 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
     }
     const recentTurns =
       input.loadRecentTurns === undefined ? undefined : yield* input.loadRecentTurns;
+    if (recentTurns !== undefined && looksLikeKeyMaterial(recentTurns)) {
+      return { _tag: "FullLlm", reason: "key-like-material" } as RouteOutcome;
+    }
     const classifyInput = {
       ...messageInput,
       ...(recentTurns !== undefined ? { recentTurns } : {}),
