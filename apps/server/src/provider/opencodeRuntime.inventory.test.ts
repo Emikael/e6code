@@ -1,23 +1,30 @@
 import * as NodeAssert from "node:assert/strict";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2";
+import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
-import {
-  HostProcessEnvironment,
-  HostProcessExecutablePath,
-  HostProcessPlatform,
-} from "@e6tools/shared/hostProcess";
+import { HostProcessExecutablePath } from "@e6tools/shared/hostProcess";
 
 import { OpenCodeRuntime, OpenCodeRuntimeLive } from "./opencodeRuntime.ts";
 
 const testLayer = OpenCodeRuntimeLive.pipe(Layer.provideMerge(NodeServices.layer));
+
+/** An OpenCode event stream that sends `events` and then stays open. */
+const eventStream = (...events: ReadonlyArray<unknown>) =>
+  new Response(
+    new ReadableStream({
+      start: (controller) => {
+        for (const event of events) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 
 it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
   it.effect("aborts pending SDK requests when inventory loading is interrupted", () =>
@@ -25,11 +32,21 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
       const runtime = yield* OpenCodeRuntime;
       const started = yield* Queue.make<void>();
       const aborted = yield* Queue.make<string>();
-      const client = createOpencodeClient({
+      let warmed = false;
+      const client = OpenCode.make({
         baseUrl: "http://opencode.test",
         fetch: Object.assign(
-          (input: string | Request | URL) => {
-            const request = input instanceof Request ? input : new Request(input.toString());
+          (input: string | Request | URL, init?: RequestInit) => {
+            const request = new Request(input, init);
+            const route = new URL(request.url).pathname;
+            // Answer the location warm-up so the inventory requests are what is in flight.
+            if (route === "/api/event") {
+              return Promise.resolve(eventStream({ id: "e1", type: "server.connected", data: {} }));
+            }
+            if (route === "/api/provider" && !warmed) {
+              warmed = true;
+              return Promise.resolve(Response.json({ data: [{ id: "openai" }] }));
+            }
             return new Promise<Response>((_resolve, reject) => {
               request.signal.addEventListener(
                 "abort",
@@ -46,16 +63,61 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
         ),
       });
 
-      const inventoryFiber = yield* runtime.loadOpenCodeInventory(client).pipe(Effect.forkChild);
-      yield* Queue.takeN(started, 4);
+      const inventoryFiber = yield* runtime
+        .loadOpenCodeInventory(client, "/workspace/project")
+        .pipe(Effect.forkChild);
+      yield* Queue.takeN(started, 5);
       yield* Fiber.interrupt(inventoryFiber);
 
       NodeAssert.deepEqual((yield* Queue.takeAll(aborted)).toSorted(), [
-        "/agent",
-        "/command",
-        "/provider",
-        "/skill",
+        "/api/agent",
+        "/api/command",
+        "/api/model",
+        "/api/provider",
+        "/api/skill",
       ]);
+    }),
+  );
+
+  it.effect("waits for a cold location to load before reading inventory", () =>
+    Effect.gen(function* () {
+      const runtime = yield* OpenCodeRuntime;
+      const directory = "/workspace/project";
+      let loaded = false;
+      let probed!: () => void;
+      const coldProbe = new Promise<void>((resolve) => (probed = resolve));
+      const client = {
+        event: {
+          subscribe: async function* () {
+            yield { type: "server.connected", data: {} };
+            await coldProbe;
+            yield { type: "provider.updated", location: { directory: "/elsewhere" }, data: {} };
+            loaded = true;
+            yield { type: "provider.updated", location: { directory }, data: {} };
+          },
+        },
+        provider: {
+          list: () => {
+            if (!loaded) probed();
+            return Promise.resolve({ data: loaded ? [{ id: "openai" }] : [] });
+          },
+        },
+        model: { list: () => Promise.resolve({ data: loaded ? [{ id: "gpt" }] : [] }) },
+        agent: { list: () => Promise.resolve({ data: [] }) },
+        skill: { list: () => Promise.resolve({ data: [] }) },
+        command: { list: () => Promise.resolve({ data: [] }) },
+      } as unknown as OpenCodeClient;
+
+      const inventory = yield* runtime.loadOpenCodeInventory(client, directory);
+
+      NodeAssert.deepEqual(
+        inventory.providers.map((provider) => provider.id),
+        ["openai"],
+      );
+      NodeAssert.deepEqual(
+        inventory.models.map((model) => model.id),
+        ["gpt"],
+      );
     }),
   );
 
@@ -63,49 +125,35 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
     Effect.gen(function* () {
       const runtime = yield* OpenCodeRuntime;
       const requests: Request[] = [];
-      const client = createOpencodeClient({
+      const client = OpenCode.make({
         baseUrl: "http://opencode.test",
-        directory: "/workspace/project",
         fetch: Object.assign(
-          async (input: string | Request | URL) => {
-            const request = input instanceof Request ? input : new Request(input.toString());
+          async (input: string | Request | URL, init?: RequestInit) => {
+            const request = new Request(input, init);
             requests.push(request);
             const route = new URL(request.url).pathname;
-            return Response.json(
-              route === "/provider"
-                ? { connected: ["openai"], all: [], default: {} }
-                : route === "/command"
-                  ? [
-                      {
-                        name: "review",
-                        description: "Review changes",
-                        source: "command",
-                        hints: ["$ARGUMENTS"],
-                        template: "private native template",
-                      },
-                    ]
-                  : [],
-            );
+            return Response.json({
+              location: { directory: "/workspace/project" },
+              data:
+                route === "/api/command" ? [{ name: "review", description: "Review changes" }] : [],
+            });
           },
           { preconnect: () => undefined },
         ),
       });
-      const inventory = yield* runtime.loadOpenCodeInventory(client);
+      const inventory = yield* runtime.loadOpenCodeInventory(client, "/workspace/project");
       NodeAssert.deepEqual(inventory.commands, [
         {
           name: "review",
           description: "Review changes",
-          source: "command",
-          hints: ["$ARGUMENTS"],
         },
       ]);
       const commandRequest = requests.find(
-        (request) => new URL(request.url).pathname === "/command",
+        (request) => new URL(request.url).pathname === "/api/command",
       );
       NodeAssert.ok(commandRequest);
       NodeAssert.equal(
-        new URL(commandRequest.url).searchParams.get("directory") ??
-          decodeURIComponent(commandRequest.headers.get("x-opencode-directory") ?? ""),
+        new URL(commandRequest.url).searchParams.get("location[directory]"),
         "/workspace/project",
       );
     }),
@@ -118,22 +166,20 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
         provider: {
           list: () =>
             Promise.resolve({
-              data: {
-                connected: ["openai"],
-                all: [],
-                default: {},
-              },
+              data: [{ id: "openai" }],
             }),
         },
-        app: {
-          agents: () => Promise.reject(new Error("agents endpoint unavailable")),
-          skills: () => Promise.resolve({ data: [] }),
-        },
-      } as unknown as OpencodeClient;
+        model: { list: () => Promise.resolve({ data: [] }) },
+        agent: { list: () => Promise.reject(new Error("agents endpoint unavailable")) },
+        skill: { list: () => Promise.resolve({ data: [] }) },
+      } as unknown as OpenCodeClient;
 
-      const inventory = yield* runtime.loadOpenCodeInventory(client);
+      const inventory = yield* runtime.loadOpenCodeInventory(client, "/workspace/project");
 
-      NodeAssert.deepEqual(inventory.providerList.connected, ["openai"]);
+      NodeAssert.deepEqual(
+        inventory.providers.map((provider) => provider.id),
+        ["openai"],
+      );
       NodeAssert.deepEqual(inventory.agents, []);
       NodeAssert.deepEqual(inventory.skills, []);
     }),
@@ -146,22 +192,20 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
         provider: {
           list: () =>
             Promise.resolve({
-              data: {
-                connected: ["openai"],
-                all: [],
-                default: {},
-              },
+              data: [{ id: "openai" }],
             }),
         },
-        app: {
-          agents: () => Promise.resolve({ data: [] }),
-          skills: () => Promise.reject(new Error("skills endpoint unavailable")),
-        },
-      } as unknown as OpencodeClient;
+        model: { list: () => Promise.resolve({ data: [] }) },
+        agent: { list: () => Promise.resolve({ data: [] }) },
+        skill: { list: () => Promise.reject(new Error("skills endpoint unavailable")) },
+      } as unknown as OpenCodeClient;
 
-      const inventory = yield* runtime.loadOpenCodeInventory(client);
+      const inventory = yield* runtime.loadOpenCodeInventory(client, "/workspace/project");
 
-      NodeAssert.deepEqual(inventory.providerList.connected, ["openai"]);
+      NodeAssert.deepEqual(
+        inventory.providers.map((provider) => provider.id),
+        ["openai"],
+      );
       NodeAssert.deepEqual(inventory.agents, []);
       NodeAssert.deepEqual(inventory.skills, []);
     }),
@@ -174,93 +218,34 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
         provider: {
           list: () =>
             Promise.resolve({
-              data: {
-                connected: ["openai"],
-                all: [],
-                default: {},
-              },
+              data: [{ id: "openai" }],
             }),
         },
-        app: {
-          agents: () => Promise.resolve({ data: [] }),
-          skills: () =>
+        model: { list: () => Promise.resolve({ data: [] }) },
+        agent: { list: () => Promise.resolve({ data: [] }) },
+        skill: {
+          list: () =>
             Promise.resolve({
               data: [
                 {
                   name: "review",
                   description: "Review code changes",
-                  location: "/skills/review/SKILL.md",
-                  content: "unused skill content",
+                  path: "/skills/review/SKILL.md",
                 },
               ],
             }),
         },
-      } as unknown as OpencodeClient;
+      } as unknown as OpenCodeClient;
 
-      const inventory = yield* runtime.loadOpenCodeInventory(client);
+      const inventory = yield* runtime.loadOpenCodeInventory(client, "/workspace/project");
 
       NodeAssert.deepEqual(inventory.skills, [
         {
           name: "review",
           description: "Review code changes",
-          location: "/skills/review/SKILL.md",
+          path: "/skills/review/SKILL.md",
         },
       ]);
-    }),
-  );
-
-  it.effect("drops oversized CLI skill output without losing the model inventory", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const hostEnvironment = yield* HostProcessEnvironment;
-      const executablePath = yield* HostProcessExecutablePath;
-      const hostPlatform = yield* HostProcessPlatform;
-      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "e6-opencode-inventory-" });
-      const isWindows = hostPlatform === "win32";
-      const binaryPath = path.join(tempDir, isWindows ? "opencode.cmd" : "opencode");
-      const scriptPath = path.join(tempDir, "opencode.mjs");
-      const oversizedContentBytes = 8 * 1024 * 1024 + 1;
-
-      yield* fs.writeFileString(
-        scriptPath,
-        [
-          'if (process.argv[2] === "models") {',
-          '  process.stdout.write(`openai/gpt-test\\n{"id":"gpt-test","providerID":"openai","name":"GPT Test"}\\n`);',
-          '} else if (process.argv[2] === "debug") {',
-          `  const content = "x".repeat(${oversizedContentBytes});`,
-          '  process.stdout.write(`[{"name":"oversized","content":"${content}"}]`);',
-          "}",
-          "",
-        ].join("\n"),
-      );
-      yield* fs.writeFileString(
-        binaryPath,
-        [
-          ...(isWindows ? ["@echo off"] : ["#!/bin/sh"]),
-          isWindows
-            ? '"%E6_TEST_NODE_BINARY%" "%E6_TEST_OPENCODE_SCRIPT%" %*'
-            : 'exec "$E6_TEST_NODE_BINARY" "$E6_TEST_OPENCODE_SCRIPT" "$@"',
-          "",
-        ].join("\n"),
-      );
-      if (!isWindows) {
-        yield* fs.chmod(binaryPath, 0o755);
-      }
-
-      const runtime = yield* OpenCodeRuntime;
-      const inventory = yield* runtime.loadInventoryFromCli({
-        binaryPath,
-        cwd: tempDir,
-        environment: {
-          ...hostEnvironment,
-          E6_TEST_NODE_BINARY: executablePath,
-          E6_TEST_OPENCODE_SCRIPT: scriptPath,
-        },
-      });
-
-      NodeAssert.deepEqual(inventory.providerList.connected, ["openai"]);
-      NodeAssert.equal(inventory.skills.length, 0);
     }),
   );
 
