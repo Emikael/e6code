@@ -5,10 +5,10 @@ import type { ClassifiedTurn } from "./JevEngine.ts";
 
 const classified = (overrides: Partial<ClassifiedTurn> = {}): ClassifiedTurn => ({
   _tag: "Classified",
-  route: "answer_deterministic",
+  route: "local_lookup",
   routeConfidence: 0.95,
-  complexityScore: 0.2,
-  selfContained: 0.95,
+  localFact: "greeting",
+  dependsOnEarlierTurns: 0.05,
   sensitive: 0.05,
   latencyMs: 120,
   inputTokens: 100,
@@ -19,8 +19,14 @@ const classified = (overrides: Partial<ClassifiedTurn> = {}): ClassifiedTurn => 
 const thresholds: PolicyThresholds = DEFAULT_THRESHOLDS;
 
 describe("decideRoute", () => {
-  it("routes high-confidence self-contained turns to deterministic", () => {
+  it("routes high-confidence local lookups to deterministic", () => {
     expect(decideRoute(classified(), thresholds)).toEqual({ _tag: "Deterministic" });
+  });
+
+  it("keeps a confident local lookup even when earlier turns exist", () => {
+    expect(decideRoute(classified({ dependsOnEarlierTurns: 0.99 }), thresholds)).toEqual({
+      _tag: "Deterministic",
+    });
   });
 
   it("falls back below the confidence floor", () => {
@@ -44,33 +50,56 @@ describe("decideRoute", () => {
     });
   });
 
-  it("falls back when the question is not self-contained", () => {
-    expect(decideRoute(classified({ selfContained: 0.3 }), thresholds)).toEqual({
-      _tag: "FullLlm",
-      reason: "deterministic-below-threshold",
-    });
-  });
-
   it("routes simple questions to the fast path", () => {
     expect(
-      decideRoute(classified({ route: "fast_llm_trimmed", routeConfidence: 0.7 }), thresholds),
+      decideRoute(
+        classified({ route: "trimmed_provider", routeConfidence: 0.7, localFact: "none" }),
+        thresholds,
+      ),
     ).toEqual({
       _tag: "FastPath",
     });
   });
 
-  it("names tool-bound and out-of-scope fallbacks", () => {
-    expect(decideRoute(classified({ route: "needs_tools" }), thresholds)).toEqual({
+  it("does not trim unless the turn is confidently self-contained", () => {
+    for (const dependsOnEarlierTurns of [0.25, 0.5, 0.7, 0.8]) {
+      expect(
+        decideRoute(
+          classified({
+            route: "trimmed_provider",
+            routeConfidence: 0.9,
+            dependsOnEarlierTurns,
+            localFact: "none",
+          }),
+          thresholds,
+        ),
+      ).toEqual({
+        _tag: "FullLlm",
+        reason: "depends-on-earlier-turns",
+      });
+    }
+  });
+
+  it("trims at exactly the self-contained threshold", () => {
+    expect(
+      decideRoute(
+        classified({
+          route: "trimmed_provider",
+          routeConfidence: 0.9,
+          dependsOnEarlierTurns: 0.2,
+          localFact: "none",
+        }),
+        thresholds,
+      ),
+    ).toEqual({ _tag: "FastPath" });
+  });
+
+  it("sends the full provider when that is the handler", () => {
+    expect(
+      decideRoute(classified({ route: "full_provider", localFact: "none" }), thresholds),
+    ).toEqual({
       _tag: "FullLlm",
-      reason: "needs-tools",
-    });
-    expect(decideRoute(classified({ route: "out_of_scope" }), thresholds)).toEqual({
-      _tag: "FullLlm",
-      reason: "out-of-scope",
-    });
-    expect(decideRoute(classified({ route: "full_llm" }), thresholds)).toEqual({
-      _tag: "FullLlm",
-      reason: "full-model-requested",
+      reason: "full-provider",
     });
   });
 

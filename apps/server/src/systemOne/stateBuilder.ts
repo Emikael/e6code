@@ -1,27 +1,28 @@
 /**
- * stateBuilder - packs a turn into the hosted Jev request budgets.
+ * stateBuilder - packs a turn into a small hosted Jev state.
  *
- * Jev truncates hard: 512 tokens of state (`max_len`), 192 tokens per
- * question option (`head_max_len`), and under ~20 options per Choice is the
- * model's own recommendation. Everything here is pure so the budgets are
- * unit-testable without a network call.
- *
- * Token counts are a chars/4 heuristic. The engine enforces the exact limits
- * with the real tokenizer and fails open to the LLM on overflow, so an
- * underestimate here only costs a skipped Jev call, never a wrong answer.
+ * `jev-1.13.0` accepts 32k tokens of state plus the longest question, and
+ * 64k for the whole request. Accuracy falls when that state is full of
+ * unrelated detail, so this module keeps a few thousand estimated tokens:
+ * the live message, a short recent exchange, and the names the local
+ * handlers can answer. Token counts are a chars/4 heuristic. The router
+ * skips Jev when `lastMessage` itself does not fit, so a cut-off question
+ * is never classified.
  *
  * @module stateBuilder
  */
-import type { ChoiceQuestion, NoulQuestion, Question, ScoreQuestion } from "./judgmentTypes.ts";
+import type { ChoiceQuestion, NoulQuestion, Question } from "./judgmentTypes.ts";
 
-/** State is truncated past this many estimated tokens (English checkpoint). */
-export const MAX_STATE_TOKENS = 512;
-/** Each Choice option / Score level stays under this many estimated tokens. */
+/** Local filter, well under the model's 32k state limit. */
+export const MAX_STATE_TOKENS = 4096;
+/** Recent exchange kept beside the live message. */
+export const RECENT_TURNS_TOKEN_BUDGET = 1024;
+/** Each Choice option stays short; the model allows much longer descriptions. */
 export const MAX_OPTION_TOKENS = 192;
 /** Model recommendation: keep Choice option counts below this. */
 export const MAX_CHOICE_OPTIONS = 20;
 
-/** Rough token estimate; exact counting happens inside the engine. */
+/** Rough token estimate; the hosted API tokenizes the real request. */
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
 
 export const truncateToTokenBudget = (text: string, budgetTokens: number): string => {
@@ -34,16 +35,40 @@ export interface TurnClassifyInput {
   readonly threadTitle?: string;
   readonly projectName?: string;
   readonly turnIndex?: number;
+  /** Prior user and assistant text, excluding the live message. */
+  readonly recentTurns?: string;
+}
+
+export interface RecentTurnMessage {
+  readonly id?: string;
+  readonly role: string;
+  readonly text: string;
 }
 
 /**
- * Compact JSON state for one turn. Carries the latest message plus just
- * enough metadata to disambiguate, never secrets, keys, or full history.
+ * The previous user message and assistant reply, in conversation order.
+ * The live message is omitted so the judgment is about the new turn.
  */
-export const buildClassifyState = (input: TurnClassifyInput): Record<string, string | number> => {
-  const state: Record<string, string | number> = {
-    lastMessage: truncateToTokenBudget(input.lastMessage, MAX_STATE_TOKENS - 32),
-  };
+export const formatRecentTurns = (
+  messages: ReadonlyArray<RecentTurnMessage>,
+  excludeMessageId?: string,
+): string => {
+  const prior = messages.filter(
+    (message) =>
+      message.id !== excludeMessageId &&
+      (message.role === "user" || message.role === "assistant") &&
+      message.text.trim().length > 0,
+  );
+  const lastUser = prior.findLast((message) => message.role === "user");
+  const lastAssistant = prior.findLast((message) => message.role === "assistant");
+  const ordered = [lastUser, lastAssistant]
+    .filter((message): message is RecentTurnMessage => message !== undefined)
+    .sort((left, right) => prior.indexOf(left) - prior.indexOf(right));
+  return ordered.map((message) => `${message.role}: ${message.text.trim()}`).join("\n");
+};
+
+const metadataState = (input: TurnClassifyInput): Record<string, string | number> => {
+  const state: Record<string, string | number> = {};
   if (input.threadTitle !== undefined) {
     state.threadTitle = truncateToTokenBudget(input.threadTitle, 24);
   }
@@ -51,63 +76,125 @@ export const buildClassifyState = (input: TurnClassifyInput): Record<string, str
     state.projectName = truncateToTokenBudget(input.projectName, 16);
   }
   if (input.turnIndex !== undefined) state.turnIndex = input.turnIndex;
-  const serialized = JSON.stringify(state);
-  if (estimateTokens(serialized) <= MAX_STATE_TOKENS) return state;
-  return { lastMessage: truncateToTokenBudget(input.lastMessage, MAX_STATE_TOKENS - 8) };
+  return state;
+};
+
+const fitLastMessage = (metadata: Record<string, string | number>, lastMessage: string): string => {
+  const overhead = estimateTokens(JSON.stringify({ ...metadata, lastMessage: "" }));
+  return truncateToTokenBudget(lastMessage, Math.max(1, MAX_STATE_TOKENS - overhead));
+};
+
+const withinBudget = (state: Record<string, string | number>): Record<string, string | number> => {
+  const lastMessage = state.lastMessage;
+  if (
+    typeof lastMessage !== "string" ||
+    lastMessage.length === 0 ||
+    estimateTokens(JSON.stringify(state)) <= MAX_STATE_TOKENS
+  ) {
+    return state;
+  }
+  return withinBudget({
+    ...state,
+    lastMessage: lastMessage.slice(0, Math.max(0, lastMessage.length - 64)),
+  });
+};
+
+/**
+ * Compact JSON state for one turn. Carries the latest message, a short
+ * prior exchange, and the names local handlers can answer. Never secrets.
+ * The live message is kept whole whenever it fits; only the excerpt is
+ * dropped to make room. A message that still does not fit is truncated,
+ * which the router treats as too long to classify.
+ */
+export const buildClassifyState = (input: TurnClassifyInput): Record<string, string | number> => {
+  const withoutRecent = metadataState(input);
+  const alone = withinBudget({
+    ...withoutRecent,
+    lastMessage: fitLastMessage(withoutRecent, input.lastMessage),
+  });
+  if (alone.lastMessage !== input.lastMessage) return alone;
+  if (input.recentTurns === undefined || input.recentTurns.length === 0) return alone;
+  // The excerpt ends with the latest reply, which a follow-up usually refers
+  // to, so trimming drops text from the front.
+  let excerpt =
+    estimateTokens(input.recentTurns) <= RECENT_TURNS_TOKEN_BUDGET
+      ? input.recentTurns
+      : input.recentTurns.slice(-RECENT_TURNS_TOKEN_BUDGET * 4);
+  while (excerpt.length > 0) {
+    const candidate = { ...withoutRecent, lastMessage: input.lastMessage, recentTurns: excerpt };
+    if (estimateTokens(JSON.stringify(candidate)) <= MAX_STATE_TOKENS) return candidate;
+    excerpt = excerpt.slice(64);
+  }
+  return alone;
 };
 
 export const ROUTE_QUESTION_IDS = [
   "handling_route",
-  "complexity",
-  "is_self_contained",
+  "local_fact",
+  "depends_on_earlier_turns",
   "is_sensitive_or_risky",
 ] as const;
 
-/** Precise v1 question map, so `systemOne` answers come back typed per id. */
+/** Precise question map, so `systemOne` answers come back typed per id. */
 export type RouteQuestions = {
   handling_route: ChoiceQuestion;
-  complexity: ScoreQuestion;
-  is_self_contained: NoulQuestion;
+  local_fact: ChoiceQuestion;
+  depends_on_earlier_turns: NoulQuestion;
   is_sensitive_or_risky: NoulQuestion;
 };
 
 /**
- * The v1 question set. Q1 routes, Q2 grades complexity, Q3/Q4 gate the
- * skip-LLM paths. All four run in one forward pass over the same state.
+ * One request, four judgments. The route Choice names a handler the app
+ * actually runs. `local_fact` is read only when that route is
+ * `local_lookup`. The two Nouls gate trimming and the provider fallback.
  */
 export const buildRouteQuestions = () =>
   ({
     handling_route: {
       type: "choice",
-      instructions: "How should this turn be handled?",
+      instructions:
+        "How should `lastMessage` be handled, given `recentTurns`, `projectName`, and `threadTitle`?",
       criteria: {
-        answer_deterministic: "Answerable from app state without any LLM call",
-        fast_llm_trimmed: "Simple question for a small model with short context",
-        full_llm: "Needs the full provider model and context",
-        needs_tools: "Needs repo reads, file edits, or tool calls",
-        out_of_scope: "Not a task for this coding assistant",
+        local_lookup:
+          "A greeting, thanks, or goodbye, or a question asking only for the project name or thread title already present in state",
+        trimmed_provider:
+          "A question that does not need earlier turns, repository reads, file edits, tool calls, or attached composer records",
+        full_provider:
+          "Needs files, tools, earlier turns, or attached composer records, or the request is ambiguous",
       },
     },
-    complexity: {
-      type: "score",
-      instructions: "How complex is this request to resolve?",
-      criteria: [
-        "Simple lookup or standard procedure",
-        "Requires some judgment or multi-step process",
-        "Unusual situation, edge case, or escalation needed",
-      ],
+    local_fact: {
+      type: "choice",
+      instructions:
+        "If `lastMessage` is only a greeting or a lookup of a name already in state, which fact does it ask for? Otherwise choose none.",
+      criteria: {
+        greeting: "A greeting, thanks, or goodbye with no other request",
+        project_name: "Asks what this project is called, answered by `projectName`",
+        thread_title: "Asks what this thread is called, answered by `threadTitle`",
+        none: "Not only a greeting or a name lookup",
+      },
     },
-    is_self_contained: {
+    depends_on_earlier_turns: {
       type: "noul",
-      instructions: "Is the latest message answerable without tools or repo reads?",
+      instructions:
+        "Does answering `lastMessage` depend on `recentTurns` or on composer context from earlier in the thread?",
+      criteria: {
+        true: "The message refers to earlier turns, prior decisions, or attached context that is not restated in `lastMessage`",
+        false:
+          "`lastMessage` stands alone and does not need earlier turns or attached composer records",
+      },
     },
     is_sensitive_or_risky: {
       type: "noul",
-      instructions: "Does this involve secrets, credentials, or destructive operations?",
+      instructions: "Does `lastMessage` involve secrets, credentials, or destructive operations?",
+      criteria: {
+        true: "It asks for secrets or credentials, or it requests a destructive or irreversible operation",
+        false: "It does not involve secrets, credentials, or destructive operations",
+      },
     },
   }) as const satisfies RouteQuestions;
 
-/** Fails a question set that would overflow the model's option budget. */
+/** Fails a question set that would overflow the local option budget. */
 export const questionsWithinBudget = (questions: Readonly<Record<string, Question>>): boolean =>
   Object.values(questions).every((question) => {
     if (question.type === "choice") {

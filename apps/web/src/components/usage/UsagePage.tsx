@@ -486,12 +486,14 @@ export function UsagePage() {
                   </div>
                 </section>
 
-                {merged.systemOne.environments > 0 && merged.systemOne.calls > 0 ? (
+                {merged.systemOne.environments > 0 &&
+                (merged.systemOne.calls > 0 || merged.systemOne.llmCallsAvoided > 0) ? (
                   <section className="flex flex-col gap-2">
                     <h2 className="text-sm font-medium text-foreground">Jev routing</h2>
                     <p className="text-xs text-muted-foreground">
-                      Turns classified through the Jev API since the server started. Token counts
-                      are metered per call; cost scales them by the Jev input price.
+                      Turns routed since the server started. Exact greetings and lookups are
+                      answered on the server without a Jev call. Token counts are metered per call;
+                      cost scales them by the Jev input price.
                     </p>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
                       <Metric

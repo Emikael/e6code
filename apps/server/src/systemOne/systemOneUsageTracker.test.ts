@@ -28,6 +28,21 @@ describe("SystemOneUsageTracker", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.live("counts local answers as avoided calls without metering Jev", () =>
+    Effect.gen(function* () {
+      const tracker = yield* SystemOneUsageTracker;
+      yield* tracker.record({ outcome: "local" });
+      yield* tracker.record({ outcome: "deterministic", latencyMs: 100, jevInputTokens: 50 });
+      expect(yield* tracker.readTotals).toMatchObject({
+        calls: 1,
+        deterministic: 2,
+        llmCallsAvoided: 2,
+        jevInputTokens: 50,
+        avgLatencyMs: 100,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.live("stays zero in the test layer", () =>
     Effect.gen(function* () {
       const tracker = yield* SystemOneUsageTracker;

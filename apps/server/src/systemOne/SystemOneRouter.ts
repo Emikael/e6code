@@ -14,17 +14,17 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { decideRoute, type PolicyThresholds } from "./confidencePolicy.ts";
-import { answerDeterministic } from "./deterministicResponder.ts";
+import { answerDeterministic, answerLocalFact } from "./deterministicResponder.ts";
 import { JevEngine } from "./JevEngine.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
+import { type SystemOneRecordOutcome, SystemOneUsageTracker } from "./systemOneUsageTracker.ts";
 import { buildClassifyState } from "./stateBuilder.ts";
 
 /**
  * Best-effort tripwire for bearer material. Sensitivity is judged by the
- * model only after upload, so turns that already look like keys route
- * straight to the full LLM without ever leaving the machine. The
- * sensitivity noul still judges everything else.
+ * model only after upload, so turns whose message or recent-turn excerpt
+ * already looks like keys route straight to the full LLM without ever
+ * leaving the machine. The sensitivity noul still judges everything else.
  */
 const KEY_LIKE_PATTERNS = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
@@ -47,6 +47,11 @@ export interface RouteTurnInput {
   readonly hasAttachments: boolean;
   readonly threadTitle?: string;
   readonly projectName?: string;
+  /**
+   * Prior user and assistant text, excluding this turn's message. Run only
+   * when the turn is about to be classified, so rejected turns never load it.
+   */
+  readonly loadRecentTurns?: Effect.Effect<string | undefined>;
 }
 
 export type RouteOutcome =
@@ -104,7 +109,7 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
   >;
 
   const note = (
-    outcome: "deterministic" | "fast-path" | "full-llm",
+    outcome: SystemOneRecordOutcome,
     latencyMs?: number,
     jevInputTokens?: number,
   ): Effect.Effect<void> => {
@@ -131,14 +136,43 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
       return { _tag: "FullLlm", reason: "key-like-material" } as RouteOutcome;
     }
 
-    const classifyInput = {
+    const context = {
+      text: input.text,
+      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+    };
+    // Exact templates are known rules. Answer them here so "hi" never waits
+    // on Jev; they count as avoided provider calls, not Jev calls.
+    const exact = answerDeterministic(context);
+    if (exact !== null) {
+      yield* note("local");
+      return {
+        _tag: "Deterministic",
+        text: exact,
+        route: "local_lookup",
+        confidence: 1,
+        latencyMs: 0,
+        inputTokens: 0,
+      } as RouteOutcome;
+    }
+
+    const messageInput = {
       lastMessage: input.text,
       ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
       ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
     };
-    if (buildClassifyState(classifyInput).lastMessage !== input.text) {
+    if (buildClassifyState(messageInput).lastMessage !== input.text) {
       return { _tag: "FullLlm", reason: "text-too-long" } as RouteOutcome;
     }
+    const recentTurns =
+      input.loadRecentTurns === undefined ? undefined : yield* input.loadRecentTurns;
+    if (recentTurns !== undefined && looksLikeKeyMaterial(recentTurns)) {
+      return { _tag: "FullLlm", reason: "key-like-material" } as RouteOutcome;
+    }
+    const classifyInput = {
+      ...messageInput,
+      ...(recentTurns !== undefined ? { recentTurns } : {}),
+    };
     const outcome = yield* engine.classifyTurn(classifyInput, settings.systemOne.timeoutMs);
     if (outcome._tag === "Skipped") {
       return { _tag: "FullLlm", reason: `jev-skipped:${outcome.reason}` } as RouteOutcome;
@@ -167,11 +201,7 @@ export const make = Effect.fn("SystemOneRouter.make")(function* (
         ...classified,
       } as RouteOutcome;
     }
-    const text = answerDeterministic({
-      text: input.text,
-      ...(input.threadTitle !== undefined ? { threadTitle: input.threadTitle } : {}),
-      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
-    });
+    const text = answerLocalFact(outcome.localFact, context);
     if (text === null) {
       yield* note("full-llm", outcome.latencyMs, outcome.inputTokens);
       return { _tag: "FullLlm", reason: "no-deterministic-template" } as RouteOutcome;
