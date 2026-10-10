@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - Spawns a Node subprocess to assert the TypeScript compiler stays unloaded.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -10,6 +13,7 @@ import * as Schema from "effect/Schema";
 import serverPackageJson from "../../apps/server/package.json" with { type: "json" };
 
 import { findEsmImportsOfExternalPackages } from "./cli-executable-imports.ts";
+import { findUnexpectedExternalBundleImports } from "./unexpected-external-bundle-imports.ts";
 
 import {
   CLI_RUNTIME_EXTERNAL_PREFIXES,
@@ -276,6 +280,65 @@ var x = 1;
     const result = findInlinedExternalPackages("var x = 1; // node_modules/node-pty/lib.js");
     assert.strictEqual(result.regionCount, 0);
     assert.deepStrictEqual(result.inlined, []);
+  });
+});
+
+describe("findUnexpectedExternalBundleImports", () => {
+  it("flags a resolvable dependency the bundler left external", () => {
+    const source = [
+      'import { OpenCode } from "@opencode/client";',
+      'const load = () => import("effect");',
+      'import * as fs from "node:fs";',
+      'import { helper } from "./chunk-abc.mjs";',
+    ].join("\n");
+    assert.deepStrictEqual(findUnexpectedExternalBundleImports(source), [
+      "@opencode/client",
+      "effect",
+    ]);
+  });
+
+  it("allows the runtime externals staged beside the backend", () => {
+    const source = [
+      'import { FileFinder } from "@ff-labs/fff-node";',
+      'const pty = () => import("node-pty");',
+      'export { load } from "ffi-rs";',
+    ].join("\n");
+    assert.deepStrictEqual(findUnexpectedExternalBundleImports(source), []);
+  });
+
+  it("ignores bare specifiers inside comments and strings", () => {
+    const source = [
+      '// import "comment-only";',
+      '/*\n * import { Number } from "effect"\n */',
+      "const example = 'import(\"string-only\")';",
+    ].join("\n");
+    assert.deepStrictEqual(findUnexpectedExternalBundleImports(source), []);
+  });
+});
+
+describe("cli-external-packages module graph", () => {
+  it("does not load the TypeScript compiler", () => {
+    const modulePath = NodeURL.fileURLToPath(
+      new URL("./cli-external-packages.ts", import.meta.url),
+    );
+    const result = NodeChildProcess.spawnSync(
+      NodeProcess.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `
+          import { createRequire } from "node:module";
+          const require = createRequire(${JSON.stringify(modulePath)});
+          const typescriptPath = require.resolve("typescript-legacy");
+          await import(${JSON.stringify(NodeURL.pathToFileURL(modulePath).href)});
+          console.log(require.cache[typescriptPath] ? "loaded" : "absent");
+        `,
+      ],
+      { encoding: "utf8" },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "absent");
   });
 });
 

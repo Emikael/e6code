@@ -3000,7 +3000,12 @@ export function makeOpenCodeAdapter(
                 { signal },
               );
             }
-          }).pipe(Effect.timeout("10 seconds"));
+            // One deadline for switchModel, switchAgent, instructions.put, and
+            // session.prompt or session.command. Cold sessions hold
+            // session.prompt while first-touch init runs; the inbox event can
+            // arrive before that HTTP call returns. Warm submissions settle
+            // in milliseconds.
+          }).pipe(Effect.timeout("60 seconds"));
           const promptEffect = submission.pipe(
             Effect.catchTags({
               OpenCodeRuntimeError: (cause) => Effect.fail(toRequestError(cause)),
@@ -3010,7 +3015,7 @@ export function makeOpenCodeAdapter(
                   new ProviderAdapterRequestError({
                     provider: PROVIDER,
                     method: submissionMethod,
-                    detail: "OpenCode prompt submission did not complete within 10 seconds.",
+                    detail: "OpenCode prompt submission did not complete within 60 seconds.",
                     cause,
                   }),
                 );

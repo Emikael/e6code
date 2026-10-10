@@ -33,6 +33,7 @@ import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
 } from "./lib/cli-external-packages.ts";
+import { findUnexpectedExternalBundleImports } from "./lib/unexpected-external-bundle-imports.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
@@ -614,6 +615,18 @@ export class InlinedExternalPackageError extends Schema.TaggedError<InlinedExter
 ) {
   override get message(): string {
     return `The server bundle inlined packages that must stay external: ${this.packages.join(", ")}. These are native addons or their loaders; inlined, they resolve prebuilds relative to the bundle and silently lose native acceleration. Check the deps.neverBundle wiring in apps/server/vite.config.ts.`;
+  }
+}
+
+export class UnexpectedExternalBundleImportError extends Schema.TaggedError<UnexpectedExternalBundleImportError>()(
+  "UnexpectedExternalBundleImportError",
+  {
+    chunk: Schema.String,
+    specifiers: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `The server bundle leaves ${this.specifiers.join(", ")} external in ${this.chunk}. Only the runtime externals in scripts/lib/cli-external-packages.ts may stay external; anything else is missing from the staged dependencies and the packaged backend dies with ERR_MODULE_NOT_FOUND on boot. This usually means node_modules is stale (reinstall dependencies) or the bundler could not resolve the package.`;
   }
 }
 
@@ -3459,6 +3472,17 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       totalRegions += scan.regionCount;
       for (const name of scan.inlined) inlined.add(name);
       for (const name of scan.inlinedPackages) inlinedPackages.add(name);
+      // The mirror direction: a dependency the bundler could not resolve (a
+      // stale install after a lockfile change) stays a bare import with only a
+      // warning, and the packaged backend then dies with ERR_MODULE_NOT_FOUND
+      // on boot while the desktop waits for it forever.
+      const unexpectedExternal = findUnexpectedExternalBundleImports(source);
+      if (unexpectedExternal.length > 0) {
+        return yield* new UnexpectedExternalBundleImportError({
+          chunk: chunkName,
+          specifiers: [...unexpectedExternal],
+        });
+      }
     }
     if (inlined.size > 0) {
       return yield* new InlinedExternalPackageError({
