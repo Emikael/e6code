@@ -14,6 +14,7 @@ import { findEsmImportsOfExternalPackages } from "./cli-executable-imports.ts";
 import {
   CLI_RUNTIME_EXTERNAL_PREFIXES,
   findInlinedExternalPackages,
+  findUnexpectedExternalBundleImports,
   selectCliRuntimeExternalDependencies,
   shouldBundleCliDependency,
 } from "./cli-external-packages.ts";
@@ -276,6 +277,39 @@ var x = 1;
     const result = findInlinedExternalPackages("var x = 1; // node_modules/node-pty/lib.js");
     assert.strictEqual(result.regionCount, 0);
     assert.deepStrictEqual(result.inlined, []);
+  });
+});
+
+describe("findUnexpectedExternalBundleImports", () => {
+  it("flags a resolvable dependency the bundler left external", () => {
+    const source = [
+      'import { OpenCode } from "@opencode/client";',
+      'const load = () => import("effect");',
+      'import * as fs from "node:fs";',
+      'import { helper } from "./chunk-abc.mjs";',
+    ].join("\n");
+    assert.deepStrictEqual(findUnexpectedExternalBundleImports(source), [
+      "@opencode/client",
+      "effect",
+    ]);
+  });
+
+  it("allows the runtime externals staged beside the backend", () => {
+    const source = [
+      'import { FileFinder } from "@ff-labs/fff-node";',
+      'const pty = () => import("node-pty");',
+      'export { load } from "ffi-rs";',
+    ].join("\n");
+    assert.deepStrictEqual(findUnexpectedExternalBundleImports(source), []);
+  });
+
+  it("ignores bare specifiers inside comments and strings", () => {
+    const source = [
+      '// import "comment-only";',
+      '/*\n * import { Number } from "effect"\n */',
+      "const example = 'import(\"string-only\")';",
+    ].join("\n");
+    assert.deepStrictEqual(findUnexpectedExternalBundleImports(source), []);
   });
 });
 
