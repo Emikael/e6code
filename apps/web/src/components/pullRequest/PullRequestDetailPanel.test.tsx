@@ -243,6 +243,7 @@ const actions = [
   "Resolve conflicts",
   "Ask a question",
   "Explain this PR",
+  "Review this PR",
   "Fix findings in this thread",
   "Fix check",
   "Add to agent",
@@ -320,7 +321,10 @@ describe.each([
     else if (action === "Fix check") expect(draft?.prompt).toContain("Fix the failing check");
     else if (action.startsWith("Fix findings"))
       expect(draft?.prompt).toContain("Fix the actionable findings");
-    else expect(draft?.reviewComments?.length).toBeGreaterThan(0);
+    else if (action === "Review this PR") {
+      expect(draft?.prompt).toContain("# Pull Request Review Request");
+      expect(draft?.prompt).toContain(`**PR URL:** ${detail.url}`);
+    } else expect(draft?.reviewComments?.length).toBeGreaterThan(0);
     if (action === "Add to agent") {
       expect(draft?.prompt).toContain("Fix this line");
       expect(draft?.reviewComments).toEqual(
@@ -334,5 +338,28 @@ describe.each([
     } else {
       expect(newThread).toHaveBeenCalled();
     }
+  });
+
+  it("replaces what Explain this PR left in the composer when Review this PR follows it", async () => {
+    if (target) useComposerDraftStore.getState().setPrompt(target, "Keep my draft");
+    await act(async () => render());
+    await click("Explain this PR");
+    await click("Review this PR");
+    const draft = useComposerDraftStore.getState().getComposerDraft(target ?? newDraftId);
+    expect(draft?.prompt).toContain("# Pull Request Review Request");
+    expect(draft?.prompt).not.toContain("Explain this pull request.");
+    expect(draft?.reviewComments ?? []).toEqual([]);
+    if (target) expect(draft?.prompt).toContain("Keep my draft");
+  });
+
+  it("lists Review this PR directly under Explain this PR", async () => {
+    await act(async () => render());
+    const buttons = renderer.root.findAllByType("button");
+    const indexOf = (label: string) =>
+      buttons.findIndex(
+        (node) => node.findAll((child) => child.children.includes(label)).length > 0,
+      );
+    expect(indexOf("Explain this PR")).toBeGreaterThanOrEqual(0);
+    expect(indexOf("Review this PR")).toBe(indexOf("Explain this PR") + 1);
   });
 });
