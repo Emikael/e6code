@@ -15,7 +15,6 @@
  * a package's platform-specific siblings — `node-gyp-build` covers
  * `node-gyp-build-optional-packages`, `@yuuang/` covers every `ffi-rs-*` binding.
  */
-import { findEsmImportsOfExternalPackages } from "./cli-executable-imports.ts";
 /**
  * External because Node actually loads them from disk at runtime.
  *
@@ -128,19 +127,4 @@ export function findInlinedExternalPackages(source: string): {
     inlined: [...inlined].sort(),
     inlinedPackages: [...inlinedPackages].sort(),
   };
-}
-
-/**
- * Scan an emitted bundle chunk for bare imports that will fail at runtime.
- *
- * The bundler leaves a dependency external when it cannot resolve it — a
- * stale install after a lockfile change ships exactly this — and only warns.
- * Every bare import the bundle keeps must therefore be a runtime external with
- * its closure staged beside the backend; anything else dies with
- * ERR_MODULE_NOT_FOUND as soon as the packaged backend boots.
- */
-export function findUnexpectedExternalBundleImports(source: string): ReadonlyArray<string> {
-  return findEsmImportsOfExternalPackages(source).filter(
-    (specifier) => !isRuntimeExternalCliDependency(specifier),
-  );
 }

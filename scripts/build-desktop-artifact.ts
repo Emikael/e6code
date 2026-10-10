@@ -31,9 +31,9 @@ import {
 import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import {
   findInlinedExternalPackages,
-  findUnexpectedExternalBundleImports,
   selectCliRuntimeExternalDependencies,
 } from "./lib/cli-external-packages.ts";
+import { findUnexpectedExternalBundleImports } from "./lib/unexpected-external-bundle-imports.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
