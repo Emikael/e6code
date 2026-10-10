@@ -1052,8 +1052,7 @@ Review the following pull request:
 8. Return the review using a consistent, structured Markdown format.
 
 ## Additional Instructions
-
-Add any specific requirements or areas you want the review to focus on here.`;
+`;
 
 /**
  * A full code review of the change. Unlike Explain, the whole request is the composer's prompt

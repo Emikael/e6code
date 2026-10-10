@@ -1174,11 +1174,10 @@ describe("asking about a change rather than working on it", () => {
     expect(handoff.prompt).not.toContain("{{PR_LINK}}");
     expect(handoff.prompt.startsWith("# Pull Request Review Request\n")).toBe(true);
     expect(handoff.prompt).toContain("7. List actionable findings ordered by severity (P0–P3).");
-    expect(
-      handoff.prompt.endsWith(
-        "## Additional Instructions\n\nAdd any specific requirements or areas you want the review to focus on here.",
-      ),
-    ).toBe(true);
+    expect(handoff.prompt).not.toContain(
+      "Add any specific requirements or areas you want the review to focus on here.",
+    );
+    expect(handoff.prompt.endsWith("## Additional Instructions\n")).toBe(true);
   });
 
   it("keeps a link that reads like a replacement pattern literal, on one line", () => {
