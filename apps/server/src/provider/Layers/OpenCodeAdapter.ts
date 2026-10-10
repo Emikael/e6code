@@ -3000,7 +3000,11 @@ export function makeOpenCodeAdapter(
                 { signal },
               );
             }
-          }).pipe(Effect.timeout("10 seconds"));
+            // Cold sessions legitimately exceed snappy budgets: the prompt is
+            // accepted in ~2s but delivery waits on first-touch init (model
+            // provider, MCP handshakes, plugins), observed past 10s, while
+            // warm submissions settle in milliseconds.
+          }).pipe(Effect.timeout("60 seconds"));
           const promptEffect = submission.pipe(
             Effect.catchTags({
               OpenCodeRuntimeError: (cause) => Effect.fail(toRequestError(cause)),
@@ -3010,7 +3014,7 @@ export function makeOpenCodeAdapter(
                   new ProviderAdapterRequestError({
                     provider: PROVIDER,
                     method: submissionMethod,
-                    detail: "OpenCode prompt submission did not complete within 10 seconds.",
+                    detail: "OpenCode prompt submission did not complete within 60 seconds.",
                     cause,
                   }),
                 );

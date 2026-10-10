@@ -3346,6 +3346,53 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
+  it.effect("allows slow cold-start prompt submissions up to 60 seconds", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-prompt-submission-timeout");
+      const promptStarted = promiseWithResolvers<void>();
+      runtimeMock.state.promptAsyncImplementation = async () => {
+        promptStarted.resolve(undefined);
+        await new Promise<void>(() => {});
+      };
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const sendFiber = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "hi",
+          modelSelection: createModelSelection(
+            ProviderInstanceId.make("opencode"),
+            "opencode/kimi-k3",
+          ),
+        })
+        .pipe(Effect.result, Effect.forkChild);
+      yield* Effect.promise(() => promptStarted.promise);
+      NodeAssert.equal(runtimeMock.state.promptCalls.length, 1);
+
+      yield* advanceTestClock(59_999);
+      NodeAssert.equal(sendFiber.pollUnsafe(), undefined);
+      yield* advanceTestClock(1);
+
+      const result = yield* Fiber.join(sendFiber);
+      NodeAssert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        NodeAssert.equal(result.failure._tag, "ProviderAdapterRequestError");
+        NodeAssert.equal(
+          result.failure.detail,
+          "OpenCode prompt submission did not complete within 60 seconds.",
+        );
+      }
+
+      runtimeMock.state.promptAsyncImplementation = null;
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("shares one abort request across concurrent stops", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
