@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Spawns a Node subprocess to assert the TypeScript compiler stays unloaded.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
