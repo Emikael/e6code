@@ -3000,10 +3000,11 @@ export function makeOpenCodeAdapter(
                 { signal },
               );
             }
-            // Cold sessions legitimately exceed snappy budgets: the prompt is
-            // accepted in ~2s but delivery waits on first-touch init (model
-            // provider, MCP handshakes, plugins), observed past 10s, while
-            // warm submissions settle in milliseconds.
+            // One deadline for switchModel, switchAgent, instructions.put, and
+            // session.prompt or session.command. Cold sessions hold
+            // session.prompt while first-touch init runs; the inbox event can
+            // arrive before that HTTP call returns. Warm submissions settle
+            // in milliseconds.
           }).pipe(Effect.timeout("60 seconds"));
           const promptEffect = submission.pipe(
             Effect.catchTags({
