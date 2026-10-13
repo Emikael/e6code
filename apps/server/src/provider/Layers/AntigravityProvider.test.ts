@@ -489,7 +489,7 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
     ),
   );
 
-  it.effect("closes a stalled health probe at its deadline", () =>
+  it.effect("closes a stalled health probe at its deadline and automatically rechecks", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeHarness();
@@ -508,8 +508,21 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
         yield* TestClock.adjust("90 seconds");
         const snapshot = yield* Fiber.join(refresh);
         yield* Deferred.await(closed);
-        expect(snapshot.status).toBe("error");
+        expect(snapshot.status).toBe("warning");
         expect(snapshot.message).toContain("90 seconds");
+        expect(snapshot.message).toContain("Automatically rechecking");
+
+        yield* Ref.set(harness.probe, Effect.succeed(initializeResult));
+        const recovered = yield* harness.provider.snapshot.streamChanges.pipe(
+          Stream.filter((next) => !next.message?.includes("90 seconds")),
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust("2 seconds");
+        const [healthy] = Array.from(yield* Fiber.join(recovered));
+        expect(healthy?.installed).toBe(true);
+        expect(healthy?.message).not.toContain("Automatically rechecking");
       }),
     ),
   );
