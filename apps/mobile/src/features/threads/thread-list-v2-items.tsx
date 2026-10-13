@@ -307,12 +307,12 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
         ) : null}
         <Text
           className={cn(
-            "flex-1 text-sm font-e6-medium text-foreground-muted",
-            sidebarPane && "text-drawer-foreground-muted",
+            "flex-1 text-base font-e6-medium text-foreground",
+            sidebarPane && "text-drawer-foreground",
           )}
           numberOfLines={1}
         >
-          {projectTitle}
+          {pendingTask.title}
         </Text>
         {isDraft ? (
           <View className="flex-row items-center gap-1">
@@ -335,19 +335,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           </Text>
         )}
       </View>
-      {/* One line, unlike the two an active row allows: a queued title is
-          derived from the whole prompt rather than written as a title, so the
-          second line is usually a stray word or emoji rather than meaning. */}
-      <Text
-        className={cn(
-          "mt-1 text-base font-e6-medium text-foreground",
-          sidebarPane && "text-drawer-foreground",
-        )}
-        numberOfLines={1}
-      >
-        {pendingTask.title}
-      </Text>
-      {branch || props.environmentLabel ? (
+      {projectTitle || branch || props.environmentLabel ? (
         <View className="mt-1 flex-row items-center gap-1">
           <Text
             className={cn(
@@ -356,6 +344,17 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             )}
             numberOfLines={1}
           >
+            {projectTitle ? (
+              <Text
+                className={cn(
+                  "text-xs font-e6-medium text-foreground-muted",
+                  sidebarPane && "text-drawer-foreground-muted",
+                )}
+              >
+                {projectTitle}
+              </Text>
+            ) : null}
+            {projectTitle && (branch || props.environmentLabel) ? "  ·  " : null}
             {branch ? (
               <Text
                 className={cn(
@@ -823,6 +822,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
       : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
 
+  const projectTitle = props.projectTitle ?? props.project?.title ?? "";
+  const diff =
+    thread.latestTurn?.diffStat &&
+    (thread.latestTurn.diffStat.insertions > 0 || thread.latestTurn.diffStat.deletions > 0)
+      ? thread.latestTurn.diffStat
+      : null;
+
   // Sidebar rows use navigation foregrounds on their active and idle surfaces.
   const cardContent = (
     <>
@@ -832,20 +838,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             environmentId={thread.environmentId}
             faviconPath={props.project.faviconPath}
             size={15}
-            projectTitle={props.projectTitle ?? props.project.title}
+            projectTitle={projectTitle}
             workspaceRoot={props.project.workspaceRoot}
           />
         ) : null}
         <Text
           className={cn(
-            "flex-1 text-sm font-e6-medium",
+            "flex-1 text-base font-e6-medium",
             selected
-              ? selectedThreadRowColors.mutedForegroundClassName
-              : rowAppearance.mutedForegroundClassName,
+              ? selectedThreadRowColors.foregroundClassName
+              : rowAppearance.foregroundClassName,
           )}
           numberOfLines={1}
         >
-          {props.projectTitle ?? props.project?.title ?? ""}
+          {thread.title}
         </Text>
         {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
         {pinnedRow ? (
@@ -868,17 +874,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           {statusLabel?.label ?? timeLabel}
         </Text>
       </View>
-      <Text
-        className={cn(
-          "mt-1 text-base font-e6-medium",
-          selected
-            ? selectedThreadRowColors.foregroundClassName
-            : rowAppearance.foregroundClassName,
-        )}
-        numberOfLines={2}
-      >
-        {thread.title}
-      </Text>
       {props.searchMatch ? (
         <View className="mt-1">
           <ThreadSearchMatchExcerpt
@@ -902,8 +897,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.session.lastError}
           </Text>
-        ) : thread.branch || props.environmentLabel ? (
-          /* "branch · machine" share one truncating line. The machine sits
+        ) : projectTitle || thread.branch || props.environmentLabel ? (
+          /* "project · branch · machine" share one truncating line. The machine sits
              last so a tight fit cuts the repetitive label, not the branch —
              and machine-only fills the row for non-git projects. The glyph
              hugs the label (it cannot live inside the Text without breaking
@@ -919,6 +914,19 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               )}
               numberOfLines={1}
             >
+              {projectTitle ? (
+                <Text
+                  className={cn(
+                    "text-xs font-e6-medium",
+                    selected
+                      ? selectedThreadRowColors.mutedForegroundClassName
+                      : rowAppearance.mutedForegroundClassName,
+                  )}
+                >
+                  {projectTitle}
+                </Text>
+              ) : null}
+              {projectTitle && (thread.branch || props.environmentLabel) ? "  ·  " : null}
               {thread.branch ? (
                 <Text
                   className={cn(
@@ -986,6 +994,28 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               {pr.kind === "stack" || pr.others > 0 ? pr.label : `#${pr.label}`}
             </Text>
           </View>
+        ) : null}
+        {diff ? (
+          <Text className="shrink-0 text-xs tabular-nums" style={{ fontFamily: MONO_FONT }}>
+            <Text
+              className={
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : "text-adaptive-emerald-600-400"
+              }
+            >
+              +{diff.insertions}
+            </Text>{" "}
+            <Text
+              className={
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : "text-adaptive-rose-600-400"
+              }
+            >
+              −{diff.deletions}
+            </Text>
+          </Text>
         ) : null}
         {props.providerInstance ? (
           <ProviderInstanceIcon
