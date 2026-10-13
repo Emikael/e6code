@@ -27,6 +27,7 @@ import {
   type ModelUsage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { parseCliArgs } from "@e6tools/shared/cliArgs";
+import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 import { isWorkspaceImagePreviewPath } from "@e6tools/shared/filePreview";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
 import {
@@ -59,6 +60,7 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  type ServerProviderSkill,
 } from "@e6tools/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -478,6 +480,10 @@ export interface ClaudeAdapterLiveOptions {
   readonly modelCatalog?: Effect.Effect<ClaudeModelCatalog>;
   /** Scoped-bucket names the driver's status probe last saw; see `claudeUsageLimits`. */
   readonly scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>;
+  /** Receives the skill names each session's `system/init` announces, for the driver's catalog. */
+  readonly recordSessionSkills?: (names: ReadonlyArray<string>) => Effect.Effect<void>;
+  /** The driver's `$` catalog for a workspace, so turns dispatch what the menu offered. */
+  readonly skillCatalog?: (cwd: string) => Effect.Effect<ReadonlyArray<ServerProviderSkill>>;
 }
 
 function isUuid(value: string): boolean {
@@ -3619,6 +3625,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     switch (message.subtype) {
       case "init":
+        if (options?.recordSessionSkills && Array.isArray(message.skills)) {
+          yield* options.recordSessionSkills(message.skills);
+        }
         yield* offerRuntimeEvent({
           ...base,
           type: "session.configured",
@@ -5247,7 +5256,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // and the scan is a few directory reads. A skill switched off via
     // skillOverrides, or reserved for the agent with `user-invocable: false`,
     // is left as prose: the CLI would answer `/name` with a notice instead of
-    // running it.
+    // running it. Only a prompt that names a skill also reads the driver's
+    // native catalog, which adds plugin and bundled skills.
     const skills = yield* discoverClaudeSkills(
       claudeSettings,
       context.session.cwd,
@@ -5256,13 +5266,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
     );
+    const nativeSkills =
+      options?.skillCatalog &&
+      context.session.cwd &&
+      collectComposerInlineTokens(`${input.input ?? ""}\n`).some((token) => token.type === "skill")
+        ? yield* options.skillCatalog(context.session.cwd)
+        : [];
     const message = yield* buildUserMessageEffect(input, {
       fileSystem,
       attachmentsDir: serverConfig.attachmentsDir,
       boundInstanceId,
       modelCatalog,
       skillNames: new Set(
-        skills
+        [...skills, ...nativeSkills]
           .filter((skill) => skill.enabled && skill.userInvocable !== false)
           .map((skill) => skill.name),
       ),

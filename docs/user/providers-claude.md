@@ -71,9 +71,12 @@ timestamp shows when the displayed wait started.
 
 ## Skills
 
-Claude skills come from the config directory's `skills` folder and the project's
-`.claude/skills` folder. If both define the same name, the config-directory copy
-wins. Skills disabled in Claude's settings do not appear in the composer.
+The composer offers the skills Claude Code itself lists for the project: your
+config directory's and the project's skills, plugin skills and commands, and
+skills bundled with Claude Code. Skills disabled in Claude's settings, and
+skills reserved for Claude's own use, do not appear. Bundled skills you can only
+start yourself, such as `batch`, appear once Claude has run a turn on that
+server. Projects opened after that turn, or after a server restart, list them.
 
 Use `$` in the composer to select a skill. Skills marked `disable-model-invocation`
 can still be started by you. Invoke those one per message: Claude directly runs

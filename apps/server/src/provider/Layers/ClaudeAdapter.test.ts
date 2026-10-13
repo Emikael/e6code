@@ -169,6 +169,8 @@ function makeHarness(config?: {
   readonly claudeConfig?: Partial<ClaudeSettings>;
   readonly instanceId?: ProviderInstanceId;
   readonly scopedLimitNames?: ClaudeAdapterLiveOptions["scopedLimitNames"];
+  readonly recordSessionSkills?: ClaudeAdapterLiveOptions["recordSessionSkills"];
+  readonly skillCatalog?: ClaudeAdapterLiveOptions["skillCatalog"];
   readonly environment?: ClaudeAdapterLiveOptions["environment"];
   readonly getSessionMessages?: ClaudeAdapterLiveOptions["getSessionMessages"];
   readonly forkSession?: ClaudeAdapterLiveOptions["forkSession"];
@@ -186,6 +188,8 @@ function makeHarness(config?: {
     ...(config?.environment ? { environment: config.environment } : {}),
     ...(config?.instanceId ? { instanceId: config.instanceId } : {}),
     ...(config?.scopedLimitNames ? { scopedLimitNames: config.scopedLimitNames } : {}),
+    ...(config?.recordSessionSkills ? { recordSessionSkills: config.recordSessionSkills } : {}),
+    ...(config?.skillCatalog ? { skillCatalog: config.skillCatalog } : {}),
     modelCatalog: Effect.succeed(SYNTHETIC_CLAUDE_MODEL_CATALOG),
     ...(config?.getSessionMessages ? { getSessionMessages: config.getSessionMessages } : {}),
     ...(config?.forkSession ? { forkSession: config.forkSession } : {}),
@@ -1092,6 +1096,118 @@ describe("ClaudeAdapterLive", () => {
       // through the path line ProviderService writes into the prompt, so the
       // text block stays last on its own.
       assert.deepEqual(prompts[2]?.message.content, [commandBlock]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("dispatches catalog skills missing from filesystem discovery", () => {
+    const catalogCwds: Array<string> = [];
+    const harness = makeHarness({
+      skillCatalog: (cwd) => {
+        catalogCwds.push(cwd);
+        return Effect.succeed([
+          { name: "plugin:review", description: "Review", scope: "plugin", enabled: true },
+          { name: "agent-only", enabled: true, userInvocable: false },
+        ]);
+      },
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        cwd: "/tmp/claude-skill-catalog",
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "please use $plugin:review here, not $agent-only",
+        attachments: [],
+      });
+      const prompt = yield* Effect.promise(() =>
+        readFirstPromptMessage(harness.getLastCreateQueryInput()),
+      );
+      assert.deepEqual(catalogCwds, ["/tmp/claude-skill-catalog"]);
+      assert.deepEqual(prompt?.message.content, [
+        { type: "text", text: "please use" },
+        { type: "text", text: "/plugin:review here, not $agent-only" },
+      ]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not read the skill catalog for ordinary prose or fenced examples", () => {
+    let reads = 0;
+    const harness = makeHarness({
+      skillCatalog: () => {
+        reads += 1;
+        return Effect.succeed([]);
+      },
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        cwd: "/tmp/claude-skill-catalog",
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "explain this example\n```\n$review\n```",
+        attachments: [],
+      });
+      assert.equal(reads, 0);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("records the skills a session announces for the driver's catalog", () => {
+    const recorded: Array<ReadonlyArray<string>> = [];
+    const harness = makeHarness({
+      recordSessionSkills: (names) => Effect.sync(() => void recorded.push(names)),
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const configured = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.type === "session.configured" && event.payload.config.uuid === "init-with-skills",
+        ),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      harness.query.emit({
+        type: "system",
+        subtype: "init",
+        apiKeySource: "none",
+        claude_code_version: "test",
+        cwd: "/tmp/claude-adapter-test",
+        tools: [],
+        mcp_servers: [],
+        model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+        permissionMode: "bypassPermissions",
+        slash_commands: ["batch", "clear"],
+        output_style: "default",
+        skills: ["batch"],
+        plugins: [],
+        session_id: "session-announcing-skills",
+        uuid: "init-with-skills",
+      } as unknown as SDKMessage);
+      yield* Fiber.join(configured);
+      assert.deepEqual(recorded, [["batch"]]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

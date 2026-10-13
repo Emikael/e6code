@@ -19,6 +19,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -59,8 +60,13 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
-import { makeClaudeCapabilitiesCacheKey, makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
-import { discoverClaudeSkills } from "./ClaudeSkills.ts";
+import { makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
+import {
+  discoverClaudeSkills,
+  makeClaudeSessionSkillNames,
+  mergeClaudeSkillCatalog,
+  resolveClaudeNativeSkills,
+} from "./ClaudeSkills.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
@@ -109,7 +115,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const { cwd } = yield* ServerConfig;
+      const { cwd, providerStatusCacheDir } = yield* ServerConfig;
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
@@ -150,11 +156,52 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       // One per instance: the status probe writes the model-scoped bucket
       // names it saw, the adapter reads them to place turn-driven events.
       const scopedLimitNames = yield* makeClaudeScopedLimitNames;
+      // Skill names live sessions announced in `system/init`. Only they tell
+      // user-only bundled skills from terminal commands, and only after a
+      // turn, so they persist for workspace catalogs built after a restart.
+      const sessionSkills = yield* makeClaudeSessionSkillNames(
+        path.join(providerStatusCacheDir, "claude-session-skills", `${instanceId}.json`),
+      ).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
+
+      // The instance owns its binary and HOME; workspace keys keep native catalogs isolated.
+      const capabilitiesProbeCache = yield* Cache.make({
+        capacity: 32,
+        timeToLive: CAPABILITIES_PROBE_TTL,
+        lookup: (workspaceCwd: string) =>
+          probeClaudeCapabilities(effectiveConfig, processEnv, workspaceCwd).pipe(
+            Effect.provideService(Path.Path, path),
+          ),
+      });
+
+      /** The `$` catalog for a workspace; the menu and turn dispatch both read it. */
+      const skillCatalogForCwd = (workspaceCwd: string) =>
+        Effect.all([
+          discoverClaudeSkills(effectiveConfig, workspaceCwd, processEnv),
+          Cache.get(capabilitiesProbeCache, workspaceCwd),
+          Ref.get(sessionSkills.names),
+        ]).pipe(
+          Effect.map(([skills, capabilities, sessionSkills]) => ({
+            capabilities,
+            skills: mergeClaudeSkillCatalog(
+              skills,
+              resolveClaudeNativeSkills(capabilities?.nativeSkills, sessionSkills),
+            ),
+          })),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        );
+
       const adapterOptions = {
         instanceId,
         environment: processEnv,
         modelCatalog,
         scopedLimitNames,
+        recordSessionSkills: sessionSkills.record,
+        skillCatalog: (workspaceCwd: string) =>
+          skillCatalogForCwd(workspaceCwd).pipe(Effect.map(({ skills }) => skills)),
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       };
       const adapter = yield* makeClaudeAdapter(effectiveConfig, adapterOptions);
@@ -162,22 +209,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         effectiveConfig,
         processEnv,
         modelCatalog,
-      );
-
-      // Per-instance capabilities cache: keyed on binary + resolved HOME so
-      // account-specific probes never share auth metadata across instances.
-      const capabilitiesProbeCache = yield* Cache.make({
-        capacity: 1,
-        timeToLive: CAPABILITIES_PROBE_TTL,
-        lookup: () =>
-          probeClaudeCapabilities(effectiveConfig, processEnv, cwd).pipe(
-            Effect.provideService(Path.Path, path),
-          ),
-      });
-      const capabilitiesCacheKey = yield* makeClaudeCapabilitiesCacheKey(
-        effectiveConfig,
-        cwd,
-        processEnv,
       );
 
       // Start the TTL-gated refresh without delaying provider readiness. The
@@ -188,7 +219,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
             Effect.flatMap((manifest) =>
               checkClaudeProviderStatus(
                 effectiveConfig,
-                () => Cache.get(capabilitiesProbeCache, capabilitiesCacheKey),
+                () => Cache.get(capabilitiesProbeCache, cwd),
                 processEnv,
                 cwd,
                 resolveClaudeModelCatalog(manifest),
@@ -241,13 +272,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       const snapshotForCwd = (cwd: string) =>
         !effectiveConfig.enabled
           ? snapshot.getSnapshot
-          : Effect.all([
-              snapshot.getSnapshot,
-              discoverClaudeSkills(effectiveConfig, cwd, processEnv),
-            ]).pipe(
-              Effect.map(([machineSnapshot, skills]) => ({ ...machineSnapshot, skills })),
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
+          : Effect.all([snapshot.getSnapshot, skillCatalogForCwd(cwd)]).pipe(
+              Effect.map(([machineSnapshot, { skills, capabilities }]) => ({
+                ...machineSnapshot,
+                skills,
+                ...(capabilities
+                  ? { slashCommands: [{ name: "compact" }, ...capabilities.slashCommands] }
+                  : {}),
+              })),
             );
 
       return {
