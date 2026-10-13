@@ -13,11 +13,49 @@ export type FloatingWorkingStatus =
   // still be checking out, so there is no turn to time.
   | { readonly kind: "preparing"; readonly label: string }
   | {
+      readonly kind: "attention";
+      readonly tone: "approval" | "input";
+      readonly label: string;
+      readonly onPress: () => void;
+    }
+  | {
       readonly kind: "connection";
       readonly tone: "reconnecting" | "unavailable";
       readonly label: string;
       readonly onPress: () => void;
     };
+
+/**
+ * High-signal attention cue shown when the user scrolls away from the bottom
+ * while a blocking approval or user-input request is waiting at the turn end.
+ */
+export function pendingAttentionFloatingStatus(input: {
+  readonly hasPendingApproval: boolean;
+  readonly hasPendingUserInput: boolean;
+  readonly showScrollToEnd: boolean;
+  readonly onPress: () => void;
+}): FloatingWorkingStatus | null {
+  if (!input.showScrollToEnd) {
+    return null;
+  }
+  if (input.hasPendingApproval) {
+    return {
+      kind: "attention",
+      tone: "approval",
+      label: "Approval waiting",
+      onPress: input.onPress,
+    };
+  }
+  if (input.hasPendingUserInput) {
+    return {
+      kind: "attention",
+      tone: "input",
+      label: "Question waiting",
+      onPress: input.onPress,
+    };
+  }
+  return null;
+}
 
 /**
  * The pill's connection variant, or null once the environment is connected and

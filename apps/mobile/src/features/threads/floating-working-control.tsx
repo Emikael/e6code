@@ -126,9 +126,9 @@ export function FloatingWorkingControl(props: {
     return null;
   }
 
-  // Only the connection label is a button (tap to reconnect); the others
-  // pass touches through to the feed like before.
-  const statusInteractive = props.status?.kind === "connection";
+  // Connection and attention labels act as buttons (reconnect or scroll to turn).
+  const statusInteractive =
+    props.status?.kind === "connection" || props.status?.kind === "attention";
   const capsuleInteractive = statusInteractive || props.devicePreview !== null;
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
@@ -294,6 +294,32 @@ function FloatingStatusLabel(props: {
   }
   if (props.status.kind === "compacting") {
     return <CompactingLabel key="compacting" onLayout={props.onLayout} />;
+  }
+  if (props.status.kind === "attention") {
+    return (
+      <StatusLabelRow
+        key={`attention:${props.status.tone}`}
+        accessibilityLabel={props.status.label}
+        accessibilityRole="button"
+        className="gap-2"
+        onLayout={props.onLayout}
+        onPress={props.status.onPress}
+      >
+        <View
+          className={
+            props.status.tone === "approval"
+              ? "h-2 w-2 rounded-full bg-amber-500"
+              : "h-2 w-2 rounded-full bg-indigo-500"
+          }
+        />
+        <Text
+          className="max-w-[260px] shrink font-e6-medium text-xs text-foreground"
+          numberOfLines={1}
+        >
+          {props.status.label}
+        </Text>
+      </StatusLabelRow>
+    );
   }
   if (props.status.kind === "connection") {
     return (

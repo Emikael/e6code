@@ -496,6 +496,41 @@ function RightPanelEmptyState(props: {
     );
   };
 
+  const workbenchModes = [
+    {
+      id: "changes",
+      title: "Changes",
+      items: [
+        actions[3], // Diff (D)
+        actions[2], // Files (F)
+        actions[4], // Pull request (P)
+        actions[5], // Linked pull requests (L)
+      ],
+    },
+    {
+      id: "preview",
+      title: "Preview",
+      items: [
+        actions[0], // Browser (B)
+        actions[7], // Device (M)
+      ],
+    },
+    {
+      id: "terminal",
+      title: "Terminal",
+      items: [
+        actions[1], // Terminal (T)
+      ],
+    },
+    {
+      id: "agents",
+      title: "Agents",
+      items: [
+        actions[6], // Agents (A)
+      ],
+    },
+  ] as const;
+
   return (
     <div
       ref={focusOnMount}
@@ -510,99 +545,108 @@ function RightPanelEmptyState(props: {
         "pb-[calc(var(--workspace-topbar-height)+--spacing(6))]",
       )}
     >
-      <div className="w-full max-w-xs">
-        <h3 className="mb-3 text-center font-medium text-foreground text-sm">Open a surface</h3>
-        <div className="flex flex-col gap-0.5">
-          {actions.map((action) =>
-            action.available ? (
-              // The row is itself a button, so the profile chooser sits beside
-              // it in a wrapper rather than inside it. Hover lives on the
-              // wrapper: the chooser overlays the row, and a pointer moving
-              // onto it must not read as leaving the row.
-              <div
-                key={action.label}
-                className="group relative"
-                onMouseEnter={() => setHighlight(availableActions.indexOf(action))}
-                onMouseLeave={() =>
-                  setHighlight((current) =>
-                    current === availableActions.indexOf(action) ? -1 : current,
-                  )
-                }
-              >
-                <button
-                  type="button"
-                  onClick={action.onClick}
-                  className={cn(
-                    "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-left text-sm transition-colors group-hover:bg-accent/60",
-                    isHighlighted(action) && "bg-accent/60",
-                  )}
-                >
-                  {actionIcon(action, "size-4")}
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate",
-                      action.label === "Browser" && props.browserProfiles.length > 1 && "pr-7",
-                    )}
-                  >
-                    {action.label}
-                  </span>
-                  <Kbd>{action.shortcut}</Kbd>
-                </button>
-                {/*
-                  Same choice the tab bar's "+" menu offers: the row opens the
-                  default profile, the chevron picks another. Only worth showing
-                  once there is something to choose between.
-                */}
-                {action.label === "Browser" && props.browserProfiles.length > 1 ? (
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <Button
-                          aria-label="Open browser in a profile"
-                          className="absolute top-1/2 right-8 -translate-y-1/2 [--control-icon-color:currentColor]"
-                          size="icon-xs"
-                          variant="ghost-muted"
-                        />
+      <div className="w-full max-w-xs space-y-3.5">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="font-medium text-foreground text-xs tracking-tight">Workbench Modes</h3>
+          <span className="font-mono text-[10px] text-muted-foreground tabular-nums">4 modes</span>
+        </div>
+        <div className="flex flex-col gap-2.5">
+          {workbenchModes.map((mode) => (
+            <div
+              key={mode.id}
+              data-workbench-mode={mode.id}
+              className="machined-card rounded-xl p-1.5"
+            >
+              <div className="px-2 pt-0.5 pb-1 font-medium text-[10px] tracking-wider text-muted-foreground/80 uppercase">
+                {mode.title}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {mode.items.map((action) =>
+                  action.available ? (
+                    <div
+                      key={action.label}
+                      className="group relative"
+                      onMouseEnter={() => setHighlight(availableActions.indexOf(action))}
+                      onMouseLeave={() =>
+                        setHighlight((current) =>
+                          current === availableActions.indexOf(action) ? -1 : current,
+                        )
                       }
                     >
-                      <ChevronDown className="size-3.5" />
-                    </MenuTrigger>
-                    <MenuPopup
-                      align="end"
-                      side="bottom"
-                      sideOffset={6}
-                      className="min-w-40 max-w-56"
-                    >
-                      {props.browserProfiles.map((profile) => (
-                        <MenuItem
-                          key={profile.id}
-                          onClick={() => props.onAddBrowserInProfile(profile.id)}
+                      <button
+                        type="button"
+                        onClick={action.onClick}
+                        className={cn(
+                          "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-left text-xs font-medium transition-colors group-hover:bg-accent/60",
+                          isHighlighted(action) && "bg-accent/60",
+                        )}
+                      >
+                        {actionIcon(action, "size-3.5")}
+                        <span
+                          className={cn(
+                            "min-w-0 flex-1 truncate",
+                            action.label === "Browser" &&
+                              props.browserProfiles.length > 1 &&
+                              "pr-7",
+                          )}
                         >
-                          <span className="min-w-0 truncate">{profile.name}</span>
-                        </MenuItem>
-                      ))}
-                    </MenuPopup>
-                  </Menu>
-                ) : null}
+                          {action.label}
+                        </span>
+                        <Kbd className="tabular-nums">{action.shortcut}</Kbd>
+                      </button>
+                      {action.label === "Browser" && props.browserProfiles.length > 1 ? (
+                        <Menu>
+                          <MenuTrigger
+                            render={
+                              <Button
+                                aria-label="Open browser in a profile"
+                                className="absolute top-1/2 right-8 -translate-y-1/2 [--control-icon-color:currentColor]"
+                                size="icon-xs"
+                                variant="ghost-muted"
+                              />
+                            }
+                          >
+                            <ChevronDown className="size-3.5" />
+                          </MenuTrigger>
+                          <MenuPopup
+                            align="end"
+                            side="bottom"
+                            sideOffset={6}
+                            className="min-w-40 max-w-56"
+                          >
+                            {props.browserProfiles.map((profile) => (
+                              <MenuItem
+                                key={profile.id}
+                                onClick={() => props.onAddBrowserInProfile(profile.id)}
+                              >
+                                <span className="min-w-0 truncate">{profile.name}</span>
+                              </MenuItem>
+                            ))}
+                          </MenuPopup>
+                        </Menu>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <DisabledReasonTooltip
+                      key={action.label}
+                      reason={action.disabledReason}
+                      trigger={
+                        <div
+                          tabIndex={0}
+                          aria-disabled="true"
+                          className="flex h-8 w-full cursor-default items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-left text-xs opacity-50"
+                        >
+                          {actionIcon(action, "size-3.5")}
+                          <span className="min-w-0 flex-1 truncate">{action.label}</span>
+                          <Kbd className="tabular-nums">{action.shortcut}</Kbd>
+                        </div>
+                      }
+                    />
+                  ),
+                )}
               </div>
-            ) : (
-              <DisabledReasonTooltip
-                key={action.label}
-                reason={action.disabledReason}
-                trigger={
-                  <div
-                    tabIndex={0}
-                    aria-disabled="true"
-                    className="flex h-8 w-full cursor-default items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-left text-sm opacity-50"
-                  >
-                    {actionIcon(action, "size-4")}
-                    <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                    <Kbd>{action.shortcut}</Kbd>
-                  </div>
-                }
-              />
-            ),
-          )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -1155,10 +1199,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   onAuxClick={(event) => handleTabAuxClick(event, surface)}
                   onContextMenu={(event) => void handleTabContextMenu(event, surface)}
                   className={cn(
-                    "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                    "cursor-pointer group/tab flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-md pr-2.5 pl-1.5 text-xs font-medium transition-colors",
                     ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
                     active
-                      ? "bg-accent text-foreground"
+                      ? "bg-surface-raised text-foreground ring-1 ring-border/60 shadow-[inset_0_1px_0_0_var(--bezel-highlight)]"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >
@@ -1260,7 +1304,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   render={
                     <Button
                       aria-label="Add panel surface"
-                      className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
                       size="icon-xs"
                       variant="ghost"
                     />

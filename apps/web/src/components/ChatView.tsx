@@ -10145,27 +10145,137 @@ export default function ChatView(props: ChatViewProps) {
                   { context: { terminalFocus: false } },
                 )}
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
+                frontierResolution={
+                  !paintOnlyDisplayedTimeline &&
+                  (activePendingApproval ||
+                    pendingUserInputs.length > 0 ||
+                    (showPlanFollowUpPrompt && activeProposedPlan)) ? (
+                    <div className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "size-2 shrink-0 rounded-full",
+                            activePendingApproval
+                              ? "animate-status-pulse bg-warning shadow-[0_0_8px_var(--warning)]"
+                              : "bg-info shadow-[0_0_8px_var(--info)]",
+                          )}
+                        />
+                        <span className="font-medium text-foreground">
+                          {activePendingApproval
+                            ? "Approval required at turn frontier"
+                            : pendingUserInputs.length > 0
+                              ? "Agent waiting for your response"
+                              : "Plan ready to implement"}
+                        </span>
+                        {activePendingApproval?.detail ? (
+                          <code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                            {activePendingApproval.detail}
+                          </code>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {activePendingApproval ? (
+                          <>
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              disabled={respondingRequestIds.includes(
+                                activePendingApproval.requestId,
+                              )}
+                              onClick={() =>
+                                void onRespondToApproval(activePendingApproval.requestId, "decline")
+                              }
+                            >
+                              Decline
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="default"
+                              disabled={respondingRequestIds.includes(
+                                activePendingApproval.requestId,
+                              )}
+                              onClick={() =>
+                                void onRespondToApproval(activePendingApproval.requestId, "accept")
+                              }
+                            >
+                              Approve
+                            </Button>
+                          </>
+                        ) : showPlanFollowUpPrompt && activeProposedPlan ? (
+                          <>
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              disabled={isSendBusy}
+                              onClick={() => void onImplementPlanInNewThread()}
+                            >
+                              In new thread
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="default"
+                              disabled={isSendBusy}
+                              onClick={() => void onSend()}
+                            >
+                              Implement plan
+                            </Button>
+                          </>
+                        ) : (
+                          <Button size="xs" variant="outline" onClick={() => focusComposer()}>
+                            Answer below
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : null
+                }
               />
 
-              {/* scroll to end pill — shown when user has scrolled away from the live edge */}
+              {/* scroll to end / active turn frontier pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
                 <div
                   className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
                   style={{ bottom: scrollToEndClearance + 4 }}
                 >
                   <Button
-                    aria-label="Scroll to end"
+                    aria-label={
+                      activePendingApproval
+                        ? "Approval waiting — scroll to end"
+                        : pendingUserInputs.length > 0
+                          ? "Question waiting — scroll to end"
+                          : "Scroll to end"
+                    }
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => {
                       composerRef.current?.restoreAfterTimelineReachedEnd();
                       scrollToEnd(true);
                     }}
-                    className="pointer-events-auto gap-1.5 rounded-full px-3 text-muted-foreground hover:text-foreground"
+                    className={cn(
+                      "pointer-events-auto gap-1.5 rounded-full px-3.5 text-muted-foreground hover:text-foreground",
+                      (activePendingApproval || pendingUserInputs.length > 0) &&
+                        "border-warning/40 text-foreground shadow-sm",
+                    )}
                     size="xs"
                     variant="glass"
                   >
+                    {activePendingApproval ? (
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-warning"
+                      />
+                    ) : pendingUserInputs.length > 0 ? (
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-info"
+                      />
+                    ) : null}
                     <ChevronDownIcon className="size-3.5" />
-                    Scroll to end
+                    {activePendingApproval
+                      ? "Approval waiting · Scroll to turn"
+                      : pendingUserInputs.length > 0
+                        ? "Question waiting · Scroll to turn"
+                        : "Scroll to end"}
                   </Button>
                 </div>
               )}
