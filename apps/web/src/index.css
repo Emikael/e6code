@@ -190,7 +190,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --color-card: var(--card);
   --color-foreground: var(--contrast-foreground);
   --color-background: var(--background);
+  --color-surface-well: var(--surface-well);
   --color-surface-raised: var(--surface-raised);
+  --color-surface-floating: var(--surface-floating);
+  --color-bezel-highlight: var(--bezel-highlight);
+  --color-bezel-border: var(--bezel-border);
   --color-message: var(--message-surface);
   --color-message-foreground: var(--contrast-message-foreground);
   --color-message-action: var(--message-action);
@@ -344,6 +348,39 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 
   @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
     background: var(--popover) !important;
+  }
+}
+
+@utility machined-bezel {
+  border: 1px solid var(--bezel-border);
+  box-shadow: inset 0 1px 0 0 var(--bezel-highlight);
+}
+
+@utility machined-card {
+  background-color: var(--surface-raised);
+  border: 1px solid var(--contrast-border);
+  box-shadow:
+    inset 0 1px 0 0 var(--bezel-highlight),
+    0 6px 18px -8px rgb(0 0 0 / 10%);
+
+  @variant dark {
+    box-shadow:
+      inset 0 1px 0 0 var(--bezel-highlight),
+      0 10px 26px -10px rgb(0 0 0 / 48%);
+  }
+}
+
+@utility command-deck-surface {
+  background-color: color-mix(in srgb, var(--surface-floating) var(--glass-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  border: 1px solid var(--bezel-border);
+  box-shadow:
+    inset 0 1px 0 0 var(--bezel-highlight),
+    var(--command-deck-shadow);
+
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    background-color: var(--surface-floating);
   }
 }
 
@@ -622,6 +659,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   }
   body {
     @apply text-foreground relative;
+    caret-color: var(--primary);
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 22%, transparent);
+    color: var(--contrast-foreground);
   }
 }
 
@@ -991,7 +1033,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --toolbar-control: var(--popover);
   --toolbar-control-foreground: var(--foreground);
   --toolbar-control-hover: var(--accent);
-  --surface-raised: color-mix(in srgb, var(--card) 20%, transparent);
+  --surface-well: color-mix(in oklab, var(--sidebar) 96%, black);
+  --surface-raised: color-mix(in oklab, var(--card) 92%, var(--background));
+  --surface-floating: var(--popover);
+  --bezel-highlight: rgb(255 255 255 / 72%);
+  --bezel-border: color-mix(in srgb, var(--foreground) 8%, transparent);
+  --command-deck-shadow: 0 16px 36px -14px rgb(0 0 0 / 12%), 0 2px 6px -1px rgb(0 0 0 / 5%);
   --foreground: var(--color-zinc-800);
   --card: var(--color-white);
   --card-foreground: var(--color-zinc-800);
@@ -1055,7 +1102,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     /* Keep controls and floating surfaces close to the neutral-black canvas.
        Borders and hover states provide separation without milky gray fills. */
     --background: var(--color-neutral-950);
-    --surface-raised: color-mix(in srgb, var(--background) 97%, var(--color-white));
+    --surface-well: color-mix(in oklab, var(--background) 93%, black);
+    --surface-raised: color-mix(in srgb, var(--background) 96%, var(--color-white));
+    --surface-floating: color-mix(in srgb, var(--background) 94%, var(--color-white));
+    --bezel-highlight: rgb(255 255 255 / 5%);
+    --bezel-border: color-mix(in srgb, var(--color-white) 7.5%, transparent);
+    --command-deck-shadow: 0 22px 44px -16px rgb(0 0 0 / 68%), 0 4px 12px -2px rgb(0 0 0 / 42%);
     --foreground: var(--color-neutral-100);
     --card: color-mix(in srgb, var(--background) 97%, var(--color-white));
     --card-foreground: var(--color-neutral-100);
@@ -1155,7 +1207,10 @@ html[data-theme-id]:not([data-theme-id=""]) {
   --toolbar-control: var(--app-theme-toolbar-control);
   --toolbar-control-foreground: var(--app-theme-toolbar-control-foreground);
   --toolbar-control-hover: var(--app-theme-toolbar-control-hover);
+  --surface-well: color-mix(in oklab, var(--app-theme-sidebar) 94%, black);
   --surface-raised: var(--app-theme-surface-raised);
+  --surface-floating: var(--app-theme-surface-overlay);
+  --bezel-border: var(--app-theme-toolbar-border);
   --foreground: var(--app-theme-text);
   --card: var(--app-theme-surface);
   --card-foreground: var(--app-theme-text);
@@ -1693,28 +1748,37 @@ code {
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
-  margin: 1.25rem 0 0.5rem;
+  margin: 1.25rem 0 0.45rem;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.28;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
   color: var(--contrast-foreground);
 }
 
 .chat-markdown h1 {
-  font-size: 1.25rem;
+  font-size: 1.3rem;
 }
 
 .chat-markdown h2 {
-  font-size: 1.125rem;
+  font-size: 1.15rem;
 }
 
 .chat-markdown h3 {
-  font-size: 1rem;
+  font-size: 1.02rem;
 }
 
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
   font-size: 0.875rem;
+}
+
+.chat-markdown > p,
+.chat-markdown > ul,
+.chat-markdown > ol,
+.chat-markdown > blockquote {
+  max-width: 70ch;
 }
 
 .chat-markdown h6 {
@@ -1795,8 +1859,8 @@ code {
 }
 
 .chat-markdown blockquote {
-  border-left: 2px solid var(--contrast-border);
-  padding-left: 0.8rem;
+  border-left: 1px solid var(--contrast-border);
+  padding-left: 0.85rem;
   color: var(--contrast-muted-foreground);
 }
 

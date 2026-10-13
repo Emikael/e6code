@@ -606,7 +606,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       ref={setStripElement}
       data-compact={labelsOverflow ? "" : undefined}
       className={cn(
-        "gap-1 text-xs font-normal text-muted-foreground/70",
+        "gap-1.5 text-xs font-medium text-muted-foreground/80 tabular-nums",
         // A non-Git strip with no visible composer controls should occupy no
         // space, but its host must retain a prospective width so controls can
         // become visible again when the chat view grows.

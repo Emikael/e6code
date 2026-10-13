@@ -91,6 +91,7 @@ import type { RemoteClientConnectionState } from "../../lib/connection";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
+import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
@@ -330,6 +331,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const { enabled: legacyPlanModeEnabled } = useLegacyPlanModeState();
+  const planModeEnabled =
+    legacyPlanModeEnabled && selectedProviderStatus?.showInteractionModeToggle !== false;
+  const currentInteractionMode = planModeEnabled ? props.selectedThread.interactionMode : "default";
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
@@ -940,17 +945,38 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    <View className="min-w-0 shrink">
-                      <ComposerInlineControl
-                        accessibilityLabel="Model and reasoning settings"
-                        emphasized
-                        iconNode={
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
-                        }
-                        label={currentModelOption?.label ?? currentModelSelection.model}
-                        maxWidth="100%"
-                        onPress={openSettings}
-                      />
+                    <View className="min-w-0 flex-1 flex-row items-center justify-end gap-0.5">
+                      <View className="min-w-0 shrink">
+                        <ComposerInlineControl
+                          accessibilityLabel="Model and reasoning settings"
+                          emphasized
+                          iconNode={
+                            <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
+                          }
+                          label={currentModelOption?.label ?? currentModelSelection.model}
+                          maxWidth="100%"
+                          onPress={openSettings}
+                        />
+                      </View>
+                      {planModeEnabled ? (
+                        <ComposerInlineControl
+                          accessibilityHint={`Switches to ${currentInteractionMode === "plan" ? "Build" : "Plan"} mode`}
+                          accessibilityLabel={`Interaction mode: ${currentInteractionMode === "plan" ? "Plan" : "Build"}`}
+                          emphasized
+                          icon={
+                            currentInteractionMode === "plan"
+                              ? { ios: "list.bullet.clipboard", android: "auto_awesome" }
+                              : { ios: "hammer", android: "construction" }
+                          }
+                          label={currentInteractionMode === "plan" ? "Plan" : "Build"}
+                          onPress={() =>
+                            props.onUpdateInteractionMode(
+                              currentInteractionMode === "plan" ? "default" : "plan",
+                            )
+                          }
+                          showChevron={false}
+                        />
+                      ) : null}
                     </View>
                   </View>
                 )}

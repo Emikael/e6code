@@ -85,12 +85,12 @@ export function SidebarThreadHeader({
     : "New thread";
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1.5">
       <div
         ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar-control-surface/45 px-2.5 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-control-surface/80 hover:text-sidebar-foreground focus-within:border-ring/60 focus-within:bg-sidebar-control-surface focus-within:text-sidebar-foreground"
       >
-        <SearchIcon className="size-4 shrink-0 text-[var(--sidebar-icon-color)]" />
+        <SearchIcon className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]" />
         <Input
           ref={searchInputRef}
           nativeInput
@@ -146,20 +146,20 @@ export function SidebarThreadHeader({
           </Tooltip>
         ) : null}
       </div>
-      {/* Unfilled like the search field beside it: the buttons carry their own
-          hover states, and a background well reads far louder on themed
-          palettes than on the base light and dark ones. */}
-      <div className="flex shrink-0 items-center">
+      {/* Secondary scope/project icons stay grouped, while New Thread gets
+          a tactile primary pill target for Fitts's Law ergonomics. */}
+      <div className="flex shrink-0 items-center gap-1">
         {hasProjects ? (
-          <>
+          <div className="flex shrink-0 items-center gap-0.5">
             {projectScope}
             <SidebarHeaderIconButton label="New project" onClick={onNewProject}>
               <FolderPlusIcon />
             </SidebarHeaderIconButton>
-          </>
+          </div>
         ) : null}
         <SidebarHeaderIconButton
           label="New thread"
+          className="h-8 w-auto gap-1.5 rounded-md border border-sidebar-border/80 bg-sidebar-row-active px-2.5 text-xs font-medium text-sidebar-foreground shadow-[inset_0_1px_0_0_var(--bezel-highlight)] hover:bg-sidebar-control-surface"
           tooltip={
             showNewThreadInProjectHint ? (
               <span className="flex flex-col gap-0.5">
@@ -176,7 +176,8 @@ export function SidebarThreadHeader({
           disabled={newThreadDisabled}
           onClick={onNewThread}
         >
-          <SquarePenIcon />
+          <SquarePenIcon className="size-3.5 shrink-0" />
+          <span className="hidden min-[240px]:inline">New</span>
         </SidebarHeaderIconButton>
       </div>
     </div>
@@ -214,7 +215,7 @@ export function SidebarHeaderIconButton({
             aria-label={label}
             {...rest}
             className={cn(
-              "relative size-7 shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+              "relative size-8 shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
               className,
             )}
           />

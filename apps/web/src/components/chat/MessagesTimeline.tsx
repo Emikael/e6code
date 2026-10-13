@@ -381,11 +381,27 @@ function TimelineLoadEarlierHeader({
     </div>
   );
 }
-function TimelineListFooter({ composerInset }: { readonly composerInset: number }) {
+function TimelineListFooter({
+  composerInset,
+  frontierResolution,
+}: {
+  readonly composerInset: number;
+  readonly frontierResolution?: ReactNode;
+}) {
   return (
-    <div aria-hidden>
-      <div style={{ height: composerInset }} />
-      <div className="h-3 sm:h-4" />
+    <div>
+      {frontierResolution ? (
+        <div
+          className="mx-auto w-full min-w-0 max-w-3xl px-1 pb-2.5 pt-1"
+          data-timeline-frontier-resolution="true"
+        >
+          {frontierResolution}
+        </div>
+      ) : null}
+      <div aria-hidden>
+        <div style={{ height: composerInset }} />
+        <div className="h-3 sm:h-4" />
+      </div>
     </div>
   );
 }
@@ -486,6 +502,8 @@ interface MessagesTimelineProps {
   onSteerQueuedMessage?: (id: string) => void;
   steerQueuedMessageShortcutLabel?: string | null;
   onRemoveQueuedMessage?: (id: string) => void;
+  /** Point-of-attention resolution bar rendered inline at the active turn frontier. */
+  frontierResolution?: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +561,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onSteerQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
+  frontierResolution,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -995,8 +1014,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return config ? { ...config, onReady: handleAnchorReady } : undefined;
   }, [anchorMessageId, handleAnchorReady, rows]);
   const timelineListFooter = useMemo(
-    () => <TimelineListFooter composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment} />,
-    [anchoredEndSpace, contentInsetEndAdjustment],
+    () => (
+      <TimelineListFooter
+        composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}
+        frontierResolution={frontierResolution}
+      />
+    ),
+    [anchoredEndSpace, contentInsetEndAdjustment, frontierResolution],
   );
 
   const measureContentOverflow = useCallback(
@@ -1486,6 +1510,7 @@ function TimelineMinimap({
           : "opacity-0 transition-opacity duration-150 hover:opacity-100 focus-within:opacity-100",
       )}
       data-testid="timeline-minimap"
+      data-telemetry-spine="true"
       data-persistent-gutter={hasPersistentGutter ? "true" : "false"}
     >
       <div className="relative h-full w-full select-none">
@@ -1554,7 +1579,7 @@ function TimelineMinimap({
             }}
             type="button"
           >
-            <div className="absolute top-0 left-3 h-full w-px bg-border/15" />
+            <div className="absolute top-0 left-3 h-full w-px bg-border/25" />
             {items.map((item, index) => {
               const top = `${resolveTimelineMinimapTopPercent(index, items.length)}%`;
               const activeDistance =
@@ -1563,13 +1588,13 @@ function TimelineMinimap({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full bg-muted-foreground/35 transition-[background-color,width] duration-150 data-[in-view=true]:bg-foreground/90",
+                    "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full bg-muted-foreground/40 transition-[background-color,width] duration-150 data-[in-view=true]:bg-foreground",
                     activeDistance === 0
-                      ? "w-6 bg-muted-foreground/75"
+                      ? "w-6 bg-primary shadow-[0_0_8px_var(--primary)]"
                       : activeDistance === 1
-                        ? "w-4"
+                        ? "w-4 bg-muted-foreground/70"
                         : activeDistance === 2
-                          ? "w-2.5"
+                          ? "w-3"
                           : "w-2",
                   )}
                   data-in-view="false"
@@ -1596,7 +1621,11 @@ function TimelineMinimap({
                   transform: `translateY(${activeTooltipTranslate})`,
                 }}
               >
-                <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
+                <span className="machined-card dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
+                  <span className="mb-1 flex items-center justify-between font-mono text-[10px] tracking-wider text-muted-foreground uppercase tabular-nums">
+                    <span>Turn {(resolvedActiveIndex ?? 0) + 1}</span>
+                    <span>of {items.length}</span>
+                  </span>
                   <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
                     {activeItem.userText ?? "User message"}
                   </span>
@@ -3419,22 +3448,25 @@ function WorkGroupToggleTimelineRow({
   return (
     <button
       type="button"
-      className="group/tool-group group/timeline-row relative flex min-h-6 w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      data-expanded={row.expanded ? "true" : "false"}
+      className="group/tool-group group/timeline-row relative flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-surface-raised/75 data-[expanded=true]:bg-surface-raised/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={row.hasFailure ? `${row.summary}, tool call failed` : undefined}
       aria-expanded={row.expanded}
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
     >
-      <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-well/60 text-icon-muted ring-1 ring-border/40 transition-colors group-hover/tool-group:text-foreground">
         <ToolActivityIconView
           icon={row.toolIcon}
           fallbackName={
             row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)
           }
-          className="size-4 shrink-0 stroke-[1.8]"
+          className="size-3.5 shrink-0 stroke-[1.8]"
           muted
         />
       </span>
-      <span className="min-w-0 flex-1 truncate text-secondary-label">{row.summary}</span>
+      <span className="min-w-0 flex-1 truncate font-medium text-secondary-label transition-colors group-hover/tool-group:text-foreground">
+        {row.summary}
+      </span>
       <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
     </button>
   );

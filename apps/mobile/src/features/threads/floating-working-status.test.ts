@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { connectionFloatingStatus } from "./floating-working-status";
+import {
+  connectionFloatingStatus,
+  pendingAttentionFloatingStatus,
+} from "./floating-working-status";
 
 const status = (
   connectionState: Parameters<typeof connectionFloatingStatus>[0]["connectionState"],
@@ -62,5 +65,48 @@ describe("connectionFloatingStatus", () => {
     if (pill?.kind !== "connection") throw new Error("expected a connection pill");
     pill.onPress();
     expect(onReconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pendingAttentionFloatingStatus", () => {
+  it("stays hidden while the user is at the live end of the feed", () => {
+    expect(
+      pendingAttentionFloatingStatus({
+        hasPendingApproval: true,
+        hasPendingUserInput: false,
+        showScrollToEnd: false,
+        onPress: () => {},
+      }),
+    ).toBeNull();
+  });
+
+  it("surfaces approval and question badges when scrolled away from the bottom", () => {
+    const onPress = vi.fn();
+    const approvalPill = pendingAttentionFloatingStatus({
+      hasPendingApproval: true,
+      hasPendingUserInput: false,
+      showScrollToEnd: true,
+      onPress,
+    });
+    expect(approvalPill).toMatchObject({
+      kind: "attention",
+      tone: "approval",
+      label: "Approval waiting",
+    });
+    if (approvalPill?.kind !== "attention") throw new Error("expected an attention pill");
+    approvalPill.onPress();
+    expect(onPress).toHaveBeenCalledOnce();
+
+    const inputPill = pendingAttentionFloatingStatus({
+      hasPendingApproval: false,
+      hasPendingUserInput: true,
+      showScrollToEnd: true,
+      onPress,
+    });
+    expect(inputPill).toMatchObject({
+      kind: "attention",
+      tone: "input",
+      label: "Question waiting",
+    });
   });
 });
