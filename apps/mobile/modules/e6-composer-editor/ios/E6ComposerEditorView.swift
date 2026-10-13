@@ -18,15 +18,29 @@ private struct ComposerSelectionPayload: Decodable {
   let end: Int
 }
 
+private struct ComposerCodeBlockPayload: Decodable, Equatable {
+  let start: Int
+  let end: Int
+  let contentStart: Int
+  let contentEnd: Int
+  let closingStart: Int?
+  let opening: String
+}
+
 private struct ComposerControlledDocumentPayload: Decodable {
   let value: String
   let selection: ComposerSelectionPayload?
   let tokensJson: String
+  let codeBlocks: [ComposerCodeBlockPayload]
+  let canUndo: Bool
+  let canRedo: Bool
   let mostRecentEventCount: Int
   let isNativeEcho: Bool
 }
 
 private struct ComposerThemePayload: Decodable {
+  let codeBackground: String
+  let codeText: String
   let text: String
   let placeholder: String
   let chipBackground: String
@@ -50,14 +64,26 @@ private enum ComposerEnterBehavior: String {
   case newline
 }
 
-private final class ComposerTextAttachment: NSTextAttachment {
+private class ComposerSourceAttachment: NSTextAttachment {
   let source: String
+  let isOpeningFence: Bool?
+
+  init(source: String, isOpeningFence: Bool? = nil) {
+    self.source = source
+    self.isOpeningFence = isOpeningFence
+    super.init(data: nil, ofType: nil)
+    bounds = .zero
+  }
+
+  required init?(coder: NSCoder) { nil }
+}
+
+private final class ComposerTextAttachment: ComposerSourceAttachment {
   let label: String
 
   init(source: String, label: String, image: UIImage, size: CGSize, baselineOffset: CGFloat) {
-    self.source = source
     self.label = label
-    super.init(data: nil, ofType: nil)
+    super.init(source: source)
     self.image = image
     bounds = CGRect(x: 0, y: baselineOffset, width: size.width, height: size.height)
   }
@@ -72,6 +98,21 @@ private final class ComposerContextAccessibilityElement: UIAccessibilityElement 
 
   override func accessibilityActivate() -> Bool {
     activate?() ?? false
+  }
+}
+
+private final class ComposerSourceUndoManager: UndoManager {
+  var onAction: ((String) -> Bool)?
+  var sourceCanUndo = false
+  var sourceCanRedo = false
+  override var canUndo: Bool { sourceCanUndo }
+  override var canRedo: Bool { sourceCanRedo }
+  override func undo() { _ = onAction?("undo") }
+  override func redo() { _ = onAction?("redo") }
+
+  override init() {
+    super.init()
+    disableUndoRegistration()
   }
 }
 
@@ -95,6 +136,37 @@ private final class ComposerTextView: UITextView {
   var clipboardFragment = ""
   var onAttributedMutation: (() -> Void)?
   var onSubmit: (() -> Void)?
+  var onCodeAction: ((String) -> Bool)? {
+    didSet { sourceUndoManager.onAction = onCodeAction }
+  }
+  let sourceUndoManager = ComposerSourceUndoManager()
+  var isInsideCode: (() -> Bool)?
+  var isShiftEnter = false
+  var codeBackgroundColor = UIColor.clear
+
+  override func draw(_ rect: CGRect) {
+    var openingEnd: Int?
+    func drawCode(from start: Int, to end: Int) {
+      guard let position = position(from: beginningOfDocument, offset: start) else { return }
+      let first = caretRect(for: position)
+      let lastPosition = self.position(from: beginningOfDocument, offset: end) ?? position
+      let last = caretRect(for: lastPosition)
+      codeBackgroundColor.setFill()
+      UIBezierPath(roundedRect: CGRect(x: textContainerInset.left, y: first.minY, width: bounds.width - textContainerInset.left - textContainerInset.right, height: max(first.height, last.maxY - first.minY)), cornerRadius: 4).fill()
+    }
+    attributedText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributedText.length)) { attachment, range, _ in
+      guard attachment is ComposerSourceAttachment, !(attachment is ComposerTextAttachment) else { return }
+      if let start = openingEnd {
+        drawCode(from: start, to: range.location)
+        openingEnd = nil
+      } else {
+        openingEnd = NSMaxRange(range)
+      }
+    }
+    if let start = openingEnd { drawCode(from: start, to: attributedText.length) }
+    super.draw(rect)
+  }
+  override var undoManager: UndoManager? { sourceUndoManager }
   var isReadOnly = false
   var textPasteThresholdBytes = 0
   var maxInputChars = Int.max
@@ -112,6 +184,17 @@ private final class ComposerTextView: UITextView {
     submit.discoverabilityTitle = "Send Message"
     submit.wantsPriorityOverSystemBehavior = true
     commands.append(submit)
+    for (flags, action, title) in [(UIKeyModifierFlags.command, #selector(undoSource(_:)), "Undo"), ([.command, .shift], #selector(redoSource(_:)), "Redo")] {
+      let command = UIKeyCommand(input: "z", modifierFlags: flags, action: action)
+      command.discoverabilityTitle = title
+      command.wantsPriorityOverSystemBehavior = true
+      commands.append(command)
+    }
+    if isInsideCode?() == true {
+      let down = UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(exitCode(_:)))
+      down.wantsPriorityOverSystemBehavior = true
+      commands.append(down)
+    }
     if enterBehavior == .send {
       let submitOnReturn = UIKeyCommand(
         input: "\r",
@@ -122,15 +205,15 @@ private final class ComposerTextView: UITextView {
       submitOnReturn.wantsPriorityOverSystemBehavior = true
       commands.append(submitOnReturn)
 
-      let newline = UIKeyCommand(
-        input: "\r",
-        modifierFlags: .shift,
-        action: #selector(insertNewline(_:))
-      )
-      newline.discoverabilityTitle = "New Line"
-      newline.wantsPriorityOverSystemBehavior = true
-      commands.append(newline)
     }
+    let newline = UIKeyCommand(
+      input: "\r",
+      modifierFlags: .shift,
+      action: #selector(insertNewline(_:))
+    )
+    newline.discoverabilityTitle = "New Line"
+    newline.wantsPriorityOverSystemBehavior = true
+    commands.append(newline)
     if textPasteThresholdBytes > 0 {
       let pasteAsText = UIKeyCommand(
         input: "v",
@@ -146,11 +229,27 @@ private final class ComposerTextView: UITextView {
 
   @objc private func submitMessage(_ sender: UIKeyCommand) {
     guard !isReadOnly, markedTextRange == nil else { return }
-    onSubmit?()
+    if !sender.modifierFlags.contains(.command), isInsideCode?() == true {
+      insertText("\n")
+    } else {
+      onSubmit?()
+    }
+  }
+
+  @objc private func undoSource(_ sender: UIKeyCommand) { _ = onCodeAction?("undo") }
+  @objc private func redoSource(_ sender: UIKeyCommand) { _ = onCodeAction?("redo") }
+  @objc private func exitCode(_ sender: UIKeyCommand) {
+    if onCodeAction?("exit") != true {
+      if let position = position(from: selectedTextRange?.end ?? endOfDocument, in: .down, offset: 1) {
+        selectedTextRange = textRange(from: position, to: position)
+      }
+    }
   }
 
   @objc private func insertNewline(_ sender: UIKeyCommand) {
     guard !isReadOnly, markedTextRange == nil else { return }
+    isShiftEnter = true
+    defer { isShiftEnter = false }
     insertText("\n")
   }
 
@@ -188,7 +287,7 @@ private final class ComposerTextView: UITextView {
     }
     let pasteboard = UIPasteboard.general
     let context = E6ComposerClipboard.read()
-    if !context["fragment", default: ""].isEmpty || context["html", default: ""].contains("data-e6-context-fragment=") {
+    if isInsideCode?() != true, !context["fragment", default: ""].isEmpty || context["html", default: ""].contains("data-e6-context-fragment=") {
       onPasteContext?(context)
       return
     }
@@ -219,7 +318,7 @@ private final class ComposerTextView: UITextView {
   private func shouldInterceptTextPaste(_ text: String) -> Bool {
     guard textPasteThresholdBytes > 0, !text.isEmpty else { return false }
     let pastedLength = (text as NSString).length
-    if pastedLength >= textPasteThresholdBytes || text.utf8.count >= textPasteThresholdBytes {
+    if isInsideCode?() != true, pastedLength >= textPasteThresholdBytes || text.utf8.count >= textPasteThresholdBytes {
       return true
     }
     // Chips occupy one display character but expand to their source in the
@@ -234,6 +333,7 @@ private final class ComposerTextView: UITextView {
     guard !isReadOnly else {
       return
     }
+    if markedTextRange == nil, onCodeAction?("removeEmpty") == true { return }
     guard selectedRange.length == 0, selectedRange.location > 0 else {
       super.deleteBackward()
       return
@@ -328,7 +428,7 @@ private final class ComposerTextView: UITextView {
           )
         )
       }
-      if let attachment = value as? ComposerTextAttachment {
+      if let attachment = value as? ComposerSourceAttachment {
         source.append(attachment.source)
       } else {
         source.append(nsString.substring(with: attachmentRange))
@@ -350,7 +450,7 @@ private final class ComposerTextView: UITextView {
     var sourceOffset = 0
     let range = NSRange(location: 0, length: boundedOffset)
     attributedText.enumerateAttribute(.attachment, in: range) { value, attributeRange, _ in
-      if let attachment = value as? ComposerTextAttachment {
+      if let attachment = value as? ComposerSourceAttachment {
         sourceOffset += (attachment.source as NSString).length
       } else {
         sourceOffset += attributeRange.length
@@ -411,8 +511,11 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   private var value = ""
   private var tokensJson = "[]"
   private var tokens: [ComposerTokenPayload] = []
+  private var codeBlocks: [ComposerCodeBlockPayload] = []
   private var requestedSelection: ComposerSelectionPayload?
   private var theme = ComposerThemePayload(
+    codeBackground: "#f2f2f7",
+    codeText: "#262626",
     text: "#262626",
     placeholder: "#8e8e93",
     chipBackground: "#f2f2f7",
@@ -438,6 +541,7 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   private var tokensNeedRebuild = false
 
   let onComposerChange = EventDispatcher()
+  let onComposerCodeAction = EventDispatcher()
   let onComposerSelectionChange = EventDispatcher()
   let onComposerFocus = EventDispatcher()
   let onComposerBlur = EventDispatcher()
@@ -488,6 +592,8 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     textView.onAttributedMutation = { [weak self] in
       self?.emitTextChange()
     }
+    textView.isInsideCode = { [weak self] in self?.currentCodeRange() != nil }
+    textView.onCodeAction = { [weak self] action in self?.handleCodeAction(action) ?? false }
     textView.onSubmit = { [weak self] in
       self?.onComposerSubmit([:])
     }
@@ -615,7 +721,11 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       tokens = decode([ComposerTokenPayload].self, from: document.tokensJson) ?? []
       tokensNeedRebuild = true
     }
+    codeBlocks = document.codeBlocks
     value = document.value
+    if !documentMatchesExpectedFences() { tokensNeedRebuild = true }
+    textView.sourceUndoManager.sourceCanUndo = document.canUndo
+    textView.sourceUndoManager.sourceCanRedo = document.canRedo
     requestedSelection = document.selection
     applyControlledDocument(force: tokensNeedRebuild)
     applyRequestedSelection()
@@ -725,6 +835,14 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     guard !isApplyingControlledValue else {
       return
     }
+    if self.textView.markedTextRange == nil, self.textView.selectedRange.length == 0,
+       self.textView.selectedRange.location < self.textView.attributedText.length,
+       let marker = self.textView.textStorage.attribute(.attachment, at: self.textView.selectedRange.location, effectiveRange: nil) as? ComposerSourceAttachment,
+       marker.isOpeningFence == true {
+      isApplyingControlledValue = true
+      self.textView.selectedRange = NSRange(location: self.textView.selectedRange.location + 1, length: 0)
+      isApplyingControlledValue = false
+    }
     restoreBaseTypingAttributes()
     // UIKit moves the selection before textViewDidChange runs. Emitting here
     // would pair the post-edit text with a pre-edit revision counter, so let
@@ -794,6 +912,7 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   }
 
   private func applyControlledDocument(force: Bool = false) {
+    guard textView.markedTextRange == nil else { tokensNeedRebuild = true; return }
     let currentSource = textView.serializedText()
     guard force || currentSource != value || !documentMatchesExpectedTokens() else {
       updatePlaceholderVisibility()
@@ -803,6 +922,7 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     let previousSelection = sourceSelection()
     isApplyingControlledValue = true
     textView.attributedText = makeAttributedDocument()
+    textView.setNeedsDisplay()
     let targetSelection = requestedSelection ?? previousSelection
     requestedSelection = nil
     textView.selectedRange = displayRange(for: targetSelection)
@@ -815,34 +935,54 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   private func makeAttributedDocument() -> NSAttributedString {
     let result = NSMutableAttributedString()
     let source = value as NSString
+    var pieces: [(start: Int, end: Int, attachment: NSAttributedString)] = tokens.compactMap { token in
+      guard token.start >= 0, token.end > token.start, token.end <= source.length,
+            !codeBlocks.contains(where: { token.start < $0.end && token.end > $0.start }),
+            source.substring(with: NSRange(location: token.start, length: token.end - token.start)) == token.source else { return nil }
+      return (token.start, token.end, makeAttachmentString(token))
+    }
+    for block in codeBlocks {
+      guard block.start >= 0, block.contentStart >= block.start, block.contentEnd >= block.contentStart,
+            block.end >= block.contentEnd, block.end <= source.length,
+            source.substring(with: NSRange(location: block.start, length: block.contentStart - block.start)) == block.opening else { continue }
+      for (start, end) in [(block.start, block.contentStart), (block.contentEnd, block.end)] where end > start {
+        let marker = ComposerSourceAttachment(source: source.substring(with: NSRange(location: start, length: end - start)), isOpeningFence: start == block.start)
+        let hidden = NSMutableAttributedString(attachment: marker)
+        hidden.addAttributes(codeAttributes(), range: NSRange(location: 0, length: hidden.length))
+        pieces.append((start, end, hidden))
+      }
+    }
     var cursor = 0
-    let validTokens = tokens.filter {
-      $0.start >= cursor &&
-        $0.end > $0.start &&
-        $0.end <= source.length &&
-        source.substring(with: NSRange(location: $0.start, length: $0.end - $0.start)) == $0.source
+    for piece in pieces.sorted(by: { $0.start < $1.start }) {
+      guard piece.start >= cursor else { continue }
+      appendSourceText(from: cursor, to: piece.start, to: result)
+      result.append(piece.attachment)
+      cursor = piece.end
     }
-
-    for token in validTokens {
-      if token.start < cursor {
-        continue
-      }
-      if token.start > cursor {
-        appendPlainText(
-          source.substring(with: NSRange(location: cursor, length: token.start - cursor)),
-          to: result
-        )
-      }
-      result.append(makeAttachmentString(token))
-      cursor = token.end
-    }
-    if cursor < source.length {
-      appendPlainText(
-        source.substring(with: NSRange(location: cursor, length: source.length - cursor)),
-        to: result
-      )
-    }
+    appendSourceText(from: cursor, to: source.length, to: result)
     return result
+  }
+
+  private func appendSourceText(from start: Int, to end: Int, to result: NSMutableAttributedString) {
+    guard end > start else { return }
+    let location = result.length
+    let source = value as NSString
+    appendPlainText(source.substring(with: NSRange(location: start, length: end - start)), to: result)
+    for block in codeBlocks {
+      let from = max(start, block.contentStart)
+      let until = min(end, block.contentEnd)
+      if until > from {
+        result.addAttributes(codeAttributes(), range: NSRange(location: location + from - start, length: until - from))
+      }
+    }
+  }
+
+  private func codeAttributes() -> [NSAttributedString.Key: Any] {
+    var attributes = baseAttributes()
+    attributes[.font] = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    attributes[.foregroundColor] = UIColor(composerHex: theme.codeText) ?? .label
+    attributes[.backgroundColor] = UIColor(composerHex: theme.codeBackground) ?? .secondarySystemBackground
+    return attributes
   }
 
   private func appendPlainText(_ text: String, to result: NSMutableAttributedString) {
@@ -1081,10 +1221,12 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     guard textView.markedTextRange == nil else {
       return
     }
-    textView.typingAttributes = baseAttributes()
+    textView.typingAttributes = currentCodeRange() == nil ? baseAttributes() : codeAttributes()
   }
 
   private func applyTheme() {
+    textView.codeBackgroundColor = UIColor(composerHex: theme.codeBackground) ?? .secondarySystemBackground
+    textView.setNeedsDisplay()
     textView.textColor = UIColor(composerHex: theme.text) ?? .label
     placeholderLabel.textColor = UIColor(composerHex: theme.placeholder) ?? .placeholderText
     tintColor = UIColor.systemBlue
@@ -1094,6 +1236,7 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     guard !isApplyingControlledValue else {
       return
     }
+    textView.setNeedsDisplay()
     value = textView.serializedText()
     let selection = sourceSelection()
     nativeEventCount += 1
@@ -1101,6 +1244,8 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       "value": value,
       "selection": ["start": selection.start, "end": selection.end],
       "eventCount": nativeEventCount,
+      "isComposing": textView.markedTextRange != nil,
+      "isShiftEnter": textView.isShiftEnter,
     ])
     updatePlaceholderVisibility()
     emitContentSizeIfNeeded()
@@ -1135,18 +1280,69 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
 
   private func displayOffset(forSourceOffset sourceOffset: Int) -> Int {
     let boundedOffset = max(0, min((value as NSString).length, sourceOffset))
-    var collapsedLength = 0
-    for token in tokens where token.end <= boundedOffset {
-      collapsedLength += max(0, token.end - token.start - 1)
+    var sourceCursor = 0
+    var result = textView.attributedText.length
+    var found = false
+    textView.attributedText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textView.attributedText.length)) { attachment, range, stop in
+      let length = (attachment as? ComposerSourceAttachment).map { ($0.source as NSString).length } ?? range.length
+      if boundedOffset <= sourceCursor + length {
+        if attachment is ComposerSourceAttachment {
+          result = range.location + (boundedOffset > sourceCursor ? range.length : 0)
+        } else {
+          result = range.location + boundedOffset - sourceCursor
+        }
+        found = true
+        stop.pointee = true
+      }
+      sourceCursor += length
     }
-    if let token = tokens.first(where: { $0.start < boundedOffset && boundedOffset < $0.end }) {
-      return token.start - collapsedLength + 1
+    return found ? result : textView.attributedText.length
+  }
+
+  // Fence attachments carry the shared parser's boundaries through native edits.
+  private func currentCodeRange() -> NSRange? {
+    var openingEnd: Int?
+    var found: NSRange?
+    let caret = textView.selectedRange.location
+    textView.attributedText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textView.attributedText.length)) { attachment, range, stop in
+      guard attachment is ComposerSourceAttachment, !(attachment is ComposerTextAttachment) else { return }
+      if let start = openingEnd {
+        if caret >= start && caret <= range.location {
+          found = NSRange(location: start, length: range.location - start)
+          stop.pointee = true
+        }
+        openingEnd = nil
+      } else {
+        openingEnd = NSMaxRange(range)
+      }
     }
-    return boundedOffset - collapsedLength
+    if found == nil, let start = openingEnd, caret >= start {
+      found = NSRange(location: start, length: textView.attributedText.length - start)
+    }
+    return found
+  }
+
+  private func handleCodeAction(_ action: String) -> Bool {
+    guard !isReadOnly, textView.markedTextRange == nil, textView.selectedRange.length == 0 || action == "undo" || action == "redo" else { return false }
+    if action == "exit" {
+      guard let range = currentCodeRange(), textView.selectedRange.location == NSMaxRange(range) else { return false }
+    } else if action == "removeEmpty" {
+      guard let range = currentCodeRange(), textView.selectedRange.location == range.location else { return false }
+      if range.length > 0 { return true }
+    }
+    let selection = sourceSelection()
+    nativeEventCount += 1
+    onComposerCodeAction([
+      "action": action,
+      "value": textView.serializedText(),
+      "selection": ["start": selection.start, "end": selection.end],
+      "eventCount": nativeEventCount,
+    ])
+    return true
   }
 
   private func applyRequestedSelection() {
-    guard let requestedSelection else {
+    guard textView.markedTextRange == nil, let requestedSelection else {
       return
     }
     let nextRange = displayRange(for: requestedSelection)
@@ -1195,6 +1391,22 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         $0.end <= source.length &&
         source.substring(with: NSRange(location: $0.start, length: $0.end - $0.start)) == $0.source
     }
+  }
+
+  private func documentMatchesExpectedFences() -> Bool {
+    let source = value as NSString
+    var expected: [String] = []
+    for block in codeBlocks where block.start >= 0 && block.contentStart >= block.start && block.contentEnd >= block.contentStart && block.end >= block.contentEnd && block.end <= source.length {
+      if block.contentStart > block.start { expected.append(block.opening) }
+      if block.end > block.contentEnd {
+        expected.append(source.substring(with: NSRange(location: block.contentEnd, length: block.end - block.contentEnd)))
+      }
+    }
+    var rendered: [String] = []
+    textView.attributedText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textView.attributedText.length)) { attachment, _, _ in
+      if let marker = attachment as? ComposerSourceAttachment, !(attachment is ComposerTextAttachment) { rendered.append(marker.source) }
+    }
+    return rendered == expected
   }
 
   private func documentMatchesExpectedTokens() -> Bool {

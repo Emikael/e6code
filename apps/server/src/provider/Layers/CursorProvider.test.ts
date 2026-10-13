@@ -451,6 +451,10 @@ describe("Cursor skills", () => {
     ));
 
   it("rewrites only discovered skill mentions into Cursor slash invocations", () => {
+    expect(hasCursorSkillMention("```\n$review\n```")).toBe(false);
+    expect(rewriteCursorSkillMentions("```\n$review\n```", new Set(["review"]))).toBe(
+      "```\n$review\n```",
+    );
     expect(hasCursorSkillMention("use $Review_Pr:V2 here")).toBe(true);
     expect(hasCursorSkillMention("please $review this")).toBe(true);
     expect(

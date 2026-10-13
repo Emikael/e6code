@@ -3,6 +3,15 @@ import { describe, expect, it } from "vite-plus/test";
 import { collectComposerInlineTokens } from "./composerInlineTokens.ts";
 
 describe("collectComposerInlineTokens", () => {
+  it("keeps fenced skill and file examples literal while collecting surrounding tokens", () => {
+    const text =
+      "Use $review first\n```ts\n$implement @AGENTS.md [a.ts](a.ts) \n```\nthen $finish ";
+    expect(collectComposerInlineTokens(text).map((token) => token.value)).toEqual([
+      "review",
+      "finish",
+    ]);
+  });
+
   it("collects file links, mentions, and skills with source ranges", () => {
     const text = "Use $ui and inspect [Chat.tsx](src/Chat.tsx) with @AGENTS.md please";
 

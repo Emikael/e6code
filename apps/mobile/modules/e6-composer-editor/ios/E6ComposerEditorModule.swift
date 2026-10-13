@@ -99,6 +99,7 @@ public class E6ComposerEditorModule: Module {
 
       Events(
         "onComposerChange",
+        "onComposerCodeAction",
         "onComposerSelectionChange",
         "onComposerFocus",
         "onComposerBlur",

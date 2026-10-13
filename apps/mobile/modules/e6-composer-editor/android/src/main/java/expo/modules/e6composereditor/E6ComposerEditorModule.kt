@@ -125,6 +125,8 @@ class E6ComposerEditorModule : Module() {
 
       Events(
         "onComposerChange",
+        "onComposerCodeAction",
+        "onComposerSubmit",
         "onComposerSelectionChange",
         "onComposerFocus",
         "onComposerBlur",

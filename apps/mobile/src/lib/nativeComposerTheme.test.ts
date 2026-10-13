@@ -11,6 +11,8 @@ describe("native composer colors", () => {
       const theme = createNativeComposerTheme(variables);
       for (const color of Object.values(theme)) expect(color).toMatch(/^#[\da-f]{6}$/i);
       expect(theme.text).toBe(variables["--color-foreground"]);
+      expect(theme.codeText).toBe(variables["--color-md-code-text"]);
+      expect(theme.codeBackground).toBe(variables["--color-md-code-bg"]);
       expect(theme.skillBorder).not.toBe(theme.skillBackground);
     }
   });

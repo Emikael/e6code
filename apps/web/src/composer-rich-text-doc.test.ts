@@ -1,4 +1,4 @@
-import { getSchemaByResolvedExtensions, Node, resolveExtensions } from "@tiptap/core";
+import { Editor, getSchemaByResolvedExtensions, Node, resolveExtensions } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { TaskList } from "@tiptap/extension-task-list";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -8,6 +8,7 @@ import {
   buildDocJson,
   collapsedToFlat,
   ComposerCodeExtension,
+  ComposerStarterKit,
   ComposerTaskItemExtension,
   flatToCollapsed,
   flatToMarkdown,
@@ -28,10 +29,10 @@ function stubAtom(name: string, attrs: Record<string, { default: unknown }>) {
 
 const schema = getSchemaByResolvedExtensions(
   resolveExtensions([
-    StarterKit.configure({
+    ComposerStarterKit.configure({
       blockquote: false,
       bulletList: false,
-      codeBlock: false,
+      codeBlock: { exitOnArrowUp: false },
       heading: false,
       horizontalRule: false,
       listItem: false,
@@ -122,7 +123,203 @@ function roundTripPlain(value: string) {
   return serializeEditorDoc(doc);
 }
 
+function editableDoc(value: string) {
+  const editor = new Editor({
+    element: null,
+    extensions: [
+      ComposerStarterKit.configure({
+        codeBlock: { exitOnArrowUp: false },
+        trailingNode: false,
+        gapcursor: false,
+        dropcursor: false,
+      }),
+    ],
+    content: buildDocJson(value, (name) => ({ label: name, description: null })),
+  });
+  editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  return editor;
+}
+
+function pressEditorKey(editor: Editor, key: string, shiftKey = false) {
+  const event = { key, shiftKey, metaKey: false, ctrlKey: false, altKey: false } as KeyboardEvent;
+  return editor.state.plugins.some((plugin) =>
+    plugin.props.handleKeyDown?.call(plugin, editor.view, event),
+  );
+}
+
+describe("composer code-block editing", () => {
+  it("creates code on an otherwise empty midprompt line", () => {
+    const editor = editableDoc("before\n``");
+    const position = editor.state.doc.content.size - 1;
+    editor.commands.setTextSelection(position);
+    expect(
+      editor.state.plugins.some((plugin) =>
+        plugin.props.handleTextInput?.call(
+          plugin,
+          editor.view,
+          position,
+          position,
+          "`",
+          () => editor.state.tr,
+        ),
+      ),
+    ).toBe(true);
+    expect(editor.state.doc.firstChild?.textContent).toBe("before");
+    expect(editor.state.doc.lastChild?.type.name).toBe("codeBlock");
+    expect(serializeEditorDoc(editor.state.doc).value).toBe("before\n```\n\n```");
+    editor.destroy();
+  });
+
+  it("turns the third backtick into an editable code block and supports undo", () => {
+    const editor = editableDoc("``");
+    editor.commands.setTextSelection(3);
+    const handled = editor.state.plugins.some((plugin) =>
+      plugin.props.handleTextInput?.call(plugin, editor.view, 3, 3, "`", () => editor.state.tr),
+    );
+    expect(handled).toBe(true);
+    expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+    expect(editor.state.selection.$from.parent.type.name).toBe("codeBlock");
+    expect(serializeEditorDoc(editor.state.doc).value).toBe("```\n\n```");
+    expect(editor.commands.undoInputRule()).toBe(true);
+    expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+    expect(serializeEditorDoc(editor.state.doc).value).toBe("```");
+    editor.destroy();
+  });
+
+  it("leaves three backticks inline or before existing text literal", () => {
+    for (const [value, position] of [
+      ["text ``", 8],
+      ["``tail", 3],
+    ] as const) {
+      const editor = editableDoc(value);
+      editor.commands.setTextSelection(position);
+      const handled = editor.state.plugins.some((plugin) =>
+        plugin.props.handleTextInput?.call(
+          plugin,
+          editor.view,
+          position,
+          position,
+          "`",
+          () => editor.state.tr,
+        ),
+      );
+      expect(handled).toBe(false);
+      expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+      editor.destroy();
+    }
+  });
+
+  it("keeps Enter and Shift+Enter in code, then exits on the third Enter", () => {
+    const editor = editableDoc("```ts\n雪 👋\n```");
+    editor.commands.setTextSelection(1 + "雪 👋".length);
+    expect(pressEditorKey(editor, "Enter")).toBe(true);
+    expect(editor.state.selection.$from.parent.type.name).toBe("codeBlock");
+    expect(pressEditorKey(editor, "Enter", true)).toBe(true);
+    expect(editor.state.doc.firstChild?.textContent).toBe("雪 👋\n\n");
+    expect(pressEditorKey(editor, "Enter")).toBe(true);
+    expect(editor.state.doc.firstChild?.textContent).toBe("雪 👋");
+    expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
+    expect(serializeEditorDoc(editor.state.doc).value).toBe("```ts\n雪 👋\n```\n");
+    editor.destroy();
+  });
+
+  it.each(["```\nx\n```", "```\nx\n```\nafter"])(
+    "exits code with ArrowDown at its end: %j",
+    (value) => {
+      const editor = editableDoc(value);
+      editor.commands.setTextSelection(2);
+      expect(pressEditorKey(editor, "ArrowDown")).toBe(true);
+      expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
+      editor.destroy();
+    },
+  );
+
+  it("turns an empty code block back into a paragraph with Backspace", () => {
+    const editor = editableDoc("```\n```");
+    expect(pressEditorKey(editor, "Backspace")).toBe(true);
+    expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+    expect(serializeEditorDoc(editor.state.doc).value).toBe("");
+    editor.destroy();
+  });
+
+  it.each(["ArrowDown", "Enter"])(
+    "closes an unfinished fence only when explicitly exiting with %s",
+    (key) => {
+      const editor = editableDoc("~~~~ts\n雪 👋");
+      editor.commands.setTextSelection(1 + "雪 👋".length);
+      expect(serializeEditorDoc(editor.state.doc).value).toBe("~~~~ts\n雪 👋");
+      if (key === "Enter") {
+        pressEditorKey(editor, "Enter");
+        pressEditorKey(editor, "Enter");
+      }
+      expect(pressEditorKey(editor, key)).toBe(true);
+      expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
+      expect(serializeEditorDoc(editor.state.doc).value).toBe("~~~~ts\n雪 👋\n~~~~\n");
+      editor.destroy();
+    },
+  );
+});
+
 describe("composer rich text document model", () => {
+  it.each([
+    "```ts\nconst price = '$review'; // @README.md\n```",
+    "before\n  ````ts extra  \n雪 👋 **literal**\n  ````` \nafter",
+    "~~~sh\necho $review\n~~~",
+    "```ts\nunfinished 👋\n",
+    "```",
+    "```\n```",
+  ])("retains editable fenced code and its exact Markdown for %j", (value) => {
+    const json = buildDocJson(value, (name) => ({ label: name, description: null }));
+    expect(json.content.some((block) => block.type === "codeBlock")).toBe(true);
+    expect(roundTrip(value).value).toBe(value);
+    expect(roundTripPlain(value).value).toBe(value);
+    expect(roundTrip(roundTripPlain(roundTrip(value).value).value).value).toBe(value);
+  });
+
+  it("preserves code language and copies a code selection as fenced Markdown", () => {
+    const value = "before\n````typescript extra\n雪 👋 **literal**\n````\nafter";
+    const json = buildDocJson(value, (name) => ({ label: name, description: null }));
+    expect(json.content[1]).toEqual({
+      type: "codeBlock",
+      attrs: { language: "typescript extra", opening: "````typescript extra\n", closing: "\n````" },
+      content: [{ type: "text", text: "雪 👋 **literal**" }],
+    });
+    const doc = ProseMirrorNode.fromJSON(schema, json);
+    const code = serializeEditorDoc(doc).runs.find((run) => run.kind === "code")!;
+    const copied = doc.slice(code.pmPos - 1, code.pmPos + code.docLen + 1);
+    expect(serializeEditorDoc(doc.type.create(null, copied.content)).value).toBe(
+      "````typescript extra\n雪 👋 **literal**\n````",
+    );
+    const text = doc.slice(code.pmPos, code.pmPos + code.docLen).content;
+    expect(
+      serializeEditorDoc(doc.type.create(null, schema.nodes.paragraph!.create(null, text))).value,
+    ).toBe("雪 👋 **literal**");
+  });
+
+  it("leaves fences editable as ordinary text when rich styling is off", () => {
+    expect(
+      buildDocJson("```", (name) => ({ label: name, description: null }), { styling: false }),
+    ).toEqual({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "```" }] }],
+    });
+  });
+
+  it("maps a midprompt Unicode code selection to the same Markdown range", () => {
+    const value = "before\n```ts\n雪 👋 literal\n```\nafter";
+    const map = roundTrip(value);
+    const start = value.indexOf("雪");
+    const code = map.runs.find((run) => run.mdStart === start);
+    expect(code).toBeDefined();
+    const flatStart = code!.flatStart;
+    for (let offset = 0; offset <= "雪 👋 literal".length; offset += 1) {
+      expect(flatToMarkdown(map, flatStart + offset)).toBe(start + offset);
+      expect(flatToCollapsed(map, flatStart + offset)).toBe(start + offset);
+      expect(collapsedToFlat(map, start + offset)).toBe(flatStart + offset);
+      expect(pmToFlat(map, flatToPm(map, flatStart + offset))).toBe(flatStart + offset);
+    }
+  });
+
   it.each(["€", "£", "¥", "₹", "₩", "₿", "𑿝"])(
     "canonicalizes %s skill aliases while preserving amounts",
     (prefix) => {

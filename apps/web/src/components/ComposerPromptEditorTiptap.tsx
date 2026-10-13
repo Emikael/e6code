@@ -1,7 +1,6 @@
 import { Extension, Node, wrappingInputRule, type JSONContent } from "@tiptap/core";
 import { TaskList } from "@tiptap/extension-task-list";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import { type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { splitBlockKeepMarks } from "@tiptap/pm/commands";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
@@ -47,6 +46,7 @@ import {
   buildTiptapContent,
   collapsedToFlat,
   ComposerCodeExtension,
+  ComposerStarterKit,
   ComposerTaskItemExtension,
   flatToCollapsed,
   flatToMarkdown,
@@ -107,7 +107,7 @@ export interface ComposerPromptEditorProps {
   value: string;
   cursor: number;
   /**
-   * Render Markdown styling (bold, italic, code, strike, task checkboxes).
+   * Render Markdown styling (bold, italic, code blocks, strike, task checkboxes).
    * Off renders the same Tiptap engine as plain text: every marker stays a
    * literal character.
    */
@@ -140,6 +140,7 @@ export interface ComposerPromptEditorProps {
     key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
     event: KeyboardEvent,
     isTaskItem?: boolean,
+    isCodeBlock?: boolean,
   ) => boolean;
   onPageScrollKeyDown?: (key: "PageUp" | "PageDown") => void;
   onPageScrollKeyUp?: (key: string) => void;
@@ -279,6 +280,7 @@ function ComposerSkillNodeView({ node }: NodeViewProps) {
   const skillLabel = (node.attrs.skillLabel as string) || skillName;
   const skillDescription = (node.attrs.skillDescription as string | null) ?? null;
   const skill = skills.find((candidate) => candidate.name === skillName);
+  const skillPath = skill?.path;
   return (
     <NodeViewWrapper as="span" className={COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME}>
       <ContextChipPopover
@@ -302,8 +304,8 @@ function ComposerSkillNodeView({ node }: NodeViewProps) {
               skillDescription ??
               "No description is available for this skill."}
           </p>
-          {skill?.path ? (
-            <Button variant="outline" size="sm" onClick={() => actions.openMention(skill.path)}>
+          {skillPath ? (
+            <Button variant="outline" size="sm" onClick={() => actions.openMention(skillPath)}>
               View instructions
             </Button>
           ) : null}
@@ -742,10 +744,10 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   const editor = useEditor(
     {
       extensions: [
-        StarterKit.configure({
+        ComposerStarterKit.configure({
           blockquote: false,
           bulletList: false,
-          codeBlock: false,
+          codeBlock: richText ? { exitOnArrowUp: false } : false,
           heading: false,
           horizontalRule: false,
           listItem: false,
@@ -878,15 +880,18 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             return true;
           }
           const handler = onCommandKeyDownRef.current;
+          const isCodeBlock = view.state.selection.$from.parent.type.name === "codeBlock";
           if (event.key === "Enter") {
             const instance = editorHolder.current;
             const isTaskItem = richText && (instance?.isActive("taskItem") ?? false);
-            const handled = handler?.("Enter", event, isTaskItem) ?? false;
+            const handled = handler?.("Enter", event, isTaskItem, isCodeBlock) ?? false;
             if (handled) {
               event.preventDefault();
               event.stopPropagation();
               return true;
             }
+            // StarterKit owns code newlines and triple-Enter exit.
+            if (isCodeBlock) return false;
             event.preventDefault();
             if (
               isTaskItem &&
@@ -904,6 +909,8 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
               view.dispatch(tr.scrollIntoView());
             });
           }
+          // Code-block arrows must reach the native exit commands, not history.
+          if (isCodeBlock && (event.key === "ArrowDown" || event.key === "ArrowUp")) return false;
           if (!handler) return false;
           const key =
             event.key === "Tab"
@@ -916,7 +923,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
                     ? ("Escape" as const)
                     : null;
           if (!key) return false;
-          const handled = handler(key, event);
+          const handled = handler(key, event, false, isCodeBlock);
           if (handled) {
             event.preventDefault();
             event.stopPropagation();
@@ -924,6 +931,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           return handled;
         },
         handleTextInput: (view, from, to, text) => {
+          if (view.state.selection.$from.parent.type.name === "codeBlock") return false;
           if (text.length !== 1) return false;
           const closer = SURROUND_CLOSE[text];
           if (!closer || from === to) return false;
@@ -956,6 +964,10 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           const pastedText = clipboardData.getData("text/plain");
           if (!pastedText) return false;
           event.preventDefault();
+          if (view.state.selection.$from.parent.type.name === "codeBlock") {
+            view.dispatch(view.state.tr.insertText(pastedText).scrollIntoView());
+            return true;
+          }
           const importFragment = importFragmentRef.current;
           let text = importFragment
             ? importPastedComposerText(clipboardData, importFragment)
@@ -979,7 +991,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           }
           const editorInstance = editorHolder.current;
           if (editorInstance) {
-            insertMarkdownParagraphs(text, skillLabelFor, { styling: richText }, (content) => {
+            insertMarkdownContent(text, skillLabelFor, { styling: richText }, (content) => {
               editorInstance.commands.insertContent(content);
             });
             scrollTiptapCaretIntoView(editorInstance);
@@ -1321,10 +1333,10 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
  * Insert pasted markdown at the selection, rebuilding inline tokens as chips
  * and styled spans as marks.
  *
- * Newlines always become paragraph splits — never trailing hard breaks, which
- * render no visible line — so pasted text lands exactly as typed.
+ * Prose newlines become paragraph splits; fenced code keeps its line breaks
+ * inside the block so the pasted draft retains its Markdown structure.
  */
-function insertMarkdownParagraphs(
+function insertMarkdownContent(
   value: string,
   skillLabelFor: (name: string) => SkillMeta,
   options: { styling: boolean },

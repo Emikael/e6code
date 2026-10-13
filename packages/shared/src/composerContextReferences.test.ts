@@ -40,6 +40,11 @@ describe("href codec", () => {
 });
 
 describe("labels and reference links", () => {
+  it("keeps a fenced context reference literal", () => {
+    const text = "```\n[File](e6-context://v1/file/ctx_1)\n```";
+    expect(collectComposerContextReferences(text)).toEqual([]);
+    expect(replaceComposerContextReferences(text, () => "expanded")).toBe(text);
+  });
   it("normalizes manually entered labels while preserving the original source", () => {
     const text = "[](e6-context://v1/file/ctx_1)";
     expect(collectComposerContextReferences(text)[0]).toMatchObject({

@@ -63,6 +63,20 @@ describe("formatAssistantCitationForComposer", () => {
 });
 
 describe("composerSubmissionIntentForEnter", () => {
+  it("keeps Enter inside code while preserving explicit modifier submission", () => {
+    const input = {
+      isMobileViewport: false,
+      shiftKey: false,
+      isDraftThread: true,
+      isCodeBlock: true,
+    };
+    expect(composerSubmissionIntentForEnter({ ...input, modifierKey: false })).toBeNull();
+    expect(composerSubmissionIntentForEnter({ ...input, modifierKey: true })).toBe("background");
+    expect(
+      composerSubmissionIntentForEnter({ ...input, modifierKey: false, shiftKey: true }),
+    ).toBeNull();
+  });
+
   it.each([
     ["enter", "one line", false, "foreground"],
     ["enter", "two\nlines", false, "foreground"],
@@ -165,6 +179,12 @@ describe("composerSubmissionIntentForEnter", () => {
 });
 
 describe("detectComposerTrigger", () => {
+  it.each(["@src", "$review", "/model", "#123"])("ignores %s inside fenced code", (token) => {
+    const text = `before\n\`\`\`ts\n${token}\n\`\`\`\nafter`;
+    const cursor = text.indexOf(token) + token.length;
+    expect(detectComposerTrigger(text, cursor)).toBeNull();
+  });
+
   it("detects @path trigger at cursor", () => {
     const text = "Please check @src/com";
     const trigger = detectComposerTrigger(text, text.length);

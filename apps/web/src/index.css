@@ -2158,6 +2158,22 @@ code {
   padding: 0.05em 0.25em;
 }
 
+.composer-tiptap pre {
+  margin: 0.375rem 0;
+  padding: 0.5rem 0.625rem;
+  background: color-mix(in oklab, var(--muted-foreground) 8%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.composer-tiptap pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+}
+
 .composer-rich-marker {
   color: var(--muted-foreground);
   opacity: 0.75;

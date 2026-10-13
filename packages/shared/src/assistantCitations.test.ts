@@ -52,6 +52,11 @@ function readProviderContext(expanded: string): unknown {
 }
 
 describe("assistant citation references", () => {
+  it("keeps fenced citations literal when projecting a provider prompt", () => {
+    const text = `\`\`\`\n${serializeAssistantCitation(citation)}\n\`\`\``;
+    expect(collectAssistantCitations(text)).toEqual([]);
+    expect(expandAssistantCitationsForProvider(text)).toBe(text);
+  });
   it("preserves legacy v1 link bytes without adding a comment", () => {
     expect(parseAssistantCitationHref(legacyHref)).toStrictEqual(legacyCitation);
     expect(formatAssistantCitationHref(legacyCitation)).toBe(legacyHref);

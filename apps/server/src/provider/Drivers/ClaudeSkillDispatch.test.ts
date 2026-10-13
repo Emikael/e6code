@@ -5,6 +5,20 @@ import { planClaudeSkillDispatch } from "./ClaudeSkillDispatch.ts";
 const SKILLS = new Set(["2spec", "implement", "review", "re-release-version"]);
 
 describe("planClaudeSkillDispatch", () => {
+  it("does not dispatch a known skill inside a fenced example", () => {
+    expect(planClaudeSkillDispatch("example\n```\n$review\n```", SKILLS)).toBeUndefined();
+  });
+
+  it("dispatches a namespaced skill in the middle of a paragraph", () => {
+    expect(
+      planClaudeSkillDispatch("please use $plugin:review here", new Set(["plugin:review"])),
+    ).toEqual({
+      leadingText: "please use",
+      commandText: "/plugin:review here",
+      skillName: "plugin:review",
+    });
+  });
+
   it("leaves a prompt without a known skill untouched", () => {
     expect(planClaudeSkillDispatch("fix the build", SKILLS)).toBeUndefined();
     // Not a discovered skill, so it stays prose rather than becoming a command.
