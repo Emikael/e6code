@@ -1,3 +1,5 @@
+import { collectComposerCodeBlocks } from "./composerCodeBlocks.ts";
+
 export type ComposerInlineToken =
   | {
       readonly type: "mention";
@@ -256,5 +258,13 @@ export function collectComposerInlineTokens(
     }
   }
 
-  return [...matches].sort((left, right) => left.start - right.start);
+  const blocks = collectComposerCodeBlocks(text);
+  let blockIndex = 0;
+  return matches
+    .sort((left, right) => left.start - right.start)
+    .filter((token) => {
+      while (blocks[blockIndex] && blocks[blockIndex]!.end <= token.start) blockIndex += 1;
+      const block = blocks[blockIndex];
+      return !block || token.end <= block.start;
+    });
 }

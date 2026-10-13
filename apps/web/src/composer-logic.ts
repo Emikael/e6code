@@ -1,5 +1,6 @@
 import type { ClientSettings } from "@e6tools/contracts/settings";
 import type { AssistantCitation } from "@e6tools/contracts";
+import { isComposerCodePosition } from "@e6tools/shared/composerCodeBlocks";
 import {
   serializeAssistantCitation,
   withAssistantCitationComment,
@@ -29,10 +30,12 @@ export function composerSubmissionIntentForEnter(input: {
   shiftKey: boolean;
   modifierKey: boolean;
   isDraftThread: boolean;
+  isCodeBlock?: boolean;
   isRunning?: boolean;
   sendShortcut?: ClientSettings["sendShortcut"];
   prompt?: string;
 }): ComposerSubmissionIntent | null {
+  if (input.isCodeBlock && !input.modifierKey) return null;
   const requiresModifier =
     input.sendShortcut === "mod-enter" ||
     (input.sendShortcut === "mod-enter-multiline" && /[\r\n]/.test(input.prompt ?? ""));
@@ -217,6 +220,7 @@ export function isCollapsedCursorAdjacentToInlineToken(
 
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
+  if (isComposerCodePosition(text, cursor)) return null;
   const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
   const linePrefix = text.slice(lineStart, cursor);
 

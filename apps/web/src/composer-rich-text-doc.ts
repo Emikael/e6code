@@ -1,6 +1,9 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Code } from "@tiptap/extension-code";
 import { TaskItem } from "@tiptap/extension-task-item";
+import { InputRule, Node, type KeyboardShortcutCommand } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { collectComposerCodeBlocks } from "@e6tools/shared/composerCodeBlocks";
 
 import { splitPromptIntoComposerSegments } from "~/composer-editor-mentions";
 import { parseInlineMarkdown, RICH_TEXT_DELIMITERS, type RichTextMark } from "~/composer-rich-text";
@@ -48,6 +51,85 @@ const TIPTAP_TO_MARK: Record<string, RichTextMark> = {
  * Code nests inside emphasis here, so it only excludes itself like the rest.
  */
 export const ComposerCodeExtension = Code.extend({ excludes: "code" });
+
+/** Keep StarterKit's code editing/exit commands, with immediate fence input. */
+export const ComposerStarterKit = StarterKit.extend({
+  addExtensions() {
+    return (this.parent?.() ?? []).map((extension) =>
+      extension.name !== "codeBlock" || !(extension instanceof Node)
+        ? extension
+        : extension.extend({
+            // Run before HardBreak, whose Shift+Enter exits code.
+            priority: 101,
+            addAttributes() {
+              return {
+                ...this.parent?.(),
+                opening: { default: "```\n", rendered: false },
+                closing: { default: "\n```", rendered: false },
+              };
+            },
+            addKeyboardShortcuts() {
+              const shortcuts = this.parent?.() ?? {};
+              const closeOnExit =
+                (key: "Enter" | "ArrowDown"): KeyboardShortcutCommand =>
+                (props) => {
+                  const { $from } = this.editor.state.selection;
+                  const unfinished =
+                    $from.parent.type.name === this.name && $from.parent.attrs.closing === null;
+                  const position = unfinished ? $from.before() : 0;
+                  const handled = shortcuts[key]?.(props) ?? false;
+                  if (
+                    handled &&
+                    unfinished &&
+                    this.editor.state.selection.$from.parent.type.name !== this.name
+                  ) {
+                    const code = this.editor.state.doc.nodeAt(position)!;
+                    const fence =
+                      /^ {0,3}(`{3,}|~{3,})/.exec(String(code.attrs.opening))?.[1] ?? "```";
+                    this.editor.view.dispatch(
+                      this.editor.state.tr.setNodeMarkup(position, undefined, {
+                        ...code.attrs,
+                        closing: `\n${fence}`,
+                      }),
+                    );
+                  }
+                  return handled;
+                };
+              return {
+                ...shortcuts,
+                Enter: closeOnExit("Enter"),
+                ArrowDown: closeOnExit("ArrowDown"),
+                "Shift-Enter": () => this.editor.commands.newlineInCode(),
+              };
+            },
+            addInputRules() {
+              return [
+                new InputRule({
+                  find: /^ {0,3}`{3}$/,
+                  handler: ({ state, range, match }) => {
+                    const $start = state.doc.resolve(range.from);
+                    // A fence inserted before existing text remains literal.
+                    if ($start.parent.content.size !== range.to - $start.start()) return null;
+                    if (
+                      !$start
+                        .node(-1)
+                        .canReplaceWith($start.index(-1), $start.indexAfter(-1), this.type)
+                    )
+                      return null;
+                    state.tr
+                      .delete(range.from, range.to)
+                      .setBlockType(range.from, range.from, this.type, {
+                        opening: `${match[0]}\n`,
+                      });
+                  },
+                }),
+                ...(this.parent?.() ?? []),
+              ];
+            },
+          }),
+    );
+  },
+});
 
 /**
  * Task list items keep their exact source indent in an attribute so nesting
@@ -171,7 +253,7 @@ function textJsonForSpan(text: string, marks: RichTextMark[]): Record<string, un
   return json;
 }
 
-export function buildTiptapContent(
+function buildParagraphContent(
   value: string,
   skillLabelFor: (name: string) => SkillMeta,
   options?: { styling?: boolean },
@@ -264,6 +346,41 @@ export function buildTiptapContent(
   return blocks;
 }
 
+export function buildTiptapContent(
+  value: string,
+  skillLabelFor: (name: string) => SkillMeta,
+  options?: { styling?: boolean },
+): Record<string, unknown>[] {
+  const codeBlocks = options?.styling === false ? [] : collectComposerCodeBlocks(value);
+  if (codeBlocks.length === 0) return buildParagraphContent(value, skillLabelFor, options);
+  const blocks: Record<string, unknown>[] = [];
+  let cursor = 0;
+  for (const code of codeBlocks) {
+    if (code.start > cursor) {
+      const prose = value.slice(cursor, code.start);
+      const paragraphs = buildParagraphContent(prose, skillLabelFor, options);
+      // The block boundary supplies the newline; keep it while parsing chips.
+      if (prose.endsWith("\n")) paragraphs.pop();
+      blocks.push(...paragraphs);
+    }
+    const content = value.slice(code.contentStart, code.contentEnd);
+    blocks.push({
+      type: "codeBlock",
+      attrs: {
+        language: code.language || null,
+        opening: code.opening,
+        closing: code.closingStart === null ? null : value.slice(code.contentEnd, code.end),
+      },
+      content: content ? [{ type: "text", text: content }] : [],
+    });
+    cursor = code.end + (value[code.end] === "\n" ? 1 : 0);
+  }
+  if (cursor < value.length || codeBlocks.at(-1)!.end < value.length) {
+    blocks.push(...buildParagraphContent(value.slice(cursor), skillLabelFor, options));
+  }
+  return blocks;
+}
+
 export function buildDocJson(
   value: string,
   skillLabelFor: (name: string) => SkillMeta,
@@ -273,7 +390,7 @@ export function buildDocJson(
 }
 
 export interface RichRun {
-  kind: "text" | "token" | "break" | "prefix";
+  kind: "text" | "token" | "break" | "prefix" | "code" | "suffix";
   /** Flat document offset (atoms count 1, markers excluded). */
   flatStart: number;
   docLen: number;
@@ -535,11 +652,42 @@ function walkTaskList(list: ProseMirrorNode, listStart: number, acc: RichAccumul
         walkTaskList(child, childPos, acc);
       } else if (child.type.name === "paragraph") {
         appendInlineRuns(child, childPos + 1, acc);
+      } else if (child.type.name === "codeBlock") {
+        appendCodeBlockRuns(child, childPos + 1, acc);
       }
       childPos += child.nodeSize;
     });
     itemPos += item.nodeSize;
   });
+}
+
+function appendCodeBlockRuns(block: ProseMirrorNode, contentStart: number, acc: RichAccumulator) {
+  const content = block.textContent;
+  let opening = String(block.attrs.opening);
+  if (content && !opening.endsWith("\n")) opening += "\n";
+  const closing = typeof block.attrs.closing === "string" ? block.attrs.closing : "";
+  for (const [kind, source, docLen, pmPos] of [
+    ["prefix", opening, 0, contentStart],
+    ["code", content, content.length, contentStart],
+    ["suffix", closing, 0, contentStart + content.length],
+  ] as const) {
+    acc.runs.push({
+      kind,
+      flatStart: acc.flat,
+      docLen,
+      collapsedLen: source.length,
+      mdLen: source.length,
+      openLen: 0,
+      closeLen: 0,
+      pmPos,
+      mdStart: acc.md,
+      collapsedStart: acc.collapsed,
+    });
+    acc.value += source;
+    acc.flat += docLen;
+    acc.collapsed += source.length;
+    acc.md += source.length;
+  }
 }
 
 export function serializeEditorDoc(doc: ProseMirrorNode): RichDocMap {
@@ -556,6 +704,8 @@ export function serializeEditorDoc(doc: ProseMirrorNode): RichDocMap {
       walkTaskList(block, pmBlockStart, acc);
     } else if (block.type.name === "paragraph") {
       appendInlineRuns(block, pmBlockStart + 1, acc);
+    } else if (block.type.name === "codeBlock") {
+      appendCodeBlockRuns(block, pmBlockStart + 1, acc);
     }
     pmBlockStart += block.nodeSize;
   });
@@ -579,6 +729,9 @@ function lastRunEnd(map: RichDocMap, space: "collapsed" | "md"): number {
 export function flatToCollapsed(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {
+    if (run.kind === "code" && bounded <= run.flatStart + run.docLen && bounded >= run.flatStart) {
+      return run.collapsedStart + bounded - run.flatStart;
+    }
     if (bounded < run.flatStart + run.docLen) {
       if (run.kind === "text" || run.kind === "token") {
         return run.collapsedStart + run.openLen + (bounded - run.flatStart);
@@ -592,6 +745,9 @@ export function flatToCollapsed(map: RichDocMap, flatOffset: number): number {
 export function flatToMarkdown(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {
+    if (run.kind === "code" && bounded <= run.flatStart + run.docLen && bounded >= run.flatStart) {
+      return run.mdStart + bounded - run.flatStart;
+    }
     if (bounded < run.flatStart + run.docLen) {
       if (run.kind === "text" || run.kind === "token") {
         return run.mdStart + run.openLen + (bounded - run.flatStart);
@@ -607,7 +763,7 @@ export function collapsedToFlat(map: RichDocMap, collapsedOffset: number): numbe
     if (collapsedOffset < run.collapsedStart + run.collapsedLen) {
       // Checkbox prefixes and style markers are shown, never edited: every
       // offset inside them clamps to the adjacent document position.
-      if (run.kind === "prefix") return run.flatStart;
+      if (run.kind === "prefix" || run.kind === "suffix") return run.flatStart;
       if (run.kind === "text" || run.kind === "token") {
         const within = collapsedOffset - run.collapsedStart;
         // Marker characters clamp to the styled edge: they are shown, never edited.
@@ -624,6 +780,9 @@ export function collapsedToFlat(map: RichDocMap, collapsedOffset: number): numbe
 export function flatToPm(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {
+    if (run.kind === "code" && bounded <= run.flatStart + run.docLen && bounded >= run.flatStart) {
+      return run.pmPos + bounded - run.flatStart;
+    }
     if (bounded < run.flatStart + run.docLen) {
       return run.pmPos + (bounded - run.flatStart);
     }

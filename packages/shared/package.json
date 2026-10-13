@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./composerCodeBlocks": {
+      "types": "./src/composerCodeBlocks.ts",
+      "import": "./src/composerCodeBlocks.ts"
+    },
     "./brand": {
       "types": "./src/brand.ts",
       "import": "./src/brand.ts"

@@ -3,6 +3,14 @@ import { describe, expect, it } from "vite-plus/test";
 import { detectComposerTrigger, serializeComposerFileLink } from "./composerTrigger.ts";
 
 describe("detectComposerTrigger", () => {
+  it.each(["$review", "@file", "/review", "#12"])(
+    "does not open a menu for %s in an unfinished code block",
+    (token) => {
+      const text = `prose\n\`\`\`\n${token}`;
+      expect(detectComposerTrigger(text, text.length)).toBeNull();
+    },
+  );
+
   it.each(["$", "€", "£", "¥", "₹", "₩", "₿", "𑿝"])(
     "detects %s skill prefixes and their source range",
     (prefix) => {

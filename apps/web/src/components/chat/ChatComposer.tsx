@@ -3993,14 +3993,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
     event: KeyboardEvent,
     isTaskItem = false,
+    isCodeBlock = false,
   ) => {
+    if (isCodeBlock && (key !== "Enter" || !(event.metaKey || event.ctrlKey))) return false;
     if (key === "Tab" && event.shiftKey) {
       if (!planModeUiEnabled) return false;
       toggleInteractionMode();
       return true;
     }
     const { trigger } = resolveActiveComposerTrigger();
-    const menuIsActive = composerMenuOpenRef.current || trigger !== null;
+    const menuIsActive = !isCodeBlock && (composerMenuOpenRef.current || trigger !== null);
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
       dismissComposerTrigger(trigger);
@@ -4036,12 +4038,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             isRunning: phase === "running",
             sendShortcut: settings.sendShortcut,
             prompt: promptRef.current,
+            isCodeBlock,
           })
         : null;
     if (submissionIntent) {
       submitComposer(undefined, submissionIntent);
       return true;
     }
+    if (isCodeBlock) return false;
     // Native task splitting preserves marks and chips on both sides of the caret.
     if (key === "Enter" && isTaskItem) return false;
     if (!event.isComposing && (key === "Enter" || (key === "Tab" && !event.shiftKey))) {

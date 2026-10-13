@@ -18,11 +18,9 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import { parse as parseYamlDocument } from "yaml";
+import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
-const SKILL_MENTION_PATTERN =
-  /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
-const HAS_SKILL_MENTION_PATTERN = new RegExp(SKILL_MENTION_PATTERN.source, "u");
 const MAX_SKILL_DEPTH = 10;
 const MAX_SKILL_BYTES = ByteSize.bytes(1_000_000);
 const MAX_SKILL_SCAN_ENTRIES = 10_000;
@@ -277,14 +275,18 @@ export const probeCursorSkills = Effect.fn("probeCursorSkills")(function* (
 
 /** Cursor invokes Agent Skills with `/name`; E6 composers insert `$name`. */
 export function hasCursorSkillMention(prompt: string): boolean {
-  return HAS_SKILL_MENTION_PATTERN.test(prompt);
+  return collectComposerInlineTokens(`${prompt}\n`).some((token) => token.type === "skill");
 }
 
 export function rewriteCursorSkillMentions(
   prompt: string,
   skillNames: ReadonlySet<string>,
 ): string {
-  return prompt.replace(SKILL_MENTION_PATTERN, (match, prefix: string, name: string) =>
-    skillNames.has(name) ? `${prefix}/${name}` : match,
+  return collectComposerInlineTokens(`${prompt}\n`).reduceRight(
+    (text, token) =>
+      token.type === "skill" && skillNames.has(token.value)
+        ? `${text.slice(0, token.start)}/${token.value}${text.slice(token.end)}`
+        : text,
+    prompt,
   );
 }

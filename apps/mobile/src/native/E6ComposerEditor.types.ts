@@ -70,6 +70,6 @@ export interface ComposerEditorProps {
    * hardware Return handling.
    */
   readonly enterBehavior?: ComposerEnterBehavior;
-  /** Hardware keyboard submission: Command-Return, or Return when `enterBehavior` is "send". */
+  /** Hardware submission: Command-Return on iOS, Ctrl/Meta-Return on Android. */
   readonly onSubmit?: () => void;
 }

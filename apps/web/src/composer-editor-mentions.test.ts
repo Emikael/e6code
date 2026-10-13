@@ -35,6 +35,12 @@ const citation: AssistantCitation = {
 };
 
 describe("splitPromptIntoComposerSegments", () => {
+  it.each(["```ts", "~~~sh"])("keeps every chip source inside %s literal", (fence) => {
+    const prompt = `${fence}\n@AGENTS.md $review ${serializeAssistantCitation(citation)} ${terminalReference}\n${fence.slice(0, 3)}`;
+    expect(splitPromptIntoComposerSegments(prompt)).toEqual([{ type: "text", text: prompt }]);
+    expect(selectionTouchesMentionBoundary(prompt, 0, prompt.length)).toBe(false);
+  });
+
   it("splits mention tokens followed by whitespace into mention segments", () => {
     expect(splitPromptIntoComposerSegments("Inspect @AGENTS.md please")).toEqual([
       { type: "text", text: "Inspect " },

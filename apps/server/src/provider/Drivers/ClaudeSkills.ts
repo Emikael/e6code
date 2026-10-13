@@ -19,6 +19,7 @@ import type { ClaudeSettings, ServerProviderSkill } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HostProcessPlatform } from "@e6tools/shared/hostProcess";
 import { fromLenientJson } from "@e6tools/shared/schemaJson";
@@ -27,6 +28,184 @@ import { parse as parseYamlDocument } from "yaml";
 import { expandHomePath } from "../../pathExpansion.ts";
 
 type ClaudeSkillScope = "user" | "project";
+
+type ClaudeNativeSkill = Pick<ServerProviderSkill, "name"> &
+  Partial<Pick<ServerProviderSkill, "description" | "scope" | "userInvocationOnly">>;
+
+/** Native inventory owns availability; disk discovery only enriches source metadata. */
+export function mergeClaudeSkillCatalog(
+  discovered: ReadonlyArray<ServerProviderSkill>,
+  native: ReadonlyArray<ClaudeNativeSkill> | undefined,
+): ReadonlyArray<ServerProviderSkill> {
+  if (native === undefined) return discovered;
+  const definitions = new Map(discovered.map((skill) => [skill.name, skill]));
+  const skills = new Map<string, ServerProviderSkill>();
+  for (const { name: rawName, description: rawDescription, ...metadata } of native) {
+    const name = rawName.trim();
+    if (!name || skills.has(name)) continue;
+    const definition = definitions.get(name);
+    const description = rawDescription?.trim() || definition?.description;
+    skills.set(name, {
+      ...definition,
+      ...metadata,
+      name,
+      enabled: definition?.enabled ?? true,
+      ...(description ? { description } : {}),
+    });
+  }
+  return [...skills.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+const ClaudeSkillsDialogResponse = Schema.Struct({
+  response: Schema.Struct({
+    skills: Schema.Array(
+      Schema.Struct({
+        display_name: Schema.String,
+        description: Schema.String,
+        source: Schema.String,
+        state: Schema.String,
+        advertised: Schema.Boolean,
+      }),
+    ),
+  }),
+});
+
+/** The SDK's untyped control channel; `Query.request` exists at runtime but not in its types. */
+export interface ClaudeControlRequester {
+  readonly request?: (request: { readonly subtype: string }) => Promise<unknown>;
+}
+
+/**
+ * Reads the user-invocable rows of Claude's own `/skills` menu
+ * (`get_skills_dialog`): user, project, plugin, legacy-command and MCP skills
+ * with their source. Resolves `undefined` on CLIs that lack the request.
+ */
+export const readClaudeSkillsDialog = (query: ClaudeControlRequester) =>
+  Effect.tryPromise(() => {
+    if (!query.request) throw new Error("Claude query has no control channel");
+    return query.request({ subtype: "get_skills_dialog" });
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(ClaudeSkillsDialogResponse)),
+    Effect.map(({ response }) =>
+      response.skills.flatMap((row): ReadonlyArray<ClaudeNativeSkill> =>
+        row.advertised
+          ? [
+              {
+                name: row.display_name,
+                description: row.description,
+                ...(row.source.trim() ? { scope: row.source.trim() } : {}),
+                ...(row.state === "user-invocable-only" ? { userInvocationOnly: true } : {}),
+              },
+            ]
+          : [],
+      ),
+    ),
+    Effect.timeout("4 seconds"),
+    Effect.orElseSucceed(() => undefined),
+  );
+
+/** A slash command as `initialize` reports it; the SDK leaves `builtin` untyped. */
+interface ClaudeNativeCommand {
+  readonly name: string;
+  readonly description?: string;
+  readonly builtin?: boolean;
+}
+
+export interface ClaudeNativeSkillInventory {
+  readonly skills: ReadonlyArray<ClaudeNativeSkill>;
+  /**
+   * Built-in commands no native list classifies: user-only bundled skills
+   * (`/batch`) look exactly like terminal commands (`/clear`) until a session's
+   * `system/init` names them among its skills.
+   */
+  readonly builtinCandidates: ReadonlyArray<ClaudeNativeSkill>;
+}
+
+/** Names a `$name` token can carry; MCP prompts such as `server:prompt (MCP)` cannot. */
+const SKILL_TOKEN_NAME = /^[a-zA-Z0-9][a-zA-Z0-9:_-]*$/;
+
+/**
+ * Joins Claude's three native lists into skills it can dispatch. The `/skills`
+ * dialog carries disk and plugin skills, non-built-in commands are plugin and
+ * legacy prompts, and the model inventory (`reloadSkills`) marks which
+ * built-ins are bundled skills rather than terminal commands. Without the
+ * dialog the CLI is too old to trust its command flags, so callers fall back
+ * to disk discovery.
+ */
+export function classifyClaudeNativeSkills(input: {
+  readonly commands: ReadonlyArray<ClaudeNativeCommand>;
+  readonly dialog: ReadonlyArray<ClaudeNativeSkill> | undefined;
+  readonly modelSkillNames: ReadonlySet<string> | undefined;
+}): ClaudeNativeSkillInventory | undefined {
+  if (input.dialog === undefined) return undefined;
+  const skills = new Map(input.dialog.map((skill) => [skill.name, skill]));
+  const builtinCandidates: Array<ClaudeNativeSkill> = [];
+  for (const command of input.commands) {
+    if (skills.has(command.name)) continue;
+    const skill = {
+      name: command.name,
+      ...(command.description ? { description: command.description } : {}),
+      ...(command.builtin ? { scope: "built-in" } : {}),
+    };
+    if (!command.builtin) skills.set(skill.name, skill);
+    else if (input.modelSkillNames?.has(skill.name)) skills.set(skill.name, skill);
+    else builtinCandidates.push({ ...skill, userInvocationOnly: true });
+  }
+  return {
+    skills: [...skills.values()].filter((skill) => SKILL_TOKEN_NAME.test(skill.name)),
+    builtinCandidates: builtinCandidates.filter((skill) => SKILL_TOKEN_NAME.test(skill.name)),
+  };
+}
+
+/** Admits the built-in candidates a live session has confirmed as skills. */
+export const resolveClaudeNativeSkills = (
+  inventory: ClaudeNativeSkillInventory | undefined,
+  sessionSkillNames: ReadonlySet<string> = new Set(),
+): ReadonlyArray<ClaudeNativeSkill> | undefined =>
+  inventory && [
+    ...inventory.skills,
+    ...inventory.builtinCandidates.filter((skill) => sessionSkillNames.has(skill.name)),
+  ];
+
+const SessionSkillNamesJson = Schema.fromJsonString(Schema.Array(Schema.String));
+
+/**
+ * The skill names live sessions announced in `system/init`, kept in `filePath`.
+ * Only a session tells user-only bundled skills from terminal commands, and
+ * only once a turn starts, so the names outlive the server for later catalogs.
+ */
+export const makeClaudeSessionSkillNames = Effect.fn("makeClaudeSessionSkillNames")(function* (
+  filePath: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const persisted = yield* fileSystem.readFileString(filePath).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(SessionSkillNamesJson)),
+    Effect.orElseSucceed((): ReadonlyArray<string> => []),
+  );
+  const names = yield* Ref.make<ReadonlySet<string>>(new Set(persisted));
+  // ponytail: concurrent records may write out of order; a dropped name returns with the next session.
+  const record = (announced: ReadonlyArray<string>) =>
+    Ref.modify(names, (current) => {
+      if (announced.every((name) => current.has(name))) return [undefined, current] as const;
+      const next: ReadonlySet<string> = new Set([...current, ...announced]);
+      return [next, next] as const;
+    }).pipe(
+      Effect.flatMap((next) =>
+        next === undefined
+          ? Effect.void
+          : fileSystem
+              .makeDirectory(path.dirname(filePath), { recursive: true })
+              .pipe(
+                Effect.andThen(
+                  fileSystem.writeFileString(filePath, JSON.stringify([...next].sort())),
+                ),
+                Effect.ignore,
+              ),
+      ),
+    );
+  return { names, record };
+});
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 

@@ -36,7 +36,15 @@ import {
 } from "../providerSnapshot.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
-import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
+import {
+  type ClaudeControlRequester,
+  type ClaudeNativeSkillInventory,
+  classifyClaudeNativeSkills,
+  discoverClaudeSkills,
+  mergeClaudeSkillCatalog,
+  readClaudeSkillsDialog,
+  resolveClaudeNativeSkills,
+} from "../Drivers/ClaudeSkills.ts";
 import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 import {
   type ClaudeScopedLimitNames,
@@ -237,6 +245,8 @@ type ClaudeCapabilitiesProbe = {
    */
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  /** Absent when the CLI cannot describe its skills; callers then scan disk. */
+  readonly nativeSkills?: ClaudeNativeSkillInventory;
   readonly models?: ReadonlyArray<ClaudeModelInfo>;
   /**
    * Subscription windows from the SDK's `get_usage` control request, or
@@ -391,6 +401,20 @@ const probeClaudeCapabilities = (
     Effect.timeout(CAPABILITIES_PROBE_TIMEOUT_MS),
     Effect.flatMap(({ q, init }) =>
       Effect.gen(function* () {
+        const dialog = yield* readClaudeSkillsDialog(q as unknown as ClaudeControlRequester);
+        // A throwaway session, so reloading skills here has no one to disturb.
+        const modelSkillNames = dialog
+          ? yield* Effect.tryPromise(() => q.reloadSkills()).pipe(
+              Effect.timeout(DEFAULT_TIMEOUT_MS),
+              Effect.map(({ skills }) => new Set(skills.map((skill) => skill.name))),
+              Effect.orElseSucceed(() => undefined),
+            )
+          : undefined;
+        const nativeSkills = classifyClaudeNativeSkills({
+          commands: init.commands,
+          dialog,
+          modelSkillNames,
+        });
         // Optional requests have their own deadlines so they cannot discard initialization.
         const modelResult = yield* Effect.tryPromise(() => q.supportedModels()).pipe(
           Effect.timeout(DEFAULT_TIMEOUT_MS),
@@ -420,6 +444,7 @@ const probeClaudeCapabilities = (
           tokenSource: account?.tokenSource,
           apiProvider: account?.apiProvider,
           slashCommands: parseClaudeInitializationCommands(init.commands),
+          ...(nativeSkills ? { nativeSkills } : {}),
           ...(models ? { models } : {}),
           ...(usage ? { usage } : {}),
         } satisfies ClaudeCapabilitiesProbe;
@@ -569,7 +594,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     claudeSettings.customModels,
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
-  const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
+  const skills = mergeClaudeSkillCatalog(
+    yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment),
+    resolveClaudeNativeSkills(capabilities?.nativeSkills),
+  );
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
 

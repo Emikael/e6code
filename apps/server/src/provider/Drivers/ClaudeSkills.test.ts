@@ -4,8 +4,13 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 
-import { discoverClaudeSkills, skillOverrideSettingsPaths } from "./ClaudeSkills.ts";
+import {
+  discoverClaudeSkills,
+  makeClaudeSessionSkillNames,
+  skillOverrideSettingsPaths,
+} from "./ClaudeSkills.ts";
 
 const writeSkill = Effect.fn(function* (
   skillsDir: string,
@@ -685,5 +690,36 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
 
       assert.deepEqual(skills, []);
     }),
+  );
+});
+
+it.layer(NodeServices.layer)("makeClaudeSessionSkillNames", (it) => {
+  it.effect("keeps announced skill names for the next server run", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "e6-claude-session-skills-" });
+      const filePath = path.join(tempDir, "claude-session-skills", "claude.json");
+
+      const first = yield* makeClaudeSessionSkillNames(filePath);
+      yield* first.record(["batch", "verify"]);
+      yield* first.record(["batch"]);
+
+      const restarted = yield* makeClaudeSessionSkillNames(filePath);
+      assert.deepEqual([...(yield* Ref.get(restarted.names))], ["batch", "verify"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("starts empty when the stored names are unreadable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "e6-claude-session-skills-" });
+      const filePath = path.join(tempDir, "claude.json");
+      yield* fs.writeFileString(filePath, "{not json");
+
+      const names = yield* makeClaudeSessionSkillNames(filePath);
+      assert.equal((yield* Ref.get(names.names)).size, 0);
+    }).pipe(Effect.scoped),
   );
 });

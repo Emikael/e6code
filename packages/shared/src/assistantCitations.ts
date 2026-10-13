@@ -5,6 +5,7 @@ import {
 } from "@e6tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { collectComposerCodeBlocks } from "./composerCodeBlocks.ts";
 
 const CITATION_PROTOCOL = "e6-citation:";
 const CITATION_HREF_PREFIX = `${CITATION_PROTOCOL}//v1/`;
@@ -105,7 +106,13 @@ export function serializeAssistantCitation(citation: AssistantCitation): string 
 export function collectAssistantCitations(text: string) {
   const citations: { citation: AssistantCitation; source: string; start: number; end: number }[] =
     [];
+  if (!text.includes(CITATION_HREF_PREFIX)) return citations;
+  const blocks = collectComposerCodeBlocks(text);
   for (const match of text.matchAll(CITATION_LINK)) {
+    if (
+      blocks.some((block) => match.index < block.end && match.index + match[0].length > block.start)
+    )
+      continue;
     const citation = parseAssistantCitationHref(match[1]!);
     if (!citation) continue;
     citations.push({

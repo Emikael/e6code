@@ -76,7 +76,7 @@ export function getProviderSlashCommandsForSlashMenu(
 export function resolveProviderSkillSourceKind(
   skill: Pick<ServerProviderSkill, "path" | "scope">,
 ): ProviderSkillSourceKind {
-  const normalizedPath = normalizePathSeparators(skill.path);
+  const normalizedPath = normalizePathSeparators(skill.path ?? "");
   if (normalizedPath.includes("/.codex/plugins/") || normalizedPath.includes("/.agents/plugins/")) {
     return "app";
   }

@@ -1,5 +1,14 @@
 import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "@e6tools/client-runtime/text-paste";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "@e6tools/contracts";
+import { collectComposerCodeBlocks } from "@e6tools/shared/composerCodeBlocks";
+import {
+  ComposerCodeEditingHistory,
+  normalizeComposerCodeEdit,
+  pasteComposerCodeText,
+  rebasePendingComposerCodeEdit,
+  type ComposerSourceState,
+  type ComposerCodeAction,
+} from "./composerCodeEditing";
 import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 import { composerContextEditorTokens } from "../lib/composerContext";
 import { requireNativeView } from "expo";
@@ -45,6 +54,8 @@ type NativeEditorEvent = NativeSyntheticEvent<{
   readonly value: string;
   readonly selection: ComposerEditorSelection;
   readonly eventCount: number;
+  readonly isComposing?: boolean;
+  readonly isShiftEnter?: boolean;
 }>;
 
 type NativeSelectionEvent = NativeSyntheticEvent<{
@@ -88,6 +99,9 @@ interface NativeComposerEditorProps extends ViewProps {
   readonly autoCorrect: boolean;
   readonly spellCheck: boolean;
   readonly onComposerChange: (event: NativeEditorEvent) => void;
+  readonly onComposerCodeAction: (
+    event: NativeEditorEvent & NativeSyntheticEvent<{ action: ComposerCodeAction }>,
+  ) => void;
   readonly onComposerSelectionChange?: (event: NativeSelectionEvent) => void;
   readonly onComposerPasteImages?: (event: NativePasteImagesEvent) => void;
   readonly onComposerContextPress?: (
@@ -101,6 +115,7 @@ interface NativeComposerEditorProps extends ViewProps {
   readonly onComposerPasteText?: (event: NativePasteTextEvent) => void;
   readonly onComposerFocus?: () => void;
   readonly onComposerBlur?: () => void;
+  readonly onComposerSubmit?: () => void;
 }
 
 const NativeView = requireNativeView<NativeComposerEditorProps>(NATIVE_MODULE_NAME);
@@ -131,6 +146,16 @@ export function ComposerEditor({
 }: ComposerEditorProps) {
   const nativeRef = useRef<NativeComposerEditorRef>(null);
   const mostRecentEventCountRef = useRef(0);
+  const codeHistoryRef = useRef(
+    new ComposerCodeEditingHistory({
+      value: props.value,
+      selection: selection ?? { start: props.value.length, end: props.value.length },
+    }),
+  );
+  const codeSelectionRef = useRef<
+    | (typeof codeHistoryRef.current.current & { eventCount: number; raw: ComposerSourceState })
+    | null
+  >(null);
   const [mostRecentEventCount, setMostRecentEventCount] = useState(0);
   const [, forceNativeEventRender] = useState(0);
   // The native editor mounts empty, so the snapshot history starts empty: the
@@ -198,15 +223,20 @@ export function ComposerEditor({
   // (value, selection) lags the acknowledged native state is stamped behind
   // the native revision and rejected by the editor instead of re-applying a
   // stale caret or stale text mid-typing.
+  const controlledSelection =
+    codeSelectionRef.current?.value === props.value &&
+    codeSelectionRef.current.eventCount === mostRecentEventCount
+      ? codeSelectionRef.current.selection
+      : selection;
   const controlledEventCount = resolveComposerControlledEventCount(
     props.value,
-    selection ?? null,
+    controlledSelection ?? null,
     mostRecentEventCount,
     nativeEventSnapshotsRef.current,
   );
   const acknowledgesLatestNativeEvent = isComposerNativeEcho(
     props.value,
-    selection ?? null,
+    controlledSelection ?? null,
     mostRecentEventCount,
     nativeEventSnapshotsRef.current,
   );
@@ -214,8 +244,11 @@ export function ComposerEditor({
     controlledEventCount === mostRecentEventCount && acknowledgesLatestNativeEvent;
   const controlledDocumentJson = JSON.stringify({
     value: props.value,
-    selection: isNativeEcho ? null : (selection ?? null),
+    selection: isNativeEcho ? null : (controlledSelection ?? null),
     tokensJson,
+    codeBlocks: collectComposerCodeBlocks(props.value),
+    canUndo: codeHistoryRef.current.canUndo,
+    canRedo: codeHistoryRef.current.canRedo,
     mostRecentEventCount: controlledEventCount,
     isNativeEcho,
   });
@@ -232,12 +265,24 @@ export function ComposerEditor({
     // acknowledged revision forward; the editor rejects this payload, so the
     // snapshot history must not assume it applied.
     if (isNativeEcho || controlledEventCount !== mostRecentEventCountRef.current) return;
+    const valueChanged = codeHistoryRef.current.current.value !== assumedValue;
+    codeHistoryRef.current.record({
+      value: assumedValue,
+      selection: controlledSelection ?? codeHistoryRef.current.current.selection,
+    });
+    if (valueChanged) forceNativeEventRender((sequence) => sequence + 1);
     nativeEventSnapshotsRef.current = assumeComposerControlledState(
       nativeEventSnapshotsRef.current,
       controlledEventCount,
       assumedValue,
     );
-  }, [assumedValue, controlledEventCount, isNativeEcho, controlledDocumentJson]);
+  }, [
+    assumedValue,
+    controlledEventCount,
+    isNativeEcho,
+    controlledDocumentJson,
+    controlledSelection,
+  ]);
   const acceptNativeEvent = useCallback(
     (eventCount: number, value: string, nextSelection: ComposerEditorSelection) => {
       const acknowledgedEventCount = acknowledgeComposerNativeEvent(
@@ -305,8 +350,53 @@ export function ComposerEditor({
             event.nativeEvent.selection,
           );
           if (acknowledgedEventCount === false) return;
-          onChangeText(event.nativeEvent.value);
-          onSelectionChange?.(event.nativeEvent.selection);
+          const previous = codeHistoryRef.current.current;
+          const pending = codeSelectionRef.current;
+          const rebased = pending
+            ? rebasePendingComposerCodeEdit(
+                pending.raw,
+                pending,
+                event.nativeEvent,
+                event.nativeEvent.isComposing,
+                event.nativeEvent.isShiftEnter,
+              )
+            : null;
+          const next = codeHistoryRef.current.record(
+            rebased ??
+              normalizeComposerCodeEdit(previous, event.nativeEvent, event.nativeEvent.isComposing),
+          );
+          const rawBefore = pending?.raw ?? previous;
+          const rawCursor =
+            rawBefore.selection.start + event.nativeEvent.value.length - rawBefore.value.length;
+          const raw = {
+            value: event.nativeEvent.value,
+            selection: { start: rawCursor, end: rawCursor },
+          };
+          codeSelectionRef.current =
+            next.value === event.nativeEvent.value
+              ? null
+              : { ...next, raw, eventCount: acknowledgedEventCount };
+          onChangeText(next.value);
+          onSelectionChange?.(next.selection);
+          setMostRecentEventCount(acknowledgedEventCount);
+          forceNativeEventRender((sequence) => sequence + 1);
+        }}
+        onComposerCodeAction={(event) => {
+          const native = event.nativeEvent;
+          const acknowledgedEventCount = acceptNativeEvent(
+            native.eventCount,
+            native.value,
+            native.selection,
+          );
+          if (acknowledgedEventCount === false) return;
+          const actionState =
+            codeSelectionRef.current?.raw.value === native.value
+              ? codeHistoryRef.current.current
+              : native;
+          const next = codeHistoryRef.current.action(native.action, actionState);
+          codeSelectionRef.current = { ...next, raw: native, eventCount: acknowledgedEventCount };
+          onChangeText(next.value);
+          onSelectionChange?.(next.selection);
           setMostRecentEventCount(acknowledgedEventCount);
           forceNativeEventRender((sequence) => sequence + 1);
         }}
@@ -317,6 +407,21 @@ export function ComposerEditor({
             event.nativeEvent.selection,
           );
           if (acknowledgedEventCount === false) return;
+          const pending = codeSelectionRef.current;
+          if (pending && event.nativeEvent.value === pending.raw.value) {
+            codeSelectionRef.current = {
+              ...pending,
+              raw: event.nativeEvent,
+              eventCount: acknowledgedEventCount,
+            };
+            onChangeText(pending.value);
+            onSelectionChange?.(pending.selection);
+            setMostRecentEventCount(acknowledgedEventCount);
+            forceNativeEventRender((sequence) => sequence + 1);
+            return;
+          }
+          if (event.nativeEvent.value === codeHistoryRef.current.current.value)
+            codeHistoryRef.current.record(event.nativeEvent);
           // Android emits the selection change mid-mutation, before the change
           // event, so the payload can carry post-edit text. It must reach the
           // parent alongside the acknowledged revision, or the next render
@@ -353,6 +458,22 @@ export function ComposerEditor({
             paste.selection,
           );
           if (acknowledgedEventCount === false) return;
+          const pending = codeSelectionRef.current;
+          const pasteBase = pending?.raw.value === paste.value ? pending : paste;
+          const pastedCode = pasteComposerCodeText(
+            pasteBase,
+            paste.text,
+            PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+          );
+          if (pastedCode) {
+            const next = codeHistoryRef.current.record(pastedCode);
+            codeSelectionRef.current = { ...next, raw: paste, eventCount: acknowledgedEventCount };
+            onChangeText(next.value);
+            onSelectionChange?.(next.selection);
+            setMostRecentEventCount(acknowledgedEventCount);
+            forceNativeEventRender((sequence) => sequence + 1);
+            return;
+          }
           // Synchronize the draft before an async paste captures its insertion target.
           // React props can still precede the last native keystroke.
           onChangeText(paste.value);
@@ -363,6 +484,7 @@ export function ComposerEditor({
         }}
         onComposerFocus={onFocus}
         onComposerBlur={onBlur}
+        onComposerSubmit={props.onSubmit}
       />
     </TextInputWrapper>
   );

@@ -110,13 +110,26 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           '  }) + "\\n");',
           '  if (message.request?.subtype === "initialize") {',
           "    reply({",
-          '      commands: [{ name: "review", description: "Review changes", argumentHint: "[path]" }],',
+          "      commands: [",
+          '        { name: "review", description: "Review changes", argumentHint: "[path]" },',
+          '        { name: "simplify", description: "Simplify code", argumentHint: "", builtin: true },',
+          '        { name: "batch", description: "Batch changes", argumentHint: "", builtin: true },',
+          "      ],",
           "      agents: [],",
           '      output_style: "default",',
           '      available_output_styles: ["default"],',
           '      models: [{ value: "sonnet", resolvedModel: "claude-sonnet-6", displayName: "Sonnet", description: "Latest Sonnet" }],',
           '      account: { email: "dev@example.com", subscriptionType: "pro", tokenSource: "oauth" },',
           "    });",
+          "  }",
+          '  if (message.request?.subtype === "get_skills_dialog") {',
+          "    reply({ skills: [",
+          '      { display_name: "plugin:review", description: "Plugin review", source: "plugin", state: "on", advertised: true },',
+          '      { display_name: "agent-only", description: "Agent only", source: "user", state: "on", advertised: false },',
+          "    ] });",
+          "  }",
+          '  if (message.request?.subtype === "reload_skills") {',
+          '    reply({ skills: [{ name: "simplify", description: "Simplify code", argumentHint: "" }] });',
           "  }",
           "  // The probe follows initialize with get_usage on the same process.",
           '  if (message.request?.subtype === "get_usage") {',
@@ -150,12 +163,29 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         subscriptionType: "pro",
         tokenSource: "oauth",
         apiProvider: undefined,
+        nativeSkills: {
+          skills: [
+            { name: "plugin:review", description: "Plugin review", scope: "plugin" },
+            { name: "review", description: "Review changes" },
+            { name: "simplify", description: "Simplify code", scope: "built-in" },
+          ],
+          builtinCandidates: [
+            {
+              name: "batch",
+              description: "Batch changes",
+              scope: "built-in",
+              userInvocationOnly: true,
+            },
+          ],
+        },
         slashCommands: [
           {
             name: "review",
             description: "Review changes",
             input: { hint: "[path]" },
           },
+          { name: "simplify", description: "Simplify code" },
+          { name: "batch", description: "Batch changes" },
         ],
         models: [
           {
@@ -229,5 +259,27 @@ it.effect("preserves initialized capabilities when optional usage times out", ()
     ]);
     assert.equal(capabilities?.usage, undefined);
     assert.equal(abortSignal?.aborted, true);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("falls back to disk discovery when the CLI cannot list its skills menu", () =>
+  Effect.gen(function* () {
+    const query = vi.spyOn(ClaudeSdk, "query").mockImplementation(
+      () =>
+        ({
+          initializationResult: async () => ({ account: {}, commands: [] }),
+          request: async () => {
+            throw new Error("Unsupported control request subtype: get_skills_dialog");
+          },
+          supportedModels: async () => [],
+          usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: async () => ({
+            rate_limits_available: false,
+          }),
+        }) as unknown as ReturnType<typeof ClaudeSdk.query>,
+    );
+    yield* Effect.addFinalizer(() => Effect.sync(() => query.mockRestore()));
+    const result = yield* probeClaudeCapabilities(decodeClaudeSettings({ binaryPath: "claude" }));
+    assert.isDefined(result);
+    assert.isUndefined(result?.nativeSkills);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

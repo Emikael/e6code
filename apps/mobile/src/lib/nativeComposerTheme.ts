@@ -6,6 +6,8 @@ export function createNativeComposerTheme(theme: MobileThemeVariables) {
   const chipBackground = flattenThemeColor(theme["--color-subtle"], surface);
   const skillBackground = flattenThemeColor(theme["--color-inline-skill-background"], surface);
   return {
+    codeBackground: flattenThemeColor(theme["--color-md-code-bg"], surface),
+    codeText: flattenThemeColor(theme["--color-md-code-text"], surface),
     text: flattenThemeColor(theme["--color-foreground"], surface),
     placeholder: flattenThemeColor(theme["--color-placeholder"], surface),
     chipBackground,

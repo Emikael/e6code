@@ -1,6 +1,7 @@
 import type { AssistantCitation } from "@e6tools/contracts";
 import { collectAssistantCitations } from "@e6tools/shared/assistantCitations";
 import { collectComposerContextReferences } from "@e6tools/shared/composerContextReferences";
+import { collectComposerCodeBlocks } from "@e6tools/shared/composerCodeBlocks";
 import {
   collectComposerInlineTokens,
   type ComposerInlineToken,
@@ -77,8 +78,11 @@ function forEachMentionMatch(
 
 export function collectComposerPromptInlineTokens(text: string) {
   const tokens = collectComposerInlineTokens(text);
-  const citations = collectAssistantCitations(text);
-  const references = collectComposerContextReferences(text);
+  const codeBlocks = collectComposerCodeBlocks(text);
+  const outsideCode = (match: { start: number; end: number }) =>
+    !codeBlocks.some((block) => match.start < block.end && match.end > block.start);
+  const citations = collectAssistantCitations(text).filter(outsideCode);
+  const references = collectComposerContextReferences(text).filter(outsideCode);
   if (citations.length === 0 && references.length === 0) return tokens;
 
   // An unfinished @ mention can otherwise consume the start of a link label.

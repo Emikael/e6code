@@ -62,6 +62,7 @@ internal object E6ComposerClipboard {
 }
 
 class E6ComposerEditorModule : Module() {
+  @Suppress("LongMethod")
   override fun definition() = ModuleDefinition {
     Name("E6ComposerEditor")
 
@@ -125,6 +126,8 @@ class E6ComposerEditorModule : Module() {
 
       Events(
         "onComposerChange",
+        "onComposerCodeAction",
+        "onComposerSubmit",
         "onComposerSelectionChange",
         "onComposerFocus",
         "onComposerBlur",

@@ -6,6 +6,7 @@ import {
   type ElementContextDetails,
   type KnownComposerContextRecord,
 } from "@e6tools/contracts";
+import { collectComposerCodeBlocks } from "./composerCodeBlocks.ts";
 
 /**
  * Canonical inline reference: `[label](e6-context://v1/<kind>/<contextId>)`, or the image
@@ -77,7 +78,12 @@ export function collectComposerContextReferences(
   // No link can match without the protocol prefix; skip the scan entirely on
   // plain prose so long messages never pay for a regex walk per `[`.
   if (!text.includes("](e6-context:")) return occurrences;
+  const blocks = collectComposerCodeBlocks(text);
   for (const match of text.matchAll(CONTEXT_LINK)) {
+    if (
+      blocks.some((block) => match.index < block.end && match.index + match[0].length > block.start)
+    )
+      continue;
     const parsed = parseComposerContextHref(match[3]!);
     if (!parsed) continue;
     occurrences.push({
