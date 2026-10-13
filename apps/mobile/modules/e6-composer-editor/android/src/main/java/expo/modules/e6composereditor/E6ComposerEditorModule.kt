@@ -62,6 +62,7 @@ internal object E6ComposerClipboard {
 }
 
 class E6ComposerEditorModule : Module() {
+  @Suppress("LongMethod")
   override fun definition() = ModuleDefinition {
     Name("E6ComposerEditor")
 

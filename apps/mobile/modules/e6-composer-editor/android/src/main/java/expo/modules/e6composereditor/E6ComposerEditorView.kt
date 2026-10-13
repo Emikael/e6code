@@ -462,6 +462,7 @@ class E6ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
     )
   }
 
+  @Suppress("LongMethod", "CyclomaticComplexMethod", "ComplexCondition")
   private fun applyTokenSpans() {
     val editable = editor.text ?: return
     editable.getSpans(
@@ -469,33 +470,103 @@ class E6ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
       editable.length,
       ComposerChipSpan::class.java
     ).forEach(editable::removeSpan)
-    editable.getSpans(0, editable.length, ComposerFenceSpan::class.java).forEach(editable::removeSpan)
-    editable.getSpans(0, editable.length, ComposerCodeTypefaceSpan::class.java).forEach(editable::removeSpan)
-    editable.getSpans(0, editable.length, ComposerCodeBackgroundSpan::class.java).forEach(editable::removeSpan)
-    editable.getSpans(0, editable.length, ComposerCodeForegroundSpan::class.java).forEach(editable::removeSpan)
-    editable.getSpans(0, editable.length, ComposerFenceLineHeightSpan::class.java).forEach(editable::removeSpan)
-    editable.getSpans(0, editable.length, ComposerCodeLineBackgroundSpan::class.java).forEach(editable::removeSpan)
+    editable.getSpans(
+      0,
+      editable.length,
+      ComposerFenceSpan::class.java
+    ).forEach(editable::removeSpan)
+    editable.getSpans(
+      0,
+      editable.length,
+      ComposerCodeTypefaceSpan::class.java
+    ).forEach(editable::removeSpan)
+    editable.getSpans(
+      0,
+      editable.length,
+      ComposerCodeBackgroundSpan::class.java
+    ).forEach(editable::removeSpan)
+    editable.getSpans(
+      0,
+      editable.length,
+      ComposerCodeForegroundSpan::class.java
+    ).forEach(editable::removeSpan)
+    editable.getSpans(
+      0,
+      editable.length,
+      ComposerFenceLineHeightSpan::class.java
+    ).forEach(editable::removeSpan)
+    editable.getSpans(
+      0,
+      editable.length,
+      ComposerCodeLineBackgroundSpan::class.java
+    ).forEach(editable::removeSpan)
     codeBlocks.forEach { block ->
-      if (block.start < 0 || block.contentStart < block.start || block.contentEnd < block.contentStart || block.end < block.contentEnd || block.end > editable.length) return@forEach
+      if (block.start < 0 || block.contentStart < block.start ||
+        block.contentEnd < block.contentStart ||
+        block.end < block.contentEnd ||
+        block.end > editable.length
+      ) {
+        return@forEach
+      }
       if (editable.substring(block.start, block.contentStart) != block.opening) return@forEach
       if (block.contentStart > block.start) {
-        editable.setSpan(ComposerFenceSpan(true), block.start, block.contentStart, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        editable.setSpan(
+          ComposerFenceSpan(true),
+          block.start,
+          block.contentStart,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
         if (block.opening.endsWith("\n")) {
-          editable.setSpan(ComposerFenceLineHeightSpan(), block.start, block.contentStart, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+          editable.setSpan(
+            ComposerFenceLineHeightSpan(),
+            block.start,
+            block.contentStart,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+          )
         }
       }
       if (block.end > block.contentEnd) {
-        editable.setSpan(ComposerFenceSpan(false), block.contentEnd, block.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        editable.setSpan(
+          ComposerFenceSpan(false),
+          block.contentEnd,
+          block.end,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
       }
       if (block.closingStart != null && block.end > block.closingStart) {
-        editable.setSpan(ComposerFenceLineHeightSpan(), block.closingStart, block.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        editable.setSpan(
+          ComposerFenceLineHeightSpan(),
+          block.closingStart,
+          block.end,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
       }
       val backgroundEnd = block.closingStart ?: block.contentEnd
-      editable.setSpan(ComposerCodeLineBackgroundSpan(codeBackground), block.contentStart, backgroundEnd, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+      editable.setSpan(
+        ComposerCodeLineBackgroundSpan(codeBackground),
+        block.contentStart,
+        backgroundEnd,
+        Spanned.SPAN_INCLUSIVE_INCLUSIVE
+      )
       if (block.contentEnd > block.contentStart) {
-        editable.setSpan(ComposerCodeTypefaceSpan(), block.contentStart, block.contentEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        editable.setSpan(ComposerCodeBackgroundSpan(codeBackground), block.contentStart, block.contentEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        editable.setSpan(ComposerCodeForegroundSpan(codeText), block.contentStart, block.contentEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        editable.setSpan(
+          ComposerCodeTypefaceSpan(),
+          block.contentStart,
+          block.contentEnd,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        editable.setSpan(
+          ComposerCodeBackgroundSpan(codeBackground),
+          block.contentStart,
+          block.contentEnd,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        editable.setSpan(
+          ComposerCodeForegroundSpan(codeText),
+          block.contentStart,
+          block.contentEnd,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
       }
     }
     tokens.forEach { token ->
@@ -594,16 +665,20 @@ private data class ComposerCodeBlock(
 )
 
 private fun parseCodeBlocks(array: org.json.JSONArray?): List<ComposerCodeBlock> =
-  if (array == null) emptyList() else List(array.length()) { index ->
-    val block = array.optJSONObject(index) ?: JSONObject()
-    ComposerCodeBlock(
-      start = block.optInt("start", -1),
-      end = block.optInt("end", -1),
-      contentStart = block.optInt("contentStart", -1),
-      contentEnd = block.optInt("contentEnd", -1),
-      closingStart = if (block.isNull("closingStart")) null else block.optInt("closingStart", -1),
-      opening = block.optString("opening"),
-    )
+  if (array == null) {
+    emptyList()
+  } else {
+    List(array.length()) { index ->
+      val block = array.optJSONObject(index) ?: JSONObject()
+      ComposerCodeBlock(
+        start = block.optInt("start", -1),
+        end = block.optInt("end", -1),
+        contentStart = block.optInt("contentStart", -1),
+        contentEnd = block.optInt("contentEnd", -1),
+        closingStart = if (block.isNull("closingStart")) null else block.optInt("closingStart", -1),
+        opening = block.optString("opening"),
+      )
+    }
   }
 
 private class ComposerCodeTypefaceSpan : TypefaceSpan("monospace")
@@ -611,7 +686,14 @@ private class ComposerCodeBackgroundSpan(color: Int) : BackgroundColorSpan(color
 private class ComposerCodeForegroundSpan(color: Int) : ForegroundColorSpan(color)
 
 private class ComposerFenceLineHeightSpan : LineHeightSpan {
-  override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanStartVertical: Int, lineHeight: Int, fontMetrics: Paint.FontMetricsInt) {
+  override fun chooseHeight(
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    spanStartVertical: Int,
+    lineHeight: Int,
+    fontMetrics: Paint.FontMetricsInt
+  ) {
     fontMetrics.top = 0
     fontMetrics.ascent = 0
     fontMetrics.descent = 0
@@ -620,7 +702,19 @@ private class ComposerFenceLineHeightSpan : LineHeightSpan {
 }
 
 private class ComposerCodeLineBackgroundSpan(private val color: Int) : LineBackgroundSpan {
-  override fun drawBackground(canvas: Canvas, paint: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, lineNumber: Int) {
+  override fun drawBackground(
+    canvas: Canvas,
+    paint: Paint,
+    left: Int,
+    right: Int,
+    top: Int,
+    baseline: Int,
+    bottom: Int,
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    lineNumber: Int
+  ) {
     val previous = paint.color
     paint.color = color
     canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), paint)
@@ -629,8 +723,24 @@ private class ComposerCodeLineBackgroundSpan(private val color: Int) : LineBackg
 }
 
 internal class ComposerFenceSpan(val opening: Boolean) : ReplacementSpan() {
-  override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fontMetrics: Paint.FontMetricsInt?) = 0
-  override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) = Unit
+  override fun getSize(
+    paint: Paint,
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    fontMetrics: Paint.FontMetricsInt?
+  ) = 0
+  override fun draw(
+    canvas: Canvas,
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    x: Float,
+    top: Int,
+    y: Int,
+    bottom: Int,
+    paint: Paint
+  ) = Unit
 }
 
 private class ComposerChipSpan(
@@ -698,16 +808,25 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
 
   fun isComposing(): Boolean = BaseInputConnection.getComposingSpanStart(text) >= 0
 
+  @Suppress("ReturnCount")
   private fun currentCodeRange(): IntRange? {
     val content = text ?: return null
     var openingEnd: Int? = null
-    val markers = content.getSpans(0, content.length, ComposerFenceSpan::class.java).sortedBy(content::getSpanStart)
+    val markers = content.getSpans(
+      0,
+      content.length,
+      ComposerFenceSpan::class.java
+    ).sortedBy(content::getSpanStart)
     for (marker in markers) {
       if (marker.opening) {
         openingEnd = content.getSpanEnd(marker)
       } else {
         val start = openingEnd
-        if (start != null && selectionStart in start..content.getSpanStart(marker)) return start..content.getSpanStart(marker)
+        if (start != null &&
+          selectionStart in start..content.getSpanStart(marker)
+        ) {
+          return start..content.getSpanStart(marker)
+        }
         openingEnd = null
       }
     }
@@ -715,12 +834,21 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
     return if (start != null && selectionStart >= start) start..content.length else null
   }
 
+  @Suppress("ReturnCount", "ComplexCondition")
   private fun codeAction(action: String): Boolean {
     if (readOnly || isComposing() || codeActionListener == null) return false
     val range = currentCodeRange()
-    if (action == "exit" && (range == null || selectionStart != range.last || selectionStart != selectionEnd)) return false
+    if (action == "exit" &&
+      (range == null || selectionStart != range.last || selectionStart != selectionEnd)
+    ) {
+      return false
+    }
     if (action == "removeEmpty") {
-      if (range == null || selectionStart != range.first || selectionStart != selectionEnd) return false
+      if (range == null || selectionStart != range.first ||
+        selectionStart != selectionEnd
+      ) {
+        return false
+      }
       // Keep the hidden opening fence intact when Backspace is at nonempty code start.
       if (range.first != range.last) return true
     }
@@ -787,13 +915,18 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
     return spans.isNotEmpty()
   }
 
+  @Suppress("ComplexCondition")
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
     val handled = when (keyCode) {
       KeyEvent.KEYCODE_DPAD_DOWN -> codeAction("exit")
-      KeyEvent.KEYCODE_ENTER -> if (!readOnly && !isComposing() && (event.isCtrlPressed || event.isMetaPressed)) {
+      KeyEvent.KEYCODE_ENTER -> if (!readOnly && !isComposing() &&
+        (event.isCtrlPressed || event.isMetaPressed)
+      ) {
         submitListener?.invoke()
         submitListener != null
-      } else false
+      } else {
+        false
+      }
       KeyEvent.KEYCODE_DEL -> codeAction("removeEmpty") || deleteChip(true)
       KeyEvent.KEYCODE_FORWARD_DEL -> deleteChip(false)
       else -> false
@@ -836,7 +969,10 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
       }
       if (marker != null) {
         val target = if (marker.opening) text.getSpanEnd(marker) else text.getSpanStart(marker)
-        if (target != selStart) { setSelection(target); return }
+        if (target != selStart) {
+          setSelection(target)
+          return
+        }
       }
     }
     selectionListener?.invoke(selStart, selEnd)
@@ -872,7 +1008,9 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
 
   private fun pasteContextOrImages(): Boolean {
     val payload = E6ComposerClipboard.read(context)
-    if (currentCodeRange() == null && payload["html"]?.contains("data-e6-context-fragment=") == true) {
+    if (currentCodeRange() == null &&
+      payload["html"]?.contains("data-e6-context-fragment=") == true
+    ) {
       pasteContextListener?.invoke(payload)
       return true
     }
@@ -930,9 +1068,11 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
       ?.toString()
       ?.takeIf(String::isNotEmpty)
 
+  @Suppress("ReturnCount")
   override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {
     if (keyCode == KeyEvent.KEYCODE_Z && (event.isCtrlPressed || event.isMetaPressed)) {
-      return codeAction(if (event.isShiftPressed) "redo" else "undo") || super.onKeyShortcut(keyCode, event)
+      return codeAction(if (event.isShiftPressed) "redo" else "undo") ||
+        super.onKeyShortcut(keyCode, event)
     }
     if (keyCode == KeyEvent.KEYCODE_V && event.isCtrlPressed && event.isShiftPressed) {
       return onTextContextMenuItem(android.R.id.pasteAsPlainText)
