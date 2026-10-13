@@ -23,6 +23,56 @@ import type { ServerProviderShape } from "./Services/ServerProvider.ts";
 interface ProviderSnapshotState {
   readonly snapshot: ServerProvider;
   readonly enrichmentGeneration: number;
+  readonly recoveryAttempt?: number;
+}
+
+const HEALTH_CHECK_RECOVERY_DELAYS = ["2 seconds", "5 seconds"] as const;
+
+interface ProviderRecoveryAttempt<Settings> {
+  readonly settings: Settings;
+  readonly generation: number;
+  readonly attempt: number;
+}
+
+function isRetryableHealthCheck(snapshot: ServerProvider): boolean {
+  if (
+    !snapshot.enabled ||
+    !snapshot.installed ||
+    snapshot.status === "ready" ||
+    snapshot.status === "disabled" ||
+    snapshot.auth.status === "unauthenticated"
+  ) {
+    return false;
+  }
+  // Probes expose failures as status snapshots, so only their explicit
+  // timeout/unreachable messages qualify; setup errors need user action.
+  const message = snapshot.message ?? "";
+  return (
+    /\btimed out\b|\btimeout\b|did not respond to its local health check within/i.test(message) ||
+    (snapshot.driver === "opencode" &&
+      message.startsWith("Couldn't reach the configured OpenCode server"))
+  );
+}
+
+function recheckingSnapshot(
+  probed: ServerProvider,
+  previous: ServerProvider | undefined,
+  attempt: number,
+): ServerProvider {
+  const retained =
+    previous?.instanceId === probed.instanceId &&
+    previous.driver === probed.driver &&
+    previous.installed &&
+    (previous.status === "ready" ||
+      (previous.status === "warning" && previous.auth.status === "authenticated"))
+      ? previous
+      : probed;
+  return {
+    ...retained,
+    checkedAt: probed.checkedAt,
+    status: "warning",
+    message: `${probed.message} Automatically rechecking (${attempt}/${HEALTH_CHECK_RECOVERY_DELAYS.length}).`,
+  };
 }
 
 function withUsageLimits(
@@ -73,6 +123,10 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     enrichmentGeneration: 0,
   });
   const settingsRef = yield* Ref.make(initialSettings);
+  const recoveryAttempts = yield* Effect.acquireRelease(
+    Queue.sliding<ProviderRecoveryAttempt<Settings>>(1),
+    Queue.shutdown,
+  );
   const enrichmentFiberRef = yield* Ref.make<Fiber.Fiber<void, unknown> | null>(null);
   const scope = yield* Effect.scope;
 
@@ -86,11 +140,28 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       }
       // Enrichment derives from the snapshot it was handed; a runtime usage
       // update that landed since must not be reverted by it.
-      const merged = withUsageLimits(nextSnapshot, state.snapshot.usageLimits);
+      const merged = withUsageLimits(
+        state.recoveryAttempt !== undefined && isRetryableHealthCheck(nextSnapshot)
+          ? {
+              ...recheckingSnapshot(nextSnapshot, state.snapshot, state.recoveryAttempt),
+              message: state.snapshot.message,
+            }
+          : nextSnapshot,
+        state.snapshot.usageLimits,
+      );
       if (Equal.equals(state.snapshot, merged)) {
         return [null, state] as const;
       }
-      return [merged, { ...state, snapshot: merged }] as const;
+      return [
+        merged,
+        {
+          snapshot: merged,
+          enrichmentGeneration: state.enrichmentGeneration,
+          ...(state.recoveryAttempt !== undefined && isRetryableHealthCheck(merged)
+            ? { recoveryAttempt: state.recoveryAttempt }
+            : {}),
+        },
+      ] as const;
     });
     if (snapshotToPublish === null) {
       return;
@@ -126,11 +197,26 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
 
   const applySnapshotBase = Effect.fn("applySnapshot")(function* (
     nextSettings: Settings,
-    options?: { readonly forceRefresh?: boolean },
+    options?: {
+      readonly forceRefresh?: boolean;
+      readonly recovery?: ProviderRecoveryAttempt<Settings>;
+    },
   ) {
     const forceRefresh = options?.forceRefresh === true;
     const previousSettings = yield* Ref.get(settingsRef);
-    if (!forceRefresh && !input.haveSettingsChanged(previousSettings, nextSettings)) {
+    const settingsChanged = input.haveSettingsChanged(previousSettings, nextSettings);
+    if (options?.recovery) {
+      const state = yield* Ref.get(snapshotStateRef);
+      if (
+        state.enrichmentGeneration !== options.recovery.generation ||
+        state.recoveryAttempt !== options.recovery.attempt ||
+        !isRetryableHealthCheck(state.snapshot) ||
+        input.haveSettingsChanged(options.recovery.settings, nextSettings)
+      ) {
+        return state.snapshot;
+      }
+    }
+    if (!forceRefresh && !settingsChanged) {
       yield* Ref.set(settingsRef, nextSettings);
       return yield* Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot));
     }
@@ -146,37 +232,86 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         enrichmentGeneration: nextGeneration,
       });
       yield* Ref.set(settingsRef, nextSettings);
+      if (state.recoveryAttempt !== undefined && isRetryableHealthCheck(state.snapshot)) {
+        yield* Queue.offer(recoveryAttempts, {
+          settings: nextSettings,
+          generation: nextGeneration,
+          attempt: state.recoveryAttempt,
+        });
+      }
       yield* restartSnapshotEnrichment(nextSettings, state.snapshot, nextGeneration);
       return state.snapshot;
     }
 
     const probedSnapshot = yield* input.checkProvider;
-    const { snapshot: nextSnapshot, generation: nextGeneration } = yield* Ref.modify(
-      snapshotStateRef,
-      (state) => {
-        const generation = input.enrichSnapshot
-          ? state.enrichmentGeneration + 1
-          : state.enrichmentGeneration;
-        const snapshot = withUsageLimits(
-          probedSnapshot,
-          resolveUsageLimitsAfterProbe({
-            published: state.snapshot.usageLimits,
-            probed: probedSnapshot.usageLimits,
-          }),
-        );
-        return [
-          { snapshot, generation },
-          { snapshot, enrichmentGeneration: generation },
-        ] as const;
-      },
-    );
+    const nextAttempt = (options?.recovery?.attempt ?? 0) + 1;
+    const shouldRecover =
+      isRetryableHealthCheck(probedSnapshot) && nextAttempt <= HEALTH_CHECK_RECOVERY_DELAYS.length;
+    const applied = yield* Ref.modify(snapshotStateRef, (state) => {
+      if (
+        options?.recovery &&
+        (state.enrichmentGeneration !== options.recovery.generation ||
+          state.recoveryAttempt !== options.recovery.attempt)
+      ) {
+        return [null, state] as const;
+      }
+      const generation = state.enrichmentGeneration + 1;
+      const snapshot = withUsageLimits(
+        shouldRecover
+          ? recheckingSnapshot(
+              probedSnapshot,
+              settingsChanged ? undefined : state.snapshot,
+              nextAttempt,
+            )
+          : probedSnapshot,
+        resolveUsageLimitsAfterProbe({
+          published: state.snapshot.usageLimits,
+          probed: probedSnapshot.usageLimits,
+        }),
+      );
+      return [
+        { snapshot, generation },
+        {
+          snapshot,
+          enrichmentGeneration: generation,
+          ...(shouldRecover ? { recoveryAttempt: nextAttempt } : {}),
+        },
+      ] as const;
+    });
+    if (applied === null) {
+      return yield* Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot));
+    }
+    const { snapshot: nextSnapshot, generation: nextGeneration } = applied;
     yield* Ref.set(settingsRef, nextSettings);
     yield* PubSub.publish(changesPubSub, nextSnapshot);
+    if (shouldRecover) {
+      yield* Queue.offer(recoveryAttempts, {
+        settings: nextSettings,
+        generation: nextGeneration,
+        attempt: nextAttempt,
+      });
+    }
     yield* restartSnapshotEnrichment(nextSettings, nextSnapshot, nextGeneration);
     return nextSnapshot;
   });
-  const applySnapshot = (nextSettings: Settings, options?: { readonly forceRefresh?: boolean }) =>
-    refreshSemaphore.withPermits(1)(applySnapshotBase(nextSettings, options));
+  const applySnapshot = (
+    nextSettings: Settings,
+    options?: {
+      readonly forceRefresh?: boolean;
+      readonly recovery?: ProviderRecoveryAttempt<Settings>;
+    },
+  ) => refreshSemaphore.withPermits(1)(applySnapshotBase(nextSettings, options));
+
+  // Delay outside the refresh lock so a manual refresh or settings change
+  // can supersede recovery. The generation is checked under that same lock.
+  yield* Effect.forever(
+    Effect.gen(function* () {
+      const recovery = yield* Queue.take(recoveryAttempts);
+      yield* Effect.sleep(HEALTH_CHECK_RECOVERY_DELAYS[recovery.attempt - 1]!);
+      const settings = yield* input.getSettings;
+      yield* applySnapshot(settings, { forceRefresh: true, recovery });
+    }).pipe(Effect.ignoreCause({ log: true })),
+  ).pipe(Effect.forkScoped);
 
   /**
    * Runtime usage updates arrive between probes. They patch only

@@ -35,6 +35,7 @@ const fastModeCapabilities = createModelCapabilities({
 
 interface TestSettings {
   readonly enabled: boolean;
+  readonly updateChecks?: boolean;
 }
 
 const maintenanceCapabilities = {
@@ -149,7 +150,376 @@ const enrichedSnapshotSecond: ServerProvider = {
   ],
 };
 
+const timeoutSnapshot: ServerProvider = {
+  ...initialSnapshot,
+  status: "error",
+  message: "Timed out while checking provider status.",
+};
+
+const makeRecoveryFixture = Effect.fn(function* (
+  snapshots: ReadonlyArray<ServerProvider>,
+  previous: ServerProvider = enrichedSnapshot,
+  settingsAffectProbe = true,
+) {
+  const checkCalls = yield* Ref.make(0);
+  const settingsRef = yield* Ref.make<TestSettings>({ enabled: true });
+  const settingsChanges = yield* PubSub.unbounded<TestSettings>();
+  const provider = yield* makeManagedServerProvider<TestSettings>({
+    resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+    getSettings: Ref.get(settingsRef),
+    streamSettings: Stream.fromPubSub(settingsChanges),
+    haveSettingsChanged: (before, after) =>
+      before.enabled !== after.enabled || before.updateChecks !== after.updateChecks,
+    ...(settingsAffectProbe ? {} : { checkProviderOnSettingsChange: () => false }),
+    initialSnapshot: () => Effect.succeed(previous),
+    checkProvider: Effect.gen(function* () {
+      const count = yield* Ref.updateAndGet(checkCalls, (value) => value + 1);
+      const settings = yield* Ref.get(settingsRef);
+      return settings.enabled
+        ? snapshots[Math.min(count - 1, snapshots.length - 1)]!
+        : { ...initialSnapshot, enabled: false, status: "disabled" as const };
+    }),
+    refreshInterval: "1 hour",
+  });
+  return { provider, checkCalls, settingsRef, settingsChanges };
+});
+
+const nextProviderSnapshot = (provider: {
+  readonly streamChanges: Stream.Stream<ServerProvider>;
+}) =>
+  provider.streamChanges.pipe(
+    Stream.take(1),
+    Stream.runCollect,
+    Effect.map((snapshots) => Array.from(snapshots)[0]!),
+  );
+
+const RecoveryTestLayer = Layer.mergeAll(AlwaysRunTestLayer, TestClock.layer());
+
 describe("makeManagedServerProvider", () => {
+  for (const [driver, message] of [
+    ["cursor", "Cursor Agent CLI is installed but timed out while running `agent about`."],
+    ["codex", "Timed out while checking Codex app-server provider status."],
+    ["opencode", "Failed to execute OpenCode CLI health check: version probe timed out."],
+    [
+      "claudeAgent",
+      "Claude Agent CLI is installed but failed to run. Timed out while running command.",
+    ],
+    ["grok", "Grok CLI is installed but timed out while running `grok --version`."],
+    ["antigravity", "Antigravity did not respond to its local health check within 10 seconds."],
+  ] as const) {
+    it.effect(`automatically recovers ${driver} after a transient health-check timeout`, () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const identity = {
+            driver: ProviderDriverKind.make(driver),
+            instanceId: ProviderInstanceId.make(driver),
+          };
+          const healthy = { ...enrichedSnapshot, ...identity };
+          const recovered = { ...enrichedSnapshotSecond, ...identity };
+          const { provider, checkCalls } = yield* makeRecoveryFixture(
+            [{ ...timeoutSnapshot, ...identity, message }, recovered],
+            healthy,
+          );
+
+          const rechecking = yield* nextProviderSnapshot(provider);
+          assert.strictEqual(rechecking.status, "warning");
+          assert.deepStrictEqual(rechecking.models, healthy.models);
+          assert.deepStrictEqual(rechecking.auth, healthy.auth);
+          assert.strictEqual(rechecking.version, healthy.version);
+          assert.include(rechecking.message!, message);
+
+          const recovery = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+          yield* TestClock.adjust("2 seconds");
+          assert.deepStrictEqual(yield* Fiber.join(recovery), recovered);
+          assert.deepStrictEqual(yield* provider.getSnapshot, recovered);
+          assert.strictEqual(yield* Ref.get(checkCalls), 2);
+        }),
+      ).pipe(Effect.provide(RecoveryTestLayer)),
+    );
+  }
+
+  it.effect("rechecks a temporarily unreachable configured OpenCode server", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { provider } = yield* makeRecoveryFixture([
+          {
+            ...timeoutSnapshot,
+            driver: ProviderDriverKind.make("opencode"),
+            message:
+              "Couldn't reach the configured OpenCode server at http://localhost:4096. Check that the server is running and the URL is correct.",
+          },
+          refreshedSnapshot,
+        ]);
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const recovery = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* TestClock.adjust("2 seconds");
+        assert.strictEqual((yield* Fiber.join(recovery)).status, "ready");
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("reports the original failure after two unsuccessful automatic retries", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { provider, checkCalls } = yield* makeRecoveryFixture([timeoutSnapshot]);
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const retry = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* TestClock.adjust("2 seconds");
+        assert.strictEqual((yield* Fiber.join(retry)).status, "warning");
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+
+        const exhausted = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* TestClock.adjust("5 seconds");
+        assert.deepStrictEqual(yield* Fiber.join(exhausted), timeoutSnapshot);
+        yield* TestClock.adjust("1 minute");
+        assert.strictEqual(yield* Ref.get(checkCalls), 3);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  for (const [label, failure] of [
+    ["missing binary", { ...timeoutSnapshot, installed: false }],
+    [
+      "authentication failure",
+      { ...timeoutSnapshot, auth: { status: "unauthenticated" as const } },
+    ],
+    ["incompatible CLI", { ...timeoutSnapshot, message: "This CLI version is too old." }],
+  ] as const) {
+    it.effect(`does not automatically retry a ${label}`, () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { provider, checkCalls } = yield* makeRecoveryFixture([failure]);
+          assert.deepStrictEqual(yield* nextProviderSnapshot(provider), failure);
+          yield* TestClock.adjust("1 minute");
+          assert.strictEqual(yield* Ref.get(checkCalls), 1);
+        }),
+      ).pipe(Effect.provide(RecoveryTestLayer)),
+    );
+  }
+
+  it.effect("discards a pending retry after a successful manual refresh", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { provider, checkCalls } = yield* makeRecoveryFixture([
+          timeoutSnapshot,
+          refreshedSnapshot,
+        ]);
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        assert.deepStrictEqual(yield* provider.refresh, refreshedSnapshot);
+        yield* TestClock.adjust("1 minute");
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+        assert.deepStrictEqual(yield* provider.getSnapshot, refreshedSnapshot);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("discards recovery when the provider is disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { provider, checkCalls, settingsRef, settingsChanges } = yield* makeRecoveryFixture([
+          timeoutSnapshot,
+        ]);
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const disabled = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* Ref.set(settingsRef, { enabled: false });
+        yield* PubSub.publish(settingsChanges, { enabled: false });
+        assert.strictEqual((yield* Fiber.join(disabled)).status, "disabled");
+        yield* TestClock.adjust("1 minute");
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("keeps authentication unknown until a first successful check", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { provider } = yield* makeRecoveryFixture(
+          [timeoutSnapshot, refreshedSnapshot],
+          initialSnapshot,
+        );
+        const rechecking = yield* nextProviderSnapshot(provider);
+        assert.strictEqual(rechecking.status, "warning");
+        assert.strictEqual(rechecking.auth.status, "unknown");
+        assert.strictEqual(rechecking.version, null);
+        const recovery = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* TestClock.adjust("2 seconds");
+        assert.strictEqual((yield* Fiber.join(recovery)).auth.status, "authenticated");
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("stops recovery if a retry reports an authentication failure", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const unauthenticated = {
+          ...timeoutSnapshot,
+          auth: { status: "unauthenticated" as const },
+          message: "Sign in again.",
+        };
+        const { provider, checkCalls } = yield* makeRecoveryFixture([
+          timeoutSnapshot,
+          unauthenticated,
+        ]);
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const failure = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* TestClock.adjust("2 seconds");
+        assert.deepStrictEqual(yield* Fiber.join(failure), unauthenticated);
+        yield* TestClock.adjust("1 minute");
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("cancels recovery when its provider scope closes", () =>
+    Effect.gen(function* () {
+      const checkCalls = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* makeRecoveryFixture([timeoutSnapshot]);
+          assert.strictEqual((yield* nextProviderSnapshot(fixture.provider)).status, "warning");
+          return fixture.checkCalls;
+        }),
+      );
+      yield* TestClock.adjust("1 minute");
+      assert.strictEqual(yield* Ref.get(checkCalls), 1);
+    }).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("continues bounded recovery when only enrichment settings change", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { provider, checkCalls, settingsRef, settingsChanges } = yield* makeRecoveryFixture(
+          [timeoutSnapshot, refreshedSnapshot],
+          enrichedSnapshot,
+          false,
+        );
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const settings = { enabled: true, updateChecks: false };
+        yield* Ref.set(settingsRef, settings);
+        yield* PubSub.publish(settingsChanges, settings);
+        yield* TestClock.adjust("10 seconds");
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+        assert.deepStrictEqual(yield* provider.getSnapshot, refreshedSnapshot);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("keeps rechecking status when enrichment republishes a transient failure", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const callbacks: Array<(snapshot: ServerProvider) => Effect.Effect<void>> = [];
+        const callbackReady = yield* Deferred.make<void>();
+        const checkCalls = yield* Ref.make(0);
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (before, after) => before.enabled !== after.enabled,
+          initialSnapshot: () => Effect.succeed(enrichedSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.map((count) => (count === 1 ? timeoutSnapshot : refreshedSnapshot)),
+          ),
+          enrichSnapshot: ({ publishSnapshot }) =>
+            Effect.gen(function* () {
+              callbacks.push(publishSnapshot);
+              yield* Deferred.succeed(callbackReady, undefined);
+            }),
+          refreshInterval: "1 hour",
+        });
+        const rechecking = yield* nextProviderSnapshot(provider);
+        assert.strictEqual(rechecking.status, "warning");
+        yield* Deferred.await(callbackReady);
+        yield* callbacks[0]!(timeoutSnapshot);
+        assert.strictEqual((yield* provider.getSnapshot).status, "warning");
+        assert.deepStrictEqual((yield* provider.getSnapshot).models, enrichedSnapshot.models);
+        yield* callbacks[0]!(rechecking);
+        assert.strictEqual((yield* provider.getSnapshot).message, rechecking.message);
+
+        const recovery = yield* nextProviderSnapshot(provider).pipe(Effect.forkChild);
+        yield* TestClock.adjust("2 seconds");
+        assert.deepStrictEqual(yield* Fiber.join(recovery), refreshedSnapshot);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("skips a pending retry after session metadata confirms provider health", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const callback = yield* Deferred.make<(snapshot: ServerProvider) => Effect.Effect<void>>();
+        const checkCalls = yield* Ref.make(0);
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (before, after) => before.enabled !== after.enabled,
+          initialSnapshot: () => Effect.succeed(enrichedSnapshot),
+          checkProvider: Ref.update(checkCalls, (count) => count + 1).pipe(
+            Effect.as(timeoutSnapshot),
+          ),
+          enrichSnapshot: ({ publishSnapshot }) =>
+            Deferred.succeed(callback, publishSnapshot).pipe(Effect.asVoid),
+          refreshInterval: "1 hour",
+        });
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const publish = yield* Deferred.await(callback);
+        yield* publish(refreshedSnapshot);
+        yield* TestClock.adjust("1 minute");
+        assert.strictEqual(yield* Ref.get(checkCalls), 1);
+        assert.deepStrictEqual(yield* provider.getSnapshot, refreshedSnapshot);
+        yield* publish(timeoutSnapshot);
+        assert.deepStrictEqual(yield* provider.getSnapshot, timeoutSnapshot);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
+  it.effect("does not let a delayed recovery overwrite newer session health", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const callback = yield* Deferred.make<(snapshot: ServerProvider) => Effect.Effect<void>>();
+        const retryEntered = yield* Deferred.make<void>();
+        const releaseRetry = yield* Deferred.make<void>();
+        const checkCalls = yield* Ref.make(0);
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (before, after) => before.enabled !== after.enabled,
+          initialSnapshot: () => Effect.succeed(enrichedSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.flatMap((count) =>
+              count === 2
+                ? Deferred.succeed(retryEntered, undefined).pipe(
+                    Effect.andThen(Deferred.await(releaseRetry)),
+                    Effect.as(timeoutSnapshot),
+                  )
+                : Effect.succeed(count === 1 ? timeoutSnapshot : refreshedSnapshotSecond),
+            ),
+          ),
+          enrichSnapshot: ({ publishSnapshot }) =>
+            Deferred.succeed(callback, publishSnapshot).pipe(Effect.asVoid),
+          refreshInterval: "1 hour",
+        });
+        assert.strictEqual((yield* nextProviderSnapshot(provider)).status, "warning");
+        const publish = yield* Deferred.await(callback);
+        yield* TestClock.adjust("2 seconds");
+        yield* Deferred.await(retryEntered);
+        const updates = yield* provider.streamChanges.pipe(
+          Stream.take(2),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* Effect.yieldNow;
+        yield* publish(refreshedSnapshot);
+        const manualRefresh = yield* provider.refresh.pipe(Effect.forkChild);
+        yield* Deferred.succeed(releaseRetry, undefined);
+        yield* Fiber.join(manualRefresh);
+        assert.deepStrictEqual(Array.from(yield* Fiber.join(updates)), [
+          refreshedSnapshot,
+          refreshedSnapshotSecond,
+        ]);
+      }),
+    ).pipe(Effect.provide(RecoveryTestLayer)),
+  );
+
   it.effect(
     "runs the initial provider check in the background and streams the refreshed snapshot",
     () =>
