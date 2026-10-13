@@ -59,6 +59,12 @@ private struct ComposerChipStyle {
   let textColor: UIColor
 }
 
+private struct ComposerDocumentPiece {
+  let start: Int
+  let end: Int
+  let attachment: NSAttributedString
+}
+
 private enum ComposerEnterBehavior: String {
   case send
   case newline
@@ -935,11 +941,11 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   private func makeAttributedDocument() -> NSAttributedString {
     let result = NSMutableAttributedString()
     let source = value as NSString
-    var pieces: [(start: Int, end: Int, attachment: NSAttributedString)] = tokens.compactMap { token in
+    var pieces: [ComposerDocumentPiece] = tokens.compactMap { token in
       guard token.start >= 0, token.end > token.start, token.end <= source.length,
             !codeBlocks.contains(where: { token.start < $0.end && token.end > $0.start }),
             source.substring(with: NSRange(location: token.start, length: token.end - token.start)) == token.source else { return nil }
-      return (token.start, token.end, makeAttachmentString(token))
+      return ComposerDocumentPiece(start: token.start, end: token.end, attachment: makeAttachmentString(token))
     }
     for block in codeBlocks {
       guard block.start >= 0, block.contentStart >= block.start, block.contentEnd >= block.contentStart,
@@ -949,7 +955,7 @@ public final class E6ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         let marker = ComposerSourceAttachment(source: source.substring(with: NSRange(location: start, length: end - start)), isOpeningFence: start == block.start)
         let hidden = NSMutableAttributedString(attachment: marker)
         hidden.addAttributes(codeAttributes(), range: NSRange(location: 0, length: hidden.length))
-        pieces.append((start, end, hidden))
+        pieces.append(ComposerDocumentPiece(start: start, end: end, attachment: hidden))
       }
     }
     var cursor = 0
