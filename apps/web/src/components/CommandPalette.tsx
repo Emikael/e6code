@@ -60,6 +60,8 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -168,9 +170,8 @@ import { CommandPaletteResults } from "./CommandPaletteResults";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon, ForgejoIcon } from "./Icons";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectFavicon } from "./ProjectFavicon";
-import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
-import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
+import { Spinner } from "./ui/spinner";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
 import {
@@ -458,6 +459,20 @@ function errorMessage(error: unknown): string {
   return "An error occurred.";
 }
 
+// The file picker and content search pull in icon sprites and the syntax
+// highlighter. Load them when those modes open, not with the shell.
+const ProjectFilePicker = lazy(() =>
+  import("./files/ProjectFilePicker").then((module) => ({
+    default: module.ProjectFilePicker,
+  })),
+);
+
+const ProjectContentSearchDialog = lazy(() =>
+  import("./search/ProjectContentSearchDialog").then((module) => ({
+    default: module.ProjectContentSearchDialog,
+  })),
+);
+
 const OVERLAY_MODE_BY_COMMAND = {
   "commandPalette.toggle": "command",
   "filePicker.toggle": "files",
@@ -665,18 +680,26 @@ function CommandPaletteDialog(props: {
         props.setOpen(false);
       }}
     >
-      {props.mode === "files" ? (
-        <ProjectFilePicker setOpen={props.setOpen} />
-      ) : props.mode === "content" ? (
-        <ProjectContentSearchDialog onOpenChange={props.setOpen} />
-      ) : (
-        <OpenCommandPaletteDialog
-          openIntent={props.openIntent}
-          setOpen={props.setOpen}
-          openOverlayMode={props.openOverlayMode}
-          clearOpenIntent={props.clearOpenIntent}
-        />
-      )}
+      <Suspense
+        fallback={
+          <div className="flex h-40 items-center justify-center">
+            <Spinner />
+          </div>
+        }
+      >
+        {props.mode === "files" ? (
+          <ProjectFilePicker setOpen={props.setOpen} />
+        ) : props.mode === "content" ? (
+          <ProjectContentSearchDialog onOpenChange={props.setOpen} />
+        ) : (
+          <OpenCommandPaletteDialog
+            openIntent={props.openIntent}
+            setOpen={props.setOpen}
+            openOverlayMode={props.openOverlayMode}
+            clearOpenIntent={props.clearOpenIntent}
+          />
+        )}
+      </Suspense>
     </CommandDialogPopup>
   );
 }
