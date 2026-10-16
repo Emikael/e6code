@@ -134,11 +134,41 @@ jobs:
           # The packager reads signing configuration from the process env.
           sed -n '/^E6CODE_[A-Z_]*=/p' .env.example >> "$GITHUB_ENV"
 
+      # electron-builder 26.15.6 passes the P12 password to the keychain ACL
+      # command, although it created the keychain with a different password.
+      # Import explicitly and let its supported CSC_KEYCHAIN path discover it.
+      - name: Import signing certificate into a temporary keychain
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          credentials="$RUNNER_TEMP/apple-signing-validation"
+          keychain="$credentials/signing.keychain-db"
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          printf '%s' "$CSC_LINK" | base64 -D > "$credentials/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$credentials/certificate.p12" -k "$keychain" \
+            -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          python3 - "$keychain" <<'PY'
+          import shlex
+          import subprocess
+          import sys
+
+          existing = shlex.split(subprocess.check_output(["security", "list-keychains", "-d", "user"], text=True))
+          subprocess.run(["security", "list-keychains", "-d", "user", "-s", sys.argv[1], *existing], check=True)
+          PY
+          rm "$credentials/certificate.p12"
+          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
       - name: Build signed and notarized desktop installer
         env:
           BUILD_ARCH: ${{ inputs.arch }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           E6CODE_CLERK_PASSKEY_RP_DOMAINS: ${{ vars.CLERK_PASSKEY_RP_DOMAINS }}
@@ -196,4 +226,8 @@ jobs:
 
       - name: Remove temporary Apple credentials
         if: always()
-        run: rm -rf "$RUNNER_TEMP/apple-signing-validation"
+        run: |
+          if [[ -f "$RUNNER_TEMP/apple-signing-validation/signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/apple-signing-validation/signing.keychain-db"
+          fi
+          rm -rf "$RUNNER_TEMP/apple-signing-validation"
