@@ -11,6 +11,14 @@ on:
     - cron: "8,38 * * * *"
   workflow_dispatch:
     inputs:
+      operation:
+        description: Deploy only the landing page or run the release pipeline
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - marketing
       channel:
         description: "Release channel"
         required: false
@@ -32,7 +40,7 @@ on:
 # newest-wins single slot, so a queued stable tag can never be silently
 # dropped. Automatic nightlies recheck the release gap after leaving the queue.
 concurrency:
-  group: release-${{ (github.event_name == 'schedule' || inputs.channel == 'nightly' || inputs.channel == 'preview') && 'nightly' || 'stable' }}
+  group: release-${{ inputs.operation == 'marketing' && 'marketing' || (github.event_name == 'schedule' || inputs.channel == 'nightly' || inputs.channel == 'preview') && 'nightly' || 'stable' }}
   cancel-in-progress: false
   queue: max
 
@@ -41,12 +49,19 @@ permissions:
   id-token: none
 
 jobs:
+  marketing_only:
+    name: Deploy landing page independently
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'marketing'
+    uses: ./.github/workflows/deploy-marketing.yml
+    secrets: inherit
+
   # Picks the commit every later job builds. Nightlies and tag pushes build the
   # triggering commit. Manual stable releases build the commit of the latest
   # published nightly, so stable only ever ships a build that nightly users
   # have already run. Scheduled runs also decide here whether a nightly is due.
   resolve_commit:
     name: Resolve release commit
+    if: inputs.operation != 'marketing'
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 5
     outputs:
