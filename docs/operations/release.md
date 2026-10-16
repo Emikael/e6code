@@ -435,8 +435,11 @@ Checklist:
    - `APPLE_API_KEY_ID`: Key ID
    - `APPLE_API_ISSUER`: Issuer ID
 10. Complete the Clerk Native API and AASA setup in [E6 Connect setup](./connect-setup.md#desktop-passkeys).
-11. Re-run a tag release and confirm macOS artifacts are signed/notarized and contain the expected
-    `com.apple.developer.associated-domains` entitlement.
+11. Run **Desktop macOS Signing Validation** from GitHub Actions, choosing `arm64` or `x64`.
+    It requires all Apple credentials, checks the provisioning profile and API access, builds a
+    preview with no update feed, and verifies the signed app inside the notarized, stapled DMG.
+    The installer is available as a run artifact for seven days; no release, package, or site is
+    published. Download it on a matching Mac and check installation and launch before releasing.
 
 Notes:
 
