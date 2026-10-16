@@ -23,7 +23,7 @@ concurrency:
 jobs:
   validate:
     name: Validate macOS ${{ inputs.arch }} signing
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: macos-26
     timeout-minutes: 90
     defaults:
       run:
