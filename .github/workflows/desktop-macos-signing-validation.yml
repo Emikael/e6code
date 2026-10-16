@@ -1,0 +1,199 @@
+name: Desktop macOS Signing Validation
+
+# Manual credential check. Artifacts stay on this run; no release, npm publish,
+# deployment, or updater metadata is produced by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Mac architecture to validate
+        type: choice
+        default: arm64
+        options:
+          - arm64
+          - x64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-macos-signing-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate macOS ${{ inputs.arch }} signing
+    runs-on: blacksmith-12vcpu-macos-26
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Match the packaging workflow's anonymous checkout: the vendored .repos
+      # gitlinks break checkout's credential-cleanup submodule traversal.
+      - name: Checkout
+        env:
+          CHECKOUT_REF: ${{ github.sha }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+
+      - name: Check Apple credentials and provisioning profile
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_PROVISIONING_PROFILE APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required GitHub secret or variable: $name" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          credentials="$RUNNER_TEMP/apple-signing-validation"
+          mkdir -p "$credentials"
+          printf '%s' "$APPLE_API_KEY" > "$credentials/notary-key.p8"
+          printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$credentials/app.provisionprofile"
+          security cms -D -i "$credentials/app.provisionprofile" > "$credentials/profile.plist"
+          python3 - "$credentials/profile.plist" <<'PY'
+          import datetime
+          import os
+          import plistlib
+          import re
+          import sys
+
+          with open(sys.argv[1], "rb") as source:
+              profile = plistlib.load(source)
+          team = os.environ["APPLE_TEAM_ID"]
+          if not re.fullmatch(r"[A-Z0-9]{10}", team):
+              sys.exit("APPLE_TEAM_ID must be a 10-character Apple Developer Team ID")
+          entitlements = profile.get("Entitlements", {})
+          if team not in profile.get("TeamIdentifier", []):
+              sys.exit("Provisioning profile belongs to a different Apple team")
+          if entitlements.get("com.apple.application-identifier") != f"{team}.com.e6tools.e6code":
+              sys.exit("Provisioning profile must target com.e6tools.e6code")
+          if not entitlements.get("com.apple.developer.associated-domains"):
+              sys.exit("Provisioning profile must enable Associated Domains")
+          if not profile.get("ProvisionsAllDevices"):
+              sys.exit("Use a Developer ID distribution profile, not a development or App Store profile")
+          if profile.get("ExpirationDate", datetime.datetime.min) <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
+              sys.exit("Provisioning profile has expired")
+          PY
+          {
+            echo "APPLE_API_KEY=$credentials/notary-key.p8"
+            echo "E6CODE_MACOS_PROVISIONING_PROFILE=$credentials/app.provisionprofile"
+            echo "E6CODE_APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Check notarization API access
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool history --key "$APPLE_API_KEY" \
+            --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" \
+            --output-format json > "$RUNNER_TEMP/apple-signing-validation/history.json"
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install build dependencies
+        run: vp install --frozen-lockfile --filter=e6... --filter=@e6tools/web... --filter=@e6tools/desktop... --filter=@e6tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: ${{ inputs.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+
+      - name: Configure isolated test version
+        run: |
+          set -euo pipefail
+          # Preview builds have no update feed. Use the same public Connect
+          # configuration as PR previews, without reading production state.
+          cp .env.example .env
+          version="0.0.0-preview.$(date -u +%Y%m%d).${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          node scripts/update-release-package-versions.ts "$version"
+          echo "VALIDATION_VERSION=$version" >> "$GITHUB_ENV"
+          # The packager reads signing configuration from the process env.
+          sed -n '/^E6CODE_[A-Z_]*=/p' .env.example >> "$GITHUB_ENV"
+
+      - name: Build signed and notarized desktop installer
+        env:
+          BUILD_ARCH: ${{ inputs.arch }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          E6CODE_CLERK_PASSKEY_RP_DOMAINS: ${{ vars.CLERK_PASSKEY_RP_DOMAINS }}
+        run: |
+          set -euo pipefail
+          vp run dist:desktop:artifact --platform mac --target dmg \
+            --arch "$BUILD_ARCH" --build-version "$VALIDATION_VERSION" \
+            --output-dir "$RUNNER_TEMP/signing-validation-artifacts" --signed
+
+      - name: Notarize and staple the final DMG
+        env:
+          BUILD_ARCH: ${{ inputs.arch }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          artifacts="$RUNNER_TEMP/signing-validation-artifacts"
+          dmg="$artifacts/E6-Code-${VALIDATION_VERSION}-${BUILD_ARCH}.dmg"
+          xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY" \
+            --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 30m --output-format json > "$artifacts/notarization.json"
+          python3 - "$artifacts/notarization.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1]) as source:
+              result = json.load(source)
+          if result.get("status") != "Accepted":
+              sys.exit(f"DMG notarization was not accepted: {result.get('status')}")
+          PY
+          xcrun stapler staple "$dmg"
+          bash .github/scripts/verify-macos-installer.sh "$dmg" "$E6CODE_APPLE_TEAM_ID"
+          (
+            cd "$artifacts"
+            shasum -a 256 "$(basename "$dmg")" > SHA256SUMS
+          )
+          {
+            echo '### macOS signing validation passed'
+            echo "Commit: $GITHUB_SHA"
+            echo "Version: $VALIDATION_VERSION ($BUILD_ARCH)"
+            echo 'Developer ID signature, team, bundle ID, hardened runtime, stapled tickets, and Gatekeeper assessment passed.'
+            echo 'Download the DMG artifact for a manual installation and launch check. Nothing was published to a release or update feed.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload validated installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-signing-validation-${{ inputs.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/signing-validation-artifacts/*.dmg
+            ${{ runner.temp }}/signing-validation-artifacts/notarization.json
+            ${{ runner.temp }}/signing-validation-artifacts/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove temporary Apple credentials
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/apple-signing-validation"
