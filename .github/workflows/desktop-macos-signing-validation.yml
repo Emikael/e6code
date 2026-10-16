@@ -12,6 +12,14 @@ on:
         options:
           - arm64
           - x64
+      build_version:
+        description: Optional stable version for a release candidate; empty builds an isolated preview
+        type: string
+        default: ""
+      source_ref:
+        description: Optional source commit to build; empty uses the workflow commit
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -33,7 +41,7 @@ jobs:
       # gitlinks break checkout's credential-cleanup submodule traversal.
       - name: Checkout
         env:
-          CHECKOUT_REF: ${{ github.sha }}
+          CHECKOUT_REF: ${{ inputs.source_ref || github.sha }}
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
@@ -122,13 +130,22 @@ jobs:
           toolchain: stable
           targets: ${{ inputs.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
 
-      - name: Configure isolated test version
+      - name: Configure build version
+        env:
+          BUILD_VERSION: ${{ inputs.build_version }}
         run: |
           set -euo pipefail
-          # Preview builds have no update feed. Use the same public Connect
-          # configuration as PR previews, without reading production state.
+          # Use the public Connect configuration without reading production state.
           cp .env.example .env
-          version="0.0.0-preview.$(date -u +%Y%m%d).${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          if [[ -n "$BUILD_VERSION" ]]; then
+            if [[ ! "$BUILD_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo 'Release candidate version must have the form 1.2.3.' >&2
+              exit 1
+            fi
+            version="$BUILD_VERSION"
+          else
+            version="0.0.0-preview.$(date -u +%Y%m%d).${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          fi
           node scripts/update-release-package-versions.ts "$version"
           echo "VALIDATION_VERSION=$version" >> "$GITHUB_ENV"
           # The packager reads signing configuration from the process env.
@@ -207,7 +224,7 @@ jobs:
           )
           {
             echo '### macOS signing validation passed'
-            echo "Commit: $GITHUB_SHA"
+            echo "Source commit: $(git rev-parse HEAD)"
             echo "Version: $VALIDATION_VERSION ($BUILD_ARCH)"
             echo 'Developer ID signature, team, bundle ID, hardened runtime, stapled tickets, and Gatekeeper assessment passed.'
             echo 'Download the DMG artifact for a manual installation and launch check. Nothing was published to a release or update feed.'
@@ -219,6 +236,9 @@ jobs:
           name: macos-signing-validation-${{ inputs.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/signing-validation-artifacts/*.dmg
+            ${{ runner.temp }}/signing-validation-artifacts/*.zip
+            ${{ runner.temp }}/signing-validation-artifacts/latest*.yml
+            ${{ runner.temp }}/signing-validation-artifacts/*.blockmap
             ${{ runner.temp }}/signing-validation-artifacts/notarization.json
             ${{ runner.temp }}/signing-validation-artifacts/SHA256SUMS
           if-no-files-found: error
