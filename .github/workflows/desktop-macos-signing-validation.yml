@@ -218,6 +218,33 @@ jobs:
           PY
           xcrun stapler staple "$dmg"
           bash .github/scripts/verify-macos-installer.sh "$dmg" "$E6CODE_APPLE_TEAM_ID"
+          # Stapling changes DMG bytes after electron-builder writes its feed.
+          node --input-type=module - "$artifacts" <<'JS'
+          import * as NodeCrypto from "node:crypto";
+          import * as NodeFS from "node:fs";
+          import * as NodePath from "node:path";
+          import { parseUpdateManifest, serializeUpdateManifest } from "./scripts/lib/update-manifest.ts";
+
+          const directory = process.argv[2];
+          for (const name of NodeFS.readdirSync(directory).filter((name) => /^latest.*\.yml$/.test(name))) {
+            const path = NodePath.join(directory, name);
+            const manifest = parseUpdateManifest(NodeFS.readFileSync(path, "utf8"), path, "macOS");
+            const files = await Promise.all(manifest.files.map(async (file) => {
+              const artifact = NodePath.join(directory, NodePath.basename(file.url));
+              const hash = NodeCrypto.createHash("sha512");
+              for await (const chunk of NodeFS.createReadStream(artifact)) hash.update(chunk);
+              return { ...file, size: NodeFS.statSync(artifact).size, sha512: hash.digest("base64") };
+            }));
+            const extras = { ...manifest.extras };
+            const primary = files.find((file) => file.url === extras.path);
+            if (primary) extras.sha512 = primary.sha512;
+            NodeFS.writeFileSync(path, serializeUpdateManifest({ ...manifest, files, extras }, { platformLabel: "macOS" }));
+          }
+          // A pre-stapling DMG blockmap describes different bytes. macOS updates use the ZIP.
+          for (const name of NodeFS.readdirSync(directory).filter((name) => name.endsWith(".dmg.blockmap"))) {
+            NodeFS.unlinkSync(NodePath.join(directory, name));
+          }
+          JS
           (
             cd "$artifacts"
             shasum -a 256 "$(basename "$dmg")" > SHA256SUMS
