@@ -52,6 +52,14 @@ This document covers the unified release workflow for stable and nightly desktop
   - nightly releases deploy the `nightly` channel to `nightly.app.e6code.com`
 - Signing is optional and auto-detected per platform from secrets.
 
+## Deploy the landing page independently
+
+Run **Release** with `operation=marketing` to deploy only `e6code.com` and `www.e6code.com`.
+This skips installer builds, npm publishing, and release creation. The standalone **Deploy Marketing**
+workflow runs the same deployment. Both use the Cloudflare token and account ID from the GitHub
+`production` environment. The download page resolves installer links from published GitHub releases;
+deploying the site does not publish installers.
+
 ## Pull request macOS previews
 
 Labeling a PR `preview:mac` publishes a signed, notarized Apple Silicon DMG with E6 Connect enabled
@@ -440,6 +448,9 @@ Checklist:
     preview with no update feed, and verifies the signed app inside the notarized, stapled DMG.
     The installer is available as a run artifact for seven days; no release, package, or site is
     published. Download it on a matching Mac and check installation and launch before releasing.
+    To build a stable release candidate, set `build_version` (for example `0.0.42`) and optionally
+    `source_ref` to the exact source commit. These builds include ZIPs and updater metadata in the
+    run artifact but still publish nothing. Leaving `build_version` empty keeps the isolated preview.
 
 Notes:
 

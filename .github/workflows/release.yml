@@ -12,13 +12,14 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Deploy only the landing page or run the release pipeline
+        description: Release, deploy the landing page, or inspect Apple notarization status
         required: false
         default: release
         type: choice
         options:
           - release
           - marketing
+          - notary-status
       channel:
         description: "Release channel"
         required: false
@@ -49,6 +50,27 @@ permissions:
   id-token: none
 
 jobs:
+  notary_status:
+    name: Inspect Apple notarization submissions
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'notary-status'
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - name: Read submission history
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/notary-status-key.p8"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$APPLE_API_KEY" > "$key"
+          xcrun notarytool history --key "$key" --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" --output-format json
+
   marketing_only:
     name: Deploy landing page independently
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'marketing'
@@ -61,7 +83,7 @@ jobs:
   # have already run. Scheduled runs also decide here whether a nightly is due.
   resolve_commit:
     name: Resolve release commit
-    if: inputs.operation != 'marketing'
+    if: inputs.operation == '' || inputs.operation == 'release'
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 5
     outputs:

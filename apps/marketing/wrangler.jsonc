@@ -2,7 +2,7 @@
   // Landing page (apex e6code.com) on Workers Static Assets.
   // The Worker canonicalizes www; path redirects and headers stay in assets.
   // Custom domains provision DNS and certificates when the zone is Active.
-  // www.e6code.com is attached so the host redirect in public/_redirects can
+  // www.e6code.com is attached so the host redirect in src/worker.mjs can
   // run; a custom domain matches one hostname. Unknown paths serve dist/404.html.
   "name": "e6code-marketing",
   "main": "src/worker.mjs",
