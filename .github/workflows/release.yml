@@ -232,7 +232,7 @@ jobs:
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -268,7 +268,7 @@ jobs:
         run: vp run test
 
   relay_public_config:
-    name: Resolve E6 Connect public config
+    name: Resolve release Connect configuration
     # Consumes only the release commit, not preflight's resolved version, so it
     # runs alongside preflight instead of after it. The condition mirrors preflight's.
     needs: [resolve_commit]
@@ -280,6 +280,7 @@ jobs:
     environment:
       name: production
     outputs:
+      enabled: ${{ steps.public_config.outputs.enabled }}
       clerk_publishable_key: ${{ steps.public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ steps.public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ steps.public_config.outputs.clerk_cli_oauth_client_id }}
@@ -287,6 +288,7 @@ jobs:
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      E6CODE_CONNECT_ENABLED: ${{ vars.E6CODE_CONNECT_ENABLED }}
       RELAY_DOMAIN: ${{ vars.RELAY_DOMAIN }}
       RELAY_API_ZONE_NAME: ${{ vars.RELAY_API_ZONE_NAME }}
       CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
@@ -302,7 +304,12 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - id: public_config
+        name: Resolve release Connect configuration
+        run: node .github/scripts/resolve-release-connect.cjs
+
       - name: Setup Vite+
+        if: steps.public_config.outputs.enabled == 'true'
         uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
@@ -318,6 +325,7 @@ jobs:
       # Redacted values are persisted as
       # {"__redacted__": "<value>"}; the token is masked before it is written.
       - name: Read production relay tracing config
+        if: steps.public_config.outputs.enabled == 'true'
         shell: bash
         working-directory: infra/relay
         run: |
@@ -338,44 +346,13 @@ jobs:
           } > "$RUNNER_TEMP/relay-client-tracing.env"
 
       - name: Upload relay client tracing config
+        if: steps.public_config.outputs.enabled == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: relay-client-tracing-config
           path: ${{ runner.temp }}/relay-client-tracing.env
           if-no-files-found: error
           retention-days: 1
-
-      - id: public_config
-        name: Resolve production relay public config
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          relay_domain="${RELAY_DOMAIN:-}"
-          if [[ -z "$relay_domain" && -n "${RELAY_API_ZONE_NAME:-}" ]]; then
-            relay_domain="relay.$RELAY_API_ZONE_NAME"
-          fi
-          required=(
-            relay_domain
-            CLERK_PUBLISHABLE_KEY
-            CLERK_JWT_TEMPLATE
-            CLERK_CLI_OAUTH_CLIENT_ID
-          )
-          missing=()
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              missing+=("$name")
-            fi
-          done
-          if (( ${#missing[@]} > 0 )); then
-            printf 'Missing required relay deployment configuration: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
-
-          echo "clerk_publishable_key=$CLERK_PUBLISHABLE_KEY" >> "$GITHUB_OUTPUT"
-          echo "clerk_jwt_template=$CLERK_JWT_TEMPLATE" >> "$GITHUB_OUTPUT"
-          echo "clerk_cli_oauth_client_id=$CLERK_CLI_OAUTH_CLIENT_ID" >> "$GITHUB_OUTPUT"
-          echo "relay_url=https://$relay_domain" >> "$GITHUB_OUTPUT"
 
   # The platform-independent JS (server bundle, web client, Electron main) is
   # built exactly once here and handed to every platform job as `js-bundle`.
@@ -426,12 +403,14 @@ jobs:
         run: vp install --filter=e6... --filter=@e6tools/web... --filter=@e6tools/desktop... --filter=@e6tools/scripts...
 
       - name: Download relay client tracing config
+        if: needs.relay_public_config.outputs.enabled == 'true'
         uses: actions/download-artifact@v8
         with:
           name: relay-client-tracing-config
           path: ${{ runner.temp }}/relay-client-tracing
 
       - name: Load relay client tracing config
+        if: needs.relay_public_config.outputs.enabled == 'true'
         shell: bash
         run: |
           config_path="$RUNNER_TEMP/relay-client-tracing/relay-client-tracing.env"
@@ -487,6 +466,7 @@ jobs:
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
+      relay_client_tracing: ${{ needs.relay_public_config.outputs.enabled == 'true' }}
       label: macOS arm64
       runner: macos-26
       platform: mac
@@ -510,6 +490,7 @@ jobs:
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
+      relay_client_tracing: ${{ needs.relay_public_config.outputs.enabled == 'true' }}
       label: macOS x64
       runner: macos-26-intel
       platform: mac
@@ -536,6 +517,7 @@ jobs:
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
+      relay_client_tracing: ${{ needs.relay_public_config.outputs.enabled == 'true' }}
       label: Linux x64
       runner: ubuntu-24.04
       platform: linux
@@ -561,6 +543,7 @@ jobs:
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
+      relay_client_tracing: ${{ needs.relay_public_config.outputs.enabled == 'true' }}
       label: Linux arm64
       runner: ubuntu-24.04-arm
       platform: linux
@@ -588,6 +571,7 @@ jobs:
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
+      relay_client_tracing: ${{ needs.relay_public_config.outputs.enabled == 'true' }}
       label: Windows x64
       runner: windows-2025
       platform: win
@@ -611,6 +595,7 @@ jobs:
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
+      relay_client_tracing: ${{ needs.relay_public_config.outputs.enabled == 'true' }}
       label: Windows arm64
       runner: windows-11-arm
       platform: win
@@ -886,7 +871,7 @@ jobs:
   deploy_web:
     name: Deploy hosted web app
     needs: [preflight, relay_public_config, release]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.relay_public_config.outputs.enabled == 'true' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -917,12 +902,14 @@ jobs:
               - --filter=@e6tools/web...
 
       - name: Download relay client tracing config
+        if: needs.relay_public_config.outputs.enabled == 'true'
         uses: actions/download-artifact@v8
         with:
           name: relay-client-tracing-config
           path: ${{ runner.temp }}/relay-client-tracing
 
       - name: Load relay client tracing config
+        if: needs.relay_public_config.outputs.enabled == 'true'
         shell: bash
         run: |
           config_path="$RUNNER_TEMP/relay-client-tracing/relay-client-tracing.env"

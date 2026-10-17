@@ -107,7 +107,7 @@ jobs:
         run: python3 -B .github/scripts/stage-preview-bundle.test.py
 
       - name: Test nightly release checks
-        run: node --test .github/scripts/check-nightly-release.test.cjs
+        run: node --test .github/scripts/check-nightly-release.test.cjs .github/scripts/resolve-release-connect.test.cjs
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!e6' --filter '!@e6tools/monorepo' test
