@@ -1236,6 +1236,15 @@ function normalizePasskeyRpDomain(value: string): string {
   return parsed.hostname;
 }
 
+export function resolveOptionalMacPasskeySigningConfiguration(
+  env: Readonly<Record<string, string | undefined>>,
+): MacPasskeySigningConfiguration | undefined {
+  if (!env.E6CODE_CLERK_PUBLISHABLE_KEY?.trim() && !env.E6CODE_CLERK_PASSKEY_RP_DOMAINS?.trim()) {
+    return undefined;
+  }
+  return resolveMacPasskeySigningConfiguration(env);
+}
+
 export function resolveMacPasskeySigningConfiguration(
   env: Readonly<Record<string, string | undefined>>,
 ): MacPasskeySigningConfiguration {
@@ -2712,7 +2721,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           schemes: ["e6code", "e6code-dev"],
         },
       ],
-      ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      ...(signed
+        ? { sign: path.join(repoRoot, "scripts/sign-macos.ts"), hardenedRuntime: true }
+        : {}),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
@@ -3611,7 +3622,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const configuredMacPasskeySigning =
     options.platform === "mac" && options.signed
       ? yield* Effect.try({
-          try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
+          try: () => resolveOptionalMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
         })
       : undefined;
