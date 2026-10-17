@@ -164,10 +164,13 @@ The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
 (variable). The `e6code.com` zone must be Active. The apex and `www` are custom
 domains, so deploy provisions their DNS records and certificates. Delete any
 existing CNAME on those hostnames first; a custom domain cannot replace one.
-`www.e6code.com` redirects to the apex. Headers and the `/app` redirect live in
-`apps/marketing/public/_headers` and `_redirects`, which Astro copies into
-`dist/` at build time. `/app` and `/app/` redirect to
-`https://latest.app.e6code.com`. Unknown paths serve the site's `404.html`.
+Headers and the `/app` redirect live in `apps/marketing/public/_headers` and
+`_redirects`, which Astro copies into `dist/` at build time. `/app` and
+`/app/` redirect to `https://latest.app.e6code.com`. Workers static assets
+`_redirects` only allow relative source paths, so the www to apex redirect
+must be configured as a Cloudflare Redirect Rule on the e6code.com zone
+(`www.e6code.com/*` -> `https://e6code.com/${1}`, 301). Unknown paths serve
+the site's `404.html`.
 
 The project schema is published at `https://e6code.com/schema/e6.json`. Files
 that still name `https://e6.codes/schema/e6.json` remain valid. If `e6.codes`
@@ -234,8 +237,10 @@ One-time Cloudflare setup:
 3. Run one deploy per env (or let the next release do it). Custom domains
    create the proxied DNS records and certificates. The channel hosts are
    second-level names (`latest.app`, `nightly.app`); each custom domain
-   certificate covers that hostname. `www` redirects to the apex. Future
-   releases keep them current.
+   certificate covers that hostname. The www to apex redirect must be
+   configured as a Cloudflare Redirect Rule on the e6code.com zone
+   (`www.e6code.com/*` -> `https://e6code.com/${1}`, 301). Future releases
+   keep the custom domains current.
 4. Confirm the account has a workers.dev subdomain so `preview:web` can bake
    its URL before building.
 5. Allow both channel origins on the production Clerk instance, and create

@@ -3,8 +3,12 @@
   // Headers/redirects live in public/_headers and public/_redirects (copied
   // into dist/ by Astro), so this file stays static-only: no Worker entry.
   // Custom domains provision DNS and certificates when the zone is Active.
-  // www.e6code.com is attached so the host redirect in public/_redirects can
-  // run; a custom domain matches one hostname. Unknown paths serve dist/404.html.
+  // www.e6code.com stays attached for its DNS record and certificate. A custom
+  // domain matches one hostname. Workers static assets _redirects only allow
+  // relative source paths, so the www to apex redirect must be configured as a
+  // Cloudflare Redirect Rule on the e6code.com zone
+  // (www.e6code.com/* -> https://e6code.com/${1}, 301). Unknown paths serve
+  // dist/404.html.
   "name": "e6code-marketing",
   "compatibility_date": "2026-10-02",
   "workers_dev": false,
