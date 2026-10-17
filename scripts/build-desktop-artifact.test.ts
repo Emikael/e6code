@@ -1893,7 +1893,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("keeps macOS code signing and hardened runtime without Connect entitlements", () =>
     Effect.gen(function* () {
-      const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false);
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        undefined,
+      );
       const mac = config.mac as Record<string, unknown>;
       assert.match(String(mac.sign), /[\\/]scripts[\\/]sign-macos\.ts$/);
       assert.equal(mac.hardenedRuntime, true);
