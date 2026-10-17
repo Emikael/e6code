@@ -13,7 +13,7 @@ const ENV_PREFIX = "E6CODE_";
 
 export const DATA_DIR_NAME = ".e6";
 
-export const GITHUB_REPOSITORY = "emikael/e6code";
+export const GITHUB_REPOSITORY = "Emikael/e6code";
 export const NPM_PACKAGE_SCOPE = "@e6code";
 /**
  * npm name of the CLI launcher. The unscoped name `e6` belongs to another

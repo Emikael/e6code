@@ -43,10 +43,10 @@ puts the `e6` command on your `PATH`.
 
 There is no `e6` executable for Intel Macs (the desktop app is available). To
 run a server there, build it from source with Node.js 24 and `vp`
-([Install vp](https://github.com/emikael/e6code#install-vp)):
+([Install vp](https://github.com/Emikael/e6code#install-vp)):
 
 ```bash
-git clone https://github.com/emikael/e6code
+git clone https://github.com/Emikael/e6code
 cd e6code && vp i && vp run build:desktop
 node apps/server/dist/bin.mjs
 ```
@@ -56,7 +56,7 @@ update it with `git pull` and a rebuild.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/emikael/e6code/releases),
+Download a release from [GitHub Releases](https://github.com/Emikael/e6code/releases),
 or use a package manager:
 
 | Platform           | Install                         |

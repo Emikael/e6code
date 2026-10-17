@@ -117,7 +117,7 @@ export const SHOWCASE_PROJECTS = [
     id: "e6code",
     title: "E6 Code",
     directory: "e6code",
-    repositoryUrl: "https://github.com/emikael/e6code.git",
+    repositoryUrl: "https://github.com/Emikael/e6code.git",
     favicon: PROJECT_FAVICONS.e6code,
   },
   {
@@ -305,7 +305,7 @@ async function seedE6CodeWorkspace(workspaceRoot: string): Promise<void> {
   );
   await initializeRepository({
     workspaceRoot,
-    repositoryUrl: "https://github.com/emikael/e6code.git",
+    repositoryUrl: "https://github.com/Emikael/e6code.git",
     commitMessage: "Show connected environments",
   });
   await runGit(workspaceRoot, ["checkout", "-b", "feat/remote-command-center"]);

@@ -16,7 +16,7 @@
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "emikael/e6code"
+$repo = "Emikael/e6code"
 $baseUrl = if ($env:E6CODE_RELEASE_BASE_URL) { $env:E6CODE_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
 if ($env:E6CODE_HOME) { $e6Home = $env:E6CODE_HOME } else { $e6Home = Join-Path $HOME ".e6" }
 $binDir = if ($env:E6CODE_INSTALL_BIN_DIR) { $env:E6CODE_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }

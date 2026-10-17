@@ -4,7 +4,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/emikael/e6code",
+    "url": "https://github.com/Emikael/e6code",
     "directory": "apps/server"
   },
   "bin": {
