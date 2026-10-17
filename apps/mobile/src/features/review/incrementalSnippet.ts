@@ -6,7 +6,8 @@ export function createIncrementalSnippet(
   language: string,
   theme: string,
 ) {
-  const options = { lang: language, theme };
+  // Match highlightLines: a 500ms budget can cut the first cold line short.
+  const options = { lang: language, theme, tokenizeTimeLimit: 0 };
   let cached:
     | {
         prefix: string;

@@ -55,6 +55,13 @@ const REVIEW_HIGHLIGHTER_ENGINE_PREFERENCE = resolveReviewHighlighterEnginePrefe
 const REVIEW_HIGHLIGHT_CHUNK_LINE_THRESHOLD = 8;
 const REVIEW_HIGHLIGHT_CHUNK_SIZE = 200;
 const REVIEW_TOKENIZE_MAX_LINE_LENGTH = 1_000;
+// Shiki's default budget is 500ms per line. The JavaScript regex engine
+// compiles a grammar on first use, and that compilation counts against the
+// budget. On a busy runner the first TypeScript line can stop early and the
+// remainder is returned as one token; the next call, with the grammar cached,
+// tokenizes fully. 0 disables the limit. Lines over the max length are already
+// left untokenized.
+const REVIEW_TOKENIZE_TIME_LIMIT = 0;
 const REVIEW_INITIAL_LANGUAGE_MODULES = [
   bashLanguage,
   javascriptLanguage,
@@ -526,6 +533,7 @@ async function highlightLines(
     const tokenLines = highlighter.codeToTokensBase(shortLineBatch.join("\n"), {
       lang: language,
       theme,
+      tokenizeTimeLimit: REVIEW_TOKENIZE_TIME_LIMIT,
     });
     highlightedLines.push(...normalizeHighlightedLines(tokenLines));
     shortLineBatch.length = 0;
