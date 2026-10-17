@@ -45,7 +45,7 @@ or `--tailscale-serve`.
 
 If you run the server with `npx` rather than an installed `e6`, there is
 nothing to update on the host: stop the server and relaunch it as
-`npx e6@<client-version>` with the same subcommand and options.
+`npx @e6code/e6@<client-version>` with the same subcommand and options.
 
 ## If an update fails
 

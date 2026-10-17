@@ -35,8 +35,9 @@ line to add. Set `E6CODE_CHANNEL=nightly` to install the nightly train, or
 
 Run `e6 --help` for the full reference.
 
-To try E6 Code once without installing it, run `npx e6@latest` instead (needs
-Node.js for `npx`).
+To try E6 Code once without installing it, run `npx @e6code/e6@latest` instead
+(needs Node.js for `npx`). A global install is `npm i -g @e6code/e6`, which
+puts the `e6` command on your `PATH`.
 
 ### Intel Macs
 

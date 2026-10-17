@@ -14,7 +14,7 @@ const highlighter = await createHighlighterCore({
 });
 const rendered = (lines: ReturnType<typeof highlighter.codeToTokensBase>) =>
   lines.map((line) => line.map(({ content, color, fontStyle }) => ({ content, color, fontStyle })));
-const options = { lang: "typescript", theme: "github-dark-default" };
+const options = { lang: "typescript", theme: "github-dark-default", tokenizeTimeLimit: 0 };
 
 describe("incremental snippet highlighting", () => {
   it("matches full highlighting through partial lines, multiline syntax, edits and truncation", async () => {

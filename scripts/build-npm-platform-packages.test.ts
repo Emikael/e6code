@@ -117,7 +117,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       // Platform packages in CLI_ARCHIVE_PLATFORM_KEYS order, launcher last.
       assert.deepStrictEqual(
         outputs.map((output) => output.name),
-        ["@e6code/e6-darwin-arm64", "@e6code/e6-linux-x64", "e6"],
+        ["@e6code/e6-darwin-arm64", "@e6code/e6-linux-x64", "@e6code/e6"],
       );
       for (const output of outputs) {
         assert.isTrue(yield* fs.exists(output.tarball), output.tarball);
@@ -165,11 +165,11 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       assert.deepStrictEqual(darwinManifest.os, ["darwin"]);
       assert.deepStrictEqual(darwinManifest.cpu, ["arm64"]);
 
-      const launcherDir = path.join(fixture.outputDir, "e6");
+      const launcherDir = path.join(fixture.outputDir, "@e6code/e6");
       const launcherManifest = yield* decodeManifest(
         yield* fs.readFileString(path.join(launcherDir, "package.json")),
       );
-      assert.equal(launcherManifest.name, "e6");
+      assert.equal(launcherManifest.name, "@e6code/e6");
       assert.equal(launcherManifest.version, VERSION);
       assert.deepStrictEqual(launcherManifest.bin, { e6: "./bin/e6.js" });
       assert.deepStrictEqual(launcherManifest.files, ["bin", "dist"]);
@@ -182,7 +182,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
 
       // The scratch dirs must not be left behind next to the packages.
       const outputEntries = yield* fs.readDirectory(fixture.outputDir);
-      assert.deepStrictEqual(outputEntries.sort(), ["@e6code", "e6", "e6.tgz"]);
+      assert.deepStrictEqual(outputEntries.sort(), ["@e6code"]);
 
       // The tarball is what gets published: it must carry node_modules (which
       // `npm publish <dir>` would strip) under npm's `package/` root, with the
@@ -223,7 +223,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         yield* fs.makeDirectory(installedLauncher);
         const unpack = yield* run(
           "tar",
-          ["-xf", path.join(fixture.outputDir, "e6.tgz"), "-C", installedLauncher],
+          ["-xf", path.join(fixture.outputDir, "@e6code/e6.tgz"), "-C", installedLauncher],
           {
             cwd: fixture.root,
           },

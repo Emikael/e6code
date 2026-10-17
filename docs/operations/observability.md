@@ -92,7 +92,7 @@ You do not need any extra env vars. Just run the app normally and inspect `serve
 Examples:
 
 ```bash
-npx e6
+npx @e6code/e6
 ```
 
 ```bash
@@ -144,7 +144,7 @@ export E6CODE_TRACE_TIMING_ENABLED=true
 CLI:
 
 ```bash
-npx e6
+npx @e6code/e6
 ```
 
 Monorepo web/server dev:

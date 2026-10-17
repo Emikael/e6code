@@ -9,6 +9,7 @@ import {
   DATA_DIR_NAME,
   HOSTED_APP_NIGHTLY_ORIGIN,
   HOSTED_APP_ORIGIN,
+  NPM_LAUNCHER_PACKAGE_NAME,
   PRODUCT_NAME,
   readBrandEnv,
   resolveDefaultDataDir,
@@ -19,6 +20,7 @@ describe("brand", () => {
   it("names the product E6 Code and the CLI e6", () => {
     assert.equal(PRODUCT_NAME, "E6 Code");
     assert.equal(CLI_COMMAND, "e6");
+    assert.equal(NPM_LAUNCHER_PACKAGE_NAME, "@e6code/e6");
     assert.equal(DATA_DIR_NAME, ".e6");
   });
 
