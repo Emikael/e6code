@@ -328,7 +328,7 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
-          E6CODE_CLERK_PASSKEY_RP_DOMAINS: ${{ vars.CLERK_PASSKEY_RP_DOMAINS }}
+          E6CODE_CLERK_PASSKEY_RP_DOMAINS: ${{ inputs.clerk_publishable_key != '' && vars.CLERK_PASSKEY_RP_DOMAINS || '' }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -357,20 +357,47 @@ jobs:
 
           if [[ "${{ inputs.platform }}" == "mac" ]]; then
             if has_all "$CSC_LINK" "$CSC_KEY_PASSWORD" "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"; then
-              if ! has_all "$APPLE_TEAM_ID" "$MACOS_PROVISIONING_PROFILE"; then
-                echo "macOS signing is configured, but APPLE_TEAM_ID or MACOS_PROVISIONING_PROFILE is missing." >&2
-                exit 1
+              if [[ -n "$E6CODE_CLERK_PUBLISHABLE_KEY" || -n "$E6CODE_CLERK_PASSKEY_RP_DOMAINS" ]]; then
+                if ! has_all "$APPLE_TEAM_ID" "$MACOS_PROVISIONING_PROFILE"; then
+                  echo "macOS passkey signing requires APPLE_TEAM_ID and MACOS_PROVISIONING_PROFILE." >&2
+                  exit 1
+                fi
+                profile_path="$RUNNER_TEMP/e6code.provisionprofile"
+                printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+                security cms -D -i "$profile_path" >/dev/null
+                export E6CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
+                export E6CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
               fi
 
               key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
               printf '%s' "$APPLE_API_KEY" > "$key_path"
               export APPLE_API_KEY="$key_path"
 
-              profile_path="$RUNNER_TEMP/e6code.provisionprofile"
-              printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
-              security cms -D -i "$profile_path" >/dev/null
-              export E6CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
-              export E6CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
+              # electron-builder 26.15.6 uses the P12 password for an ACL
+              # update on a keychain it created with a different password.
+              # Import explicitly and use its supported CSC_KEYCHAIN path.
+              umask 077
+              keychain="$RUNNER_TEMP/e6-desktop-signing.keychain-db"
+              password="$(openssl rand -hex 32)"
+              echo "::add-mask::$password"
+              cert_path="$RUNNER_TEMP/e6-desktop-signing.p12"
+              printf '%s' "$CSC_LINK" | base64 -D > "$cert_path"
+              security create-keychain -p "$password" "$keychain"
+              security set-keychain-settings -lut 21600 "$keychain"
+              security unlock-keychain -p "$password" "$keychain"
+              security import "$cert_path" -k "$keychain" -P "$CSC_KEY_PASSWORD" \
+                -T /usr/bin/codesign -T /usr/bin/productbuild
+              security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+              python3 - "$keychain" <<'PYTHON'
+              import shlex
+              import subprocess
+              import sys
+              existing = shlex.split(subprocess.check_output(["security", "list-keychains", "-d", "user"], text=True))
+              subprocess.run(["security", "list-keychains", "-d", "user", "-s", sys.argv[1], *existing], check=True)
+              PYTHON
+              rm "$cert_path"
+              export CSC_KEYCHAIN="$keychain"
+              unset CSC_LINK
 
               echo "macOS signing enabled."
               args+=(--signed)
@@ -569,3 +596,11 @@ jobs:
           name: resource-monitor-${{ inputs.resource_key }}
           path: resource-monitor-publish/${{ inputs.resource_key }}/*
           if-no-files-found: error
+
+      - name: Clean up Apple signing credentials
+        if: always() && inputs.platform == 'mac'
+        shell: bash
+        run: |
+          keychain="$RUNNER_TEMP/e6-desktop-signing.keychain-db"
+          if [[ -f "$keychain" ]]; then security delete-keychain "$keychain"; fi
+          rm -f "$RUNNER_TEMP/e6-desktop-signing.p12" "$RUNNER_TEMP/e6code.provisionprofile" "$RUNNER_TEMP"/AuthKey_*.p8
