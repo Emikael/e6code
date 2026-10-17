@@ -33,7 +33,7 @@ describe("cliRelease", () => {
 
   it("resolves download URLs under the tagged release, honoring a mirror", () => {
     expect(cliReleaseDownloadBaseUrl("1.2.3")).toBe(
-      "https://github.com/emikael/e6code/releases/download/v1.2.3",
+      "https://github.com/Emikael/e6code/releases/download/v1.2.3",
     );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/e6/")).toBe(
       "https://mirror.example/e6/v1.2.3",
@@ -87,7 +87,7 @@ describe("cliRelease", () => {
 
   it("pages through the release index at the largest page GitHub allows", () => {
     expect(cliReleaseIndexPageUrl(1)).toBe(
-      "https://api.github.com/repos/emikael/e6code/releases?per_page=100&page=1",
+      "https://api.github.com/repos/Emikael/e6code/releases?per_page=100&page=1",
     );
     expect(cliReleaseIndexPageUrl(3)).toContain("page=3");
   });

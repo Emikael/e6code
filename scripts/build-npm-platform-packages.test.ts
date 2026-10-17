@@ -140,6 +140,12 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       ]);
       assert.equal(linuxManifest.preferUnplugged, true);
       assert.isUndefined(linuxManifest.bin);
+      // npm provenance compares repository.url to the GitHub repo case-sensitively.
+      assert.deepStrictEqual(linuxManifest.repository, {
+        type: "git",
+        url: "https://github.com/Emikael/e6code",
+        directory: "apps/server",
+      });
       // The shipped node_modules is declared, or npm prunes it as extraneous
       // on the next install in the same project and the executable breaks.
       assert.deepStrictEqual(linuxManifest.dependencies, {
@@ -150,10 +156,9 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       // Archive contents sit at the package root, not under the archive stem.
       assert.isTrue(yield* fs.exists(path.join(linuxDir, "client/index.html")));
       // A root README, or npm would display a bundled dependency's.
-      assert.include(
-        yield* fs.readFileString(path.join(linuxDir, "README.md")),
-        "# @e6code/e6-linux-x64",
-      );
+      const linuxReadme = yield* fs.readFileString(path.join(linuxDir, "README.md"));
+      assert.include(linuxReadme, "# @e6code/e6-linux-x64");
+      assert.include(linuxReadme, "https://github.com/Emikael/e6code");
       assert.isTrue(yield* fs.exists(path.join(linuxDir, "node_modules/node-pty")));
       assert.equal(Number((yield* fs.stat(path.join(linuxDir, "e6"))).mode) & 0o111, 0o111);
 
@@ -177,6 +182,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         "@e6code/e6-darwin-arm64": VERSION,
         "@e6code/e6-linux-x64": VERSION,
       });
+      assert.deepStrictEqual(launcherManifest.repository, linuxManifest.repository);
       assert.isUndefined(launcherManifest.engines);
       assert.isTrue(yield* fs.exists(path.join(launcherDir, "bin/e6.js")));
 
@@ -255,7 +261,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       assert.equal(unsupported.exitCode, 1);
       assert.include(unsupported.stderr, "linux-x64");
       assert.include(unsupported.stderr, "win32-arm64");
-      assert.include(unsupported.stderr, "https://github.com/emikael/e6code/releases");
+      assert.include(unsupported.stderr, "https://github.com/Emikael/e6code/releases");
     }),
   );
 });

@@ -17,7 +17,7 @@
 # instead of fetching the release again.
 set -eu
 
-repo="emikael/e6code"
+repo="Emikael/e6code"
 base_url="${E6CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 if [ -n "${E6CODE_HOME:-}" ]; then
   e6_home="$E6CODE_HOME"

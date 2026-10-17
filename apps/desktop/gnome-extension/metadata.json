@@ -4,5 +4,5 @@
   "description": "Allows E6 Code to capture the focused window, identify it for optional accessibility text, and animate it into E6 Code. Disable this extension to revoke access.",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "version": 2,
-  "url": "https://github.com/emikael/e6code"
+  "url": "https://github.com/Emikael/e6code"
 }
