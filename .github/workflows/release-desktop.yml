@@ -99,7 +99,8 @@ jobs:
   build:
     name: Build ${{ inputs.label }}
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 30
+    # Apple notarization can remain queued after packaging has completed.
+    timeout-minutes: ${{ inputs.platform == 'mac' && 120 || 30 }}
     env:
       E6CODE_CLERK_PUBLISHABLE_KEY: ${{ inputs.clerk_publishable_key }}
       E6CODE_CLERK_JWT_TEMPLATE: ${{ inputs.clerk_jwt_template }}
