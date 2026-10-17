@@ -15,6 +15,11 @@ export const DATA_DIR_NAME = ".e6";
 
 export const GITHUB_REPOSITORY = "emikael/e6code";
 export const NPM_PACKAGE_SCOPE = "@e6code";
+/**
+ * npm name of the CLI launcher. The unscoped name `e6` belongs to another
+ * npm user, so the package that installs the `e6` command is this one.
+ */
+export const NPM_LAUNCHER_PACKAGE_NAME = `${NPM_PACKAGE_SCOPE}/e6`;
 export const HOSTED_APP_NIGHTLY_ORIGIN = "https://nightly.app.e6code.com";
 // Public hosted app. app.e6code.com is not deployed; the stable channel is the
 // origin desktop, CLI, and local builds use until a router Worker exists.

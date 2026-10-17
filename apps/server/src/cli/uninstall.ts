@@ -137,7 +137,7 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
     yield* Console.log(`Nothing to remove: e6 is not installed for ${input.baseDir}.`);
     if (!(yield* HostProcessIsExecutable)) {
       yield* Console.log(
-        "  This e6 runs from a Node script, so it was installed by npm or built from source. Remove it the same way (`npm uninstall -g e6`, or `npm uninstall -g e6` for the compatibility package, or delete the checkout).",
+        "  This e6 runs from a Node script, so it was installed by npm or built from source. Remove it the same way (`npm uninstall -g @e6code/e6`, or delete the checkout).",
       );
     }
     return;

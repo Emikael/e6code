@@ -76,7 +76,7 @@ Then run `e6` to start the server and open the local web app.
 | `e6 update`          | Move to a newer release               |
 | `e6 --help`          | Full reference                        |
 
-To try it once without installing, run `npx e6@latest`.
+To try it once without installing, run `npx @e6code/e6@latest`. To install the `e6` command with npm, run `npm i -g @e6code/e6`.
 
 ### Desktop app
 

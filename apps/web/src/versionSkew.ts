@@ -1,5 +1,6 @@
 import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@e6tools/contracts";
 import type { ServerUpdateState } from "@e6tools/client-runtime/state/server";
+import { NPM_LAUNCHER_PACKAGE_NAME } from "@e6tools/shared/brand";
 import { compareSemverVersions, parseSemver } from "@e6tools/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -116,7 +117,7 @@ export function supportsServerUpdateThreadContinuation(
 
 /** The command to hand users whose server cannot update itself. */
 export function manualServerUpdateCommand(targetVersion: string): string {
-  return `npx e6@${targetVersion}`;
+  return `npx ${NPM_LAUNCHER_PACKAGE_NAME}@${targetVersion}`;
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {

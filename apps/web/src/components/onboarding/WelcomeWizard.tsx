@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/react";
+import { NPM_LAUNCHER_PACKAGE_NAME } from "@e6tools/shared/brand";
 import { useAtomValue } from "@effect/atom-react";
 import type {
   AgentSessionProjectCandidate,
@@ -475,7 +476,7 @@ function ConnectAccountOption({
           <p className="text-sm text-muted-foreground">
             Run this on each computer you want to connect.
           </p>
-          <CommandBlock command="npx e6 connect" className="mt-3" />
+          <CommandBlock command={`npx ${NPM_LAUNCHER_PACKAGE_NAME} connect`} className="mt-3" />
           <p className="mt-3 text-xs text-muted-foreground">
             Keep E6 Code running. Select the computers you want to set up above.
           </p>
@@ -592,9 +593,10 @@ function PairingForm({
             <p className="text-sm text-muted-foreground">
               Run this on the computer with your code.
             </p>
-            <CommandBlock command="npx e6 pair" className="mt-2" />
+            <CommandBlock command={`npx ${NPM_LAUNCHER_PACKAGE_NAME} pair`} className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start E6 Code first, or run <code className="font-mono">npx e6 serve</code>. Add{" "}
+              Start E6 Code first, or run{" "}
+              <code className="font-mono">npx {NPM_LAUNCHER_PACKAGE_NAME} serve</code>. Add{" "}
               <code className="font-mono">--tailscale</code> to use your tailnet.
             </p>
           </CollapsiblePanel>

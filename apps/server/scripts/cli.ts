@@ -11,6 +11,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
+import { NPM_LAUNCHER_PACKAGE_NAME } from "@e6tools/shared/brand";
 import { resolveSpawnCommand } from "@e6tools/shared/shell";
 import {
   ServerCliBuildAssetMissingError,
@@ -167,8 +168,8 @@ const buildExeCmd = Command.make(
 
 /**
  * Publishes the tarballs scripts/build-npm-platform-packages.ts produced:
- * every `@e6code/e6-<platform>.tgz` first, then `e6.tgz`, so the launcher
- * is never installable before the executables it depends on.
+ * every `@e6code/e6-<platform>.tgz` first, then `@e6code/e6.tgz`, so the
+ * launcher is never installable before the executables it depends on.
  * Tarballs rather than directories because `npm publish <dir>` strips the
  * `node_modules/` the executable loads its native addons from.
  */
@@ -192,7 +193,7 @@ const publishCmd = Command.make(
       // resolved once here rather than joined twice.
       const packagesDir = path.resolve(config.packagesDir);
       const scopeDir = path.join(packagesDir, "@e6code");
-      const launcherTarball = path.join(packagesDir, "e6.tgz");
+      const launcherTarball = path.join(packagesDir, `${NPM_LAUNCHER_PACKAGE_NAME}.tgz`);
       const platformTarballs = (yield* fs
         .readDirectory(scopeDir)
         .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => [])))
@@ -227,7 +228,7 @@ const publishCmd = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Publish the @e6code/e6-<platform> tarballs and then the e6 launcher to npm.",
+    "Publish the @e6code/e6-<platform> tarballs and then the @e6code/e6 launcher to npm.",
   ),
 );
 

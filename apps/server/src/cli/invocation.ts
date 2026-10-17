@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 
+import { NPM_LAUNCHER_PACKAGE_NAME } from "@e6tools/shared/brand";
 import { HostProcessArguments } from "@e6tools/shared/hostProcess";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -37,22 +38,24 @@ function detectCliRunner(entryPath: string): CliRunner | null {
 }
 
 /**
- * The `e6` package spec to suggest. The literal spec the user typed (e.g.
- * `e6@nightly`) is resolved away before our process starts, so re-derive it
- * from the running version: nightly builds re-suggest the nightly channel,
- * anything else suggests the bare package. The `e6` package name still installs
- * the same CLI.
+ * The `@e6code/e6` package spec to suggest. The literal spec the user typed
+ * (e.g. `@e6code/e6@nightly`) is resolved away before our process starts, so
+ * re-derive it from the running version: nightly builds re-suggest the nightly
+ * channel, anything else suggests the bare package. A global install still
+ * runs the `e6` command.
  */
 function suggestedPackageSpec(version: string): string {
   const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
-  return channel === undefined ? "e6" : `e6@${channel}`;
+  return channel === undefined
+    ? NPM_LAUNCHER_PACKAGE_NAME
+    : `${NPM_LAUNCHER_PACKAGE_NAME}@${channel}`;
 }
 
 /**
  * Render an `e6 <subcommand>` suggestion that matches how this process was
- * launched, so copy/pasting it actually works: `npx e6 connect` suggests
- * `npx e6 serve`, a global install suggests `e6 serve`, and a nightly build
- * keeps the `@nightly` tag.
+ * launched, so copy/pasting it actually works: `npx @e6code/e6 connect`
+ * suggests `npx @e6code/e6 serve`, a global install suggests `e6 serve`, and
+ * a nightly build keeps the `@nightly` tag.
  */
 export function formatCliCommand(input: {
   readonly subcommand: string;

@@ -1,5 +1,5 @@
 /**
- * `dist/bin.mjs` of the `e6` npm package: the entry point boot-service
+ * `dist/bin.mjs` of the `@e6code/e6` npm package: the entry point boot-service
  * launchers installed before 0.0.41 run with Node to start a new version they
  * just npm-installed. It forwards everything (arguments, stdio, the IPC
  * channel the launcher talks over, signals, exit status) to the platform

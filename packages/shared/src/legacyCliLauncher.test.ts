@@ -18,7 +18,7 @@ it.skipIf(hostPlatform === "win32")(
   "keeps service IPC, arguments, and termination connected",
   async () => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-legacy-launcher-"));
-    const entry = NodePath.join(root, "node_modules/e6/dist/bin.mjs");
+    const entry = NodePath.join(root, "node_modules/@e6code/e6/dist/bin.mjs");
     const executable = NodePath.join(
       root,
       `node_modules/@e6code/e6-${hostPlatform}-${hostArch}/e6`,

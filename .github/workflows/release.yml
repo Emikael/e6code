@@ -665,7 +665,7 @@ jobs:
       - name: Check npm publish access (dry run)
         run: |
           if ! node apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --dry-run --verbose; then
-            echo "::error::npm publish --dry-run failed. Make sure the @e6code npm org exists and that e6 and every @e6code/e6-<platform> package has a trusted publisher registered for .github/workflows/release.yml (see docs/operations/release.md)." >&2
+            echo "::error::npm publish --dry-run failed. Make sure the @e6code npm org exists and that @e6code/e6 and every @e6code/e6-<platform> package has a trusted publisher registered for release.yml (see docs/operations/release.md)." >&2
             exit 1
           fi
 

@@ -817,8 +817,8 @@ export class ServerProviderUpdateError extends Schema.TaggedError<ServerProvider
 }
 
 export const ServerSelfUpdateInput = Schema.Struct({
-  /** Exact npm version of the `e6` package to install (never a dist-tag, so
-      the server and the acknowledging client agree on what was requested). */
+  /** Exact release version to install (never a dist-tag, so the server and
+      the acknowledging client agree on what was requested). */
   targetVersion: TrimmedNonEmptyString,
   /** Opt-in recovery for provider turns that are running when the server
       hands off to its replacement. Missing and false keep restart behavior
