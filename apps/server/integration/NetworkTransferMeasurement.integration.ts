@@ -134,8 +134,14 @@ function makeWebSocketTransferRecorder(): WebSocketTransferRecorder {
 
   return {
     connect: (url, protocols, cookie) => {
+      const httpUrl = new URL(url);
+      httpUrl.protocol = httpUrl.protocol === "wss:" ? "https:" : "http:";
       const nextSocket = new NodeSocket.NodeWS.WebSocket(url, protocols, {
-        headers: { cookie },
+        headers: {
+          cookie,
+          origin: httpUrl.origin,
+          "sec-fetch-site": "same-origin",
+        },
         perMessageDeflate: true,
       }) as NodeWebSocketWithTransport;
       socket = nextSocket;

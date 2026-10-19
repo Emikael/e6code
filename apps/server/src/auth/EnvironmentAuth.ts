@@ -19,7 +19,11 @@ import {
   DpopFailureReason,
   type DpopFailureReason as DpopFailureReasonType,
 } from "@e6tools/contracts";
+import { HostProcessPlatform } from "@e6tools/shared/hostProcess";
 import { encodeOAuthScope } from "@e6tools/shared/oauthScope";
+import { readTailscaleStatus } from "@e6tools/tailscale";
+import * as NodeOS from "node:os";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -29,9 +33,16 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
+import {
+  configuredHostedAppOrigins,
+  cookieCredentialRequiresTrustedOrigin,
+  isTrustedCookieOrigin,
+  readNetworkInterfaceAddresses,
+} from "./cookieOrigin.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -597,6 +608,20 @@ export function selectRequestCredential(
   return undefined;
 }
 
+function isBrowserCookieCredential(
+  source: "cookie" | "bearer" | "dpop" | "legacy-cookie" | "dev-cookie",
+): boolean {
+  return source === "cookie" || source === "legacy-cookie" || source === "dev-cookie";
+}
+
+function requestHeader(
+  request: HttpServerRequest.HttpServerRequest,
+  name: string,
+): string | undefined {
+  const value = request.headers?.[name];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
@@ -607,6 +632,81 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const devAuth = resolveReusableDevAuth(config);
+  const hostedAppOrigins = configuredHostedAppOrigins(process.env);
+  const MAGIC_DNS_CACHE_TTL_MS = 60_000;
+  let magicDnsCache:
+    | { readonly expiresAt: number; readonly names: ReadonlyArray<string> }
+    | undefined;
+
+  // Tailscale serve rewrites Host to loopback. The browser's Origin is the
+  // MagicDNS name, which only `tailscale status` can tell us. Skip the lookup
+  // unless serve is on, and keep going if the CLI is missing.
+  const readMagicDnsNames: Effect.Effect<ReadonlyArray<string>> = Effect.gen(function* () {
+    if (!config.tailscaleServeEnabled) {
+      return [];
+    }
+    const now = yield* Clock.currentTimeMillis;
+    if (magicDnsCache !== undefined && magicDnsCache.expiresAt > now) {
+      return magicDnsCache.names;
+    }
+    const spawner = yield* Effect.serviceOption(ChildProcessSpawner.ChildProcessSpawner);
+    if (Option.isNone(spawner)) {
+      return [];
+    }
+    const names = yield* readTailscaleStatus.pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner.value),
+      Effect.provideService(HostProcessPlatform, yield* HostProcessPlatform),
+      Effect.map((status) => (status.magicDnsName === null ? [] : [status.magicDnsName])),
+      Effect.catchDefect(() => Effect.succeed<ReadonlyArray<string>>([])),
+      Effect.orElseSucceed(() => [] as ReadonlyArray<string>),
+    );
+    magicDnsCache = { expiresAt: now + MAGIC_DNS_CACHE_TTL_MS, names };
+    return names;
+  });
+
+  const guardCookieOrigin = (
+    request: HttpServerRequest.HttpServerRequest,
+  ): Effect.Effect<void, ServerAuthInvalidCredentialError> =>
+    Effect.gen(function* () {
+      if (
+        !cookieCredentialRequiresTrustedOrigin({
+          method: request.method,
+          upgrade: requestHeader(request, "upgrade"),
+        })
+      ) {
+        return;
+      }
+      const trusted = isTrustedCookieOrigin({
+        originHeader: requestHeader(request, "origin"),
+        secFetchSite: requestHeader(request, "sec-fetch-site"),
+        hostHeader: requestHeader(request, "host"),
+        originalUrl: request.originalUrl ?? request.url,
+        forwardedProto: requestHeader(request, "x-forwarded-proto"),
+        bindHost: config.host,
+        devUrl: config.devUrl,
+        devAllowedOrigins: config.devAllowedOrigins,
+        hostedAppOrigins,
+        tailscaleServeEnabled: config.tailscaleServeEnabled,
+        tailscaleServePort: config.tailscaleServePort,
+        magicDnsNames: yield* readMagicDnsNames,
+        interfaceAddresses: readNetworkInterfaceAddresses(),
+        hostname: NodeOS.hostname(),
+      });
+      if (trusted) {
+        return;
+      }
+      yield* Effect.logWarning("Rejected cookie authentication from an untrusted origin.").pipe(
+        Effect.annotateLogs({
+          origin: requestHeader(request, "origin") ?? null,
+          secFetchSite: requestHeader(request, "sec-fetch-site") ?? null,
+          host: requestHeader(request, "host") ?? null,
+          method: request.method,
+        }),
+      );
+      return yield* new ServerAuthInvalidCredentialError({
+        diagnostic: "Cookie authentication is only accepted from a trusted origin.",
+      });
+    });
 
   const authenticateToken = (
     token: string,
@@ -654,7 +754,7 @@ export const make = Effect.gen(function* () {
     if (!credential?.token) {
       return Effect.fail(new ServerAuthMissingCredentialError({}));
     }
-    return authenticateToken(credential.token).pipe(
+    const authorized = authenticateToken(credential.token).pipe(
       Effect.flatMap((session) => {
         if (session.proofKeyThumbprint) {
           if (!dpopToken || dpopToken !== credential.token) {
@@ -686,6 +786,12 @@ export const make = Effect.gen(function* () {
         return Effect.succeed(session);
       }),
     );
+    if (!isBrowserCookieCredential(credential.source)) {
+      return authorized;
+    }
+    // Reject the origin before verifying the cookie so a cross-origin page
+    // cannot probe whether a stolen cookie value is still valid.
+    return guardCookieOrigin(request).pipe(Effect.andThen(authorized));
   };
 
   const getSessionState: EnvironmentAuth["Service"]["getSessionState"] = (request) =>

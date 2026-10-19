@@ -114,7 +114,7 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
             postJson(
               "/api/auth/pairing-token",
               { scopes: ["orchestration:read"] },
-              { cookie: devCookieHeader },
+              { cookie: devCookieHeader, origin: "http://127.0.0.1" },
             ),
             requestContext,
           );
