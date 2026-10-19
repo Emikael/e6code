@@ -1,9 +1,12 @@
 name: Deploy E6 Connect relay
 
+# Push deploy is off while E6 Connect is disabled. LAN and Tailscale pairing do
+# not use this workflow. Restore the push trigger to deploy on every main push:
+#   push:
+#     branches:
+#       - main
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +20,7 @@ concurrency:
 jobs:
   deploy_relay:
     name: Deploy production relay
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
       name: production

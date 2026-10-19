@@ -20,11 +20,11 @@ const captureError = (run: () => unknown): unknown => {
 
 describe("Clerk relay auth", () => {
   it("derives a custom Frontend API hostname from a Clerk publishable key", () => {
-    expect(clerkFrontendApiHostnameFromPublishableKey(clerkPublishableKey("clerk.e6.codes"))).toBe(
-      "clerk.e6.codes",
-    );
-    expect(clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey("clerk.e6.codes"))).toBe(
-      "https://clerk.e6.codes",
+    expect(
+      clerkFrontendApiHostnameFromPublishableKey(clerkPublishableKey("clerk.e6code.com")),
+    ).toBe("clerk.e6code.com");
+    expect(clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey("clerk.e6code.com"))).toBe(
+      "https://clerk.e6code.com",
     );
   });
 
@@ -39,7 +39,7 @@ describe("Clerk relay auth", () => {
 
   it("reports semantic frontend API failures without inventing a cause", () => {
     const emptyError = captureError(() => clerkFrontendApiUrlFromPublishableKey("pk_test_"));
-    const pathFrontendApi = "clerk.e6.codes/path";
+    const pathFrontendApi = "clerk.e6code.com/path";
     const pathError = captureError(() =>
       clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey(pathFrontendApi)),
     );

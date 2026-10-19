@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.version = package['version']
   s.summary = 'Native review diff debug surface for E6 Code mobile.'
   s.description = 'Native iOS review diff renderer used to prototype fast mobile review scrolling.'
-  s.homepage = 'https://e6.codes'
+  s.homepage = 'https://e6code.com'
   s.license = { :type => 'UNLICENSED' }
   s.author = { 'E6 Tools' => 'contact@elomigroup.com' }
   s.platforms = { :ios => '16.1' }

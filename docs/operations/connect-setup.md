@@ -6,8 +6,8 @@ provisioning instructions.
 
 ## Public application configuration
 
-E6 Connect is disabled in a fresh clone. To build against the production deployment, copy the
-repository-root example:
+E6 Connect is disabled in a fresh clone. The repository-root example keeps the
+development Clerk values commented out. Uncomment all four public values, then copy it:
 
 ```sh
 cp .env.example .env
@@ -44,6 +44,9 @@ To include Connect, set the production GitHub environment variable `E6CODE_CONNE
 configure `CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_TEMPLATE`, `CLERK_CLI_OAUTH_CLIENT_ID`, and
 `RELAY_DOMAIN` (or `RELAY_API_ZONE_NAME`), and deploy the relay stack first. The release then
 reads its tracing configuration from Alchemy. Set the flag to `false` to omit Connect again.
+Production `CLERK_PUBLISHABLE_KEY` must be a `pk_live` key from a production Clerk instance
+whose Frontend API is `clerk.e6code.com`. The key in the repository-root example is the
+development instance and is not that production key.
 
 ## CLI OAuth application
 

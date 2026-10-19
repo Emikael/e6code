@@ -52,9 +52,9 @@ it.effect("normalizes the hosted app URL to an absolute origin", () =>
   Effect.gen(function* () {
     assert.equal(
       yield* hostedAppUrlConfig.pipe(
-        provideEnv({ E6CODE_HOSTED_APP_URL: "https://nightly.app.e6.codes" }),
+        provideEnv({ E6CODE_HOSTED_APP_URL: "https://nightly.app.e6code.com" }),
       ),
-      "https://nightly.app.e6.codes",
+      "https://nightly.app.e6code.com",
     );
     assert.equal(
       yield* hostedAppUrlConfig.pipe(
@@ -68,10 +68,10 @@ it.effect("normalizes the hosted app URL to an absolute origin", () =>
 it.effect("rejects malformed or insecure hosted app URLs", () =>
   Effect.gen(function* () {
     for (const value of [
-      "app.e6.codes",
-      "http://app.e6.codes",
-      "https://app.e6.codes/nested",
-      "https://app.e6.codes?alias=true",
+      "app.e6code.com",
+      "http://app.e6code.com",
+      "https://app.e6code.com/nested",
+      "https://app.e6code.com?alias=true",
     ]) {
       const result = yield* hostedAppUrlConfig.pipe(
         provideEnv({ E6CODE_HOSTED_APP_URL: value }),

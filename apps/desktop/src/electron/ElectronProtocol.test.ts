@@ -82,7 +82,7 @@ describe("ElectronProtocol", () => {
           yield* protocol.registerDesktopProtocol({
             scheme: "e6code-dev",
             targetOrigin: new URL("http://127.0.0.1:3773/"),
-            clerkFrontendApiHostname: "clerk.e6.codes",
+            clerkFrontendApiHostname: "clerk.e6code.com",
           });
           assert.isDefined(handler);
 
@@ -101,7 +101,7 @@ describe("ElectronProtocol", () => {
           assert.equal(yield* Effect.promise(() => response.text()), "ok");
           assert.include(
             response.headers.get("content-security-policy") ?? "",
-            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://clerk.e6.codes https://challenges.cloudflare.com",
+            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://clerk.e6code.com https://challenges.cloudflare.com",
           );
           assert.include(
             response.headers.get("content-security-policy") ?? "",
@@ -239,7 +239,7 @@ describe("ElectronProtocol", () => {
     const policy = ElectronProtocol.makeDesktopContentSecurityPolicy({
       scheme: "e6code",
       targetOrigin: new URL("http://127.0.0.1:3773/"),
-      clerkFrontendApiHostname: "clerk.e6.codes",
+      clerkFrontendApiHostname: "clerk.e6code.com",
     });
     const directives = Object.fromEntries(
       policy.split("; ").map((directive) => {
@@ -252,7 +252,7 @@ describe("ElectronProtocol", () => {
       "'self'",
       "'unsafe-inline'",
       "'wasm-unsafe-eval'",
-      "https://clerk.e6.codes",
+      "https://clerk.e6code.com",
       "https://challenges.cloudflare.com",
     ]);
     assert.deepEqual(directives["connect-src"], ["'self'", "http:", "https:", "ws:", "wss:"]);

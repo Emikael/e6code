@@ -194,8 +194,10 @@ jobs:
       # the contents API as data: the desktop manifest's base version plus the
       # build run's number reproduces the version baked into the bundle, and
       # .env.example holds the public E6 Connect identifiers the bundle was
-      # compiled with, which the signed app's passkey entitlement must match.
-      # Both are validated before they reach a file name or an entitlement.
+      # compiled with, which the signed app's passkey entitlement must match
+      # when Connect is enabled. All four may be commented out. A partial set
+      # is rejected. Both are validated before they reach a file name or an
+      # entitlement.
       - id: version
         name: Resolve preview version and public configuration
         if: steps.gate.outputs.eligible == 'true'
@@ -223,16 +225,26 @@ jobs:
           echo "version=${base_version}-pr.${PR_NUMBER}.${BUILD_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
           head_file .env.example > "$RUNNER_TEMP/head.env.example"
+          # Commented or absent values are cloud-disabled. All four must be set
+          # together; a present value still has to match the entitlement charset.
+          connect_present=0
           for key in clerk_publishable_key:E6CODE_CLERK_PUBLISHABLE_KEY clerk_jwt_template:E6CODE_CLERK_JWT_TEMPLATE clerk_cli_oauth_client_id:E6CODE_CLERK_CLI_OAUTH_CLIENT_ID relay_url:E6CODE_RELAY_URL; do
             output="${key%%:*}"
             name="${key##*:}"
             value="$(sed -n "s/^${name}=//p" "$RUNNER_TEMP/head.env.example" | head -n 1)"
-            if [[ ! "$value" =~ ^[A-Za-z0-9._:/-]+$ ]]; then
-              echo "$name is missing or malformed in .env.example at $HEAD_SHA." >&2
-              exit 1
+            if [[ -n "$value" ]]; then
+              connect_present=$((connect_present + 1))
+              if [[ ! "$value" =~ ^[A-Za-z0-9._:/-]+$ ]]; then
+                echo "$name is malformed in .env.example at $HEAD_SHA." >&2
+                exit 1
+              fi
             fi
             echo "${output}=${value}" >> "$GITHUB_OUTPUT"
           done
+          if [[ "$connect_present" -ne 0 && "$connect_present" -ne 4 ]]; then
+            echo "E6 Connect values in .env.example must all be set or all commented out at $HEAD_SHA." >&2
+            exit 1
+          fi
 
       # Only the default-branch revision that owns this workflow supplies the
       # validator. Never check out the PR in a workflow_run job.

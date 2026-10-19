@@ -60,7 +60,7 @@ describe("connectCliAuth", () => {
     vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_123");
 
     const connectUrl =
-      "https://app.e6.codes/connect#state=state-1&challenge=challenge-1&port=34338";
+      "https://app.e6code.com/connect#state=state-1&challenge=challenge-1&port=34338";
     const redirectUrl = connectCliSignInRedirectUrl(
       { state: "state-1", challenge: "challenge-1", loopbackPort: 34338 },
       connectUrl,
@@ -74,7 +74,7 @@ describe("connectCliAuth", () => {
     vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
 
     const connectUrl =
-      "https://app.e6.codes/connect#state=state-1&challenge=challenge-1&port=34338";
+      "https://app.e6code.com/connect#state=state-1&challenge=challenge-1&port=34338";
     expect(
       connectCliSignInRedirectUrl(
         { state: "state-1", challenge: "challenge-1", loopbackPort: 34338 },

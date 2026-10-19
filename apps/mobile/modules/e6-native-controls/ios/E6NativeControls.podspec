@@ -4,7 +4,7 @@ Pod::Spec.new do |s|
   s.summary        = 'Native UIKit controls for E6 Code mobile.'
   s.description    = 'UIKit-backed controls that match native iOS navigation chrome.'
   s.author         = 'E6 Tools'
-  s.homepage       = 'https://e6.codes'
+  s.homepage       = 'https://e6code.com'
   s.platforms      = {
     :ios => '18.0',
   }
