@@ -5,8 +5,8 @@
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
 
-/* Switchboard aliases add no palette and leave the legacy surfaces untouched. */
-:root,
+/* Switchboard tokens live on the flagged surface only. Palette values are
+   inlined so flags-off pages do not gain the referenced theme colors. */
 [data-switchboard] {
   --sb-surface: var(--sidebar);
   --sb-foreground: var(--contrast-sidebar-foreground);
@@ -23,13 +23,13 @@
   --sb-motion-duration: 180ms;
   --sb-motion-easing: ease-out;
   --sb-motion-reduced-duration: 0ms;
-  --state-approval: var(--color-amber-800);
-  --state-input: var(--color-indigo-700);
-  --state-plan: var(--color-violet-700);
-  --state-working: var(--color-sky-800);
+  --state-approval: oklch(47.3% 0.137 46.201);
+  --state-input: oklch(45.7% 0.24 277.023);
+  --state-plan: oklch(49.1% 0.27 292.581);
+  --state-working: oklch(44.3% 0.11 240.79);
   --state-monitoring: var(--state-working);
-  --state-completed: var(--color-emerald-800);
-  --state-error: var(--color-red-800);
+  --state-completed: oklch(43.2% 0.095 166.913);
+  --state-error: oklch(44.4% 0.177 26.899);
   --state-connecting: var(--state-working);
   --state-ready: var(--sb-muted);
   --state-snoozed: var(--sb-muted);
@@ -38,12 +38,12 @@
   --sb-deletion: var(--state-error);
 
   @variant dark {
-    --state-approval: var(--color-amber-300);
-    --state-input: var(--color-indigo-300);
-    --state-plan: var(--color-violet-300);
-    --state-working: var(--color-sky-300);
-    --state-completed: var(--color-emerald-300);
-    --state-error: var(--color-red-300);
+    --state-approval: oklch(87.9% 0.169 91.605);
+    --state-input: oklch(78.5% 0.115 274.713);
+    --state-plan: oklch(81.1% 0.111 293.571);
+    --state-working: oklch(82.8% 0.111 230.318);
+    --state-completed: oklch(84.5% 0.143 164.978);
+    --state-error: oklch(80.8% 0.114 19.571);
   }
 }
 

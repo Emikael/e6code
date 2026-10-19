@@ -447,6 +447,18 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
       })
       .first()
       .waitFor({ state: "visible", timeout: 60_000 });
+    if (surface === "settings") {
+      // The header is static. These rows appear only after server settings hydrate
+      // and they change the page height, so both builds must reach them first.
+      await page.locator("#default-model").getByText("Automatic", { exact: true }).waitFor({
+        state: "visible",
+        timeout: 60_000,
+      });
+      await page.getByRole("heading", { name: "Auto-settle merged threads", exact: true }).waitFor({
+        state: "visible",
+        timeout: 60_000,
+      });
+    }
     await page.evaluate(() => document.fonts.ready);
     await page.mouse.move(1400, 890);
     const options = {
