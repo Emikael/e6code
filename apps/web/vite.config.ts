@@ -282,6 +282,28 @@ export default defineConfig(() => {
       emptyOutDir: true,
       manifest: true,
       sourcemap: buildSourcemap,
+      rolldownOptions: {
+        output: {
+          // Each Lucide icon is a side-effect-free module. Left alone, icons
+          // shared across routes become one request apiece, and the HTTP/1.1
+          // server can only open six of those at a time.
+          codeSplitting: {
+            groups: [
+              {
+                name: "lucide-icons",
+                test: /[\\/]lucide-react[\\/]dist[\\/]esm[\\/]icons[\\/]/,
+                priority: 20,
+                includeDependenciesRecursively: false,
+                // Icons shared by the same routes stay together. Subgroups
+                // smaller than a few icons merge, so startup does not open
+                // one connection per glyph.
+                entriesAware: true,
+                entriesAwareMergeThreshold: 30_000,
+              },
+            ],
+          },
+        },
+      },
     },
     test: {
       projects: [defineProject(unitTestProject)],
