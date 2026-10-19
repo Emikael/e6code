@@ -20,7 +20,9 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { Argument, Flag } from "effect/unstable/cli";
 
+import { devAllowedCookieOrigins, hostedAppCookieOrigin } from "../auth/cookieOrigin.ts";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
+import { hasCloudPublicConfig } from "../cloud/publicConfig.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 
@@ -150,6 +152,10 @@ const EnvServerConfig = Config.all({
         .map((entry) => entry.trim())
         .filter((entry) => entry.length > 0),
     ),
+  ),
+  hostedAppUrl: Config.String("E6CODE_HOSTED_APP_URL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
   ),
   noBrowser: withLegacyBrandEnv("NO_BROWSER", Config.Boolean).pipe(
     Config.option,
@@ -324,6 +330,22 @@ export const resolveServerConfig = (
       resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
       () => undefined,
     );
+    const hostedAppOrigin = hostedAppCookieOrigin(env.hostedAppUrl);
+    if (env.hostedAppUrl !== undefined && env.hostedAppUrl.trim().length > 0 && !hostedAppOrigin) {
+      yield* Effect.logWarning(
+        "Ignoring E6CODE_HOSTED_APP_URL because it is not an https origin without a path.",
+      );
+    }
+    const devAllowed = devAllowedCookieOrigins({
+      origins: env.devAllowedOrigins,
+      devUrl,
+    });
+    if (devAllowed.ignoredLoopback.length > 0) {
+      yield* Effect.logWarning(
+        "Ignoring loopback E6CODE_DEV_ALLOWED_ORIGINS entries because no dev server URL is configured.",
+        { origins: devAllowed.ignoredLoopback },
+      );
+    }
     const devAuthToken =
       mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
     const explicitBaseDir = resolveOptionPrecedence(
@@ -444,7 +466,9 @@ export const resolveServerConfig = (
       staticDir,
       devUrl,
       ...(devAuthToken === undefined ? {} : { devAuthToken }),
-      devAllowedOrigins: env.devAllowedOrigins,
+      devAllowedOrigins: devAllowed.trusted,
+      connectEnabled: hasCloudPublicConfig,
+      hostedAppOrigin,
       noBrowser,
       startupPresentation,
       desktopBootstrapToken,

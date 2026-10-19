@@ -91,6 +91,10 @@ export class ServerConfig extends Context.Service<
     readonly devUrl: URL | undefined;
     readonly devAuthToken?: Redacted.Redacted<string> | undefined;
     readonly devAllowedOrigins: ReadonlyArray<string>;
+    /** True when this build has E6 Connect's public relay and Clerk configuration. */
+    readonly connectEnabled: boolean;
+    /** Validated `E6CODE_HOSTED_APP_URL`, when it is an https origin with no path. */
+    readonly hostedAppOrigin: string | undefined;
     readonly noBrowser: boolean;
     readonly startupPresentation: StartupPresentation;
     readonly desktopBootstrapToken: string | undefined;
@@ -238,6 +242,8 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     staticDir: undefined,
     devUrl,
     devAllowedOrigins: [],
+    connectEnabled: false,
+    hostedAppOrigin: undefined,
     noBrowser: false,
     startupPresentation: "browser",
   });
