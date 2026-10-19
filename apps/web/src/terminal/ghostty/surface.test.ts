@@ -539,7 +539,7 @@ describe("terminalLinkAtPositionWithRange", () => {
     const cells = [
       cell("🙂"),
       cell(""),
-      ...Array.from("https://e6.codes", (character) => cell(character)),
+      ...Array.from("https://e6code.com", (character) => cell(character)),
     ];
     const row: GhosttyRow = {
       cells,
@@ -551,9 +551,9 @@ describe("terminalLinkAtPositionWithRange", () => {
       wrapsToNext: false,
     };
 
-    expect(terminalLinkAtPositionWithRange([row], 0, 2)?.text).toBe("https://e6.codes");
+    expect(terminalLinkAtPositionWithRange([row], 0, 2)?.text).toBe("https://e6code.com");
     expect(terminalLinkAtPositionWithRange([row], 0, cells.length - 1)?.text).toBe(
-      "https://e6.codes",
+      "https://e6code.com",
     );
     expect(terminalLinkAtPositionWithRange([row], 0, 0)).toBeNull();
     expect(terminalLinkAtPositionWithRange([row], 0, 8)?.range).toEqual({
@@ -600,11 +600,11 @@ describe("terminalLinkAtPositionWithRange", () => {
     const headCut = [row("ple.com/missing", true), row("head", true)];
     expect(terminalLinkAtPositionWithRange(headCut, 0, 4)).toBeNull();
     // The bottom row soft-wraps on below the viewport.
-    const tailCut = [row("https://e6.codes", false, true)];
+    const tailCut = [row("https://e6code.com", false, true)];
     expect(terminalLinkAtPositionWithRange(tailCut, 0, 8)).toBeNull();
     // A partial bottom row is provably complete and still resolves.
-    const complete = [row("https://e6.codes", false), row("", false)];
-    expect(terminalLinkAtPositionWithRange(complete, 0, 8)?.text).toBe("https://e6.codes");
+    const complete = [row("https://e6code.com", false), row("", false)];
+    expect(terminalLinkAtPositionWithRange(complete, 0, 8)?.text).toBe("https://e6code.com");
     // A wide grapheme earlier in the row must not break truncation detection:
     // the soft-wrap flag decides, not string-length-versus-cell-count.
     const wideFull: GhosttyRow = {
@@ -621,15 +621,15 @@ describe("terminalLinkAtPositionWithRange", () => {
     // Unwritten trailing cells prove the bottom row is complete.
     const unwrittenTail: GhosttyRow = {
       cells: [
-        ...Array.from("https://e6.codes", (character) => cell(character)),
+        ...Array.from("https://e6code.com", (character) => cell(character)),
         cell(""),
         cell(""),
       ],
-      text: "https://e6.codes",
+      text: "https://e6code.com",
       isWrapContinuation: false,
       wrapsToNext: false,
     };
-    expect(terminalLinkAtPositionWithRange([unwrittenTail], 0, 8)?.text).toBe("https://e6.codes");
+    expect(terminalLinkAtPositionWithRange([unwrittenTail], 0, 8)?.text).toBe("https://e6code.com");
   });
 });
 

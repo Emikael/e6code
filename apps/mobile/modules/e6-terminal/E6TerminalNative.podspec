@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.version = package['version']
   s.summary = 'Native terminal surface for E6 Code mobile.'
   s.description = 'Native terminal surface bridge used by the E6 Code React Native app.'
-  s.homepage = 'https://e6.codes'
+  s.homepage = 'https://e6code.com'
   s.license = { :type => 'UNLICENSED' }
   s.author = { 'E6 Tools' => 'contact@elomigroup.com' }
   s.platforms = { :ios => '16.1' }

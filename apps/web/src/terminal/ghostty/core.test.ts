@@ -235,7 +235,7 @@ describe("GhosttyTerminalCore snapshots", () => {
       "\u0301界🙂",
       "\x1b[0",
       "m\r\n",
-      "\x1b]8;;https://e6.codes\x1b",
+      "\x1b]8;;https://e6code.com\x1b",
       "\\link",
       "\x1b]8;;\x1b",
       "\\\x1b[?1049h",

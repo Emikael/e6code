@@ -4,7 +4,7 @@ Pod::Spec.new do |s|
   s.summary        = 'Native attributed composer editor for E6 Code mobile.'
   s.description    = 'UIKit-backed rich text composer with atomic skill and file tokens.'
   s.author         = 'E6 Tools'
-  s.homepage       = 'https://e6.codes'
+  s.homepage       = 'https://e6code.com'
   s.platforms      = {
     :ios => '16.4',
   }

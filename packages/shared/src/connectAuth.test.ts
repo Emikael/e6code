@@ -10,14 +10,14 @@ import {
 describe("connectAuth", () => {
   it("round-trips state, challenge, and loopback port through the authorize URL fragment", () => {
     const url = buildConnectAuthorizeRequestUrl({
-      hostedAppUrl: "https://app.e6.codes",
+      hostedAppUrl: "https://app.e6code.com",
       state: "q7mK9xV2pL4nR8sT6wYzAQ",
       challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
       loopbackPort: 34338,
     });
     const parsed = new URL(url);
 
-    expect(parsed.origin).toBe("https://app.e6.codes");
+    expect(parsed.origin).toBe("https://app.e6code.com");
     expect(parsed.pathname).toBe("/connect");
     expect(parsed.search).toBe("");
     expect(readConnectAuthorizeRequest(parsed)).toEqual({
@@ -29,22 +29,26 @@ describe("connectAuth", () => {
   });
 
   it("rejects authorize requests missing state, challenge, or port", () => {
-    expect(readConnectAuthorizeRequest(new URL("https://app.e6.codes/connect"))).toBeNull();
+    expect(readConnectAuthorizeRequest(new URL("https://app.e6code.com/connect"))).toBeNull();
     expect(
-      readConnectAuthorizeRequest(new URL("https://app.e6.codes/connect#state=abc&port=34338")),
+      readConnectAuthorizeRequest(new URL("https://app.e6code.com/connect#state=abc&port=34338")),
     ).toBeNull();
     expect(
-      readConnectAuthorizeRequest(new URL("https://app.e6.codes/connect#challenge=abc&port=34338")),
+      readConnectAuthorizeRequest(
+        new URL("https://app.e6code.com/connect#challenge=abc&port=34338"),
+      ),
     ).toBeNull();
     expect(
-      readConnectAuthorizeRequest(new URL("https://app.e6.codes/connect#state=abc&challenge=abc")),
+      readConnectAuthorizeRequest(
+        new URL("https://app.e6code.com/connect#state=abc&challenge=abc"),
+      ),
     ).toBeNull();
   });
 
   it("rejects authorize requests whose loopback port is corrupted", () => {
     for (const port of ["", "abc", "-1", "0", "65536", "34338x", "34 38"]) {
       const url = new URL(
-        `https://app.e6.codes/connect#state=state-1&challenge=challenge-1&port=${encodeURIComponent(port)}`,
+        `https://app.e6code.com/connect#state=state-1&challenge=challenge-1&port=${encodeURIComponent(port)}`,
       );
       expect(readConnectAuthorizeRequest(url), port).toBeNull();
     }
@@ -53,7 +57,7 @@ describe("connectAuth", () => {
   it("builds a PKCE authorize URL against the Clerk endpoint", () => {
     const url = new URL(
       buildConnectClerkAuthorizeUrl({
-        authorizationEndpoint: "https://clerk.e6.codes/oauth/authorize",
+        authorizationEndpoint: "https://clerk.e6code.com/oauth/authorize",
         clientId: "oauthapp_123",
         redirectUri: connectLoopbackRedirectUri(34338),
         scopes: ["openid", "profile", "email", "offline_access"],
@@ -62,7 +66,7 @@ describe("connectAuth", () => {
       }),
     );
 
-    expect(url.origin).toBe("https://clerk.e6.codes");
+    expect(url.origin).toBe("https://clerk.e6code.com");
     expect(url.pathname).toBe("/oauth/authorize");
     expect(url.searchParams.get("client_id")).toBe("oauthapp_123");
     expect(url.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:34338/callback");

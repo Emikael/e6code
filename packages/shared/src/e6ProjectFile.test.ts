@@ -38,7 +38,6 @@ describe("buildE6ProjectFileJsonSchema", () => {
       "scripts",
     ]);
     expect(schema.properties.$schema?.description).toContain("https://e6code.com/schema/e6.json");
-    expect(schema.properties.$schema?.description).toContain("https://e6.codes/schema/e6.json");
     expect(schema.required).toBeUndefined();
     expect(schema.properties.iconPath?.description).toContain("Workspace-relative path");
     expect(schema.properties.defaultThreadEnvMode?.description).toContain("new threads start");

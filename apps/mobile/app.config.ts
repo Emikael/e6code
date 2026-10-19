@@ -77,7 +77,7 @@ const VARIANT_CONFIG = {
     scheme: "e6code-dev",
     iosBundleIdentifier: "com.e6tools.e6code.dev",
     androidPackage: "com.e6tools.e6code.dev",
-    relyingParty: "clerk.e6.codes",
+    relyingParty: "clerk.e6code.com",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
@@ -85,7 +85,7 @@ const VARIANT_CONFIG = {
     scheme: "e6code-preview",
     iosBundleIdentifier: "com.e6tools.e6code.preview",
     androidPackage: "com.e6tools.e6code.preview",
-    relyingParty: "clerk.e6.codes",
+    relyingParty: "clerk.e6code.com",
     assets: PREVIEW_ASSETS,
   },
   production: {
@@ -93,7 +93,7 @@ const VARIANT_CONFIG = {
     scheme: "e6code",
     iosBundleIdentifier: "com.e6tools.e6code",
     androidPackage: "com.e6tools.e6code",
-    relyingParty: "clerk.e6.codes",
+    relyingParty: "clerk.e6code.com",
     assets: RELEASE_ASSETS,
   },
 } as const;

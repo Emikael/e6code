@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.version = package["version"]
   s.summary = "Native selectable markdown renderer for E6 Code mobile."
   s.description = "Fabric-backed attributed text and markdown rendering primitives owned by E6 Code."
-  s.homepage = "https://e6.codes"
+  s.homepage = "https://e6code.com"
   s.license = { :type => "MIT", :file => "LICENSE" }
   s.author = { "E6 Tools" => "contact@elomigroup.com" }
   s.platforms = { :ios => min_ios_version_supported }

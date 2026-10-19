@@ -172,12 +172,9 @@ must be configured as a Cloudflare Redirect Rule on the e6code.com zone
 (`www.e6code.com/*` -> `https://e6code.com/${1}`, 301). Unknown paths serve
 the site's `404.html`.
 
-The project schema is published at `https://e6code.com/schema/e6.json`. Files
-that still name `https://e6.codes/schema/e6.json` remain valid. If `e6.codes`
-or `app.e6.codes` still resolve, redirect them before that host stops serving:
-the schema and install scripts to `https://e6code.com`, and the old app host to
-`https://latest.app.e6code.com`. This Worker can attach `e6.codes` only when
-that zone is in the same account.
+The project schema is published at `https://e6code.com/schema/e6.json`. `$schema`
+is an optional string, so a file that names another URL still loads. New files
+use the published URL.
 
 ## Hosted web app release deployment
 
@@ -245,7 +242,6 @@ One-time Cloudflare setup:
    its URL before building.
 5. Allow both channel origins on the production Clerk instance, and create
    `CLOUDFLARE_PREVIEW_API_TOKEN` without DNS edit.
-6. Redirect `e6.codes` and `app.e6.codes` if those names still resolve.
 
 ## Nightly builds
 

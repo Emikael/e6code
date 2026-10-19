@@ -13,9 +13,6 @@ export const LEGACY_E6_PROJECT_FILE_NAME = "e6.json";
 /** Public URL of the published JSON Schema for {@link E6ProjectFile}. */
 export const E6_PROJECT_FILE_SCHEMA_URL = "https://e6code.com/schema/e6.json";
 
-/** Schema URL from files published while the site was still on e6.codes. */
-const LEGACY_E6_PROJECT_FILE_SCHEMA_URL = "https://e6.codes/schema/e6.json";
-
 const E6_PROJECT_FILE_PATH_MAX_LENGTH = 512;
 const E6_PROJECT_FILE_MAX_SCRIPTS = 50;
 
@@ -74,7 +71,7 @@ export type E6ProjectFileScript = typeof E6ProjectFileScript.Type;
 export const E6ProjectFile = Schema.Struct({
   $schema: Schema.optionalKey(
     Schema.String.annotate({
-      description: `URL of the JSON Schema for this file. New files use "${E6_PROJECT_FILE_SCHEMA_URL}". Files that still use "${LEGACY_E6_PROJECT_FILE_SCHEMA_URL}" are valid.`,
+      description: `URL of the JSON Schema for this file. New files use "${E6_PROJECT_FILE_SCHEMA_URL}".`,
     }),
   ),
   iconPath: Schema.optionalKey(

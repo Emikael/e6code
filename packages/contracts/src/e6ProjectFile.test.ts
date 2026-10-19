@@ -8,7 +8,7 @@ const decode = Schema.decodeUnknownSync(E6ProjectFile);
 describe("E6ProjectFile", () => {
   it("decodes a full project file", () => {
     const decoded = decode({
-      $schema: "https://e6.codes/schema/e6.json",
+      $schema: "https://e6code.com/schema/e6.json",
       iconPath: "assets/logo.svg",
       scripts: [
         {
