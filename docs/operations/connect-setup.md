@@ -6,8 +6,8 @@ provisioning instructions.
 
 ## Public application configuration
 
-E6 Connect is disabled in a fresh clone. To build against the development Clerk instance
-in the repository-root example, copy it:
+E6 Connect is disabled in a fresh clone. The repository-root example keeps the
+development Clerk values commented out. Uncomment all four public values, then copy it:
 
 ```sh
 cp .env.example .env
