@@ -120,6 +120,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           sparse-checkout: |
             /*
             !/.repos/
@@ -144,9 +145,12 @@ jobs:
         run: vp run --filter @e6tools/web test:browser:install
 
       - name: Audit contrast and flags-off snapshots
-        env:
-          E6CODE_VISUAL_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: vp run --filter @e6tools/web test:browser
+        run: |
+          if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+            git fetch --no-tags origin main
+          fi
+          export E6CODE_VISUAL_BASE_REF=$(git merge-base origin/main HEAD)
+          vp run --filter @e6tools/web test:browser
 
       - name: Upload browser evidence
         if: always()

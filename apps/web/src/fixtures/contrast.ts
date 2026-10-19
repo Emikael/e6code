@@ -8,7 +8,7 @@ const MUTED_DISTINCTION_EXCEPTIONS = [
   { theme: "e6-chat", appearance: "light", surface: "sidebar", minimum: 1.33 },
 ] as const;
 
-export function mutedDistinctionMinimum(theme: string, appearance: string, surface: string) {
+function mutedDistinctionMinimum(theme: string, appearance: string, surface: string) {
   return (
     MUTED_DISTINCTION_EXCEPTIONS.find(
       (exception) =>

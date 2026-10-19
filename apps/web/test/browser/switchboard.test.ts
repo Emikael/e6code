@@ -153,7 +153,7 @@ NodeTest.before(
       const baseline = NodePath.join(sandbox, "main");
       await NodeFSP.mkdir(baseline);
       const baseRef =
-        process.env.E6CODE_VISUAL_BASE_REF ??
+        process.env.E6CODE_VISUAL_BASE_REF ||
         (
           await exec("git", ["merge-base", "HEAD", "origin/main"], {
             cwd: repo,
