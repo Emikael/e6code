@@ -22,7 +22,7 @@ const makeEnvironment = (overrides: Record<string, unknown> = {}) =>
     platform: "linux",
     isPackaged: true,
     isDevelopment: false,
-    displayName: "E6 Code (Alpha)",
+    displayName: "E6 Code",
     linuxDesktopEntryName: "com.e6tools.E6Code.desktop",
     linuxWmClass: "e6code",
     linuxApplicationsDir: "/home/alice/.local/share/applications",
@@ -199,7 +199,7 @@ describe("DesktopLinuxUrlHandler", () => {
     return Effect.gen(function* () {
       yield* runRegister(recorded, {
         existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
-          displayName: "E6 Code (Alpha)",
+          displayName: "E6 Code",
           execTarget: "/home/alice/Applications/E6-Code.AppImage",
           scheme: "e6code",
         }),

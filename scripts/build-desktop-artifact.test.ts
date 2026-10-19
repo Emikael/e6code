@@ -256,7 +256,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "E6 Code (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "E6 Code");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "E6 Code (Nightly)");
   });
 
@@ -660,7 +660,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/*.map",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "E6 Code (Alpha) 1.2.3 Installer",
+        title: "E6 Code 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 640, height: 432 },
         contents: [

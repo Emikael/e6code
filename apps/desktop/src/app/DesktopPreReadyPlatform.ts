@@ -52,6 +52,20 @@ export class DesktopPreReadyElectronOptions extends Context.Service<
 export const make = Effect.gen(function* () {
   const platform = yield* HostProcessPlatform;
   return yield* Effect.sync((): DesktopPreReadyElectronOptions["Service"] => {
+    const branding = resolveDesktopAppBranding({
+      isDevelopment: Boolean(process.env.VITE_DEV_SERVER_URL?.trim()),
+      appVersion: Electron.app.getVersion(),
+    });
+    if (platform === "darwin" || platform === "linux") {
+      // Electron 44 snapshots app.name for safeStorage before ready. Retain the
+      // legacy product-name identity. Packaged builds already use "e6code";
+      // keep that and other channel names intact. DesktopAppIdentity applies
+      // visible branding only after ready, once the storage identity is fixed.
+      const initialName = Electron.app.getName();
+      if (initialName === branding.baseName) {
+        Electron.app.setName("E6 Code (Alpha)");
+      }
+    }
     const linuxPasswordStoreCommandLine =
       platform === "linux"
         ? readCommandLineSwitchValue(Electron.app.commandLine, "password-store")
@@ -71,10 +85,7 @@ export const make = Effect.gen(function* () {
         NodeFS.writeFileSync(
           NodePath.posix.join(applicationsDir, linux.linuxDesktopEntryName),
           renderUrlHandlerDesktopEntry({
-            displayName: resolveDesktopAppBranding({
-              isDevelopment: linux.isDevelopment,
-              appVersion: Electron.app.getVersion(),
-            }).displayName,
+            displayName: branding.displayName,
             execTarget: process.env.APPIMAGE?.trim() || process.execPath,
             scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
           }),

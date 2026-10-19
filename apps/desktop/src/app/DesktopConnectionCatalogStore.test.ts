@@ -1,5 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
+import { HostProcessPlatform } from "@e6tools/shared/hostProcess";
 import { ConnectionCatalogDocument } from "@e6tools/client-runtime/platform";
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
@@ -17,6 +19,18 @@ import * as DesktopSavedEnvironments from "../settings/DesktopSavedEnvironments.
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopConnectionCatalogStore from "./DesktopConnectionCatalogStore.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+
+const { nativeApp } = vi.hoisted(() => ({ nativeApp: { name: "e6code" } }));
+vi.mock("electron", () => ({
+  app: {
+    getName: () => nativeApp.name,
+    setName: (name: string) => {
+      nativeApp.name = name;
+    },
+    getVersion: () => "0.0.42",
+  },
+}));
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
@@ -28,22 +42,29 @@ const encodeLegacySavedEnvironments = Schema.encodeEffect(
     Schema.Struct({ version: Schema.Literal(1), records: Schema.Array(Schema.Unknown) }),
   ),
 );
-function makeSafeStorageLayer(available: boolean, failDecrypt: Ref.Ref<boolean> | null = null) {
+function makeSafeStorageLayer(
+  available: boolean,
+  failDecrypt: Ref.Ref<boolean> | null = null,
+  encryptionIdentity?: string,
+) {
+  // Model Electron's keychain selection without accessing the host keychain.
+  const prefix =
+    encryptionIdentity === undefined ? "encrypted:" : `encrypted:${encryptionIdentity}:`;
   return Layer.succeed(ElectronSafeStorage.ElectronSafeStorage, {
     isEncryptionAvailable: Effect.succeed(available),
-    encryptString: (value) => Effect.succeed(textEncoder.encode(`encrypted:${value}`)),
+    encryptString: (value) => Effect.succeed(textEncoder.encode(`${prefix}${value}`)),
     decryptString: (value) => {
       return Effect.gen(function* () {
         const decoded = textDecoder.decode(value);
         if (
-          !decoded.startsWith("encrypted:") ||
+          !decoded.startsWith(prefix) ||
           (failDecrypt !== null && (yield* Ref.get(failDecrypt)))
         ) {
           return yield* new ElectronSafeStorage.ElectronSafeStorageDecryptError({
             cause: new Error("invalid encrypted catalog"),
           });
         }
-        return decoded.slice("encrypted:".length);
+        return decoded.slice(prefix.length);
       });
     },
     selectedStorageBackend: Effect.succeed(Option.none()),
@@ -55,6 +76,7 @@ function makeLayer(
   encryptionAvailable = true,
   failDecrypt: Ref.Ref<boolean> | null = null,
   fileSystemLayer: Layer.Layer<FileSystem.FileSystem> = NodeServices.layer,
+  encryptionIdentity?: string,
 ) {
   const environmentLayer = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
@@ -71,7 +93,11 @@ function makeLayer(
       Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ E6CODE_HOME: baseDir })),
     ),
   );
-  const safeStorageLayer = makeSafeStorageLayer(encryptionAvailable, failDecrypt);
+  const safeStorageLayer = makeSafeStorageLayer(
+    encryptionAvailable,
+    failDecrypt,
+    encryptionIdentity,
+  );
   const dependencies = Layer.mergeAll(
     environmentLayer,
     safeStorageLayer,
@@ -101,6 +127,39 @@ const withStore = <A, E, R>(
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
 describe("DesktopConnectionCatalogStore", () => {
+  for (const [initialName, legacyIdentity] of [
+    ["E6 Code", "E6 Code (Alpha)"],
+    ["e6code", "e6code"],
+  ] as const) {
+    it.effect(`reads the existing encrypted catalog after renaming ${initialName}`, () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "e6-branding-credentials-",
+        });
+        const catalog = '{"schemaVersion":1,"targets":[]}';
+        yield* Effect.gen(function* () {
+          const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
+          assert.isTrue(yield* store.set(catalog));
+        }).pipe(Effect.provide(makeLayer(baseDir, true, null, NodeServices.layer, legacyIdentity)));
+
+        nativeApp.name = initialName;
+        yield* DesktopPreReadyPlatform.make.pipe(
+          Effect.provideService(HostProcessPlatform, "darwin"),
+        );
+        // Electron freezes this namespace before ready; visible branding changes later.
+        const encryptionIdentity = nativeApp.name;
+        nativeApp.name = "E6 Code";
+        yield* Effect.gen(function* () {
+          const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
+          assert.deepEqual(yield* store.get, Option.some(catalog));
+        }).pipe(
+          Effect.provide(makeLayer(baseDir, true, null, NodeServices.layer, encryptionIdentity)),
+        );
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    );
+  }
+
   it.effect("persists, reads, and clears an encrypted connection catalog", () =>
     withStore(
       Effect.gen(function* () {
