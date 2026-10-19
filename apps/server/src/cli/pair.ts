@@ -339,6 +339,8 @@ const makePairServerConfig = Effect.fn(function* (input: {
     staticDir: undefined,
     devUrl,
     devAllowedOrigins: [],
+    connectEnabled: false,
+    hostedAppOrigin: undefined,
     noBrowser: true,
     startupPresentation: "headless",
     desktopBootstrapToken: undefined,

@@ -38,8 +38,9 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
 import {
-  configuredHostedAppOrigins,
   cookieCredentialRequiresTrustedOrigin,
+  hasTailscaleInterfaceAddress,
+  hostedAppCookieOrigins,
   isTrustedCookieOrigin,
   readNetworkInterfaceAddresses,
 } from "./cookieOrigin.ts";
@@ -632,37 +633,36 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const devAuth = resolveReusableDevAuth(config);
-  const hostedAppOrigins = configuredHostedAppOrigins(process.env);
-  const MAGIC_DNS_CACHE_TTL_MS = 60_000;
-  let magicDnsCache:
-    | { readonly expiresAt: number; readonly names: ReadonlyArray<string> }
-    | undefined;
-
-  // Tailscale serve rewrites Host to loopback. The browser's Origin is the
-  // MagicDNS name, which only `tailscale status` can tell us. Skip the lookup
-  // unless serve is on, and keep going if the CLI is missing.
-  const readMagicDnsNames: Effect.Effect<ReadonlyArray<string>> = Effect.gen(function* () {
-    if (!config.tailscaleServeEnabled) {
-      return [];
-    }
-    const now = yield* Clock.currentTimeMillis;
-    if (magicDnsCache !== undefined && magicDnsCache.expiresAt > now) {
-      return magicDnsCache.names;
-    }
-    const spawner = yield* Effect.serviceOption(ChildProcessSpawner.ChildProcessSpawner);
-    if (Option.isNone(spawner)) {
-      return [];
-    }
-    const names = yield* readTailscaleStatus.pipe(
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner.value),
-      Effect.provideService(HostProcessPlatform, yield* HostProcessPlatform),
-      Effect.map((status) => (status.magicDnsName === null ? [] : [status.magicDnsName])),
-      Effect.catchDefect(() => Effect.succeed<ReadonlyArray<string>>([])),
-      Effect.orElseSucceed(() => [] as ReadonlyArray<string>),
-    );
-    magicDnsCache = { expiresAt: now + MAGIC_DNS_CACHE_TTL_MS, names };
-    return names;
+  const hostedAppOrigins = hostedAppCookieOrigins({
+    connectEnabled: config.connectEnabled,
+    hostedAppOrigin: config.hostedAppOrigin,
   });
+  const REJECTION_LOG_INTERVAL_MS = 10_000;
+  const rejectionLogAt = new Map<string, number>();
+
+  // Tailscale serve rewrites Host to loopback, and a direct tailnet request
+  // uses the MagicDNS name. Only `tailscale status` knows that exact name.
+  // One lookup is shared across callers and reused for a minute.
+  const readMagicDnsNames = yield* Effect.cachedWithTTL(
+    Effect.gen(function* () {
+      const interfaceAddresses = readNetworkInterfaceAddresses();
+      if (!config.tailscaleServeEnabled && !hasTailscaleInterfaceAddress(interfaceAddresses)) {
+        return [] as ReadonlyArray<string>;
+      }
+      const spawner = yield* Effect.serviceOption(ChildProcessSpawner.ChildProcessSpawner);
+      if (Option.isNone(spawner)) {
+        return [] as ReadonlyArray<string>;
+      }
+      return yield* readTailscaleStatus.pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner.value),
+        Effect.provideService(HostProcessPlatform, yield* HostProcessPlatform),
+        Effect.map((status) => (status.magicDnsName === null ? [] : [status.magicDnsName])),
+        Effect.catchDefect(() => Effect.succeed<ReadonlyArray<string>>([])),
+        Effect.orElseSucceed(() => [] as ReadonlyArray<string>),
+      );
+    }),
+    "60 seconds",
+  );
 
   const guardCookieOrigin = (
     request: HttpServerRequest.HttpServerRequest,
@@ -695,14 +695,26 @@ export const make = Effect.gen(function* () {
       if (trusted) {
         return;
       }
-      yield* Effect.logWarning("Rejected cookie authentication from an untrusted origin.").pipe(
-        Effect.annotateLogs({
-          origin: requestHeader(request, "origin") ?? null,
-          secFetchSite: requestHeader(request, "sec-fetch-site") ?? null,
-          host: requestHeader(request, "host") ?? null,
-          method: request.method,
-        }),
-      );
+      const origin = requestHeader(request, "origin") ?? null;
+      const secFetchSite = requestHeader(request, "sec-fetch-site") ?? null;
+      const host = requestHeader(request, "host") ?? null;
+      const logKey = `${origin}\n${secFetchSite}\n${host}\n${request.method}`;
+      const now = yield* Clock.currentTimeMillis;
+      const previous = rejectionLogAt.get(logKey);
+      if (previous === undefined || now - previous >= REJECTION_LOG_INTERVAL_MS) {
+        if (rejectionLogAt.size > 64) {
+          rejectionLogAt.clear();
+        }
+        rejectionLogAt.set(logKey, now);
+        yield* Effect.logWarning("Rejected cookie authentication from an untrusted origin.").pipe(
+          Effect.annotateLogs({
+            origin,
+            secFetchSite,
+            host,
+            method: request.method,
+          }),
+        );
+      }
       return yield* new ServerAuthInvalidCredentialError({
         diagnostic: "Cookie authentication is only accepted from a trusted origin.",
       });

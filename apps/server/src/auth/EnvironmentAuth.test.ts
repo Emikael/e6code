@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AuthAdministrativeScopes } from "@e6tools/contracts";
+import { HOSTED_APP_ORIGIN } from "@e6tools/shared/brand";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -799,5 +800,79 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         }),
       ),
     ),
+  );
+
+  it.effect("trusts a hosted app cookie upgrade only when E6 Connect is enabled", () =>
+    Effect.gen(function* () {
+      const presentHostedUpgrade = (
+        serverAuth: EnvironmentAuth.EnvironmentAuth["Service"],
+        cookieName: string,
+        cookie: string,
+      ) =>
+        serverAuth.authenticateWebSocketUpgrade(
+          makePresentedRequest({
+            method: "GET",
+            upgrade: "websocket",
+            origin: HOSTED_APP_ORIGIN,
+            secFetchSite: "cross-site",
+            host: `127.0.0.1:${TEST_SERVER_PORT}`,
+            cookieName,
+            cookie,
+          }),
+        );
+
+      const disabled = yield* Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const pairing = yield* serverAuth.issuePairingCredential();
+        const exchanged = yield* serverAuth.createBrowserSession(
+          pairing.credential,
+          requestMetadata,
+        );
+        return yield* Effect.flip(
+          presentHostedUpgrade(serverAuth, sessions.cookieName, exchanged.sessionToken),
+        );
+      }).pipe(Effect.provide(makeEnvironmentAuthLayer({ connectEnabled: false })));
+
+      const enabled = yield* Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const pairing = yield* serverAuth.issuePairingCredential();
+        const exchanged = yield* serverAuth.createBrowserSession(
+          pairing.credential,
+          requestMetadata,
+        );
+        const hosted = yield* presentHostedUpgrade(
+          serverAuth,
+          sessions.cookieName,
+          exchanged.sessionToken,
+        );
+        const ignoredOverride = yield* Effect.flip(
+          serverAuth.authenticateWebSocketUpgrade(
+            makePresentedRequest({
+              method: "GET",
+              upgrade: "websocket",
+              origin: "https://preview.example.test",
+              secFetchSite: "cross-site",
+              host: `127.0.0.1:${TEST_SERVER_PORT}`,
+              cookieName: sessions.cookieName,
+              cookie: exchanged.sessionToken,
+            }),
+          ),
+        );
+        return { hosted, ignoredOverride };
+      }).pipe(
+        Effect.provide(
+          makeEnvironmentAuthLayer({
+            connectEnabled: true,
+            hostedAppOrigin: "https://preview.example.test/pair",
+          }),
+        ),
+      );
+
+      expect(disabled._tag).toBe("ServerAuthInvalidCredentialError");
+      expect(enabled.hosted.subject).toBe("one-time-token");
+      expect(enabled.ignoredOverride._tag).toBe("ServerAuthInvalidCredentialError");
+    }),
   );
 });

@@ -28,12 +28,14 @@ Bearer and DPoP clients obtain short-lived WebSocket tickets through authenticat
 HTTP so long-lived tokens stay out of socket URLs. A browser session can
 authenticate the upgrade with its cookie only when `Origin` is this server's
 endpoint or another trusted origin: the dev UI, the desktop renderer
-(`e6code://app`, `e6code-dev://app`), the hosted app, or
-`E6CODE_DEV_ALLOWED_ORIGINS`. The cookie is host-only, and `SameSite=Lax` still
+(`e6code://app`, `e6code-dev://app`), the hosted app when E6 Connect is enabled,
+or `E6CODE_DEV_ALLOWED_ORIGINS`. The cookie is host-only, and `SameSite=Lax` still
 sends it to every port on that host, so a page on a different localhost port is
-rejected. When the browser sends `Sec-Fetch-Site` for that endpoint match, it
-must be `same-origin`. The same origin rule applies to other cookie-authenticated
-requests that change state. Bearer, DPoP, and ticket clients may omit `Origin`.
+rejected. When the browser sends `Sec-Fetch-Site` for an endpoint match or an
+`E6CODE_DEV_ALLOWED_ORIGINS` entry, it must be `same-origin`. The same origin
+rule applies to other cookie-authenticated requests that change state. Bearer,
+DPoP, and ticket clients may omit `Origin`. A Tailscale hostname is trusted only
+when it is the machine's own MagicDNS name.
 A successful handshake grants no extra authority: [every RPC declares a required
 scope](../../apps/server/src/auth/RpcAuthorization.ts).
 

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { HOSTED_APP_NIGHTLY_ORIGIN, HOSTED_APP_ORIGIN } from "@e6tools/shared/brand";
 
 import {
-  configuredHostedAppOrigins,
   cookieCredentialRequiresTrustedOrigin,
+  devAllowedCookieOrigins,
+  hostedAppCookieOrigin,
+  hostedAppCookieOrigins,
   isTrustedCookieOrigin,
   normalizeOrigin,
   type CookieOriginRequest,
@@ -55,6 +57,9 @@ describe("normalizeOrigin", () => {
   it("keeps desktop renderer origins that Node would treat as opaque", () => {
     expect(normalizeOrigin("e6code://APP/")).toBe("e6code://app");
     expect(normalizeOrigin("e6code-dev://App")).toBe("e6code-dev://app");
+    expect(normalizeOrigin("e6code://app/extra")).toBeNull();
+    expect(normalizeOrigin("e6code://app, https://evil.example")).toBeNull();
+    expect(normalizeOrigin("https://127.0.0.1:13773, https://evil.example")).toBeNull();
     expect(new URL("e6code://app").origin).toBe("null");
     expect(normalizeOrigin("null")).toBeNull();
     expect(normalizeOrigin("https://latest.app.e6code.com/pair")).toBe(
@@ -63,12 +68,22 @@ describe("normalizeOrigin", () => {
   });
 });
 
-describe("configuredHostedAppOrigins", () => {
-  it("includes the stable and nightly apps plus an explicit override", () => {
-    expect(configuredHostedAppOrigins({})).toEqual([HOSTED_APP_ORIGIN, HOSTED_APP_NIGHTLY_ORIGIN]);
+describe("hostedAppCookieOrigins", () => {
+  it("trusts hosted app origins only when E6 Connect is enabled", () => {
+    expect(hostedAppCookieOrigins({ connectEnabled: false, hostedAppOrigin: undefined })).toEqual(
+      [],
+    );
     expect(
-      configuredHostedAppOrigins({ E6CODE_HOSTED_APP_URL: "https://preview.example.test" }),
+      hostedAppCookieOrigins({
+        connectEnabled: true,
+        hostedAppOrigin: "https://preview.example.test",
+      }),
     ).toEqual([HOSTED_APP_ORIGIN, HOSTED_APP_NIGHTLY_ORIGIN, "https://preview.example.test"]);
+    expect(hostedAppCookieOrigin("https://preview.example.test/pair")).toBeUndefined();
+    expect(hostedAppCookieOrigin("http://preview.example.test")).toBeUndefined();
+    expect(hostedAppCookieOrigin("https://preview.example.test")).toBe(
+      "https://preview.example.test",
+    );
   });
 });
 
@@ -130,7 +145,42 @@ describe("isTrustedCookieOrigin", () => {
           devAllowedOrigins: ["http://192.168.1.40:5733"],
         }),
       ),
+    ).toBe(false);
+    expect(
+      isTrustedCookieOrigin(
+        baseRequest({
+          originHeader: "http://192.168.1.40:5733",
+          hostHeader: "192.168.1.40:5733",
+          secFetchSite: "same-origin",
+          devAllowedOrigins: ["http://192.168.1.40:5733"],
+        }),
+      ),
     ).toBe(true);
+    expect(
+      isTrustedCookieOrigin(
+        baseRequest({
+          originHeader: "http://127.0.0.1:5733",
+          secFetchSite: "same-origin",
+          devAllowedOrigins: ["http://127.0.0.1:5733"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedCookieOrigin(
+        baseRequest({
+          originHeader: "http://127.0.0.1:5733",
+          secFetchSite: "same-origin",
+          devAllowedOrigins: ["http://127.0.0.1:5733"],
+          devUrl: new URL("http://127.0.0.1:5173"),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      devAllowedCookieOrigins({
+        origins: ["http://127.0.0.1:5733", "https://host.example.ts.net"],
+        devUrl: undefined,
+      }).ignoredLoopback,
+    ).toEqual(["http://127.0.0.1:5733"]);
     expect(
       isTrustedCookieOrigin(baseRequest({ originHeader: "e6code://app", secFetchSite: "none" })),
     ).toBe(false);
@@ -209,6 +259,18 @@ describe("isTrustedCookieOrigin", () => {
           hostHeader: "evil.ts.net:13773",
           secFetchSite: "same-origin",
           interfaceAddresses: ["100.64.0.1"],
+          magicDnsNames: ["machine.tailnet.ts.net"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedCookieOrigin(
+        baseRequest({
+          originHeader: "http://machine.tailnet.ts.net:13773",
+          hostHeader: "machine.tailnet.ts.net:13773",
+          secFetchSite: "same-origin",
+          interfaceAddresses: ["100.64.0.1"],
+          magicDnsNames: ["machine.tailnet.ts.net"],
         }),
       ),
     ).toBe(true);

@@ -39,10 +39,10 @@ export function cookieCredentialRequiresTrustedOrigin(input: {
  */
 export function normalizeOrigin(value: string): string | null {
   const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.toLowerCase() === "null") {
+  if (trimmed.length === 0 || trimmed.toLowerCase() === "null" || trimmed.includes(",")) {
     return null;
   }
-  const desktop = /^(e6code(?:-dev)?):\/\/([^/?#]+)/i.exec(trimmed);
+  const desktop = /^(e6code(?:-dev)?):\/\/([a-z0-9.-]+)\/?$/i.exec(trimmed);
   if (desktop?.[1] !== undefined && desktop[2] !== undefined) {
     return `${desktop[1].toLowerCase()}://${desktop[2].toLowerCase()}`;
   }
@@ -60,15 +60,66 @@ export function normalizeOrigin(value: string): string | null {
   }
 }
 
-export function configuredHostedAppOrigins(
-  env: Readonly<Record<string, string | undefined>>,
-): ReadonlyArray<string> {
-  const configured = env.E6CODE_HOSTED_APP_URL?.trim();
+/** An https origin with no path, query, or fragment. Anything else is ignored. */
+export function hostedAppCookieOrigin(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    const url = new URL(trimmed);
+    if (
+      url.protocol !== "https:" ||
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      url.pathname !== "/" ||
+      url.search.length > 0 ||
+      url.hash.length > 0
+    ) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+export function hostedAppCookieOrigins(input: {
+  readonly connectEnabled: boolean;
+  readonly hostedAppOrigin: string | undefined;
+}): ReadonlyArray<string> {
+  if (!input.connectEnabled) {
+    return [];
+  }
   const origins = [HOSTED_APP_ORIGIN, HOSTED_APP_NIGHTLY_ORIGIN];
-  if (configured) {
+  const configured = hostedAppCookieOrigin(input.hostedAppOrigin);
+  if (configured && !origins.includes(configured)) {
     origins.push(configured);
   }
   return origins;
+}
+
+export function devAllowedCookieOrigins(input: {
+  readonly origins: ReadonlyArray<string>;
+  readonly devUrl: URL | undefined;
+}): {
+  readonly trusted: ReadonlyArray<string>;
+  readonly ignoredLoopback: ReadonlyArray<string>;
+} {
+  const trusted: Array<string> = [];
+  const ignoredLoopback: Array<string> = [];
+  for (const origin of input.origins) {
+    if (input.devUrl === undefined && isLoopbackOrigin(origin)) {
+      ignoredLoopback.push(origin);
+      continue;
+    }
+    trusted.push(origin);
+  }
+  return { trusted, ignoredLoopback };
+}
+
+export function hasTailscaleInterfaceAddress(addresses: ReadonlyArray<string>): boolean {
+  return addresses.some((address) => isTailscaleIpv4Address(address) || isTailscaleIpv6(address));
 }
 
 export function readNetworkInterfaceAddresses(): ReadonlyArray<string> {
@@ -100,8 +151,13 @@ export function isTrustedCookieOrigin(input: CookieOriginRequest): boolean {
     return false;
   }
   const site = normalizeFetchSite(input.secFetchSite);
-  if (collectConfiguredOrigins(input).has(origin)) {
+  if (collectPrivilegedOrigins(input).has(origin)) {
     return site === undefined || CONFIGURED_FETCH_SITES.has(site);
+  }
+  // Operator-supplied origins are a same-origin allowlist. `same-site` would
+  // re-open the other-port cookie attack on whatever host was listed.
+  if (collectDevAllowedOrigins(input).has(origin)) {
+    return site === undefined || site === "same-origin";
   }
   if (collectTailscaleServeOrigins(input).has(origin)) {
     // The browser page is that Tailscale origin, so the upgrade is same-origin
@@ -120,7 +176,7 @@ function normalizeFetchSite(value: string | undefined): string | undefined {
   return site && site.length > 0 ? site : undefined;
 }
 
-function collectConfiguredOrigins(input: CookieOriginRequest): ReadonlySet<string> {
+function collectPrivilegedOrigins(input: CookieOriginRequest): ReadonlySet<string> {
   const origins = new Set<string>();
   for (const origin of DESKTOP_RENDERER_ORIGINS) {
     const normalized = normalizeOrigin(origin);
@@ -130,7 +186,19 @@ function collectConfiguredOrigins(input: CookieOriginRequest): ReadonlySet<strin
     const normalized = normalizeOrigin(input.devUrl.origin);
     if (normalized) origins.add(normalized);
   }
-  for (const origin of [...input.devAllowedOrigins, ...input.hostedAppOrigins]) {
+  for (const origin of input.hostedAppOrigins) {
+    const normalized = normalizeOrigin(origin);
+    if (normalized) origins.add(normalized);
+  }
+  return origins;
+}
+
+function collectDevAllowedOrigins(input: CookieOriginRequest): ReadonlySet<string> {
+  const origins = new Set<string>();
+  for (const origin of devAllowedCookieOrigins({
+    origins: input.devAllowedOrigins,
+    devUrl: input.devUrl,
+  }).trusted) {
     const normalized = normalizeOrigin(origin);
     if (normalized) origins.add(normalized);
   }
@@ -238,19 +306,7 @@ function isHttpsForwardedProto(value: string | undefined): boolean {
 }
 
 function isServedHostname(hostname: string, input: CookieOriginRequest): boolean {
-  if (servedHosts(input).has(hostname)) {
-    return true;
-  }
-  if (!hostname.endsWith(".ts.net")) {
-    return false;
-  }
-  const tailscalePresent =
-    input.tailscaleServeEnabled ||
-    input.magicDnsNames.length > 0 ||
-    input.interfaceAddresses.some(
-      (address) => isTailscaleIpv4Address(address) || isTailscaleIpv6(address),
-    );
-  return tailscalePresent;
+  return servedHosts(input).has(hostname);
 }
 
 function servedHosts(input: CookieOriginRequest): ReadonlySet<string> {
@@ -261,6 +317,10 @@ function servedHosts(input: CookieOriginRequest): ReadonlySet<string> {
   }
   if (input.bindHost && !isWildcardHost(input.bindHost)) {
     const normalized = normalizeHostname(input.bindHost);
+    if (normalized.length > 0) hosts.add(normalized);
+  }
+  for (const name of input.magicDnsNames) {
+    const normalized = normalizeHostname(name).replace(/\.$/u, "");
     if (normalized.length > 0) hosts.add(normalized);
   }
   if (publishesLanNames(input.bindHost)) {
@@ -302,6 +362,18 @@ function normalizeHostname(value: string): string {
     host = host.slice(0, zone);
   }
   return host;
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) {
+    return false;
+  }
+  try {
+    return LOOPBACK_HOSTS.has(new URL(normalized).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function isTailscaleIpv6(address: string): boolean {

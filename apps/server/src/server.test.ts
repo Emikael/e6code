@@ -593,6 +593,8 @@ const buildAppUnderTest = (options?: {
       staticDir: undefined,
       devUrl,
       devAllowedOrigins: [],
+      connectEnabled: false,
+      hostedAppOrigin: undefined,
       noBrowser: true,
       startupPresentation: "browser",
       desktopBootstrapToken: defaultDesktopBootstrapToken,
@@ -5023,6 +5025,56 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }),
       );
       assert.match(error.message, /401/);
+    }).pipe(Effect.provide(serverHttpLayer)),
+  );
+
+  it.effect("rejects a cookie websocket upgrade that rebinds Origin and Host", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const server = yield* HttpServer.HttpServer;
+      const address = server.address as NetAddress.InetAddress;
+      const cookie = yield* getAuthenticatedSessionCookieHeader();
+      const reboundHost = `evil.example:${address.port}`;
+      const NodeHttp = yield* Effect.promise(() => import("node:http"));
+      const statusCode = yield* Effect.callback<number, WebSocketUpgradeProbeError>((resume) => {
+        const request = NodeHttp.request(
+          {
+            hostname: "127.0.0.1",
+            port: address.port,
+            path: "/ws",
+            method: "GET",
+            headers: {
+              connection: "Upgrade",
+              upgrade: "websocket",
+              host: reboundHost,
+              origin: `http://${reboundHost}`,
+              cookie,
+              "sec-fetch-site": "same-origin",
+              "sec-websocket-key": NodeCrypto.randomBytes(16).toString("base64"),
+              "sec-websocket-version": "13",
+            },
+          },
+          (response) => {
+            response.resume();
+            resume(Effect.succeed(response.statusCode ?? 0));
+          },
+        );
+        request.once("upgrade", () => {
+          request.destroy();
+          resume(
+            Effect.fail(
+              new WebSocketUpgradeProbeError({
+                message: "rebound cookie upgrade was accepted",
+              }),
+            ),
+          );
+        });
+        request.once("error", (cause) =>
+          resume(Effect.fail(new WebSocketUpgradeProbeError({ message: cause.message }))),
+        );
+        request.end();
+      });
+      assert.equal(statusCode, 401);
     }).pipe(Effect.provide(serverHttpLayer)),
   );
 

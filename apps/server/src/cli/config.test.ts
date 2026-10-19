@@ -19,6 +19,7 @@ import {
 import * as NetService from "@e6tools/shared/Net";
 import { DEFAULT_SIGNAL_EXPORT } from "@e6tools/shared/observability";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { hasCloudPublicConfig } from "../cloud/publicConfig.ts";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
 
@@ -57,6 +58,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
     otlpServiceName: "e6-server",
     devAllowedOrigins: [],
+    connectEnabled: hasCloudPublicConfig,
+    hostedAppOrigin: undefined,
   } as const;
 
   const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapValue) {
