@@ -11,6 +11,9 @@ const {
   hasSwitchMock,
   registerSchemesMock,
   setDesktopNameMock,
+  setNameMock,
+  getVersionMock,
+  getNameMock,
   mkdirSyncMock,
   writeFileSyncMock,
 } = vi.hoisted(() => ({
@@ -19,6 +22,9 @@ const {
   hasSwitchMock: vi.fn(),
   registerSchemesMock: vi.fn(),
   setDesktopNameMock: vi.fn(),
+  setNameMock: vi.fn(),
+  getVersionMock: vi.fn(),
+  getNameMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
 }));
@@ -26,7 +32,9 @@ const {
 vi.mock("electron", () => ({
   app: {
     setDesktopName: setDesktopNameMock,
-    getVersion: () => "0.0.37",
+    getVersion: getVersionMock,
+    getName: getNameMock,
+    setName: setNameMock,
     commandLine: {
       appendSwitch: appendSwitchMock,
       getSwitchValue: getSwitchValueMock,
@@ -49,6 +57,9 @@ import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 
 describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
+    setNameMock.mockReset();
+    getNameMock.mockReset().mockReturnValue("e6code");
+    getVersionMock.mockReset().mockReturnValue("0.0.37");
     appendSwitchMock.mockReset();
     getSwitchValueMock.mockReset();
     hasSwitchMock.mockReset();
@@ -57,6 +68,39 @@ describe("DesktopPreReadyPlatform", () => {
     mkdirSyncMock.mockReset();
     writeFileSyncMock.mockReset();
   });
+
+  for (const platform of ["darwin", "linux"] as const) {
+    for (const [initialName, expectedName] of [
+      ["E6 Code", "E6 Code (Alpha)"],
+      ["e6code", "e6code"],
+      ["E6 Code (Alpha)", "E6 Code (Alpha)"],
+      ["E6 Code (Dev)", "E6 Code (Dev)"],
+      ["E6 Code (Nightly)", "E6 Code (Nightly)"],
+    ] as const) {
+      it.effect(
+        `preserves the ${platform} encryption identity for ${initialName} before startup yields`,
+        () => {
+          let appName: string = initialName;
+          getNameMock.mockImplementation(() => appName);
+          setNameMock.mockImplementation((name: string) => {
+            appName = name;
+          });
+          return Effect.scoped(
+            Effect.gen(function* () {
+              // Electron snapshots app.name for the keychain/password store before ready.
+              const encryptionIdentity = Promise.resolve().then(() => appName);
+              yield* Layer.build(
+                DesktopPreReadyPlatform.layer.pipe(
+                  Layer.provide(Layer.succeed(HostProcessPlatform, platform)),
+                ),
+              );
+              assert.equal(yield* Effect.promise(() => encryptionIdentity), expectedName);
+            }),
+          );
+        },
+      );
+    }
+  }
 
   it.effect("preserves an explicit Linux password-store switch", () => {
     hasSwitchMock.mockImplementation((switchName) => switchName === "password-store");
@@ -104,7 +148,7 @@ describe("DesktopPreReadyPlatform", () => {
             const identity = yield* Effect.promise(() => portalIdentity);
             assert.equal(identity.desktopName, "com.e6tools.E6Code.desktop");
             assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
-            assert.include(identity.desktopEntry ?? "", "Name=E6 Code (Alpha)");
+            assert.include(identity.desktopEntry ?? "", "Name=E6 Code");
             assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/e6code;");
           }),
         ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));

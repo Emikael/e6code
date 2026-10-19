@@ -15,7 +15,7 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "E6 Code (Dev)" : "E6 Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "E6 Code (Dev)" : "E6 Code";
 const APP_BUNDLE_ID = isDevelopment
   ? `com.e6tools.e6code.dev.${devBundleIdSuffix || "local"}`
   : "com.e6tools.e6code";
