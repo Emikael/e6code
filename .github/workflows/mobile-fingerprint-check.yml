@@ -34,7 +34,7 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The merge ref can advance after the event is queued. Pin its commit
           # and compare against its first parent, rather than the event's base.
@@ -59,7 +59,7 @@ jobs:
 
       - name: Setup Vite+
         if: steps.changes.outputs.relevant == 'true'
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -132,7 +132,7 @@ jobs:
         # advisory there (summary only). This workflow must not move to
         # pull_request_target — it installs and runs PR code.
         if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           CHANGED_PLATFORMS: ${{ steps.compare.outputs.changed_platforms }}
         with:
