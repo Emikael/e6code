@@ -956,7 +956,7 @@ jobs:
           node ../../scripts/apply-web-brand-assets.ts --channel "$channel_name"
 
           echo "Deploying $channel_name to $channel_origin."
-          vp dlx wrangler@4.147.0 deploy --env "$channel_name"
+          vp dlx wrangler@4.151.2 deploy --env "$channel_name"
 
   deploy_marketing:
     name: Deploy marketing site
@@ -1003,7 +1003,7 @@ jobs:
           # The apex custom domain binds from wrangler.jsonc and provisions
           # DNS for https://e6code.com when the zone is Active.
           vp run --filter @e6tools/marketing build
-          vp dlx wrangler@4.147.0 deploy
+          vp dlx wrangler@4.151.2 deploy
 
   finalize:
     name: Finalize release

@@ -51,7 +51,7 @@ catalog:
   typescript: 7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
   vite-plus: 0.3.0
-  wrangler: 4.147.0
+  wrangler: 4.151.2
   yaml: ^2.9.0
 
 minimumReleaseAgeExclude:
@@ -95,7 +95,15 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/prisma@1.0.0-rc.12"
   - "@distilled.cloud/railway@1.0.0-rc.12"
   - "@distilled.cloud/stripe@1.0.0-rc.12"
-  - wrangler@4.147.0
+  - wrangler@4.151.2
+  - "@cloudflare/workerd-darwin-64@1.20261019.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20261019.1"
+  - "@cloudflare/workerd-linux-64@1.20261019.1"
+  - "@cloudflare/workerd-linux-arm64@1.20261019.1"
+  - "@cloudflare/workerd-windows-64@1.20261019.1"
+  - astro@7.4.1
+  - miniflare@5.20261019.0-beta
+  - workerd@1.20261019.1
 
 overrides:
   # Earlier React Navigation declarations create a circular type alias in TypeScript 7.
@@ -103,6 +111,13 @@ overrides:
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the
   # registry manifest, so the edge has to be cut here as well.
   "dbus-next>usocket": "-"
+  # ENG-7: GHSA-6qxp-vccf-f47h. claude-agent-sdk 0.3.x peers
+  # @modelcontextprotocol/sdk ^1.29.0, and no 0.3 release raises that floor to 1.31.
+  "@anthropic-ai/claude-agent-sdk>@modelcontextprotocol/sdk": 1.32.1
+  # ENG-7: GHSA-jqcg-44mw-7w3h. The SDK still depends on express ^5.2.1, which
+  # resolves to 5.2.1 and proxy-addr 2.0.7. 2.0.8 is the patched release and
+  # satisfies express's ^2.0.7 range.
+  "express>proxy-addr": 2.0.8
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64": "-"
