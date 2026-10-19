@@ -5,6 +5,129 @@
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
 
+/* Switchboard aliases add no palette and leave the legacy surfaces untouched. */
+:root,
+[data-switchboard] {
+  --sb-surface: var(--sidebar);
+  --sb-foreground: var(--contrast-sidebar-foreground);
+  --sb-muted: color-mix(in srgb, var(--sb-foreground) 72%, var(--sb-surface));
+  --sb-rail-bg: color-mix(in srgb, var(--sb-surface) 94%, black);
+  --sb-border: var(--contrast-sidebar-border);
+  --sb-lane-line: var(--sb-border);
+  --sb-hover: color-mix(in srgb, var(--sb-foreground) 5%, var(--sb-surface));
+  --sb-selection: color-mix(in srgb, var(--ring) 14%, var(--sb-surface));
+  --sb-accent: var(--ring);
+  --sb-accent-text: color-mix(in srgb, var(--primary) 45%, var(--sb-foreground));
+  --sb-text-meta: 11px;
+  --sb-text-body: 13px;
+  --sb-motion-duration: 180ms;
+  --sb-motion-easing: ease-out;
+  --sb-motion-reduced-duration: 0ms;
+  --state-approval: var(--color-amber-800);
+  --state-input: var(--color-indigo-700);
+  --state-plan: var(--color-violet-700);
+  --state-working: var(--color-sky-800);
+  --state-monitoring: var(--state-working);
+  --state-completed: var(--color-emerald-800);
+  --state-error: var(--color-red-800);
+  --state-connecting: var(--state-working);
+  --state-ready: var(--sb-muted);
+  --state-snoozed: var(--sb-muted);
+  --state-woke: var(--state-approval);
+  --sb-addition: var(--state-completed);
+  --sb-deletion: var(--state-error);
+
+  @variant dark {
+    --state-approval: var(--color-amber-300);
+    --state-input: var(--color-indigo-300);
+    --state-plan: var(--color-violet-300);
+    --state-working: var(--color-sky-300);
+    --state-completed: var(--color-emerald-300);
+    --state-error: var(--color-red-300);
+  }
+}
+
+@theme inline {
+  --color-sb-surface: var(--sb-surface);
+  --color-sb-rail-bg: var(--sb-rail-bg);
+  --color-sb-foreground: var(--sb-foreground);
+  --color-sb-muted: var(--sb-muted);
+  --color-sb-border: var(--sb-border);
+  --color-sb-hover: var(--sb-hover);
+  --color-sb-selection: var(--sb-selection);
+  --color-sb-accent: var(--sb-accent);
+  --color-sb-accent-text: var(--sb-accent-text);
+  --color-sb-addition: var(--sb-addition);
+  --color-sb-deletion: var(--sb-deletion);
+}
+
+[data-switchboard] {
+  caret-color: var(--primary);
+}
+
+[data-switchboard],
+[data-switchboard] * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-muted) var(--sb-surface);
+}
+
+[data-switchboard="settings"] {
+  --sb-surface: var(--background);
+  --sb-foreground: var(--contrast-foreground);
+  --sb-border: var(--contrast-border);
+}
+
+:root[data-theme-id="e6-chat"]:not(.dark) [data-switchboard="sidebar"] {
+  --sb-muted: color-mix(in srgb, var(--sb-foreground) 88%, var(--sb-surface));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-switchboard] {
+    --sb-motion-duration: var(--sb-motion-reduced-duration);
+  }
+}
+
+[data-switchboard] ::selection {
+  background: var(--sb-selection);
+  color: var(--sb-foreground);
+}
+
+[data-switchboard] :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .sb-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 1.75rem;
+    border-radius: 5px;
+    color: var(--sb-foreground);
+    cursor: pointer;
+  }
+
+  .sb-action:hover:not(:disabled) {
+    background: var(--sb-hover);
+  }
+
+  .sb-action[aria-pressed="true"] {
+    background: var(--sb-selection);
+  }
+
+  .sb-action:disabled {
+    color: var(--sb-muted);
+    cursor: default;
+  }
+
+  .sb-action:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
 /* On mobile, morph the expanded hero composer into the compact docked
    composer while it moves; the rest of the app remains visually stationary. */
 html[data-mobile-composer-route-transition="true"]::view-transition-old(root),

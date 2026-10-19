@@ -16,6 +16,7 @@ import {
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
   type UiState,
+  useUiStateStore,
 } from "./uiStateStore";
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
@@ -27,11 +28,56 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    sidebarSwitchboard: false,
+    settingsSwitchboard: false,
+    sidebarGroupBy: "branch",
+    sidebarDensity: "comfortable",
+    sidebarLaneCollapsed: {},
     ...overrides,
   };
 }
 
 describe("uiStateStore pure functions", () => {
+  it("defaults Switchboard to comfortable branch lanes without changing existing choices", () => {
+    const legacy = parsePersistedState({ projectExpandedById: { project: false } });
+    expect(legacy).toMatchObject({
+      sidebarGroupBy: "branch",
+      sidebarDensity: "comfortable",
+      sidebarLaneCollapsed: {},
+      projectExpandedById: { project: false },
+    });
+    expect(
+      parsePersistedState({
+        sidebarGroupBy: "unknown",
+        sidebarDensity: "unknown",
+        sidebarLaneCollapsed: { valid: true, expanded: false, invalid: "false", "": true },
+      } as unknown as PersistedUiState),
+    ).toMatchObject({
+      sidebarGroupBy: "branch",
+      sidebarDensity: "comfortable",
+      sidebarLaneCollapsed: { valid: true, expanded: false },
+    });
+  });
+  it("keeps both Switchboard surfaces off for new and legacy preferences", () => {
+    expect(useUiStateStore.getState()).toMatchObject({
+      sidebarSwitchboard: false,
+      settingsSwitchboard: false,
+    });
+    expect(parsePersistedState({})).toMatchObject({
+      sidebarSwitchboard: false,
+      settingsSwitchboard: false,
+    });
+  });
+
+  it("requires explicit boolean opt-in for each Switchboard surface", () => {
+    expect(
+      parsePersistedState({
+        sidebarSwitchboard: "true",
+        settingsSwitchboard: 1,
+      } as unknown as PersistedUiState),
+    ).toMatchObject({ sidebarSwitchboard: false, settingsSwitchboard: false });
+  });
+
   it("stores server timestamps without moving visit state backwards", () => {
     const threadId = ThreadId.make("thread-1");
     const initialState = makeUiState();
@@ -203,6 +249,11 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
+      sidebarSwitchboard: false,
+      settingsSwitchboard: false,
+      sidebarGroupBy: "branch",
+      sidebarDensity: "comfortable",
+      sidebarLaneCollapsed: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -332,6 +383,11 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      sidebarSwitchboard: false,
+      settingsSwitchboard: false,
+      sidebarGroupBy: "branch",
+      sidebarDensity: "comfortable",
+      sidebarLaneCollapsed: {},
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
@@ -347,6 +403,33 @@ describe("uiStateStore persistence", () => {
 
     expect(parsePersistedState(persisted).sidebarProjectScopeKey).toBe("github.com/emikael/e6code");
   });
+
+  it.each([
+    { sidebarSwitchboard: true, settingsSwitchboard: false },
+    { sidebarSwitchboard: false, settingsSwitchboard: true },
+  ])("restores independent Switchboard opt-ins: %j", (flags) => {
+    const state = makeUiState(flags);
+
+    persistState(state);
+
+    const persisted = JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}");
+    expect(parsePersistedState(persisted)).toEqual(state);
+  });
+
+  it.each(["status", "branch", "project"] as const)(
+    "restores %s grouping and lane preferences",
+    (sidebarGroupBy) => {
+      const state = makeUiState({
+        sidebarGroupBy,
+        sidebarDensity: "compact",
+        sidebarLaneCollapsed: { "environment:project:main": true, "other:project:main": false },
+      });
+      persistState(state);
+      expect(
+        parsePersistedState(JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}")),
+      ).toEqual(state);
+    },
+  );
 
   it("drops the temporary expanded-only migration fallback when rewriting state", () => {
     const migrated = parsePersistedState({

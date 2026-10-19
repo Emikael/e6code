@@ -31,6 +31,11 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  sidebarSwitchboard?: boolean;
+  settingsSwitchboard?: boolean;
+  sidebarGroupBy?: string;
+  sidebarDensity?: string;
+  sidebarLaneCollapsed?: Record<string, boolean>;
 }
 
 export interface UiProjectState {
@@ -55,8 +60,16 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
+export interface UiSwitchboardState {
+  sidebarSwitchboard: boolean;
+  settingsSwitchboard: boolean;
+  sidebarGroupBy: "status" | "branch" | "project";
+  sidebarDensity: "comfortable" | "compact";
+  sidebarLaneCollapsed: Record<string, boolean>;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiSwitchboardState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -66,6 +79,11 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
+  sidebarSwitchboard: false,
+  settingsSwitchboard: false,
+  sidebarGroupBy: "branch",
+  sidebarDensity: "comfortable",
+  sidebarLaneCollapsed: {},
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -158,6 +176,14 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    sidebarSwitchboard: parsed.sidebarSwitchboard === true,
+    settingsSwitchboard: parsed.settingsSwitchboard === true,
+    sidebarGroupBy:
+      parsed.sidebarGroupBy === "status" || parsed.sidebarGroupBy === "project"
+        ? parsed.sidebarGroupBy
+        : "branch",
+    sidebarDensity: parsed.sidebarDensity === "compact" ? "compact" : "comfortable",
+    sidebarLaneCollapsed: sanitizeBooleanRecord(parsed.sidebarLaneCollapsed),
   };
 }
 
@@ -232,6 +258,11 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        sidebarSwitchboard: state.sidebarSwitchboard,
+        settingsSwitchboard: state.settingsSwitchboard,
+        sidebarGroupBy: state.sidebarGroupBy,
+        sidebarDensity: state.sidebarDensity,
+        sidebarLaneCollapsed: state.sidebarLaneCollapsed,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -424,6 +455,11 @@ export function reorderProjects(
 }
 
 interface UiStateStore extends UiState {
+  setSidebarSwitchboard: (enabled: boolean) => void;
+  setSettingsSwitchboard: (enabled: boolean) => void;
+  setSidebarGroupBy: (groupBy: UiSwitchboardState["sidebarGroupBy"]) => void;
+  setSidebarDensity: (density: UiSwitchboardState["sidebarDensity"]) => void;
+  setSidebarLaneCollapsed: (laneKey: string, collapsed: boolean) => void;
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
@@ -440,6 +476,14 @@ interface UiStateStore extends UiState {
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
+  setSidebarSwitchboard: (enabled) => set({ sidebarSwitchboard: enabled }),
+  setSettingsSwitchboard: (enabled) => set({ settingsSwitchboard: enabled }),
+  setSidebarGroupBy: (sidebarGroupBy) => set({ sidebarGroupBy }),
+  setSidebarDensity: (sidebarDensity) => set({ sidebarDensity }),
+  setSidebarLaneCollapsed: (laneKey, collapsed) =>
+    set((state) => ({
+      sidebarLaneCollapsed: { ...state.sidebarLaneCollapsed, [laneKey]: collapsed },
+    })),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
