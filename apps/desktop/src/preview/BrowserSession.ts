@@ -27,7 +27,7 @@ const PARTITION_NAMESPACE_MARKER: Record<BrowserSessionPartitionNamespace, strin
 };
 
 /** Persistent agent partitions. Cookie import must never write here. */
-export const PREVIEW_AGENT_PARTITION_PREFIX = `${PREVIEW_PARTITION_PREFIX}agent-`;
+const PREVIEW_AGENT_PARTITION_PREFIX = `${PREVIEW_PARTITION_PREFIX}agent-`;
 
 export function isAgentPartition(partition: string): boolean {
   return (
