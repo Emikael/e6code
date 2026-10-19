@@ -50,8 +50,9 @@
       "ignoreDependencies": ["playwright-core", "electron-builder"],
     },
     "apps/web": {
-      // Worktree setup invokes this directly from e6.json.
-      "entry": ["scripts/warm-dep-cache.ts"],
+      // Worktree setup invokes warm-dep-cache directly. The switchboard fixture
+      // is loaded from switchboard-fixture.html, which the Vite plugin does not scan.
+      "entry": ["scripts/warm-dep-cache.ts", "src/fixtures/switchboard-fixture.tsx"],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.

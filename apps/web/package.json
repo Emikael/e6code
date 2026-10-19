@@ -12,6 +12,8 @@
     "deploy:latest": "wrangler deploy --env latest",
     "deploy:nightly": "wrangler deploy --env nightly",
     "typecheck": "tsc --noEmit",
+    "test:browser": "node --test --test-force-exit test/browser/switchboard.test.ts",
+    "test:browser:install": "playwright-core install --with-deps --only-shell chromium",
     "test": "vp test run --passWithNoTests --project unit"
   },
   "dependencies": {
@@ -78,6 +80,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "babel-plugin-react-compiler": "1.0.0",
     "compression": "^1.8.2",
+    "playwright-core": "1.60.0",
     "react-test-renderer": "19.2.6",
     "tailwindcss": "^4.0.0",
     "unified": "^11.0.5",

@@ -112,6 +112,54 @@ jobs:
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!e6' --filter '!@e6tools/monorepo' test
 
+  switchboard_browser:
+    name: Switchboard Browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/setup-apt-mirrors
+
+      # node-pty compiles its native module during install, so the toolchain
+      # must be present before Setup Vite+ runs the install.
+      - name: Install node-pty build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          # Resolves the engines pin (^24.13.1), the repo's Node source of truth.
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Install Chromium
+        run: vp run --filter @e6tools/web test:browser:install
+
+      - name: Audit contrast and flags-off snapshots
+        run: |
+          if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+            git fetch --no-tags origin main
+          fi
+          export E6CODE_VISUAL_BASE_REF=$(git merge-base origin/main HEAD)
+          vp run --filter @e6tools/web test:browser
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: switchboard-browser-results
+          path: ${{ runner.temp }}/e6-switchboard-browser-results/
+          if-no-files-found: ignore
+
   # apps/server sets `fileParallelism: false`, so its 239 files run strictly
   # one at a time. Sharding spreads them over separate runners instead of
   # separate workers, so no two server test files ever share a machine and the
