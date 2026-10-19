@@ -74,6 +74,10 @@ async function openSettings() {
   const router = createRouter({
     routeTree: createRootRoute({ component: IntegrationsSettingsPanel }),
     history: createMemoryHistory(),
+    // Node has no document, so the router would treat this as SSR and skip
+    // client navigation. origin avoids reading window while isServer is false.
+    isServer: false,
+    origin: "http://localhost",
   });
   await router.load();
   await act(() => {

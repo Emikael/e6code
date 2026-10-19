@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@e6tools/shared": "workspace:*",
-    "astro": "^7.2.8",
+    "astro": "^7.4.1",
     "sharp": "0.35.5"
   },
   "devDependencies": {

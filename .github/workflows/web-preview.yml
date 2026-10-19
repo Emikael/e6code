@@ -148,7 +148,7 @@ jobs:
 
           export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_PREVIEW_API_TOKEN"
           unset CLOUDFLARE_PREVIEW_API_TOKEN
-          vp dlx wrangler@4.147.0 deploy --config wrangler.preview.jsonc
+          vp dlx wrangler@4.151.2 deploy --config wrangler.preview.jsonc
           echo "deployment_url=${DEPLOYMENT_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Comment deployment URL

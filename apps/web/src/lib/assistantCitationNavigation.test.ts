@@ -30,6 +30,10 @@ function createCitationRouter(initialEntry = "/environment-one/thread-one") {
   return createRouter({
     routeTree: root.addChildren([thread]),
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
+    // Node has no document, so the router would treat this as SSR and skip
+    // client navigation. origin avoids reading window while isServer is false.
+    isServer: false,
+    origin: "http://localhost",
   });
 }
 
