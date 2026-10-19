@@ -639,6 +639,13 @@ export interface DesktopPreviewTabState {
   audible: boolean;
   controller: "human" | "agent" | "none";
   favicon?: DesktopPreviewFavicon;
+  /**
+   * The user allowed this tab to be driven while it holds cookies imported
+   * from their real browser. In-memory on the desktop; absent after restart.
+   */
+  importedCookieGrant?: boolean;
+  /** Browser the imported cookies came from, when `importedCookieGrant` is set. */
+  importedCookieBrowser?: string;
   updatedAt: string;
 }
 
@@ -1040,7 +1047,30 @@ export const DesktopPreviewRegisterWebviewInputSchema = Schema.Struct({
 export const DesktopPreviewNavigateInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
   url: Schema.String,
+  /**
+   * Who asked for the navigation. Omitted means the user. Agent navigations
+   * are refused when the tab's partition holds imported cookies and this
+   * desktop session has not approved that tab.
+   */
+  actor: Schema.optional(Schema.Literals(["user", "agent"])),
+  /** Used to identify the partition before the guest has attached. */
+  environmentId: Schema.optional(Schema.String),
+  profileId: Schema.optional(BrowserProfileId),
 });
+
+export const DesktopPreviewAgentCookieAccessInputSchema = Schema.Struct({
+  tabId: DesktopPreviewTabIdSchema,
+  environmentId: Schema.optional(Schema.String),
+  profileId: Schema.optional(BrowserProfileId),
+});
+
+export const DesktopPreviewAgentCookieAccessSchema = Schema.Struct({
+  holdsImportedCookies: Schema.Boolean,
+  approved: Schema.Boolean,
+  browserName: Schema.NullOr(Schema.String),
+  profileId: Schema.NullOr(Schema.String),
+});
+export type DesktopPreviewAgentCookieAccess = typeof DesktopPreviewAgentCookieAccessSchema.Type;
 
 export const DesktopPreviewConfigInputSchema = Schema.Struct({
   environmentId: EnvironmentId,
@@ -1260,7 +1290,15 @@ export interface DesktopPreviewBridge {
   createTab: (tabId: string, defaults?: DesktopPreviewTabDefaults) => Promise<void>;
   closeTab: (tabId: string) => Promise<void>;
   registerWebview: (tabId: string, webContentsId: number) => Promise<void>;
-  navigate: (tabId: string, url: string) => Promise<void>;
+  navigate: (
+    tabId: string,
+    url: string,
+    options?: {
+      readonly actor?: "user" | "agent";
+      readonly environmentId?: string;
+      readonly profileId?: string;
+    },
+  ) => Promise<void>;
   goBack: (tabId: string) => Promise<void>;
   goForward: (tabId: string) => Promise<void>;
   refresh: (tabId: string) => Promise<void>;
@@ -1304,6 +1342,21 @@ export interface DesktopPreviewBridge {
     readonly sourceProfileDirectory: string;
     readonly targetProfileId: string;
   }) => Promise<BrowserImportResult>;
+  /**
+   * Whether this tab's partition holds imported cookies and whether the user
+   * has approved agent use of them. Approval is not granted here.
+   */
+  agentImportedCookieAccess: (
+    tabId: string,
+    hint?: { readonly environmentId?: string; readonly profileId?: string },
+  ) => Promise<DesktopPreviewAgentCookieAccess>;
+  /**
+   * Records the user's confirmation for this tab. Only the desktop confirm
+   * dialog calls this. There is no server or agent RPC that grants it.
+   */
+  grantAgentImportedCookieAccess: (tabId: string) => Promise<void>;
+  /** Drops this tab's approval until the user confirms again. */
+  revokeAgentImportedCookieAccess: (tabId: string) => Promise<void>;
   setAnnotationTheme: (theme: DesktopPreviewAnnotationTheme) => Promise<void>;
   /**
    * Activate the in-page element picker for the given tab. Resolves with

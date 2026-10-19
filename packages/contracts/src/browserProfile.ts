@@ -52,6 +52,18 @@ export const DEFAULT_BROWSER_PROFILE_ID: BrowserProfileId = "default";
 export const INCOGNITO_BROWSER_PROFILE_ID: BrowserProfileId = "incognito";
 
 /**
+ * Partition reserved for agent-driven preview tabs. Not a profile the user
+ * can pick or import into: cookie import refuses this id, and the desktop
+ * maps it to `persist:e6code-preview-agent-*`, which never receives imported
+ * cookies.
+ */
+export const AGENT_BROWSER_PROFILE_ID: BrowserProfileId = "e6-agent";
+
+export function isAgentBrowserProfileId(id: string | undefined): boolean {
+  return id === AGENT_BROWSER_PROFILE_ID;
+}
+
+/**
  * Built-ins are synthesized rather than stored, so they cannot be renamed out
  * of existence or deleted by editing the settings file by hand.
  */
@@ -84,6 +96,9 @@ export function resolveBrowserProfiles(
   const seen = new Set(BUILT_IN_BROWSER_PROFILES.map((profile) => profile.id));
   const resolved = [...BUILT_IN_BROWSER_PROFILES];
   for (const profile of userProfiles) {
+    // The agent partition is not a user profile. A hand-edited settings file
+    // must not surface it in the picker or give it a second name.
+    if (profile.id === AGENT_BROWSER_PROFILE_ID) continue;
     if (seen.has(profile.id)) continue;
     seen.add(profile.id);
     resolved.push(profile.kind === "persistent" ? profile : { ...profile, kind: "persistent" });

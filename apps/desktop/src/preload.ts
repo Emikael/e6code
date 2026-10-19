@@ -286,8 +286,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     closeTab: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_CLOSE_TAB_CHANNEL, { tabId }),
     registerWebview: (tabId, webContentsId) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_REGISTER_WEBVIEW_CHANNEL, { tabId, webContentsId }),
-    navigate: (tabId, url) =>
-      ipcRenderer.invoke(IpcChannels.PREVIEW_NAVIGATE_CHANNEL, { tabId, url }),
+    navigate: (tabId, url, options) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_NAVIGATE_CHANNEL, {
+        tabId,
+        url,
+        ...(options?.actor === undefined ? {} : { actor: options.actor }),
+        ...(options?.environmentId === undefined ? {} : { environmentId: options.environmentId }),
+        ...(options?.profileId === undefined ? {} : { profileId: options.profileId }),
+      }),
     goBack: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_GO_BACK_CHANNEL, { tabId }),
     goForward: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_GO_FORWARD_CHANNEL, { tabId }),
     refresh: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_REFRESH_CHANNEL, { tabId }),
@@ -304,6 +310,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     listBrowserImportSources: () => ipcRenderer.invoke(IpcChannels.PREVIEW_IMPORT_SOURCES_CHANNEL),
     importBrowserCookies: (input) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_IMPORT_COOKIES_CHANNEL, input),
+    agentImportedCookieAccess: (tabId, hint) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_AGENT_COOKIE_ACCESS_CHANNEL, {
+        tabId,
+        ...(hint?.environmentId === undefined ? {} : { environmentId: hint.environmentId }),
+        ...(hint?.profileId === undefined ? {} : { profileId: hint.profileId }),
+      }),
+    grantAgentImportedCookieAccess: (tabId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_GRANT_AGENT_COOKIE_ACCESS_CHANNEL, { tabId }),
+    revokeAgentImportedCookieAccess: (tabId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_REVOKE_AGENT_COOKIE_ACCESS_CHANNEL, { tabId }),
     clearCookies: (environmentId, profileId) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_CLEAR_COOKIES_CHANNEL, { environmentId, profileId }),
     clearCache: (environmentId, profileId) =>

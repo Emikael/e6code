@@ -200,6 +200,15 @@ export const make = Effect.gen(function* BrowserImportMake() {
     readonly persistent: boolean;
     readonly namespace?: BrowserSession.BrowserSessionPartitionNamespace;
   }) {
+    // Agent partitions are a different cookie jar. Refuse before reading the
+    // source browser so a rejected import never prompts for the keychain.
+    if (input.namespace === "agent") {
+      return yield* new BrowserImportFailedError({
+        sourceId: input.input.sourceId,
+        reason: "agentPartition",
+      });
+    }
+
     const definition = BROWSER_IMPORT_SOURCES.find(
       (candidate) => candidate.id === input.input.sourceId,
     );
@@ -312,6 +321,25 @@ export const make = Effect.gen(function* BrowserImportMake() {
           ),
       }),
     );
+
+    const partition = yield* browserSession
+      .getPartition(input.scope, input.persistent, input.namespace)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new BrowserImportFailedError({
+              sourceId: definition.id,
+              reason: "sessionUnavailable",
+              cause,
+            }),
+        ),
+      );
+    if (BrowserSession.isAgentPartition(partition)) {
+      return yield* new BrowserImportFailedError({
+        sourceId: definition.id,
+        reason: "agentPartition",
+      });
+    }
 
     const session = yield* browserSession
       .getSession(input.scope, input.persistent, input.namespace)

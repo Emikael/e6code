@@ -239,6 +239,7 @@ const browserSessionLayer = Layer.succeed(
     getSession: () => Effect.die("unexpected getSession"),
     clearCookies: () => Effect.void,
     clearCache: () => Effect.void,
+    findPartition: () => Effect.succeed(undefined),
   }),
 );
 

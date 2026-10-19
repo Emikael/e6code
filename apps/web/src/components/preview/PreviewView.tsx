@@ -6,6 +6,7 @@ import {
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
 import {
+  AGENT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
@@ -58,6 +59,7 @@ import { PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { usePreviewSession } from "./usePreviewSession";
@@ -88,6 +90,7 @@ function previewProfileName(
   profiles: ReadonlyArray<{ readonly id: string; readonly name: string }>,
   profileId: string,
 ): string {
+  if (profileId === AGENT_BROWSER_PROFILE_ID) return "Agent";
   return profiles.find((profile) => profile.id === profileId)?.name ?? "Removed profile";
 }
 
@@ -775,6 +778,28 @@ export function PreviewView({
           ) : null
         }
       />
+
+      {desktopOverlay?.importedCookieGrant ? (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-foreground">
+          <p>
+            {controller === "agent"
+              ? `Agent is using cookies imported from ${desktopOverlay.importedCookieBrowser ?? "your browser"}.`
+              : `Agent may use cookies imported from ${desktopOverlay.importedCookieBrowser ?? "your browser"} in this tab.`}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-6 shrink-0 px-2 text-xs"
+            onClick={() => {
+              if (!previewBridge || !runtimeTabId) return;
+              void previewBridge.revokeAgentImportedCookieAccess(runtimeTabId);
+            }}
+          >
+            Revoke
+          </Button>
+        </div>
+      ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {runtimeTabId && snapshot && !showEmptyState ? (

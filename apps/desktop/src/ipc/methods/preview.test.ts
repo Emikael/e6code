@@ -1,5 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import {
+  AGENT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_PROFILE_ID,
   INCOGNITO_BROWSER_PROFILE_ID,
   PreviewAutomationStatus,
@@ -11,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import * as AgentImportedCookieAccess from "../../preview/AgentImportedCookieAccess.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewIpc from "./preview.ts";
@@ -79,6 +81,103 @@ describe("preview IPC methods", () => {
       persistent: false,
       namespace: "profile",
     });
+    expect(PreviewIpc.resolvePartitionScope("environment", AGENT_BROWSER_PROFILE_ID)).toEqual({
+      scope: "agent:environment",
+      persistent: true,
+      namespace: "agent",
+    });
+  });
+
+  effectIt.effect("refuses to import cookies into the agent profile", () => {
+    const importCookies = vi.fn(() => Effect.die("importCookies must not run"));
+    const browserImport = BrowserImport.BrowserImport.of({
+      listSources: Effect.succeed([]),
+      importCookies,
+    });
+    const manager = PreviewManager.PreviewManager.of({
+      getBrowserPartition: () => Effect.die("getBrowserPartition must not run"),
+    } as unknown as PreviewManager.PreviewManager["Service"]);
+    const access = AgentImportedCookieAccess.AgentImportedCookieAccess.of({
+      recordImport: () => Effect.die("recordImport must not run"),
+      approveTab: () => Effect.die("approveTab must not run"),
+      forgetPartitions: () => Effect.die("forgetPartitions must not run"),
+      bindTab: () => Effect.die("bindTab must not run"),
+      unbindTab: () => Effect.die("unbindTab must not run"),
+      partitionForTab: () => Effect.die("partitionForTab must not run"),
+      describe: () => Effect.die("describe must not run"),
+      decide: () => Effect.die("decide must not run"),
+      revokeTab: () => Effect.die("revokeTab must not run"),
+    });
+    const isImportFailed = Schema.is(BrowserImport.BrowserImportFailedError);
+    return Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        PreviewIpc.importBrowserCookies.handler({
+          environmentId: "env",
+          sourceId: "helium",
+          sourceProfileDirectory: "Default",
+          targetProfileId: AGENT_BROWSER_PROFILE_ID,
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const error = Cause.squash(exit.cause);
+        expect(isImportFailed(error)).toBe(true);
+        if (isImportFailed(error)) expect(error.reason).toBe("agentPartition");
+      }
+      expect(importCookies).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provideService(BrowserImport.BrowserImport, browserImport),
+      Effect.provideService(PreviewManager.PreviewManager, manager),
+      Effect.provideService(AgentImportedCookieAccess.AgentImportedCookieAccess, access),
+    );
+  });
+
+  effectIt.effect("records a successful import without approving agent use", () => {
+    const events: Array<string> = [];
+    const browserImport = BrowserImport.BrowserImport.of({
+      listSources: Effect.succeed([]),
+      importCookies: () => Effect.succeed({ imported: 2, skipped: 0, skippedDomains: [] }),
+    });
+    const manager = PreviewManager.PreviewManager.of({
+      getBrowserPartition: () => Effect.succeed("persist:e6code-preview-user"),
+    } as unknown as PreviewManager.PreviewManager["Service"]);
+    const access = AgentImportedCookieAccess.AgentImportedCookieAccess.of({
+      recordImport: (entry) =>
+        Effect.sync(() => {
+          events.push(`record:${entry.partition}:${entry.profileId}`);
+        }),
+      approveTab: () =>
+        Effect.sync(() => {
+          events.push("approve");
+          return {
+            partition: "persist:e6code-preview-user",
+            sourceId: "helium",
+            sourceName: "Helium",
+            profileId: "work",
+          };
+        }),
+      forgetPartitions: () => Effect.die("forgetPartitions must not run"),
+      bindTab: () => Effect.die("bindTab must not run"),
+      unbindTab: () => Effect.die("unbindTab must not run"),
+      partitionForTab: () => Effect.die("partitionForTab must not run"),
+      describe: () => Effect.die("describe must not run"),
+      decide: () => Effect.die("decide must not run"),
+      revokeTab: () => Effect.die("revokeTab must not run"),
+    });
+    return Effect.gen(function* () {
+      const result = yield* PreviewIpc.importBrowserCookies.handler({
+        environmentId: "env",
+        sourceId: "helium",
+        sourceProfileDirectory: "Default",
+        targetProfileId: "work",
+      });
+      expect(result).toMatchObject({ imported: 2 });
+      expect(events).toEqual(["record:persist:e6code-preview-user:work"]);
+    }).pipe(
+      Effect.provideService(BrowserImport.BrowserImport, browserImport),
+      Effect.provideService(PreviewManager.PreviewManager, manager),
+      Effect.provideService(AgentImportedCookieAccess.AgentImportedCookieAccess, access),
+    );
   });
 
   effectIt.effect("targets imports at the same partition tuple as the renderer", () => {
@@ -100,6 +199,21 @@ describe("preview IPC methods", () => {
         targetProfileId,
       });
 
+    const manager = PreviewManager.PreviewManager.of({
+      getBrowserPartition: () => Effect.die("getBrowserPartition must not run"),
+    } as unknown as PreviewManager.PreviewManager["Service"]);
+    const access = AgentImportedCookieAccess.AgentImportedCookieAccess.of({
+      recordImport: () => Effect.die("recordImport must not run"),
+      approveTab: () => Effect.die("approveTab must not run"),
+      forgetPartitions: () => Effect.die("forgetPartitions must not run"),
+      bindTab: () => Effect.die("bindTab must not run"),
+      unbindTab: () => Effect.die("unbindTab must not run"),
+      partitionForTab: () => Effect.die("partitionForTab must not run"),
+      describe: () => Effect.die("describe must not run"),
+      decide: () => Effect.die("decide must not run"),
+      revokeTab: () => Effect.die("revokeTab must not run"),
+    });
+
     return Effect.gen(function* () {
       yield* request("a", "b");
       yield* request("a::b", DEFAULT_BROWSER_PROFILE_ID);
@@ -110,7 +224,11 @@ describe("preview IPC methods", () => {
       );
       expect(received[0]?.namespace).toBe("profile");
       expect(received[1]?.namespace).toBeUndefined();
-    }).pipe(Effect.provideService(BrowserImport.BrowserImport, browserImport));
+    }).pipe(
+      Effect.provideService(BrowserImport.BrowserImport, browserImport),
+      Effect.provideService(PreviewManager.PreviewManager, manager),
+      Effect.provideService(AgentImportedCookieAccess.AgentImportedCookieAccess, access),
+    );
   });
 
   effectIt.effect("rejects invalid webContents ids before resolving the preview service", () =>

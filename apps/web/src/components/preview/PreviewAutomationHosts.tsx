@@ -3,6 +3,7 @@
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@e6tools/client-runtime/state/runtime";
 import {
+  AGENT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   PREVIEW_AUTOMATION_OPERATIONS,
   type EnvironmentId,
@@ -48,10 +49,11 @@ import {
   useBrowserSurfaceStore,
 } from "~/browser/browserSurfaceStore";
 import {
-  browserDefaultOpenProfileId,
   browserDefaultOpenViewport,
+  getBrowserDefaults,
   resolveBrowserDefaults,
 } from "~/browser/browserDefaults";
+import { requestConfirmDialog } from "~/confirmDialog";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
@@ -60,6 +62,7 @@ import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
 
+import { ensureAgentImportedCookieAccess } from "./agentImportedCookieApproval";
 import { previewBridge } from "./previewBridge";
 import {
   PreviewAutomationOperationError,
@@ -337,6 +340,22 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
       };
       let tabId = request.tabId ?? null;
       const browserActivity = { release: null as (() => void) | null };
+      const allowImportedCookies = async (
+        runtimeTabId: string,
+        profileId: string | undefined,
+      ): Promise<void> => {
+        const bridge = previewBridge;
+        if (!bridge?.agentImportedCookieAccess || !bridge.grantAgentImportedCookieAccess) return;
+        await ensureAgentImportedCookieAccess({
+          bridge,
+          tabId: runtimeTabId,
+          environmentId,
+          ...(profileId === undefined ? {} : { profileId }),
+          profileName: (id) =>
+            getBrowserDefaults().profiles.find((profile) => profile.id === id)?.name ?? id,
+          confirm: async (message) => (await requestConfirmDialog(message)) ?? false,
+        });
+      };
       try {
         let state = readThreadPreviewState(threadRef);
         const needsSessionSync = needsPreviewAutomationSessionSync(state, request.tabId);
@@ -433,7 +452,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                   // An agent that didn't state a size gets the user's
                   // configured default, same as a hand-opened tab.
                   viewport: browserDefaultOpenViewport(defaults),
-                  profileId: browserDefaultOpenProfileId(defaults),
+                  // New agent tabs never attach to a profile that can hold
+                  // imported cookies. Reused user tabs stay on their partition
+                  // and are gated before the agent drives them.
+                  profileId: AGENT_BROWSER_PROFILE_ID,
                 },
               });
               if (result._tag === "Failure") {
@@ -529,7 +551,14 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             }
             if (reusedExistingTab && resolvedInputUrl && previewBridge) {
               assertPreviewRuntimeCurrent(threadRef, activeTabId, activeRuntimeTabId, request);
-              await previewBridge.navigate(activeRuntimeTabId, resolvedInputUrl);
+              await allowImportedCookies(activeRuntimeTabId, activeSnapshot?.profileId);
+              await previewBridge.navigate(activeRuntimeTabId, resolvedInputUrl, {
+                actor: "agent",
+                environmentId,
+                ...(activeSnapshot?.profileId === undefined
+                  ? {}
+                  : { profileId: activeSnapshot.profileId }),
+              });
               await waitForNavigationReadiness(
                 threadRef,
                 request.requestId,
@@ -552,7 +581,13 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 url: input.url!,
               },
             );
-            await ready.bridge.navigate(ready.runtimeTabId, resolution.resolvedUrl);
+            const profileId = readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId;
+            await allowImportedCookies(ready.runtimeTabId, profileId);
+            await ready.bridge.navigate(ready.runtimeTabId, resolution.resolvedUrl, {
+              actor: "agent",
+              environmentId,
+              ...(profileId === undefined ? {} : { profileId }),
+            });
             await waitForNavigationReadiness(
               threadRef,
               request.requestId,
@@ -655,10 +690,18 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "snapshot": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.snapshot(ready.runtimeTabId);
           }
           case "click": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.click(
               ready.runtimeTabId,
               request.input as Parameters<typeof ready.bridge.automation.click>[1],
@@ -666,6 +709,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "type": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.type(
               ready.runtimeTabId,
               request.input as Parameters<typeof ready.bridge.automation.type>[1],
@@ -673,6 +720,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "press": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.press(
               ready.runtimeTabId,
               request.input as Parameters<typeof ready.bridge.automation.press>[1],
@@ -680,6 +731,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "scroll": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.scroll(
               ready.runtimeTabId,
               request.input as Parameters<typeof ready.bridge.automation.scroll>[1],
@@ -687,6 +742,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "evaluate": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.evaluate(
               ready.runtimeTabId,
               request.input as Parameters<typeof ready.bridge.automation.evaluate>[1],
@@ -694,6 +753,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "waitFor": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             return await ready.bridge.automation.waitFor(
               ready.runtimeTabId,
               request.input as Parameters<typeof ready.bridge.automation.waitFor>[1],
@@ -701,6 +764,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           case "recordingStart": {
             const ready = await requireReadyTab();
+            await allowImportedCookies(
+              ready.runtimeTabId,
+              readThreadPreviewState(threadRef).sessions[ready.tabId]?.profileId,
+            );
             const startedAt = await startBrowserRecording(
               ready.runtimeTabId,
               threadRef,

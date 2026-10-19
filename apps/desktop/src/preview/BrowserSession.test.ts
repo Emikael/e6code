@@ -102,6 +102,23 @@ describe("BrowserSession", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("keeps agent partitions disjoint from user partitions", () =>
+    Effect.gen(function* () {
+      const browserSessions = yield* BrowserSession.BrowserSession;
+      const user = yield* browserSessions.getPartition("env-1");
+      const agent = yield* browserSessions.getPartition("agent:env-1", true, "agent");
+
+      assert.isTrue(agent.startsWith("persist:e6code-preview-agent-"));
+      assert.notStrictEqual(agent, user);
+      assert.isTrue(browserSessions.isPartition(agent));
+      assert.isTrue(BrowserSession.isAgentPartition(agent));
+      assert.isFalse(BrowserSession.isAgentPartition(user));
+      assert.isFalse(
+        BrowserSession.isAgentPartition("persist:e6code-preview-profile-78f0be89237d77f7a70e"),
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
   // A rewritten session UA — any variant, even ones that keep the Electron
   // token — makes Cloudflare Turnstile loop with error 600010 (#5002), so
   // the guest must end up with Electron's native User-Agent. The mock applies
