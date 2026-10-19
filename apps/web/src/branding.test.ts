@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  formatAppDisplayName,
   resolveServerBackedAppDisplayName,
   resolveServerBackedAppStageLabel,
 } from "./branding.logic";
@@ -72,6 +73,15 @@ describe("branding", () => {
 });
 
 describe("branding logic", () => {
+  it.each([
+    ["Alpha", "E6 Code"],
+    ["Latest", "E6 Code"],
+    ["Dev", "E6 Code (Dev)"],
+    ["Nightly", "E6 Code (Nightly)"],
+  ])("formats %s branding as %s", (stageLabel, expected) => {
+    expect(formatAppDisplayName({ baseName: "E6 Code", stageLabel })).toBe(expected);
+  });
+
   it("returns Nightly for nightly primary server versions", () => {
     expect(
       resolveServerBackedAppStageLabel({
@@ -85,7 +95,7 @@ describe("branding logic", () => {
     expect(
       resolveServerBackedAppDisplayName({
         baseName: "E6 Code",
-        fallbackDisplayName: "E6 Code (Alpha)",
+        fallbackDisplayName: "E6 Code",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.28-nightly.20260616.12",
       }),
@@ -96,21 +106,21 @@ describe("branding logic", () => {
     expect(
       resolveServerBackedAppDisplayName({
         baseName: "E6 Code",
-        fallbackDisplayName: "E6 Code (Alpha)",
+        fallbackDisplayName: "E6 Code",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.27",
       }),
-    ).toBe("E6 Code (Alpha)");
+    ).toBe("E6 Code");
   });
 
   it("keeps the fallback display name for malformed nightly primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({
         baseName: "E6 Code",
-        fallbackDisplayName: "E6 Code (Alpha)",
+        fallbackDisplayName: "E6 Code",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.28-nightly.20260616",
       }),
-    ).toBe("E6 Code (Alpha)");
+    ).toBe("E6 Code");
   });
 });

@@ -40,6 +40,24 @@ const makeEnvironment = (
   DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(makeEnvironmentLayer(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.each([
+    [false, "0.0.42", "Alpha", "E6 Code"],
+    [true, "0.0.42", "Dev", "E6 Code (Dev)"],
+    [false, "0.0.42-nightly.20261019.1", "Nightly", "E6 Code (Nightly)"],
+  ] as const)(
+    "resolves branding for development=%s version=%s",
+    (isDevelopment, appVersion, stageLabel, displayName) => {
+      assert.deepEqual(
+        DesktopEnvironment.resolveDesktopAppBranding({ isDevelopment, appVersion }),
+        {
+          baseName: "E6 Code",
+          stageLabel,
+          displayName,
+        },
+      );
+    },
+  );
+
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

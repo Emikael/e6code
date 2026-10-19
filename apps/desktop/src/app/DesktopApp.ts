@@ -322,7 +322,6 @@ const startup = Effect.gen(function* () {
     });
   }
 
-  yield* appIdentity.configure;
   yield* lifecycle.register;
   yield* clerk.configure;
 

@@ -130,15 +130,15 @@ actual web and server ports. For example, with the default ports:
 ```sh
 VITE_DEV_SERVER_URL=http://127.0.0.1:5733 \
 E6CODE_PORT=13773 \
-  "/Applications/E6 Code (Alpha).app/Contents/MacOS/E6 Code (Alpha)"
+  "/Applications/E6 Code.app/Contents/MacOS/E6 Code"
 ```
 
 Rebuild the signed app after native dependency, main-process, preload, entitlement, provisioning,
 or signing changes. Renderer edits can reuse it. Verify the installed bundle before testing:
 
 ```sh
-codesign --verify --deep --strict "/Applications/E6 Code (Alpha).app"
-codesign -d --entitlements :- "/Applications/E6 Code (Alpha).app"
+codesign --verify --deep --strict "/Applications/E6 Code.app"
+codesign -d --entitlements :- "/Applications/E6 Code.app"
 ```
 
 ## Restricting sign-ups

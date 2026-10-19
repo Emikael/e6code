@@ -74,7 +74,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ stageLabel }: { stageLabel: string }) {
-  const build = `${stageLabel} ${APP_VERSION}`;
+  const build = stageLabel === "Alpha" ? APP_VERSION : `${stageLabel} ${APP_VERSION}`;
   return (
     <Tooltip>
       <TooltipTrigger

@@ -119,6 +119,8 @@ export const make = Effect.gen(function* () {
   );
 
   const configure = Effect.gen(function* () {
+    // Changing app.name earlier would change Electron's safeStorage key identity.
+    yield* electronApp.whenReady.pipe(Effect.orDie);
     const commitHash = yield* resolveAboutCommitHash;
     yield* electronApp.setName(environment.displayName);
     yield* electronApp.setAboutPanelOptions({

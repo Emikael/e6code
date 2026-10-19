@@ -44,12 +44,12 @@ interface ElectronAppCalls {
   readonly setName: string[];
 }
 
-const makeElectronAppLayer = (calls: ElectronAppCalls) =>
+const makeElectronAppLayer = (calls: ElectronAppCalls, whenReady = Effect.void) =>
   Layer.succeed(ElectronApp.ElectronApp, {
     metadata: Effect.die("unexpected metadata read"),
     name: Effect.succeed("E6 Code"),
     systemLocale: Effect.succeed("en-US"),
-    whenReady: Effect.void,
+    whenReady,
     quit: Effect.void,
     exit: () => Effect.void,
     relaunch: () => Effect.void,
@@ -115,6 +115,7 @@ const withIdentity = <A, E, R>(
   >,
   input: {
     readonly calls?: ElectronAppCalls;
+    readonly whenReady?: Effect.Effect<void>;
     readonly environment?: TestEnvironmentInput;
     readonly legacyPathExists?: boolean;
     readonly existingPathIncludes?: readonly string[];
@@ -152,7 +153,7 @@ const withIdentity = <A, E, R>(
           }),
         ),
         Layer.provideMerge(makeAssetsLayer(input.pngIconPath ?? Option.none())),
-        Layer.provideMerge(makeElectronAppLayer(calls)),
+        Layer.provideMerge(makeElectronAppLayer(calls, input.whenReady)),
         Layer.provideMerge(makeEnvironmentLayer(input.environment)),
       ),
     ),
@@ -224,6 +225,29 @@ describe("DesktopAppIdentity", () => {
     );
   });
 
+  it.effect(
+    "keeps the legacy encryption identity until ready before applying visible branding",
+    () => {
+      const calls: ElectronAppCalls = { setAboutPanelOptions: [], setDockIcon: [], setName: [] };
+      let encryptionIdentity: string | undefined;
+      return withIdentity(
+        Effect.gen(function* () {
+          const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+          yield* identity.configure;
+          assert.equal(encryptionIdentity, "E6 Code (Alpha)");
+          assert.deepEqual(calls.setName, ["E6 Code"]);
+          assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "E6 Code");
+        }),
+        {
+          calls,
+          whenReady: Effect.sync(() => {
+            encryptionIdentity = calls.setName.at(-1) ?? "E6 Code (Alpha)";
+          }),
+        },
+      );
+    },
+  );
+
   it.effect("configures app identity from the environment commit override", () => {
     const calls: ElectronAppCalls = {
       setAboutPanelOptions: [],
@@ -236,8 +260,8 @@ describe("DesktopAppIdentity", () => {
         const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
         yield* identity.configure;
 
-        assert.deepEqual(calls.setName, ["E6 Code (Alpha)"]);
-        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "E6 Code (Alpha)");
+        assert.deepEqual(calls.setName, ["E6 Code"]);
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "E6 Code");
         assert.equal(calls.setAboutPanelOptions[0]?.applicationVersion, "1.2.3");
         assert.equal(calls.setAboutPanelOptions[0]?.version, "0123456789ab");
         // Packaged: the bundle's own icon stands, so a custom one the user

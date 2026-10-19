@@ -43,14 +43,16 @@ export function CompactBrandTitle(
       >
         Code
       </Text>
-      <View className="rounded-full bg-subtle px-1.5 py-0.5">
-        <Text
-          allowFontScaling={props.allowFontScaling}
-          className="font-e6-bold text-[9px] tracking-[0.9px] text-foreground-muted uppercase"
-        >
-          {stageLabel}
-        </Text>
-      </View>
+      {stageLabel !== "Alpha" ? (
+        <View className="rounded-full bg-subtle px-1.5 py-0.5">
+          <Text
+            allowFontScaling={props.allowFontScaling}
+            className="font-e6-bold text-[9px] tracking-[0.9px] text-foreground-muted uppercase"
+          >
+            {stageLabel}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
