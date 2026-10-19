@@ -9,7 +9,7 @@
 A fast, open-source GUI for coding agents. Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and
 Antigravity side by side with the subscriptions you already have, from your desktop, a browser, or your phone.
 
-[Website](https://e6code.com) · [Download](https://github.com/emikael/e6code/releases) · [Web app](https://latest.app.e6code.com) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
+[Website](https://e6code.com) · [Download](https://github.com/Emikael/e6code/releases) · [Web app](https://latest.app.e6code.com) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
 
 <img src="./apps/marketing/src/assets/app-desktop.webp" alt="The E6 Code desktop app: a Claude Code thread explaining its change beside the turn's diff" width="100%" />
 
@@ -76,11 +76,11 @@ Then run `e6` to start the server and open the local web app.
 | `e6 update`          | Move to a newer release               |
 | `e6 --help`          | Full reference                        |
 
-To try it once without installing, run `npx e6@latest`.
+To try it once without installing, run `npx @e6code/e6@latest`. To install the `e6` command with npm, run `npm i -g @e6code/e6`.
 
 ### Desktop app
 
-Download the latest build from [GitHub Releases](https://github.com/emikael/e6code/releases), or use a
+Download the latest build from [GitHub Releases](https://github.com/Emikael/e6code/releases), or use a
 package manager:
 
 | Platform                  | Command                         |
@@ -158,8 +158,8 @@ We're very early, so expect bugs. We're (mostly) not accepting contributions yet
 may be considered, but big features won't be.
 
 - Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
-- Feature ideas go in [Ideas discussions](https://github.com/emikael/e6code/discussions/categories/ideas).
-- Report security issues privately through [GitHub security advisories](https://github.com/emikael/e6code/security/advisories/new).
+- Feature ideas go in [Ideas discussions](https://github.com/Emikael/e6code/discussions/categories/ideas).
+- Report security issues privately through [GitHub security advisories](https://github.com/Emikael/e6code/security/advisories/new).
 
 ## License
 

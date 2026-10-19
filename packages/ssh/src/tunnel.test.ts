@@ -118,7 +118,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(script, "E6_NODE_SCRIPT_PATH=''");
     assert.include(
       script,
-      "E6_RELEASE_BASE_URL='https://github.com/emikael/e6code/releases/download'",
+      "E6_RELEASE_BASE_URL='https://github.com/Emikael/e6code/releases/download'",
     );
     assert.include(script, 'E6_HOME="${HOME:-}/.e6"');
     assert.include(script, 'E6_RUNTIME_DIR="$E6_HOME/runtime/versions/$E6_ARCHIVE_VERSION"');

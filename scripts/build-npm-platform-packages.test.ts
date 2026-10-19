@@ -117,7 +117,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       // Platform packages in CLI_ARCHIVE_PLATFORM_KEYS order, launcher last.
       assert.deepStrictEqual(
         outputs.map((output) => output.name),
-        ["@e6code/e6-darwin-arm64", "@e6code/e6-linux-x64", "e6"],
+        ["@e6code/e6-darwin-arm64", "@e6code/e6-linux-x64", "@e6code/e6"],
       );
       for (const output of outputs) {
         assert.isTrue(yield* fs.exists(output.tarball), output.tarball);
@@ -140,6 +140,12 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       ]);
       assert.equal(linuxManifest.preferUnplugged, true);
       assert.isUndefined(linuxManifest.bin);
+      // npm provenance compares repository.url to the GitHub repo case-sensitively.
+      assert.deepStrictEqual(linuxManifest.repository, {
+        type: "git",
+        url: "https://github.com/Emikael/e6code",
+        directory: "apps/server",
+      });
       // The shipped node_modules is declared, or npm prunes it as extraneous
       // on the next install in the same project and the executable breaks.
       assert.deepStrictEqual(linuxManifest.dependencies, {
@@ -150,10 +156,9 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       // Archive contents sit at the package root, not under the archive stem.
       assert.isTrue(yield* fs.exists(path.join(linuxDir, "client/index.html")));
       // A root README, or npm would display a bundled dependency's.
-      assert.include(
-        yield* fs.readFileString(path.join(linuxDir, "README.md")),
-        "# @e6code/e6-linux-x64",
-      );
+      const linuxReadme = yield* fs.readFileString(path.join(linuxDir, "README.md"));
+      assert.include(linuxReadme, "# @e6code/e6-linux-x64");
+      assert.include(linuxReadme, "https://github.com/Emikael/e6code");
       assert.isTrue(yield* fs.exists(path.join(linuxDir, "node_modules/node-pty")));
       assert.equal(Number((yield* fs.stat(path.join(linuxDir, "e6"))).mode) & 0o111, 0o111);
 
@@ -165,11 +170,11 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       assert.deepStrictEqual(darwinManifest.os, ["darwin"]);
       assert.deepStrictEqual(darwinManifest.cpu, ["arm64"]);
 
-      const launcherDir = path.join(fixture.outputDir, "e6");
+      const launcherDir = path.join(fixture.outputDir, "@e6code/e6");
       const launcherManifest = yield* decodeManifest(
         yield* fs.readFileString(path.join(launcherDir, "package.json")),
       );
-      assert.equal(launcherManifest.name, "e6");
+      assert.equal(launcherManifest.name, "@e6code/e6");
       assert.equal(launcherManifest.version, VERSION);
       assert.deepStrictEqual(launcherManifest.bin, { e6: "./bin/e6.js" });
       assert.deepStrictEqual(launcherManifest.files, ["bin", "dist"]);
@@ -177,12 +182,13 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         "@e6code/e6-darwin-arm64": VERSION,
         "@e6code/e6-linux-x64": VERSION,
       });
+      assert.deepStrictEqual(launcherManifest.repository, linuxManifest.repository);
       assert.isUndefined(launcherManifest.engines);
       assert.isTrue(yield* fs.exists(path.join(launcherDir, "bin/e6.js")));
 
       // The scratch dirs must not be left behind next to the packages.
       const outputEntries = yield* fs.readDirectory(fixture.outputDir);
-      assert.deepStrictEqual(outputEntries.sort(), ["@e6code", "e6", "e6.tgz"]);
+      assert.deepStrictEqual(outputEntries.sort(), ["@e6code"]);
 
       // The tarball is what gets published: it must carry node_modules (which
       // `npm publish <dir>` would strip) under npm's `package/` root, with the
@@ -223,7 +229,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         yield* fs.makeDirectory(installedLauncher);
         const unpack = yield* run(
           "tar",
-          ["-xf", path.join(fixture.outputDir, "e6.tgz"), "-C", installedLauncher],
+          ["-xf", path.join(fixture.outputDir, "@e6code/e6.tgz"), "-C", installedLauncher],
           {
             cwd: fixture.root,
           },
@@ -255,7 +261,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       assert.equal(unsupported.exitCode, 1);
       assert.include(unsupported.stderr, "linux-x64");
       assert.include(unsupported.stderr, "win32-arm64");
-      assert.include(unsupported.stderr, "https://github.com/emikael/e6code/releases");
+      assert.include(unsupported.stderr, "https://github.com/Emikael/e6code/releases");
     }),
   );
 });

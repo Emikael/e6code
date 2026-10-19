@@ -16,7 +16,7 @@
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "emikael/e6code"
+$repo = "Emikael/e6code"
 $baseUrl = if ($env:E6CODE_RELEASE_BASE_URL) { $env:E6CODE_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
 if ($env:E6CODE_HOME) { $e6Home = $env:E6CODE_HOME } else { $e6Home = Join-Path $HOME ".e6" }
 $binDir = if ($env:E6CODE_INSTALL_BIN_DIR) { $env:E6CODE_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }
@@ -172,7 +172,7 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
     } catch {
       $status = $_.Exception.Response.StatusCode.value__
       if ($status -eq 404) {
-        Fail "e6 $version has no release archive for win32-$arch; releases before the self-contained CLI can only be installed with 'npm install -g e6@$version'"
+        Fail "e6 $version has no release archive for win32-$arch; releases before the self-contained CLI can only be installed with 'npm install -g @e6code/e6@$version'"
       }
       throw
     }

@@ -26,9 +26,10 @@ import * as ProcessRunner from "../processRunner.ts";
  * web client, and the native packages beside it. The boot service points its
  * unit or launch agent at the executable, and server self-update installs the
  * target version here before switching over. The runtime never depends on a
- * Node or npm on the machine; the only npm involvement in E6 Code is the `e6`
- * package for people who prefer `npx e6` or `npm install -g e6`, and even a
- * CLI installed that way pins an archive when it sets up the service.
+ * Node or npm on the machine; the only npm involvement in E6 Code is the
+ * `@e6code/e6` package for people who prefer `npx @e6code/e6` or
+ * `npm install -g @e6code/e6`, and even a CLI installed that way pins an
+ * archive when it sets up the service.
  */
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);

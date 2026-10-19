@@ -14,7 +14,7 @@ import {
   ExecutionEnvironmentDescriptor,
   PortSchema,
 } from "@e6tools/contracts";
-import { withLegacyBrandEnv } from "@e6tools/shared/brand";
+import { NPM_LAUNCHER_PACKAGE_NAME, withLegacyBrandEnv } from "@e6tools/shared/brand";
 import { resolveWorktreeE6Home } from "@e6tools/shared/devHome";
 import { DEFAULT_SIGNAL_EXPORT } from "@e6tools/shared/observability";
 import {
@@ -81,7 +81,7 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
     return [
       "No running E6 Code server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
-      "Start one with `npx e6 serve`, or connect this machine with E6 Connect: `npx e6 connect`.",
+      `Start one with \`npx ${NPM_LAUNCHER_PACKAGE_NAME} serve\`, or connect this machine with E6 Connect: \`npx ${NPM_LAUNCHER_PACKAGE_NAME} connect\`.`,
     ].join("\n");
   }
 }

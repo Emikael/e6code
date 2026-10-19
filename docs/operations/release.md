@@ -14,7 +14,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - push tag matching `v*.*.*` for a stable release of an explicit commit
   - scheduled nightly check every 30 minutes
   - manual `workflow_dispatch` with `channel=nightly`
-  - manual `workflow_dispatch` with `channel=preview`, the maintainers' test train. It exercises the whole release flow (build, sign, notarize, smoke, publish) for a commit that end users must never receive, which is how an unmerged branch or a risky change gets a real release run before it lands. It builds the triggering commit with nightly's versioning under the `preview` prerelease identifier (`0.0.41-preview.<date>.<run>`) and publishes a GitHub prerelease plus the npm packages under the `preview` dist-tag. Preview is not on the schedule, no default npm dist-tag points at it, its desktop builds carry no update feed, and no updater manifest (`latest*.yml`, `nightly*.yml`, blockmaps) is attached, so a stable or nightly install cannot be offered one. The only ways onto it are downloading the release by hand, `npx e6@preview`, `E6CODE_CHANNEL=preview` for the install scripts, or `e6 update --channel preview` from a terminal; each prints a warning, and the CLI asks for confirmation when the running build is not itself a preview. The release itself is named as a maintainer test build and its body is a warning rather than generated notes: a changelog of unmerged branch history is not a changelog, and nightly and stable notes are unaffected because each series resolves its previous tag within its own channel. The hosted web app, AUR, and Discord announcements are skipped. Keep it; it costs nothing when idle.
+  - manual `workflow_dispatch` with `channel=preview`, the maintainers' test train. It exercises the whole release flow (build, sign, notarize, smoke, publish) for a commit that end users must never receive, which is how an unmerged branch or a risky change gets a real release run before it lands. It builds the triggering commit with nightly's versioning under the `preview` prerelease identifier (`0.0.41-preview.<date>.<run>`) and publishes a GitHub prerelease plus the npm packages under the `preview` dist-tag. Preview is not on the schedule, no default npm dist-tag points at it, its desktop builds carry no update feed, and no updater manifest (`latest*.yml`, `nightly*.yml`, blockmaps) is attached, so a stable or nightly install cannot be offered one. The only ways onto it are downloading the release by hand, `npx @e6code/e6@preview`, `E6CODE_CHANNEL=preview` for the install scripts, or `e6 update --channel preview` from a terminal; each prints a warning, and the CLI asks for confirmation when the running build is not itself a preview. The release itself is named as a maintainer test build and its body is a warning rather than generated notes: a changelog of unmerged branch history is not a changelog, and nightly and stable notes are unaffected because each series resolves its previous tag within its own channel. The hosted web app, AUR, and Discord announcements are skipped. Keep it; it costs nothing when idle.
 - A manual stable release builds the commit of the latest published nightly, not `main` HEAD.
   Nightly is the release candidate: verify the nightly, then promote it. Merges to `main` keep
   landing while you verify and never leak into the stable build.
@@ -38,15 +38,15 @@ This document covers the unified release workflow for stable and nightly desktop
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
 - Builds a self-contained CLI archive per platform (`e6-<version>-<platform>-<arch>.tar.gz`, `.zip` on Windows) in the same job as that target's desktop artifact and attaches them to the GitHub Release with a `SHA256SUMS` file, on every channel, for five targets: macOS arm64, Linux x64 and arm64, Windows x64 and arm64. Every archive is built, signed, and smoke-tested on hardware of its own architecture. There is no macOS x64 archive: Node single-executables are unsupported on x64 macOS (the SEA docs list macOS as arm64 only) and the binary segfaults on start; the x64 desktop app is Electron and unaffected.
-  - The archive holds the server as a Node single-executable (`scripts/build-cli-archive.ts`), so unpacking it needs neither Node, npm, nor a compiler. It is the only form in which E6 Code manages a runtime: the desktop's SSH environments, the boot service, `e6 update`, and the install scripts all download and verify this archive against `SHA256SUMS`. The npm packages exist for people who run `npx e6` or `npm install -g e6` themselves and carry the same archive contents; nothing in the product installs from npm. The `curl | sh` installers are `scripts/install.sh` and `scripts/install.ps1`; the marketing site copies them into its `public/` at build time (`apps/marketing/scripts/stage-install-scripts.mjs`) and serves them at `e6code.com/install.sh` and `/install.ps1`.
+  - The archive holds the server as a Node single-executable (`scripts/build-cli-archive.ts`), so unpacking it needs neither Node, npm, nor a compiler. It is the only form in which E6 Code manages a runtime: the desktop's SSH environments, the boot service, `e6 update`, and the install scripts all download and verify this archive against `SHA256SUMS`. The npm packages exist for people who run `npx @e6code/e6` or `npm install -g @e6code/e6` themselves and carry the same archive contents; nothing in the product installs from npm. A global install still provides the `e6` command. The `curl | sh` installers are `scripts/install.sh` and `scripts/install.ps1`; the marketing site copies them into its `public/` at build time (`apps/marketing/scripts/stage-install-scripts.mjs`) and serves them at `e6code.com/install.sh` and `/install.ps1`.
   - The executable is built with a Node that supports `--build-sea` (`VP_NODE_VERSION=26.8.2`, kept in step with `SEA_NODE_VERSION` in `apps/server/vite.config.ts`), while the repo stays on `engines.node`.
   - macOS archives are signed with the Developer ID certificate and notarized when the Apple secrets are present (ad hoc otherwise, which still runs from `curl`/`tar` installs). Windows executables use the same Azure Trusted Signing setup as the installer. Every native addon in the macOS archive is signed too, since the hardened runtime refuses unsigned libraries.
   - Each archive is extracted and executed on its build runner (`scripts/smoke-cli-archive.ts`) before it is uploaded.
-- Publishes the CLI to npm with OIDC trusted publishing from the same workflow file, as the same bytes the GitHub Release carries: `scripts/build-npm-platform-packages.ts` unpacks the five CLI archives into `@e6code/e6-<platform>-<arch>` packages (each with `os`/`cpu` set so npm installs only the matching one) and generates the `e6` launcher, whose `bin/e6.js` lists them as `optionalDependencies` and execs the installed executable. `npx e6` therefore needs Node only to run the launcher, never to run the server. `node apps/server/scripts/cli.ts publish` publishes the platform packages first and the launcher last, after a `--dry-run` pass over all of them so an auth or scope error fails before anything is live.
+- Publishes the CLI to npm with OIDC trusted publishing from the same workflow file, as the same bytes the GitHub Release carries: `scripts/build-npm-platform-packages.ts` unpacks the five CLI archives into `@e6code/e6-<platform>-<arch>` packages (each with `os`/`cpu` set so npm installs only the matching one) and generates the `@e6code/e6` launcher, whose `bin` is `e6` and whose `bin/e6.js` lists them as `optionalDependencies` and execs the installed executable. `npx @e6code/e6` therefore needs Node only to run the launcher, never to run the server. `node apps/server/scripts/cli.ts publish` publishes the platform packages first and the launcher last, after a `--dry-run` pass over all of them so an auth or scope error fails before anything is live.
   - stable releases publish npm dist-tag `latest`
   - nightly releases publish npm dist-tag `nightly`
   - preview releases publish npm dist-tag `preview`, which nothing resolves unless asked for by name
-  - one-time setup: the `@e6code` npm scope (org) must exist, and `e6` and each `@e6code/e6-<platform>-<arch>` package needs a trusted publisher registered for this workflow file (see below).
+  - one-time setup: the `@e6code` npm scope (org) must exist, and `@e6code/e6` and each `@e6code/e6-<platform>-<arch>` package needs a trusted publisher registered for `release.yml` (see below). The unscoped name `e6` is not published.
 - Deploys the hosted web app to Cloudflare Workers only after a release is published:
   - stable releases deploy the `latest` channel to `latest.app.e6code.com`
   - nightly releases deploy the `nightly` channel to `nightly.app.e6code.com`
@@ -164,10 +164,13 @@ The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
 (variable). The `e6code.com` zone must be Active. The apex and `www` are custom
 domains, so deploy provisions their DNS records and certificates. Delete any
 existing CNAME on those hostnames first; a custom domain cannot replace one.
-`www.e6code.com` redirects to the apex. Headers and the `/app` redirect live in
-`apps/marketing/public/_headers` and `_redirects`, which Astro copies into
-`dist/` at build time. `/app` and `/app/` redirect to
-`https://latest.app.e6code.com`. Unknown paths serve the site's `404.html`.
+Headers and the `/app` redirect live in `apps/marketing/public/_headers` and
+`_redirects`, which Astro copies into `dist/` at build time. `/app` and
+`/app/` redirect to `https://latest.app.e6code.com`. Workers static assets
+`_redirects` only allow relative source paths, so the www to apex redirect
+must be configured as a Cloudflare Redirect Rule on the e6code.com zone
+(`www.e6code.com/*` -> `https://e6code.com/${1}`, 301). Unknown paths serve
+the site's `404.html`.
 
 The project schema is published at `https://e6code.com/schema/e6.json`. Files
 that still name `https://e6.codes/schema/e6.json` remain valid. If `e6.codes`
@@ -234,8 +237,10 @@ One-time Cloudflare setup:
 3. Run one deploy per env (or let the next release do it). Custom domains
    create the proxied DNS records and certificates. The channel hosts are
    second-level names (`latest.app`, `nightly.app`); each custom domain
-   certificate covers that hostname. `www` redirects to the apex. Future
-   releases keep them current.
+   certificate covers that hostname. The www to apex redirect must be
+   configured as a Cloudflare Redirect Rule on the e6code.com zone
+   (`www.e6code.com/*` -> `https://e6code.com/${1}`, 301). Future releases
+   keep the custom domains current.
 4. Confirm the account has a workers.dev subdomain so `preview:web` can bake
    its URL before building.
 5. Allow both channel origins on the production Clerk instance, and create
@@ -258,13 +263,13 @@ One-time Cloudflare setup:
   - `make_latest` is always `false`
 - Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
 - Publishes Electron auto-update metadata to the dedicated `nightly` updater channel, so desktop users can opt into that track independently from stable.
-- Publishes the CLI npm packages (`e6`, `e6`, and `@e6code/e6-<platform>-<arch>`) to the `nightly` npm dist-tag using the same nightly version.
+- Publishes the CLI npm packages (`@e6code/e6` and `@e6code/e6-<platform>-<arch>`) to the `nightly` npm dist-tag using the same nightly version.
 - Does not commit version bumps back to `main`.
 
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-desktop or hosted client version must therefore have a matching `e6@<version>` package available on
+desktop or hosted client version must therefore have a matching `@e6code/e6@<version>` package available on
 npm before users can receive that client.
 
 The workflow enforces this ordering:
@@ -276,12 +281,12 @@ The workflow enforces this ordering:
 Preserve these dependencies when changing the release graph. Publishing a client first would leave
 the **Update server** action targeting a package version that does not exist yet.
 
-For a release smoke test, confirm `npm view e6@<version> version` returns the expected version, then
+For a release smoke test, confirm `npm view @e6code/e6@<version> version` returns the expected version, then
 connect the new client to a server on the previous version and verify that the update action
 reconnects to the matching server. When the release adds database migrations, verify that the
 remote update applies them and reconnects. A failed trial must restore the database snapshot and
 restart the previous server. If the installed launcher does not support the target protocol,
-verify that the update stops before restart and run `npx e6@<version> service update` once on the
+verify that the update stops before restart and run `npx @e6code/e6@<version> service update` once on the
 server machine. Also test the manual or desktop-managed guidance when those environments are
 available.
 
@@ -356,35 +361,66 @@ blockmaps, with a 60 MB maximum for a representative sidecar-to-sidecar update.
 
 The workflow runs `node scripts/build-npm-platform-packages.ts` on the downloaded CLI archives, then
 `node apps/server/scripts/cli.ts publish --packages-dir npm-packages`, which runs `npm publish` on
-each `@e6code/e6-<platform>-<arch>.tgz` and then on `e6.tgz`. `e6` is the launcher, so `npx e6` and `npm i -g e6` resolve to it. The script publishes
-tarballs it built itself rather than directories: `npm publish <dir>` strips `node_modules/` from the
-tarball no matter what `files` says, and the executable loads its native addons from there. Six
-packages are published per release: `e6`, `@e6code/e6-darwin-arm64`, `@e6code/e6-linux-arm64`,
-`@e6code/e6-linux-x64`, `@e6code/e6-win32-arm64`, `@e6code/e6-win32-x64`.
+each `@e6code/e6-<platform>-<arch>.tgz` and then on `@e6code/e6.tgz`. `@e6code/e6` is the launcher.
+Its `bin` is `e6`, so `npm i -g @e6code/e6` and `npx @e6code/e6` both run the `e6` command. The
+script publishes tarballs it built itself rather than directories: `npm publish <dir>` strips
+`node_modules/` from the tarball no matter what `files` says, and the executable loads its native
+addons from there. Six packages are published per release: `@e6code/e6`,
+`@e6code/e6-darwin-arm64`, `@e6code/e6-linux-arm64`, `@e6code/e6-linux-x64`,
+`@e6code/e6-win32-arm64`, `@e6code/e6-win32-x64`.
 
-Checklist:
+The unscoped npm name `e6` belongs to npm user `casser` (published 2015). This workflow publishes
+`@e6code/e6` instead.
 
-1. Confirm the npm org owns package `e6` and the `@e6code` scope exists on npm (create the org if
-   it does not).
-2. For `e6` and each `@e6code/e6-<platform>-<arch>` package, configure a Trusted Publisher in the
-   npm package settings (a package that has never been published needs a first publish or a
-   placeholder before the setting exists; the `--dry-run` step in `publish_cli` reports which
-   names are still rejected):
-   - Provider: GitHub Actions
-   - Repository: this repo
-   - Workflow file: `.github/workflows/release.yml`
-   - Environment (if used): match your npm trusted publishing config
-3. Ensure npm account and org policies allow trusted publishing for every package.
-4. Create release tag `vX.Y.Z` and push; workflow will:
-   - build and smoke-test the five CLI archives
-   - build the npm packages from those archives
-   - publish them with npm dist-tag `latest`
-5. Nightly runs publish with npm dist-tag `nightly`; preview runs with `preview`.
+Trusted publishing can be configured only after the package exists on npm. A new trusted publisher
+must complete one successful publish within 2 days or it expires. The `publish_cli` job runs in
+the GitHub `production` environment and calls `npm publish` directly. Configurations created after
+3 Sep 2026 default to staged publishing, which this job does not use.
+
+Checklist, in order:
+
+1. Confirm the `@e6code` org exists on npm and the account you will publish with can publish to it.
+   Create the org first if it does not.
+2. Publish each package once by hand. Download the five `cli-*` artifacts from a release run whose
+   desktop jobs succeeded, into one directory, and build every tarball (all five archives; a
+   partial build would omit platforms from the launcher):
+
+   ```sh
+   node scripts/build-npm-platform-packages.ts --archives-dir <archives> --version <version> --output-dir npm-packages
+   ```
+
+   `npm login` as an owner of `@e6code`, then publish the platform tarballs first and the launcher
+   last, with `--access public`. Pass `--tag nightly` when `<version>` is a nightly, `--tag preview`
+   for a preview, and no tag (the default `latest`) only for a stable `X.Y.Z`. The manual publish
+   omits `--provenance`; later workflow publishes attest from GitHub Actions. Example for a nightly:
+
+   ```sh
+   npm publish npm-packages/@e6code/e6-darwin-arm64.tgz --access public --tag nightly
+   npm publish npm-packages/@e6code/e6-linux-arm64.tgz --access public --tag nightly
+   npm publish npm-packages/@e6code/e6-linux-x64.tgz --access public --tag nightly
+   npm publish npm-packages/@e6code/e6-win32-arm64.tgz --access public --tag nightly
+   npm publish npm-packages/@e6code/e6-win32-x64.tgz --access public --tag nightly
+   npm publish npm-packages/@e6code/e6.tgz --access public --tag nightly
+   ```
+
+3. For each of those six packages, on npmjs.com open the package → Settings → Trusted Publisher and
+   add GitHub Actions. Allow direct `npm publish` (staged publish alone does not authorize this
+   workflow). The workflow does not call `npm dist-tag`.
+   - Organization or user: `emikael`
+   - Repository: `e6code`
+   - Workflow filename: `release.yml` (the filename only)
+   - Environment name: `production`
+4. Re-run `.github/workflows/release.yml` within 2 days of creating the publishers
+   (`workflow_dispatch` with `channel=nightly` on `main`, or let the schedule pick up the next
+   eligible commit). The dry run reports `ENEEDAUTH` until every package has a matching trusted
+   publisher. That run publishes a new version; it does not republish the version uploaded by hand.
+5. Nightly runs publish with npm dist-tag `nightly`; preview runs with `preview`; stable runs with
+   `latest`.
 
 ## 1) Release validation and unsigned builds
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
-`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `e6` with npm dist-tag
+`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `@e6code/e6` with npm dist-tag
 `latest`, creates a real GitHub Release, deploys the hosted app to `latest.app.e6code.com`, and can open a version bump pull request in the finalize job. Do not push a test tag
 to validate the workflow.
 
@@ -435,8 +471,11 @@ Checklist:
    - `APPLE_API_KEY_ID`: Key ID
    - `APPLE_API_ISSUER`: Issuer ID
 10. Complete the Clerk Native API and AASA setup in [E6 Connect setup](./connect-setup.md#desktop-passkeys).
-11. Re-run a tag release and confirm macOS artifacts are signed/notarized and contain the expected
-    `com.apple.developer.associated-domains` entitlement.
+11. Run **Desktop macOS Signing Validation** from GitHub Actions, choosing `arm64` or `x64`.
+    It requires all Apple credentials, checks the provisioning profile and API access, builds a
+    preview with no update feed, and verifies the signed app inside the notarized, stapled DMG.
+    The installer is available as a run artifact for seven days; no release, package, or site is
+    published. Download it on a matching Mac and check installation and launch before releasing.
 
 Notes:
 

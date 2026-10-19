@@ -1,4 +1,4 @@
-export const GITHUB_REPOSITORY_URL = "https://github.com/emikael/e6code";
+export const GITHUB_REPOSITORY_URL = "https://github.com/Emikael/e6code";
 
 export const SECURITY_REPORT_URL = `${GITHUB_REPOSITORY_URL}/security/advisories/new`;
 

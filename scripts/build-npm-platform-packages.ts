@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * Turns the per-platform CLI archives of one release into the npm packages
- * behind `npx e6` / `npm i -g e6`: one `@e6code/e6-<platformKey>` package per
- * archive holding the archive's contents verbatim, plus the `e6` launcher
- * that lists them as optionalDependencies and execs the one npm installed.
+ * behind `npx @e6code/e6` / `npm i -g @e6code/e6`: one `@e6code/e6-<platformKey>`
+ * package per archive holding the archive's contents verbatim, plus the
+ * `@e6code/e6` launcher that lists them as optionalDependencies and execs the
+ * one npm installed. The installed command is still `e6`.
  * The bytes a user gets from npm are therefore the release archive's, and
  * running them needs neither a Node runtime, npm, nor a native build.
  *
@@ -11,14 +12,15 @@
  *
  *   @e6code/e6-<platformKey>/      archive contents flattened + package.json
  *   @e6code/e6-<platformKey>.tgz   the same tree as an npm tarball
- *   e6/                             launcher: package.json, bin/e6.js, README.md
- *   e6.tgz                          the launcher as an npm tarball
+ *   @e6code/e6/                     launcher: package.json, bin/e6.js, README.md
+ *   @e6code/e6.tgz                  the launcher as an npm tarball
  *
  * The tarballs are what gets published. `npm publish <dir>` always drops
  * `node_modules/` (npm-packlist ignores it whatever `files` says, and
  * bundleDependencies needs an arborist tree these flattened installs are
  * not), whereas `npm publish <tarball>` uploads the bytes as given.
  */
+import { NPM_LAUNCHER_PACKAGE_NAME, NPM_PACKAGE_SCOPE } from "@e6tools/shared/brand";
 import { legacyCliLauncherScript } from "@e6tools/shared/legacyCliLauncher";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -42,9 +44,6 @@ import { isCommandAvailable } from "@e6tools/shared/shell";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { windowsSystemTar } from "./build-cli-archive.ts";
-
-export const NPM_PLATFORM_PACKAGE_SCOPE = "@e6code";
-export const NPM_LAUNCHER_PACKAGE_NAME = "e6";
 
 const encodePackageJson = Schema.encodeEffect(fromJsonStringPretty(Schema.Unknown));
 
@@ -85,7 +84,7 @@ export class NpmPackagesArchiveLayoutError extends Schema.TaggedError<NpmPackage
 }
 
 export function npmPlatformPackageName(platformKey: CliArchivePlatformKey): string {
-  return `${NPM_PLATFORM_PACKAGE_SCOPE}/e6-${platformKey}`;
+  return `${NPM_PACKAGE_SCOPE}/e6-${platformKey}`;
 }
 
 /**
@@ -163,12 +162,12 @@ export function npmPlatformPackageReadme(platformKey: CliArchivePlatformKey): st
     `npx ${NPM_LAUNCHER_PACKAGE_NAME}@latest`,
     "```",
     "",
-    "Source and documentation: https://github.com/emikael/e6code",
+    "Source and documentation: https://github.com/Emikael/e6code",
     "",
   ].join("\n");
 }
 
-/** package.json for the `e6` launcher. No engines: bin/e6.js is trivial CJS. */
+/** package.json for the `@e6code/e6` launcher. No engines: bin/e6.js is trivial CJS. The bin name stays `e6`. */
 export function npmLauncherPackageManifest(
   version: string,
   platformKeys: ReadonlyArray<CliArchivePlatformKey>,
@@ -189,7 +188,7 @@ export function npmLauncherPackageManifest(
 }
 
 /**
- * The launcher every `npx e6` runs. Plain CommonJS with no
+ * The launcher every `npx @e6code/e6` runs. Plain CommonJS with no
  * dependencies so it loads on any Node that npm itself runs on; the real work
  * happens in the single-executable it execs.
  */
@@ -205,14 +204,14 @@ const key = process.platform + "-" + process.arch;
 
 let packageDir;
 try {
-  packageDir = dirname(require.resolve("${NPM_PLATFORM_PACKAGE_SCOPE}/e6-" + key + "/package.json"));
+  packageDir = dirname(require.resolve("${NPM_PACKAGE_SCOPE}/e6-" + key + "/package.json"));
 } catch {
   process.stderr.write(
     [
       "e6: no E6 Code CLI build is available for this platform (" + key + ").",
       "Supported platforms: " + SUPPORTED.join(", ") + ".",
-      "If yours is listed, reinstall e6 so npm fetches its optional dependency.",
-      "The desktop app and release archives are at https://github.com/emikael/e6code/releases",
+      "If yours is listed, reinstall ${NPM_LAUNCHER_PACKAGE_NAME} so npm fetches its optional dependency.",
+      "The desktop app and release archives are at https://github.com/Emikael/e6code/releases",
       "",
     ].join("\\n"),
   );
@@ -447,7 +446,7 @@ export const buildNpmPlatformPackages = Effect.fn("buildNpmPlatformPackages")(fu
     return yield* new NpmPackagesArchivesMissingError({ archivesDir: input.archivesDir, missing });
   }
 
-  yield* fs.makeDirectory(path.join(input.outputDir, NPM_PLATFORM_PACKAGE_SCOPE), {
+  yield* fs.makeDirectory(path.join(input.outputDir, NPM_PACKAGE_SCOPE), {
     recursive: true,
   });
   const outputs: Array<NpmPackageOutput> = [];
@@ -502,7 +501,7 @@ const command = Command.make(
   buildNpmPlatformPackages,
 ).pipe(
   Command.withDescription(
-    "Build the e6 launcher and @e6code/e6-<platform> npm packages from CLI release archives.",
+    "Build the @e6code/e6 launcher and @e6code/e6-<platform> npm packages from CLI release archives.",
   ),
 );
 

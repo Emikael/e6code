@@ -229,8 +229,8 @@ describe("e6 pair", () => {
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
       assert.include(rendered, "No running E6 Code server found.");
-      assert.include(rendered, "npx e6 serve");
-      assert.include(rendered, "npx e6 connect");
+      assert.include(rendered, "npx @e6code/e6 serve");
+      assert.include(rendered, "npx @e6code/e6 connect");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

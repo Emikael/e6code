@@ -17,7 +17,7 @@
 # instead of fetching the release again.
 set -eu
 
-repo="emikael/e6code"
+repo="Emikael/e6code"
 base_url="${E6CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 if [ -n "${E6CODE_HOME:-}" ]; then
   e6_home="$E6CODE_HOME"
@@ -197,7 +197,7 @@ else
   fetch_status=0
   fetch "${base_url}/v${version}/SHA256SUMS" "${staging}/SHA256SUMS" || fetch_status=$?
   if [ "$fetch_status" -eq 44 ]; then
-    fail "e6 ${version} has no release archive for ${platform}-${arch}; releases before the self-contained CLI can only be installed with \`npm install -g e6@${version}\`"
+    fail "e6 ${version} has no release archive for ${platform}-${arch}; releases before the self-contained CLI can only be installed with \`npm install -g @e6code/e6@${version}\`"
   elif [ "$fetch_status" -ne 0 ]; then
     fail "could not download the release checksums"
   fi

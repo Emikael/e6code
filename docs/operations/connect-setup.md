@@ -34,6 +34,17 @@ Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment setti
 Deploy `prod` before personal stages because it owns the retained database that their branches
 depend on. The stack's `PublishClientConfig` action writes the resulting relay URL back to the root `.env`.
 
+## Release configuration
+
+Unified releases omit Connect by default and keep direct LAN and Tailscale pairing available.
+No relay, Clerk account, or relay tracing infrastructure is required in this mode. The hosted
+Connect web app is not deployed; the desktop's bundled web client is still built.
+
+To include Connect, set the production GitHub environment variable `E6CODE_CONNECT_ENABLED=true`,
+configure `CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_TEMPLATE`, `CLERK_CLI_OAUTH_CLIENT_ID`, and
+`RELAY_DOMAIN` (or `RELAY_API_ZONE_NAME`), and deploy the relay stack first. The release then
+reads its tracing configuration from Alchemy. Set the flag to `false` to omit Connect again.
+
 ## CLI OAuth application
 
 In Clerk's OAuth applications settings:
