@@ -96,11 +96,11 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/railway@1.0.0-rc.12"
   - "@distilled.cloud/stripe@1.0.0-rc.12"
   - wrangler@4.151.2
-  - '@cloudflare/workerd-darwin-64@1.20261019.1'
-  - '@cloudflare/workerd-darwin-arm64@1.20261019.1'
-  - '@cloudflare/workerd-linux-64@1.20261019.1'
-  - '@cloudflare/workerd-linux-arm64@1.20261019.1'
-  - '@cloudflare/workerd-windows-64@1.20261019.1'
+  - "@cloudflare/workerd-darwin-64@1.20261019.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20261019.1"
+  - "@cloudflare/workerd-linux-64@1.20261019.1"
+  - "@cloudflare/workerd-linux-arm64@1.20261019.1"
+  - "@cloudflare/workerd-windows-64@1.20261019.1"
   - astro@7.4.1
   - miniflare@5.20261019.0-beta
   - workerd@1.20261019.1
@@ -224,6 +224,6 @@ peerDependencyRules:
     vite: "*"
 
 supportedArchitectures:
-  cpu: [ current, x64 ]
-  libc: [ current, glibc ]
-  os: [ current, linux ]
+  cpu: [current, x64]
+  libc: [current, glibc]
+  os: [current, linux]
