@@ -34,6 +34,7 @@ export function ProjectFavicon(input: {
   project: ProjectFaviconProject;
   className?: string | undefined;
   fallbackIcon?: ComponentType<{ className?: string }>;
+  monogramTone?: "soft" | "solid" | undefined;
 }) {
   const { project } = input;
   const src = useAtomValue(
@@ -49,6 +50,7 @@ export function ProjectFavicon(input: {
         text={project.projectIcon.text}
         color={project.projectIcon.color}
         className={input.className}
+        tone={input.monogramTone}
       />
     );
   }
@@ -88,6 +90,7 @@ export function ProjectFavicon(input: {
         className={input.className}
         icon={FallbackIcon}
         projectName={project.title}
+        monogramTone={input.monogramTone}
       />
     );
   }
@@ -105,6 +108,7 @@ export function ProjectFavicon(input: {
       className={input.className}
       fallbackIcon={FallbackIcon}
       fallbackProjectName={project.title}
+      monogramTone={input.monogramTone}
     />
   );
 }
@@ -114,16 +118,23 @@ function ProjectFaviconFallback({
   icon: Icon,
   emoji,
   projectName,
+  monogramTone,
 }: {
   readonly className?: string | undefined;
   readonly icon: ComponentType<{ className?: string }>;
   readonly emoji?: string | undefined;
   readonly projectName?: string | undefined;
+  readonly monogramTone?: "soft" | "solid" | undefined;
 }) {
   if (projectName && projectName.trim().length > 0) {
     const identity = deriveProjectIdentity(projectName);
     return (
-      <ProjectMonogram text={identity.monogram} color={identity.color} className={className} />
+      <ProjectMonogram
+        text={identity.monogram}
+        color={identity.color}
+        className={className}
+        tone={monogramTone}
+      />
     );
   }
 
@@ -149,11 +160,13 @@ function ProjectFaviconImage({
   className,
   fallbackIcon: FallbackIcon,
   fallbackProjectName,
+  monogramTone,
 }: {
   readonly src: string;
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
   readonly fallbackProjectName?: string | undefined;
+  readonly monogramTone?: "soft" | "solid" | undefined;
 }) {
   const [displayedSrc, setDisplayedSrc] = useState<string | null>(() =>
     src.startsWith("data:image/") ? src : null,
@@ -170,6 +183,7 @@ function ProjectFaviconImage({
           className={className}
           icon={FallbackIcon}
           projectName={fallbackProjectName}
+          monogramTone={monogramTone}
         />
       ) : null}
       {displayedSrc ? (

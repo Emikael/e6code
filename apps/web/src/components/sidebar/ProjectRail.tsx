@@ -2,6 +2,8 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   closestCorners,
   DndContext,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
   type DragEndEvent,
   type DragStartEvent,
   PointerSensor,
@@ -29,8 +31,18 @@ import {
   SettingsIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
+import { APP_VERSION } from "../../branding";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { useUpdateClientSettings, useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -43,12 +55,12 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { useProjects, useThreadShells } from "../../state/entities";
 import { primaryServerProvidersAtom } from "../../state/server";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
-import { E6ConnectSidebarAvatar, E6ConnectSidebarSignIn } from "../clerk/E6ConnectSidebarSignIn";
 import { resolveDesktopUpdateButtonAction } from "../desktopUpdate.logic";
 import { E6Monogram } from "../E6Monogram";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { getProviderUpdateSidebarPillView } from "../ProviderUpdateLaunchNotification.logic";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { useEnvironmentStageLabel } from "../SidebarStageBackdrop";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import {
@@ -61,6 +73,17 @@ import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../../uiStateSto
 import { useSidebar } from "../ui/sidebar";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+
+const E6ConnectSidebarSignIn = lazy(() =>
+  import("../clerk/E6ConnectSidebarSignIn").then((module) => ({
+    default: module.E6ConnectSidebarSignIn,
+  })),
+);
+const E6ConnectSidebarAvatar = lazy(() =>
+  import("../clerk/E6ConnectSidebarSignIn").then((module) => ({
+    default: module.E6ConnectSidebarAvatar,
+  })),
+);
 
 const SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -106,6 +129,8 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
   const manual = sortOrder === "manual";
   const utility = isUtilityPath(pathname);
   const horizontal = orientation === "horizontal";
+  const stageLabel = useEnvironmentStageLabel();
+  const buildLabel = stageLabel === "Alpha" ? APP_VERSION : `${stageLabel} ${APP_VERSION}`;
   const suppressClickRef = useRef(false);
   const [rovingId, setRovingId] = useState<string | null>(null);
 
@@ -254,19 +279,17 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
     if (id) setRovingId(id);
   };
 
-  const projectTiles = railProjects.map((project) => (
-    <ProjectRailTile
-      key={project.projectKey}
-      project={project}
-      counts={countThreadsForLogicalProject(project, threads)}
-      active={!utility && scopeKey === project.projectKey}
-      manual={manual}
-      horizontal={horizontal}
-      tabIndex={tabIndexFor(project.projectKey)}
-      disconnected={project.memberProjects.some((member) =>
+  const projectTiles = railProjects.map((project) => {
+    const tile = {
+      project,
+      counts: countThreadsForLogicalProject(project, threads),
+      active: !utility && scopeKey === project.projectKey,
+      horizontal,
+      tabIndex: tabIndexFor(project.projectKey),
+      disconnected: project.memberProjects.some((member) =>
         DISCONNECTED_PHASES.has(environmentById.get(member.environmentId)?.connection.phase ?? ""),
-      )}
-      machineKind={
+      ),
+      machineKind:
         project.environmentPresence === "local-only"
           ? null
           : resolveEnvironmentMachineKind(
@@ -277,20 +300,24 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
                   ) ?? project.memberProjects[0]
                 )?.environmentId ?? project.environmentId,
               )?.serverConfig ?? null,
-            )
-      }
-      onFocus={() => setRovingId(project.projectKey)}
-      onSelect={() => {
+            ),
+      onFocus: () => setRovingId(project.projectKey),
+      onSelect: () => {
         if (suppressClickRef.current) {
           suppressClickRef.current = false;
           return;
         }
         selectProject(project.projectKey);
-      }}
-    />
-  ));
+      },
+    };
+    return manual ? (
+      <SortableProjectRailTile key={project.projectKey} {...tile} />
+    ) : (
+      <ProjectRailTile key={project.projectKey} {...tile} />
+    );
+  });
 
-  const tiles = (
+  const tiles = manual ? (
     <DndContext
       sensors={sensors}
       collisionDetection={collisionDetection}
@@ -306,6 +333,8 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
         {projectTiles}
       </SortableContext>
     </DndContext>
+  ) : (
+    projectTiles
   );
 
   return (
@@ -316,13 +345,14 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
           "shrink-0 bg-sb-rail-bg",
           horizontal
             ? "flex h-[60px] w-full items-center gap-1 overflow-x-auto px-1"
-            : "flex h-full w-[60px] flex-col items-center gap-1 overflow-y-auto py-2",
+            : "flex h-full w-[60px] flex-col items-center gap-1 overflow-y-auto pb-2 pt-[var(--workspace-topbar-height)]",
         )}
         onKeyDownCapture={onRailKeyDown}
       >
         <RailIconButton
           id="home"
-          label="Go to threads"
+          label={`Go to threads. E6 Code ${buildLabel}`}
+          tooltip={<span className="tabular-nums">{buildLabel}</span>}
           tabIndex={tabIndexFor("home")}
           onFocus={() => setRovingId("home")}
           onClick={() => {
@@ -351,9 +381,12 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
           )}
         />
         <div
+          tabIndex={-1}
           className={cn(
-            "flex min-h-0 min-w-0 gap-1",
-            horizontal ? "items-center" : "w-full flex-1 flex-col items-center overflow-y-auto",
+            "flex min-h-0 gap-1",
+            horizontal
+              ? "shrink-0 items-center"
+              : "w-full min-w-0 flex-1 flex-col items-center overflow-y-auto",
           )}
         >
           {!isReady && projects.length === 0 ? <RailSkeleton horizontal={horizontal} /> : tiles}
@@ -462,10 +495,14 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
           ) : null}
         </RailIconButton>
         <div className="[&_span]:sr-only">
-          <E6ConnectSidebarSignIn />
+          <Suspense fallback={null}>
+            <E6ConnectSidebarSignIn />
+          </Suspense>
         </div>
         <div data-rail-account="">
-          <E6ConnectSidebarAvatar />
+          <Suspense fallback={null}>
+            <E6ConnectSidebarAvatar />
+          </Suspense>
         </div>
       </nav>
     </TooltipProvider>
@@ -489,6 +526,7 @@ function RailSkeleton({ horizontal }: { horizontal: boolean }) {
 function RailIconButton({
   id,
   label,
+  tooltip,
   current = false,
   horizontal = false,
   tabIndex,
@@ -499,6 +537,7 @@ function RailIconButton({
 }: {
   id: string;
   label: string;
+  tooltip?: ReactNode;
   current?: boolean;
   horizontal?: boolean;
   tabIndex: number;
@@ -531,7 +570,7 @@ function RailIconButton({
         {current ? <ActiveBar horizontal={horizontal} /> : null}
         {children}
       </TooltipTrigger>
-      <TooltipPopup side={horizontal ? "bottom" : "right"}>{label}</TooltipPopup>
+      <TooltipPopup side={horizontal ? "bottom" : "right"}>{tooltip ?? label}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -548,35 +587,57 @@ function ActiveBar({ horizontal }: { horizontal: boolean }) {
   );
 }
 
-function ProjectRailTile({
-  project,
-  counts,
-  active,
-  manual,
-  horizontal,
-  tabIndex,
-  disconnected,
-  machineKind,
-  onFocus,
-  onSelect,
-}: {
+function SortableProjectRailTile(props: ProjectRailTileProps) {
+  const sortable = useSortable({ id: props.project.projectKey });
+  const { tabIndex: _sortableTabIndex, ...dragAttributes } = sortable.attributes;
+  return (
+    <ProjectRailTile
+      {...props}
+      dragRef={sortable.setNodeRef}
+      dragStyle={{
+        transform: CSS.Transform.toString(sortable.transform),
+        transition: sortable.transition,
+      }}
+      dragAttributes={dragAttributes}
+      dragListeners={sortable.listeners}
+      dragging={sortable.isDragging}
+    />
+  );
+}
+
+interface ProjectRailTileProps {
   project: SidebarProjectSnapshot;
   counts: ProjectSidebarCounts;
   active: boolean;
-  manual: boolean;
   horizontal: boolean;
   tabIndex: number;
   disconnected: boolean;
   machineKind: ReturnType<typeof resolveEnvironmentMachineKind> | null;
   onFocus: () => void;
   onSelect: () => void;
-}) {
-  const sortable = useSortable({ id: project.projectKey, disabled: !manual });
-  const style = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
-  };
-  const { tabIndex: _sortableTabIndex, ...dragAttributes } = sortable.attributes;
+  dragRef?: (element: HTMLElement | null) => void;
+  dragStyle?: { transform: string | undefined; transition: string | undefined };
+  dragAttributes?: Omit<DraggableAttributes, "tabIndex"> | undefined;
+  dragListeners?: DraggableSyntheticListeners;
+  dragging?: boolean;
+}
+
+function ProjectRailTile({
+  project,
+  counts,
+  active,
+  horizontal,
+  tabIndex,
+  disconnected,
+  machineKind,
+  onFocus,
+  onSelect,
+  dragRef,
+  dragStyle,
+  dragAttributes,
+  dragListeners,
+  dragging = false,
+}: ProjectRailTileProps) {
   const label = railAccessibleName(project.displayName, counts);
   return (
     <Tooltip>
@@ -584,33 +645,36 @@ function ProjectRailTile({
         render={
           <button
             type="button"
-            ref={sortable.setNodeRef}
+            ref={dragRef}
             data-rail-item=""
             data-rail-id={project.projectKey}
             aria-label={label}
             aria-current={active ? "page" : undefined}
             onFocus={onFocus}
             onClick={onSelect}
-            style={style}
+            style={dragStyle}
             className={cn(
               "sb-action relative size-9 shrink-0 text-sb-foreground",
               active && "bg-sb-selection",
               disconnected && "opacity-50",
-              sortable.isDragging && "z-10",
+              dragging && "z-10",
             )}
-            {...(manual ? dragAttributes : {})}
-            {...(manual ? sortable.listeners : {})}
+            {...dragAttributes}
+            {...dragListeners}
             tabIndex={tabIndex}
           />
         }
       >
         {active ? <ActiveBar horizontal={horizontal} /> : null}
-        <ProjectFavicon project={project} className="size-5" />
+        <ProjectFavicon project={project} className="size-5" monogramTone="solid" />
         {counts.badge ? (
           <span
             aria-hidden
-            className="absolute right-0.5 bottom-0.5 min-w-3.5 rounded-[4px] bg-sb-surface px-0.5 text-center font-mono text-[9px] leading-4 tabular-nums"
-            style={{ color: `var(--state-${counts.badge.status})` }}
+            className="absolute -right-0.5 -bottom-0.5 h-4 min-w-4 rounded-full px-1 text-center font-mono text-(length:--sb-text-meta) leading-4 font-semibold tabular-nums ring-2 ring-sb-rail-bg"
+            style={{
+              backgroundColor: `var(--state-${counts.badge.status})`,
+              color: "var(--sb-rail-bg)",
+            }}
           >
             {counts.badge.count}
           </span>

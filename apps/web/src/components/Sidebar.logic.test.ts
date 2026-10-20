@@ -2623,9 +2623,18 @@ describe("countProjectSidebarThreads", () => {
       live: 3,
       threads: 7,
       worktrees: 3,
-      badge: { status: "approval", count: 1 },
+      badge: { status: "approval", count: 3 },
       liveDot: true,
     });
+    expect(
+      countProjectSidebarThreads([
+        countThread({
+          id: ThreadId.make("working-only"),
+          projectId,
+          session: { status: "running", activeTurnId: "turn" } as never,
+        }),
+      ]),
+    ).toMatchObject({ needYou: 0, badge: null, liveDot: true });
     expect(countProjectSidebarThreads([])).toEqual({
       needYou: 0,
       live: 0,

@@ -1,9 +1,16 @@
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@e6tools/client-runtime/state/runtime";
+import { resolveEnvironmentMachineKind } from "@e6tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
+import { environmentCatalog } from "../../connection/catalog";
 import { cn } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
-import { resolveEnvironmentMachineKind } from "@e6tools/contracts";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { toastManager } from "../ui/toast";
 import { connectionPhaseDotClassName, ConnectionStatusDot } from "../ConnectionStatusDot";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ProviderMark } from "./primitives/ProviderMark";
@@ -24,6 +31,7 @@ export function SwitchboardSidebarFooter() {
   const { isMobile, setOpenMobile } = useSidebar();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
   const environment =
     environments.find((entry) => entry.environmentId === primaryEnvironmentId) ??
     environments[0] ??
@@ -39,6 +47,18 @@ export function SwitchboardSidebarFooter() {
   const openConnections = () => {
     if (isMobile) setOpenMobile(false);
     void navigate({ to: "/settings/connections" });
+  };
+  const retryConnection = async () => {
+    if (!environment) return;
+    const result = await retryEnvironment(environment.environmentId);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Could not reconnect environment",
+        description: error instanceof Error ? error.message : "Failed to reconnect.",
+      });
+    }
   };
   const phase = environment?.connection.phase ?? "offline";
   const disconnected = DISCONNECTED_PHASES.has(phase);
@@ -60,7 +80,12 @@ export function SwitchboardSidebarFooter() {
                 className="flex min-w-0 items-center gap-1.5"
               >
                 <ProviderMark provider={meter.provider} label={meter.label} />
-                <UsageMeter label={meter.windowLabel} percent={meter.percent} className="min-w-0" />
+                <UsageMeter
+                  label={meter.windowLabel}
+                  percent={meter.percent}
+                  name={usageMeterAccessibleName(meter, resetLabel)}
+                  className="min-w-0"
+                />
               </div>
             );
           })}
@@ -70,7 +95,13 @@ export function SwitchboardSidebarFooter() {
         <button
           type="button"
           className={cn("sb-action h-auto w-full justify-start gap-1.5 px-0.5 text-sb-muted")}
-          onClick={openConnections}
+          onClick={() => {
+            if (disconnected) {
+              void retryConnection();
+              return;
+            }
+            openConnections();
+          }}
         >
           <ConnectionStatusDot dotClassName={connectionPhaseDotClassName(phase)} />
           <EnvironmentMachineIcon

@@ -317,7 +317,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           collapsible="offcanvas"
           data-app-sidebar=""
           className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
-          {...(switchboard ? { "data-switchboard": "sidebar" } : {})}
           resizable={
             switchboard
               ? {

@@ -1,5 +1,5 @@
 import type { ProjectIconColor } from "@e6tools/contracts";
-import { projectIconColorClassName } from "../projectIconColors";
+import { projectIconColorClassName, projectMonogramClassName } from "../projectIconColors";
 import { cn } from "~/lib/utils";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -8,10 +8,16 @@ export function ProjectMonogram({
   text,
   color,
   className,
+  tone = "soft",
 }: {
   readonly text: string;
   readonly color: ProjectIconColor;
   readonly className?: string | undefined;
+  /**
+   * `soft` is the flags-off mark (a 14% wash). `solid` is an opaque tile whose
+   * ink clears 4.5:1 on its own background in every built-in theme.
+   */
+  readonly tone?: "soft" | "solid" | undefined;
 }) {
   // Wrapped like the emoji and Lucide branches so the monogram sits where an
   // <img> favicon would. Menu items, buttons and the like pull every bare svg
@@ -26,11 +32,13 @@ export function ProjectMonogram({
         viewBox="0 0 16 16"
         className={cn(
           "size-full overflow-hidden rounded-[25%] font-mono select-none",
-          projectIconColorClassName(color),
+          tone === "solid" ? projectMonogramClassName(color) : projectIconColorClassName(color),
         )}
-        style={{
-          backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)",
-        }}
+        style={
+          tone === "solid"
+            ? undefined
+            : { backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)" }
+        }
       >
         <text
           x="8"

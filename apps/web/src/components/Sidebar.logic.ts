@@ -1413,12 +1413,15 @@ export function countProjectSidebarThreads(
     if (LIVE_LABELS.has(pill.label)) live += 1;
   }
 
-  const winner = resolveProjectStatusIndicator(pills);
-  if (!winner) return { ...EMPTY_PROJECT_COUNTS, threads: threadCount, worktrees: worktrees.size };
-
-  let badgeCount = 0;
+  let attention: ThreadStatusPill | null = null;
   for (const pill of pills) {
-    if (pill?.label === winner.label) badgeCount += 1;
+    if (!pill || !NEED_YOU_LABELS.has(pill.label)) continue;
+    if (
+      attention === null ||
+      THREAD_STATUS_PRIORITY[pill.label] > THREAD_STATUS_PRIORITY[attention.label]
+    ) {
+      attention = pill;
+    }
   }
 
   return {
@@ -1426,7 +1429,10 @@ export function countProjectSidebarThreads(
     live,
     threads: threadCount,
     worktrees: worktrees.size,
-    badge: { status: PILL_STATUS_KIND[winner.label], count: badgeCount },
+    badge:
+      attention === null || needYou === 0
+        ? null
+        : { status: PILL_STATUS_KIND[attention.label], count: needYou },
     liveDot: live > 0,
   };
 }

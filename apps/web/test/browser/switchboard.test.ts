@@ -27,6 +27,7 @@ let sandbox: string;
 let currentUrl: string;
 let mainUrl: string;
 let browser: Browser;
+let backendPort = 0;
 let backend: ReturnType<typeof NodeChildProcess.spawn> | undefined;
 const token = NodeCrypto.randomBytes(32).toString("hex");
 
@@ -188,7 +189,7 @@ NodeTest.before(
       const workspace = NodePath.join(sandbox, "project");
       await NodeFSP.mkdir(workspace);
       await exec("git", ["init", "--quiet", workspace]);
-      const backendPort = await freePort();
+      backendPort = await freePort();
       currentUrl = await frontend(repo, "current", backendPort);
       mainUrl = await frontend(baseline, "main", backendPort);
       backend = NodeChildProcess.spawn(
@@ -481,7 +482,7 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
 
 NodeTest.test(
   "flag-on sidebar shows the project rail, masthead, footer, and sort picker",
-  { timeout: 120_000 },
+  { timeout: 180_000 },
   async () => {
     const context = await newContext({ switchboard: true });
     try {
@@ -512,6 +513,104 @@ NodeTest.test(
         path: NodePath.join(artifacts, "flag-on-sort-picker.png"),
         animations: "disabled",
       });
+      await page.keyboard.press("Escape");
+
+      // thread.activity.append is not a client command, so the fixture stays at
+      // zero need-you threads and the rail renders no badge. The specimen uses
+      // the production pill classes on that real tile.
+      const projectTile = page
+        .getByRole("navigation", { name: "Projects" })
+        .getByRole("button", { name: "Switchboard QA", exact: true });
+      NodeAssert.equal(await projectTile.locator("span.ring-2").count(), 0);
+      await projectTile.evaluate((button) => {
+        const badge = document.createElement("span");
+        badge.setAttribute("data-badge-specimen", "");
+        badge.textContent = "1";
+        badge.className =
+          "absolute -right-0.5 -bottom-0.5 h-4 min-w-4 rounded-full px-1 text-center font-mono text-(length:--sb-text-meta) leading-4 font-semibold tabular-nums ring-2 ring-sb-rail-bg";
+        badge.style.backgroundColor = "var(--state-approval)";
+        badge.style.color = "var(--sb-rail-bg)";
+        button.append(badge);
+      });
+      await projectTile.screenshot({
+        path: NodePath.join(artifacts, "flag-on-badge.png"),
+        animations: "disabled",
+      });
+      await projectTile.locator("[data-badge-specimen]").evaluate((badge) => badge.remove());
+
+      await page.evaluate(() => {
+        localStorage.setItem("switchboard_column_width", "256");
+      });
+      await page.reload();
+      await page.getByRole("navigation", { name: "Projects" }).waitFor();
+      await page
+        .getByRole("navigation", { name: "Projects" })
+        .getByRole("button", { name: "Switchboard QA", exact: true })
+        .click();
+      const needYou = page.getByRole("button", { name: /need you, filter$/ });
+      await needYou.waitFor();
+      NodeAssert.equal(
+        await needYou
+          .locator("span")
+          .last()
+          .evaluate((node) => node.getClientRects().length),
+        1,
+        "The need-you label wraps at the 256px column",
+      );
+      await page.locator("[data-switchboard='sidebar'] header").screenshot({
+        path: NodePath.join(artifacts, "flag-on-masthead-256.png"),
+        animations: "disabled",
+      });
+
+      // A real Electron bridge changes auth bootstrap. The macOS inset is the
+      // same CSS variable the desktop shell sets, so simulate that here.
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty("--workspace-controls-left", "90px");
+      });
+      const toggle = page.getByRole("button", { name: "Toggle main sidebar" });
+      const home = page.getByRole("button", { name: /Go to threads/ });
+      const title = page.getByRole("heading", { name: "Switchboard QA", exact: true });
+      const [toggleBox, homeBox, titleBox] = await Promise.all([
+        toggle.boundingBox(),
+        home.boundingBox(),
+        title.boundingBox(),
+      ]);
+      NodeAssert.ok(toggleBox && homeBox && titleBox);
+      NodeAssert.ok(
+        homeBox.y >= toggleBox.y + toggleBox.height - 1,
+        `Home mark overlaps the sidebar toggle: ${JSON.stringify({ toggleBox, homeBox })}`,
+      );
+      NodeAssert.ok(
+        titleBox.x >= toggleBox.x + toggleBox.width - 1,
+        `Masthead title overlaps the sidebar toggle: ${JSON.stringify({ toggleBox, titleBox })}`,
+      );
+      await page
+        .locator("[data-switchboard='sidebar']")
+        .first()
+        .screenshot({
+          path: NodePath.join(artifacts, "flag-on-macos-inset.png"),
+          animations: "disabled",
+        });
+
+      const mobile = await context.newPage();
+      await mobile.setViewportSize({ width: 390, height: 844 });
+      await mobile.clock.setFixedTime(new Date(fixedTime));
+      await mobile.goto(`${currentUrl}/`);
+      await mobile.getByRole("button", { name: "Toggle main sidebar" }).click();
+      const strip = mobile.getByRole("navigation", { name: "Projects" });
+      await strip.waitFor();
+      const addBox = await mobile.getByRole("button", { name: "Add project" }).boundingBox();
+      const sortBox = await mobile.getByRole("button", { name: "Sort projects" }).boundingBox();
+      NodeAssert.ok(addBox && sortBox);
+      NodeAssert.ok(
+        addBox.x + addBox.width <= sortBox.x + 1,
+        `Add project overlaps Sort: ${JSON.stringify({ addBox, sortBox })}`,
+      );
+      await strip.screenshot({
+        path: NodePath.join(artifacts, "flag-on-mobile-strip.png"),
+        animations: "disabled",
+      });
+      await mobile.close();
     } finally {
       await context.close();
     }

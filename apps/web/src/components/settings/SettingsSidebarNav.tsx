@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
+import { useUiStateStore } from "../../uiStateStore";
+
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
@@ -105,6 +107,7 @@ function SettingsSectionIcon({ to }: { to: SettingsPath }) {
 }
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const navigate = useNavigate();
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
@@ -345,16 +348,20 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="px-[var(--sidebar-content-inset)] py-1">
-        <Suspense fallback={null}>
-          <E6ConnectSidebarSignIn />
-        </Suspense>
+        {switchboard ? null : (
+          <Suspense fallback={null}>
+            <E6ConnectSidebarSignIn />
+          </Suspense>
+        )}
         <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <SidebarUtilityMenu />
           </div>
-          <Suspense fallback={null}>
-            <E6ConnectSidebarAvatar />
-          </Suspense>
+          {switchboard ? null : (
+            <Suspense fallback={null}>
+              <E6ConnectSidebarAvatar />
+            </Suspense>
+          )}
         </div>
       </SidebarFooter>
     </>

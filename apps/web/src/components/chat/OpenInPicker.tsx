@@ -307,7 +307,7 @@ export const OpenInPicker = memo(function OpenInPicker({
             >
               <Icon aria-hidden="true" className={getOpenInIconClass(kind)} />
               <MenuItemLabel>{label}</MenuItemLabel>
-              {value === preferredEditor && openFavoriteEditorShortcutLabel && (
+              {enableShortcut && value === preferredEditor && openFavoriteEditorShortcutLabel && (
                 <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
               )}
             </MenuItem>
@@ -333,7 +333,7 @@ export const OpenInPicker = memo(function OpenInPicker({
           >
             <primaryOption.Icon className={cn("size-4", getOpenInIconClass(primaryOption.kind))} />
             <MenuItemLabel className="truncate">Open in {primaryOption.label}</MenuItemLabel>
-            {openFavoriteEditorShortcutLabel && (
+            {enableShortcut && openFavoriteEditorShortcutLabel && (
               <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
             )}
           </MenuItem>
@@ -352,7 +352,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   return (
     <Group aria-label="Open in editor">
       <Button
-        aria-label={compact ? "Open file in preferred editor" : undefined}
+        aria-label={compact ? "Open project in editor" : undefined}
         className="ps-[8.5px]"
         size="xs"
         variant="outline"

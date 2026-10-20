@@ -52,6 +52,8 @@ interface ProjectScriptsControlProps {
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
+  /** When set, running is disabled and this text is the tooltip. Adding still works. */
+  runDisabledReason?: string;
   onAddScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
   onUpdateScript: (
     scriptId: string,
@@ -68,6 +70,7 @@ export default function ProjectScriptsControl({
   keybindings,
   preferredScriptId = null,
   onRunScript,
+  runDisabledReason,
   onAddScript,
   onUpdateScript,
   onDeleteScript,
@@ -274,28 +277,53 @@ export default function ProjectScriptsControl({
         </>
       ) : primaryScript ? (
         <Group aria-label="Project scripts">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="xs"
-                  variant="outline"
-                  className="w-7 px-0 sm:w-6 @3xl/header-actions:w-auto! @3xl/header-actions:px-[calc(--spacing(2)-1px)]"
-                  aria-label={`Run ${primaryScript.name}`}
-                  // The tooltip wrapper replaces data-slot="button", so themed
-                  // toolbar styling needs its own hook.
-                  data-toolbar-control=""
-                  onClick={() => onRunScript(primaryScript)}
-                />
-              }
-            >
-              <ScriptIcon icon={primaryScript.icon} />
-              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-                {primaryScript.name}
-              </span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">Run {primaryScript.name}</TooltipPopup>
-          </Tooltip>
+          {runDisabledReason ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      className="w-7 px-0 sm:w-6 @3xl/header-actions:w-auto! @3xl/header-actions:px-[calc(--spacing(2)-1px)]"
+                      aria-label={runDisabledReason}
+                      data-toolbar-control=""
+                      disabled
+                    >
+                      <ScriptIcon icon={primaryScript.icon} />
+                      <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                        {primaryScript.name}
+                      </span>
+                    </Button>
+                  </span>
+                }
+              />
+              <TooltipPopup side="top">{runDisabledReason}</TooltipPopup>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="w-7 px-0 sm:w-6 @3xl/header-actions:w-auto! @3xl/header-actions:px-[calc(--spacing(2)-1px)]"
+                    aria-label={`Run ${primaryScript.name}`}
+                    // The tooltip wrapper replaces data-slot="button", so themed
+                    // toolbar styling needs its own hook.
+                    data-toolbar-control=""
+                    onClick={() => onRunScript(primaryScript)}
+                  />
+                }
+              >
+                <ScriptIcon icon={primaryScript.icon} />
+                <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                  {primaryScript.name}
+                </span>
+              </TooltipTrigger>
+              <TooltipPopup side="top">Run {primaryScript.name}</TooltipPopup>
+            </Tooltip>
+          )}
           <GroupSeparator className="hidden @3xl/header-actions:block" />
           <Menu
             highlightItemOnHover={false}

@@ -1,15 +1,22 @@
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@e6tools/client-runtime/state/runtime";
 import type { ProjectScript } from "@e6tools/contracts";
 import { EnvironmentId } from "@e6tools/contracts";
 import { resolveProjectScripts } from "@e6tools/shared/projectScripts";
 import { useNavigate } from "@tanstack/react-router";
-import { CopyIcon, EllipsisIcon, FolderOpenIcon } from "lucide-react";
+import { CopyIcon, EllipsisIcon, FolderOpenIcon, FoldersIcon } from "lucide-react";
 import { useMemo } from "react";
 
+import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { useE6ProjectFileState } from "../../hooks/useE6ProjectFileScripts";
 import { readLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
-import { useEnvironments } from "../../state/environments";
+import { environmentCatalog } from "../../connection/catalog";
+import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { shellEnvironment } from "../../state/shell";
@@ -18,11 +25,20 @@ import { OpenInPicker } from "../chat/OpenInPicker";
 import { ProjectFavicon } from "../ProjectFavicon";
 import ProjectScriptsControl from "../ProjectScriptsControl";
 import type { ProjectSidebarCounts, SwitchboardStatFilter } from "../Sidebar.logic";
-import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
+import type {
+  SidebarProjectGroupMember,
+  SidebarProjectSnapshot,
+} from "../../sidebarProjectGrouping";
+import {
+  resolveEnvironmentIdentificationPillLabel,
+  resolveSidebarStageBackdropVariant,
+  useEnvironmentStageLabel,
+} from "../SidebarStageBackdrop";
 import { useProjectScriptSettings } from "../settings/useProjectScriptSettings";
 import { toastManager } from "../ui/toast";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
+import { useProjectScriptRunTarget } from "./projectScriptRunTarget";
 
 const STATS: ReadonlyArray<{ id: SwitchboardStatFilter; label: string }> = [
   { id: "need-you", label: "need you" },
@@ -47,11 +63,44 @@ export function ProjectMasthead({
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const { environments, isReady } = useEnvironments();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projects = useProjects();
-  const member = project?.memberProjects[0] ?? null;
+  const activeChatProjectId = useProjectScriptRunTarget();
+  const stageLabel = useEnvironmentStageLabel();
+  const environmentIdentificationMode = useEnvironmentIdentificationMode();
+  const channel =
+    environmentIdentificationMode === "none"
+      ? null
+      : resolveSidebarStageBackdropVariant(stageLabel);
+  const channelLabel = resolveEnvironmentIdentificationPillLabel(stageLabel);
+  const members = project?.memberProjects ?? [];
+  const chatMember = members.find((member) => member.id === activeChatProjectId) ?? null;
+  const member =
+    chatMember ??
+    members.find((entry) => entry.environmentId === primaryEnvironmentId) ??
+    members[0] ??
+    null;
   const environment = member
     ? (environments.find((entry) => entry.environmentId === member.environmentId) ?? null)
     : null;
+  const scriptTargets = useMemo(
+    () =>
+      members.flatMap((entry) => {
+        const host = environments.find(
+          (candidate) => candidate.environmentId === entry.environmentId,
+        );
+        if (!host?.serverConfig) return [];
+        return [
+          {
+            environmentId: entry.environmentId,
+            settings: host.serverConfig.settings,
+            keybindings: host.serverConfig.keybindings,
+            project: entry,
+          },
+        ];
+      }),
+    [environments, members],
+  );
   const settings = environment?.serverConfig?.settings ?? null;
   const scripts = useMemo(
     () => (member && settings ? resolveProjectScripts(settings, member) : []),
@@ -61,18 +110,8 @@ export function ProjectMasthead({
     member?.environmentId ?? EnvironmentId.make("none"),
     member?.workspaceRoot ?? null,
   );
-  const { submit, persist } = useProjectScriptSettings(
-    member && environment?.serverConfig
-      ? [
-          {
-            environmentId: member.environmentId,
-            settings: environment.serverConfig.settings,
-            keybindings: environment.serverConfig.keybindings,
-            project: member,
-          },
-        ]
-      : [],
-  );
+  const { submit, persist } = useProjectScriptSettings(scriptTargets);
+  const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
   const deleteProject = useAtomCommand(projectEnvironment.delete, { reportFailure: false });
   const revealInFileManager = useAtomCommand(shellEnvironment.openInEditor, {
     reportFailure: false,
@@ -90,41 +129,76 @@ export function ProjectMasthead({
       )?.connection.phase ?? "",
     ),
   );
-  const unreachable = environments.find(
-    (entry) =>
-      project?.memberProjects.some(
-        (memberProject) => memberProject.environmentId === entry.environmentId,
-      ) && DISCONNECTED_PHASES.has(entry.connection.phase),
-  );
+
+  const scriptRunReason = chatMember ? undefined : "Open a thread in this project to run a script";
 
   const runScript = (script: ProjectScript) => {
-    if (!member) return;
+    if (!chatMember) {
+      toastManager.add({
+        type: "warning",
+        title: "Open a thread in this project to run a script",
+      });
+      return;
+    }
     window.dispatchEvent(
       new CustomEvent("e6code:run-project-script", {
-        detail: { script, projectId: member.id },
+        detail: { script, projectId: chatMember.id },
       }),
     );
   };
 
   const removeProject = async () => {
-    if (!member) return;
-    const message = `Remove project "${member.title}"?\nPath: ${member.workspaceRoot}`;
+    if (members.length === 0) return;
+    const message = members
+      .map((entry) => `Remove project "${entry.title}"?\nPath: ${entry.workspaceRoot}`)
+      .join("\n\n");
     const api = readLocalApi();
     const confirmed = api ? await api.dialogs.confirm(message) : window.confirm(message);
     if (!confirmed) return;
-    await deleteProject({
-      environmentId: member.environmentId,
-      input: { projectId: member.id, force: true },
-    });
+    for (const entry of members) {
+      await deleteProject({
+        environmentId: entry.environmentId,
+        input: { projectId: entry.id, force: true },
+      });
+    }
   };
 
+  const retryUnreachable = async (entries: readonly SidebarProjectGroupMember[]) => {
+    for (const entry of entries) {
+      const result = await retryEnvironment(entry.environmentId);
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Could not reconnect environment",
+          description: error instanceof Error ? error.message : "Failed to reconnect.",
+        });
+      }
+    }
+  };
+
+  const unreachableMembers = members.filter((entry) =>
+    DISCONNECTED_PHASES.has(
+      environments.find((candidate) => candidate.environmentId === entry.environmentId)?.connection
+        .phase ?? "",
+    ),
+  );
+  const unreachableLabel =
+    environments.find((entry) => entry.environmentId === unreachableMembers[0]?.environmentId)
+      ?.label ?? null;
+
   return (
-    <header className="flex shrink-0 flex-col gap-2 border-b border-sb-border px-3 py-2.5">
-      <div className="flex min-w-0 items-start gap-2">
+    <header className="@container/sidebar-header flex shrink-0 flex-col gap-2 border-b border-sb-border px-3 pb-2.5 pt-0">
+      <div
+        className={cn(
+          "flex min-h-[var(--workspace-topbar-height)] min-w-0 items-center gap-2 ps-[max(0px,calc(var(--workspace-titlebar-content-left)-60px-0.75rem+0.25rem))]",
+          isElectron && "drag-region",
+        )}
+      >
         {project ? (
-          <ProjectFavicon project={project} className="mt-0.5 size-5 shrink-0" />
+          <ProjectFavicon project={project} className="size-5 shrink-0" monogramTone="solid" />
         ) : (
-          <span aria-hidden className="mt-0.5 size-5 shrink-0 rounded-md bg-sb-hover" />
+          <FoldersIcon aria-hidden className="size-5 shrink-0 text-sb-muted" strokeWidth={1.75} />
         )}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[15px] leading-5 font-semibold text-sb-foreground">
@@ -136,6 +210,19 @@ export function ProjectMasthead({
             </p>
           ) : null}
         </div>
+        {channel && channelLabel ? (
+          <span
+            data-environment-identification={channel}
+            className={cn(
+              "relative z-10 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[13rem]/sidebar-header:inline-flex",
+              channel === "nightly"
+                ? "bg-(--brand-orange)/14 text-(--brand-orange-ink)"
+                : "bg-(--brand-cyan)/14 text-(--brand-cyan-ink)",
+            )}
+          >
+            {channelLabel}
+          </span>
+        ) : null}
         {project && member && environment?.serverConfig ? (
           <div className="flex shrink-0 items-center gap-0.5">
             <ProjectScriptsControl
@@ -143,6 +230,7 @@ export function ProjectMasthead({
               scripts={scripts}
               fileScripts={fileState.scripts}
               keybindings={environment.serverConfig.keybindings}
+              {...(scriptRunReason ? { runDisabledReason: scriptRunReason } : {})}
               onRunScript={runScript}
               onAddScript={(input) => submit(null, input)}
               onUpdateScript={(scriptId, input) => submit(scriptId, input)}
@@ -238,7 +326,7 @@ export function ProjectMasthead({
                 }
                 onClick={() => onStatSelect(stat.id)}
                 className={cn(
-                  "sb-action h-auto min-h-8 flex-col gap-0 px-1 py-1",
+                  "sb-action h-auto min-h-8 flex-col items-start gap-0 px-1.5 py-1",
                   value === 0 && "text-sb-muted",
                 )}
               >
@@ -257,22 +345,23 @@ export function ProjectMasthead({
                 >
                   {value}
                 </span>
-                <span className="text-(length:--sb-text-meta) text-sb-muted">{stat.label}</span>
+                <span className="text-(length:--sb-text-meta) whitespace-nowrap text-sb-muted">
+                  {stat.label}
+                </span>
               </button>
             );
           })}
         </div>
       )}
-      {disconnected && unreachable ? (
+      {disconnected && unreachableLabel ? (
         <button
           type="button"
           className="sb-action h-auto justify-start px-1 text-left text-(length:--sb-text-meta)"
           onClick={() => {
-            if (isMobile) setOpenMobile(false);
-            void navigate({ to: "/settings/connections" });
+            void retryUnreachable(unreachableMembers);
           }}
         >
-          {unreachable.label} unreachable · retry
+          {unreachableLabel} unreachable · retry
         </button>
       ) : null}
     </header>

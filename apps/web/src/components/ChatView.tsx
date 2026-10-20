@@ -252,6 +252,7 @@ import {
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+import { setProjectScriptRunTarget } from "./sidebar/projectScriptRunTarget";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
@@ -4320,6 +4321,10 @@ export default function ChatView(props: ChatViewProps) {
       writeTerminal,
     ],
   );
+  useEffect(() => {
+    setProjectScriptRunTarget(activeProject?.id ?? null);
+    return () => setProjectScriptRunTarget(null);
+  }, [activeProject?.id]);
   useEffect(() => {
     const onRun = (event: Event) => {
       const detail = (event as CustomEvent<{ script: ProjectScript; projectId: ProjectId }>).detail;
