@@ -4,9 +4,11 @@ import { SWITCHBOARD_STATUS, type SwitchboardStatus } from "./status";
 export function StatusPill({
   status,
   className,
+  label,
 }: {
   status: SwitchboardStatus;
   className?: string;
+  label?: string;
 }) {
   return (
     <span
@@ -19,7 +21,7 @@ export function StatusPill({
         backgroundColor: `color-mix(in srgb, var(--state-${status}) 10%, var(--sb-surface))`,
       }}
     >
-      {SWITCHBOARD_STATUS[status].label}
+      {label ?? SWITCHBOARD_STATUS[status].label}
     </span>
   );
 }

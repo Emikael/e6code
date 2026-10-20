@@ -9,6 +9,8 @@ import * as NodePath from "node:path";
 import * as NodeTest from "node:test";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
+import { DEFAULT_MODEL } from "@e6tools/contracts";
+import type { OrchestrationShellSnapshot } from "@e6tools/contracts";
 import {
   chromium,
   type Browser,
@@ -35,7 +37,17 @@ let mainUrl: string;
 let browser: Browser;
 let backendPort = 0;
 let backend: ReturnType<typeof NodeChildProcess.spawn> | undefined;
+let backendLogWrite = Promise.resolve();
 const token = NodeCrypto.randomBytes(32).toString("hex");
+
+function recordBackendLog(message: string) {
+  backendLogWrite = backendLogWrite.then(() =>
+    NodeFSP.appendFile(
+      NodePath.join(artifacts, "backend.log"),
+      `${message.replace(/#token=\S+/g, "#token=[redacted]")}\n`,
+    ),
+  );
+}
 
 async function freePort() {
   const server = NodeNet.createServer();
@@ -198,6 +210,7 @@ NodeTest.before(
       backendPort = await freePort();
       currentUrl = await frontend(repo, "current", backendPort);
       mainUrl = await frontend(baseline, "main", backendPort);
+      await NodeFSP.writeFile(NodePath.join(artifacts, "backend.log"), "");
       backend = NodeChildProcess.spawn(
         process.execPath,
         [
@@ -225,6 +238,23 @@ NodeTest.before(
           },
           stdio: ["ignore", "pipe", "pipe"],
         },
+      );
+      for (const [name, stream] of [
+        ["stdout", backend.stdout!],
+        ["stderr", backend.stderr!],
+      ] as const) {
+        let pending = "";
+        stream.on("data", (data: Buffer) => {
+          const lines = (pending + data.toString()).split("\n");
+          pending = lines.pop() ?? "";
+          for (const line of lines) recordBackendLog(`[${name}] ${line}`);
+        });
+        stream.on("end", () => {
+          if (pending) recordBackendLog(`[${name}] ${pending}`);
+        });
+      }
+      backend.once("exit", (code, signal) =>
+        recordBackendLog(`[exit] code=${code} signal=${signal}`),
       );
       await new Promise<void>((ready, reject) => {
         let log = "";
@@ -306,6 +336,7 @@ NodeTest.after(async () => {
     backend.kill("SIGTERM");
     await exited;
   }
+  await backendLogWrite;
   if (sandbox) await NodeFSP.rm(sandbox, { recursive: true, force: true });
 });
 
@@ -640,6 +671,574 @@ NodeTest.test(
         animations: "disabled",
       });
       await mobile.close();
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+async function dispatchFixture(command: object) {
+  const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(command),
+  });
+  NodeAssert.equal(response.status, 200, await response.text());
+}
+
+async function readShell(): Promise<OrchestrationShellSnapshot> {
+  const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/shell`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  NodeAssert.equal(response.status, 200);
+  return response.json();
+}
+
+async function browserRpc(page: Page, method: string, payload: object): Promise<unknown> {
+  return page.evaluate(
+    ({ method, payload }) =>
+      new Promise((resolve, reject) => {
+        const url = new URL("/ws", location.href);
+        url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(url);
+        const id = crypto.randomUUID();
+        socket.addEventListener("open", () =>
+          socket.send(
+            JSON.stringify({
+              _tag: "Request",
+              id,
+              tag: method,
+              payload,
+              headers: [],
+            }),
+          ),
+        );
+        socket.addEventListener("error", () => reject(new Error(`RPC ${method} disconnected`)));
+        socket.addEventListener("close", () =>
+          reject(new Error(`RPC ${method} closed before its receipt`)),
+        );
+        socket.addEventListener("message", ({ data }) => {
+          const message = JSON.parse(String(data));
+          if (message._tag !== "Exit" || message.requestId !== id) return;
+          socket.close();
+          if (message.exit._tag === "Success") resolve(message.exit.value);
+          else reject(new Error(`RPC ${method} failed: ${JSON.stringify(message.exit)}`));
+        });
+      }),
+    { method, payload },
+  );
+}
+
+function observeThreadWrites(page: Page) {
+  const commands: Array<Record<string, unknown>> = [];
+  const waiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  page.on("websocket", (socket) => {
+    const pending = new Map<string, Record<string, unknown>>();
+    socket.on("framesent", ({ payload }) => {
+      const message = JSON.parse(String(payload));
+      if (message._tag !== "Request" || message.tag !== "orchestration.dispatchCommand") return;
+      commands.push(message.payload);
+      pending.set(String(message.id), message.payload);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      const message = JSON.parse(String(payload));
+      if (message._tag !== "Exit") return;
+      const command = pending.get(String(message.requestId));
+      if (!command) return;
+      pending.delete(String(message.requestId));
+      const waiter = waiters.get(String(command.type));
+      if (!waiter) return;
+      waiters.delete(String(command.type));
+      if (message.exit._tag === "Success") waiter.resolve();
+      else waiter.reject(new Error(`Thread command failed: ${JSON.stringify(message.exit)}`));
+    });
+  });
+  return {
+    commands,
+    next: (type: string) =>
+      new Promise<void>((resolve, reject) => {
+        NodeAssert.equal(waiters.has(type), false);
+        waiters.set(type, { resolve, reject });
+      }),
+  };
+}
+
+async function startRowDrag(page: Page, source: Locator) {
+  await source.scrollIntoViewIfNeeded();
+  const box = await source.boundingBox();
+  NodeAssert.ok(box);
+  const x = box.x + Math.min(60, box.width / 2);
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 12, y + 2, { steps: 3 });
+  await page.locator("[data-sb-drag-overlay]").waitFor();
+}
+
+async function moveDragTo(page: Page, target: Locator, fraction = 0.5, followScroll = false) {
+  // Sortable rows shift to preview the drop, so only re-aim at targets that
+  // move because the list auto-scrolled near its edge.
+  let point = { x: 0, y: 0 };
+  for (let attempt = 0; attempt < (followScroll ? 5 : 1); attempt += 1) {
+    const box = await target.boundingBox();
+    NodeAssert.ok(box);
+    const inside =
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height;
+    if (attempt > 0 && inside) return point;
+    point = { x: box.x + box.width / 2, y: box.y + box.height * fraction };
+    await page.mouse.move(point.x, point.y, { steps: 12 });
+  }
+  return point;
+}
+
+async function seedBranchProject(id: string, pinned = true) {
+  const root = NodePath.join(sandbox, id);
+  const worktree = NodePath.join(sandbox, `${id}-worktree`);
+  await NodeFSP.mkdir(root);
+  await exec("git", ["init", "--quiet", root]);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=Switchboard QA",
+      "-c",
+      "user.email=qa@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "Browser fixture",
+    ],
+    { cwd: root },
+  );
+  await exec("git", ["branch", "feature/alpha"], { cwd: root });
+  await exec("git", ["branch", "feature/beta"], { cwd: root });
+  await exec("git", ["worktree", "add", "--quiet", worktree, "feature/alpha"], { cwd: root });
+  const title = `Branch QA ${id}`;
+  await dispatchFixture({
+    type: "project.create",
+    commandId: `${id}-project-create`,
+    projectId: id,
+    title,
+    workspaceRoot: root,
+    createdAt: fixedTime,
+  });
+  const rows = {
+    pinFirst: { title: "Pinned first", branch: "feature/alpha", minute: 1 },
+    pinSecond: { title: "Pinned second", branch: "feature/beta", minute: 2 },
+    alphaFirst: { title: "Alpha first", branch: "feature/alpha", minute: 3 },
+    alphaSecond: { title: "Alpha second", branch: "feature/alpha", minute: 4 },
+    beta: { title: "Beta thread", branch: "feature/beta", minute: 5 },
+    worktree: { title: "Alpha worktree", branch: "feature/alpha", minute: 6 },
+    noBranch: { title: "No branch thread", branch: null, minute: 0 },
+    snoozed: { title: "Snoozed thread", branch: "feature/beta", minute: 7 },
+    settled: { title: "Settled thread", branch: "feature/beta", minute: 8 },
+  } as const;
+  const threadId = (key: keyof typeof rows) => `${id}-${key}`;
+  // The server stamps createdAt itself, so dispatch order is what sets lane recency.
+  const byMinute = Object.entries(rows).toSorted(([, a], [, b]) => a.minute - b.minute);
+  for (const [key, row] of byMinute) {
+    if (!pinned && (key === "pinFirst" || key === "pinSecond")) continue;
+    await dispatchFixture({
+      type: "thread.create",
+      commandId: `${id}-${key}-create`,
+      threadId: `${id}-${key}`,
+      projectId: id,
+      title: row.title,
+      modelSelection: { instanceId: "codex", model: DEFAULT_MODEL },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: row.branch,
+      worktreePath: key === "worktree" ? worktree : null,
+      createdAt: new Date(Date.parse(fixedTime) + row.minute * 60_000).toISOString(),
+    });
+  }
+  // Interleaving branches makes visual lane order differ from the global order.
+  for (const [key, orderKey] of [
+    ["noBranch", "b"],
+    ["alphaFirst", "f"],
+    ["beta", "m"],
+    ["alphaSecond", "t"],
+    ["worktree", "z"],
+  ] as const) {
+    await dispatchFixture({
+      type: "thread.active.reorder",
+      commandId: `${id}-${key}-order`,
+      threadId: threadId(key),
+      orderKey,
+    });
+  }
+  if (pinned) {
+    for (const [key, orderKey] of [
+      ["pinFirst", "t"],
+      ["pinSecond", "f"],
+    ] as const) {
+      await dispatchFixture({
+        type: "thread.pin",
+        commandId: `${id}-${key}-pin`,
+        threadId: threadId(key),
+        orderKey,
+      });
+    }
+  }
+  await dispatchFixture({
+    type: "thread.snooze",
+    commandId: `${id}-snooze`,
+    threadId: threadId("snoozed"),
+    snoozedUntil: "2099-01-01T00:00:00.000Z",
+  });
+  await dispatchFixture({
+    type: "thread.settle",
+    commandId: `${id}-settle`,
+    threadId: threadId("settled"),
+  });
+  return { id, title, worktree, rows, threadId };
+}
+
+async function openBranchProject(
+  page: Page,
+  project: Awaited<ReturnType<typeof seedBranchProject>>,
+) {
+  await page.clock.setFixedTime(new Date(fixedTime));
+  await page.goto(`${currentUrl}/`);
+  try {
+    await page
+      .getByRole("navigation", { name: "Projects" })
+      .getByRole("button", { name: project.title, exact: true })
+      .click();
+  } catch (cause) {
+    await page.screenshot({ path: NodePath.join(artifacts, `${project.id}-failure.png`) });
+    throw new Error(
+      `Project navigation unavailable at ${page.url()}: ${await page.locator("body").innerText()}`,
+      { cause },
+    );
+  }
+  await page.getByRole("heading", { name: project.title, exact: true }).waitFor();
+  return page.locator('[data-switchboard="sidebar"]').first();
+}
+
+NodeTest.test(
+  "branch lanes keep worktrees distinct and navigation follows visual order",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-branch-navigation");
+    const context = await newContext({ switchboard: true });
+    let page: Page | undefined;
+    const jumpBindings = Array.from({ length: 9 }, (_, index) => ({
+      key: `mod+${index + 1}`,
+      command: `thread.jump.${index + 1}`,
+      when: "isWeb",
+    }));
+    const installedBindings: typeof jumpBindings = [];
+    try {
+      page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "feature/beta, 1 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "feature/alpha, 2 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "No branch, 1 threads", exact: true }).waitFor();
+      const lanes = sidebar.locator("[data-sb-branch-lane]");
+      const keys = await lanes.evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-sb-branch-lane")),
+      );
+      const localAlphaKey = keys.find((key) => key?.endsWith(`${project.id}:br:feature/alpha`));
+      NodeAssert.ok(localAlphaKey, `Missing local alpha lane: ${JSON.stringify(keys)}`);
+      const environmentId = localAlphaKey.slice(0, -`${project.id}:br:feature/alpha`.length - 1);
+      NodeAssert.deepEqual(
+        keys.filter((key) => key !== null && key.includes(`:${project.id}:`)),
+        [
+          `${environmentId}:${project.id}:wt:${project.worktree}`,
+          `${environmentId}:${project.id}:br:feature/beta`,
+          localAlphaKey,
+          `${environmentId}:${project.id}:none`,
+        ],
+      );
+      const worktreeLane = sidebar.locator(
+        `[data-sb-branch-lane="${environmentId}:${project.id}:wt:${project.worktree}"]`,
+      );
+      NodeAssert.equal(await worktreeLane.getAttribute("aria-label"), "feature/alpha, 1 threads");
+      await worktreeLane.getByText("worktree", { exact: true }).waitFor();
+      const alphaLane = sidebar.getByRole("group", {
+        name: "feature/alpha, 2 threads",
+        exact: true,
+      });
+      NodeAssert.deepEqual(
+        await alphaLane
+          .getByRole("option")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label"))),
+        ["Alpha first", "Alpha second"],
+      );
+
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+      const order = [
+        "pinSecond",
+        "pinFirst",
+        "worktree",
+        "beta",
+        "alphaFirst",
+        "alphaSecond",
+        "noBranch",
+        "snoozed",
+        "settled",
+      ] as const;
+      const row = (key: keyof typeof project.rows) =>
+        sidebar.locator(`[data-sb-thread-row="${environmentId}:${project.threadId(key)}"]`);
+      await row("settled").waitFor();
+      NodeAssert.deepEqual(
+        await sidebar
+          .locator("[data-sb-thread-row]")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        order.map((key) => `${environmentId}:${project.threadId(key)}`),
+      );
+      // The URL changes before the route resolves; traversal starts from the
+      // resolved route, which the row exposes as aria-current.
+      const waitForCurrent = async (key: keyof typeof project.rows) => {
+        await page!.waitForURL((url) => url.pathname.endsWith(`/${project.threadId(key)}`));
+        await sidebar
+          .locator(
+            `[data-sb-thread-row="${environmentId}:${project.threadId(key)}"][aria-current="page"]`,
+          )
+          .waitFor();
+      };
+      const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
+      await row(order[0]).click();
+      await waitForCurrent(order[0]);
+      for (const key of order.slice(1)) {
+        await page.keyboard.press(`${mod}+Shift+BracketRight`);
+        await waitForCurrent(key);
+      }
+      for (const key of order.slice(0, -1).toReversed()) {
+        await page.keyboard.press(`${mod}+Shift+BracketLeft`);
+        await waitForCurrent(key);
+      }
+      // The browser reserves mod+1–9 by default; explicit user bindings exercise
+      // the shared jump behavior without pretending to be an Electron client.
+      for (const binding of jumpBindings) {
+        await browserRpc(page, "server.upsertKeybinding", binding);
+        installedBindings.push(binding);
+      }
+      await openBranchProject(page, project);
+      await row("settled").waitFor();
+      await page.keyboard.down(mod);
+      try {
+        for (const [index, key] of order.entries()) {
+          await row(key)
+            .getByText(new RegExp(`${index + 1}$`))
+            .waitFor();
+          await page.keyboard.press(`Digit${index + 1}`);
+          await waitForCurrent(key);
+        }
+      } finally {
+        await page.keyboard.up(mod);
+      }
+      await row("worktree").click();
+      await row("alphaSecond").click({ modifiers: ["Shift"] });
+      NodeAssert.deepEqual(
+        await sidebar
+          .locator('[data-sb-thread-row][aria-selected="true"]')
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        ["worktree", "beta", "alphaFirst", "alphaSecond"].map(
+          (key) => `${environmentId}:${project.id}-${key}`,
+        ),
+      );
+    } finally {
+      if (page) {
+        for (const binding of installedBindings) {
+          await browserRpc(page, "server.removeKeybinding", binding);
+        }
+      }
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
+  "branch drag reorders only its lane, rejects foreign branches, and keeps pin and settle actions",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-branch-drag", false);
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const writes = observeThreadWrites(page);
+      const sidebar = await openBranchProject(page, project);
+      const alphaLane = sidebar.getByRole("group", {
+        name: "feature/alpha, 2 threads",
+        exact: true,
+      });
+      await alphaLane.waitFor();
+      const firstRow = alphaLane.getByRole("option", { name: "Alpha first", exact: true });
+      const scopedKey = await firstRow.getAttribute("data-sb-thread-row");
+      NodeAssert.ok(scopedKey);
+      NodeAssert.ok(scopedKey?.endsWith(`:${project.threadId("alphaFirst")}`));
+      const environmentId = scopedKey.slice(0, -project.threadId("alphaFirst").length - 1);
+      const row = (key: keyof typeof project.rows) =>
+        sidebar.locator(`[data-sb-thread-row="${environmentId}:${project.threadId(key)}"]`);
+      const fixtureThreads = (shell: OrchestrationShellSnapshot) =>
+        shell.threads.filter((thread) => thread.projectId === project.id);
+      const withoutActiveOrder = (shell: OrchestrationShellSnapshot) =>
+        fixtureThreads(shell).map(({ activeOrderKey: _activeOrderKey, ...thread }) => thread);
+      NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
+
+      const beforeReorder = await readShell();
+      const reordered = writes.next("thread.active.reorder");
+      await startRowDrag(page, row("alphaSecond"));
+      await page.locator("[data-sb-drag-overlay]").getByText("Move", { exact: true }).waitFor();
+      await moveDragTo(page, row("alphaFirst"), 0.2);
+      await page.mouse.up();
+      await reordered;
+      await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      NodeAssert.deepEqual(
+        await alphaLane
+          .getByRole("option")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label"))),
+        ["Alpha second", "Alpha first"],
+      );
+      const afterReorder = await readShell();
+      NodeAssert.deepEqual(withoutActiveOrder(afterReorder), withoutActiveOrder(beforeReorder));
+      NodeAssert.ok(
+        fixtureThreads(afterReorder).some(
+          (thread) =>
+            thread.activeOrderKey !==
+            fixtureThreads(beforeReorder).find((before) => before.id === thread.id)?.activeOrderKey,
+        ),
+      );
+      NodeAssert.deepEqual(
+        writes.commands.map((command) => command.type),
+        ["thread.active.reorder"],
+      );
+
+      const beforeReject = await readShell();
+      const writeCount = writes.commands.length;
+      await startRowDrag(page, row("alphaSecond"));
+      const pointer = await moveDragTo(page, row("beta"));
+      await sidebar.locator("[data-sb-drop-rejected]").waitFor();
+      await page
+        .getByRole("tooltip", { name: "Branch comes from the thread's worktree", exact: true })
+        .waitFor();
+      NodeAssert.equal(
+        await page.evaluate(({ x, y }) => {
+          const target = document.elementFromPoint(x, y);
+          return target ? getComputedStyle(target).cursor : null;
+        }, pointer),
+        "not-allowed",
+      );
+      await page.mouse.up();
+      await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      NodeAssert.deepEqual(
+        await readShell(),
+        beforeReject,
+        "A cross-lane drop must persist no event",
+      );
+      NodeAssert.equal(
+        writes.commands.length,
+        writeCount,
+        "A cross-lane drop must send no command",
+      );
+
+      const pinned = writes.next("thread.pin");
+      await startRowDrag(page, row("alphaFirst"));
+      const pinTarget = sidebar.getByText("Drop to pin", { exact: true });
+      await pinTarget.waitFor();
+      await moveDragTo(page, pinTarget);
+      const overlay = page.locator("[data-sb-drag-overlay]");
+      await overlay.getByText("Pin", { exact: true }).waitFor();
+      const overlayBox = await overlay.boundingBox();
+      NodeAssert.ok(overlayBox && overlayBox.height <= 40, "Drag overlay must stay a compact chip");
+      await page.mouse.up();
+      await pinned;
+      await sidebar
+        .getByRole("group", { name: "Pinned, 1 threads", exact: true })
+        .getByRole("option", { name: "Alpha first", exact: true })
+        .waitFor();
+      NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
+      const pinnedThread = fixtureThreads(await readShell()).find(
+        (thread) => thread.id === project.threadId("alphaFirst"),
+      );
+      NodeAssert.ok(pinnedThread?.pinnedAt);
+      NodeAssert.equal(pinnedThread.branch, "feature/alpha");
+
+      const settled = writes.next("thread.settle");
+      await startRowDrag(page, row("beta"));
+      await moveDragTo(page, sidebar.getByTestId("sidebar-settled-header"), 0.5, true);
+      await overlay.getByText("Settle", { exact: true }).waitFor();
+      await page.mouse.up();
+      await settled;
+      await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+      await row("beta").waitFor();
+      NodeAssert.equal(
+        fixtureThreads(await readShell()).find((thread) => thread.id === project.threadId("beta"))
+          ?.settledOverride,
+        "settled",
+      );
+
+      // Existing keyboard lifecycle actions still operate on the selected row.
+      const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
+      await row("alphaSecond").click();
+      const keyboardPin = writes.next("thread.pin");
+      await page.keyboard.press(`${mod}+Shift+KeyP`);
+      await keyboardPin;
+      await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+      const pinReordered = writes.next("thread.pin.reorder");
+      await startRowDrag(page, row("alphaSecond"));
+      await moveDragTo(page, row("alphaFirst"), 0.8);
+      await page.mouse.up();
+      await pinReordered;
+      const pinOrder = await sidebar
+        .getByRole("group", { name: "Pinned, 2 threads", exact: true })
+        .getByRole("option")
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label")));
+      NodeAssert.deepEqual(pinOrder, ["Alpha first", "Alpha second"]);
+
+      await row("alphaSecond").click();
+      const keyboardSettle = writes.next("thread.settle");
+      await page.keyboard.press(`${mod}+Shift+KeyS`);
+      await keyboardSettle;
+      NodeAssert.equal(
+        fixtureThreads(await readShell()).find(
+          (thread) => thread.id === project.threadId("alphaSecond"),
+        )?.settledOverride,
+        "settled",
+      );
+      const undoSettle = writes.next("thread.unsettle");
+      const undoPin = writes.next("thread.pin");
+      await page.keyboard.press(`${mod}+KeyZ`);
+      await Promise.all([undoSettle, undoPin]);
+      await row("alphaSecond").waitFor();
+      NodeAssert.equal(
+        fixtureThreads(await readShell()).find(
+          (thread) => thread.id === project.threadId("alphaSecond"),
+        )?.settledOverride,
+        "active",
+      );
+
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await row("snoozed").waitFor();
+      const wakePinned = writes.next("thread.pin");
+      await startRowDrag(page, row("snoozed"));
+      await moveDragTo(
+        page,
+        sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }),
+        0.15,
+      );
+      await overlay.getByText("Pin", { exact: true }).waitFor();
+      await page.mouse.up();
+      await wakePinned;
+      await sidebar
+        .getByRole("group", { name: "Pinned, 3 threads", exact: true })
+        .getByRole("option", { name: "Snoozed thread", exact: true })
+        .waitFor();
+      const wokenThread = fixtureThreads(await readShell()).find(
+        (thread) => thread.id === project.threadId("snoozed"),
+      );
+      NodeAssert.equal(wokenThread?.snoozedUntil, null);
+      NodeAssert.ok(wokenThread?.pinnedAt);
     } finally {
       await context.close();
     }

@@ -14,6 +14,26 @@ const hidden = { ...stationary, scaleY: 0 };
 type ThreadItem = Extract<SidebarListItem, { kind: "thread" }>;
 type Layout = Parameters<SortingStrategy>[0];
 
+/** Lane wrappers stay fixed; only peers inside the source lane preview a reorder. */
+export function createSidebarBranchSortingStrategy(input: {
+  readonly items: readonly SidebarListItem[];
+  readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
+}): SortingStrategy {
+  return (args) => {
+    const active = input.items[args.activeIndex];
+    const over = input.items[args.overIndex];
+    if (active?.kind !== "thread" || over?.kind !== "thread") return null;
+    const pinned = active.section === "pinned" && over.section === "pinned";
+    const lane = input.laneKeyByThreadKey.get(active.key);
+    const sameLane =
+      active.section === "active" &&
+      over.section === "active" &&
+      lane !== undefined &&
+      lane === input.laneKeyByThreadKey.get(over.key);
+    return pinned || sameLane ? verticalListSortingStrategy(args) : null;
+  };
+}
+
 /** Keep the lifted card below the Pins label, including when Pins is empty.
  * The container rect follows scrolling; the offset is measured once at pickup. */
 export function restrictBelowSidebarLabel(

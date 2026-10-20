@@ -3,11 +3,15 @@ import { closestCenter, type CollisionDetection } from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
   createSidebarCollisionDetection,
+  createSidebarBranchSortingStrategy,
   createSidebarSortingStrategy,
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import {
   resolveSidebarDropTarget,
+  resolveSidebarBranchDropTarget,
+  planSidebarThreadDrop,
+  sidebarBranchLaneId,
   sidebarListItemId,
   sidebarMarkerId,
   type SidebarListItem,
@@ -25,6 +29,198 @@ const pinnedHeader = marker("pinned-header");
 const divider = marker("pinned-divider");
 const settledHeader = marker("settled-header");
 const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
+
+describe("branch lane drops", () => {
+  const activeOrder = ["a", "x", "b", "y", "c"];
+  const laneKeyByThreadKey = new Map([
+    ["a", "branch-a"],
+    ["b", "branch-a"],
+    ["c", "branch-a"],
+    ["p", "branch-a"],
+    ["s", "branch-a"],
+    ["z", "branch-a"],
+    ["x", "branch-x"],
+    ["y", "branch-x"],
+    ["foreign-pin", "branch-x"],
+  ]);
+  const items = [
+    pinnedHeader,
+    thread("p", "pinned"),
+    thread("foreign-pin", "pinned"),
+    divider,
+    ...["a", "b", "c", "x", "y"].map((key) => thread(key, "active")),
+    marker("snoozed-header"),
+    thread("z", "snoozed"),
+    settledHeader,
+    thread("s", "settled"),
+  ];
+  const target = (activeKey: string, overId: string) =>
+    resolveSidebarBranchDropTarget({
+      items,
+      activeKey,
+      overId,
+      laneKeyByThreadKey,
+      activeOrder,
+    });
+  const plan = (
+    activeKey: string,
+    overId: string,
+    overrides: Partial<Parameters<typeof planSidebarThreadDrop>[0]> = {},
+  ) => {
+    const destination = target(activeKey, overId);
+    if (!destination) return { kind: "none" } as const;
+    const source = items.find((item) => item.kind === "thread" && item.key === activeKey);
+    if (source?.kind !== "thread") throw new Error("Missing test source");
+    return planSidebarThreadDrop({
+      activeKey,
+      activeSection: source.section,
+      target: destination,
+      pinnedOrder: ["p", "foreign-pin"],
+      pinnedKeysById: new Map([
+        ["p", "f"],
+        ["foreign-pin", "m"],
+      ]),
+      activeOrder,
+      activeKeysById: new Map(
+        activeOrder.map((key, index) => [key, ["a", "f", "m", "t", "z"][index]!]),
+      ),
+      ...overrides,
+    });
+  };
+
+  it.each([
+    ["a", "b", ["x", "b", "a", "y", "c"]],
+    ["c", "b", ["a", "x", "c", "b", "y"]],
+    ["a", "c", ["x", "b", "y", "c", "a"]],
+    ["c", "header", ["c", "a", "x", "b", "y"]],
+  ])("inserts %s between its lane neighbours in global order over %s", (key, over, order) => {
+    const overId = over === "header" ? sidebarBranchLaneId("branch-a") : over;
+    expect(target(key, overId)?.activeOrder).toEqual(order);
+    expect(plan(key, overId)).toMatchObject({
+      kind: "move-active",
+      order,
+      unpin: false,
+      unsettle: false,
+      unsnooze: false,
+    });
+  });
+
+  it("writes only the moved active order assignment when there is room", () => {
+    expect(plan("a", "b")).toEqual({
+      kind: "move-active",
+      order: ["x", "b", "a", "y", "c"],
+      assignments: [{ id: "a", orderKey: "q" }],
+      unpin: false,
+      unsettle: false,
+      unsnooze: false,
+    });
+  });
+
+  it.each(["x", "header"])("rejects a foreign branch target %s", (over) => {
+    const overId = over === "header" ? sidebarBranchLaneId("branch-x") : over;
+    for (const source of ["a", "p", "s", "z"])
+      expect(plan(source, overId)).toEqual({ kind: "none" });
+    expect(plan("foreign-pin", "a")).toEqual({ kind: "none" });
+  });
+
+  it("preserves pin, settle, unpin, unsettle and wake actions", () => {
+    expect(plan("a", sidebarMarkerId("pinned-header"))).toMatchObject({ kind: "pin" });
+    expect(plan("a", sidebarMarkerId("settled-header"))).toEqual({ kind: "settle" });
+    expect(plan("p", sidebarBranchLaneId("branch-a"))).toMatchObject({
+      kind: "move-active",
+      unpin: true,
+    });
+    expect(plan("s", "a")).toMatchObject({ kind: "move-active", unsettle: true });
+    expect(plan("z", "a")).toMatchObject({ kind: "move-active", unsnooze: true });
+  });
+
+  it("rejects snoozed destinations, unknown lanes, and missing source keys", () => {
+    for (const over of ["z", sidebarMarkerId("snoozed-header"), sidebarBranchLaneId("missing")]) {
+      expect(target("a", over)).toBeNull();
+    }
+    expect(target("missing", "a")).toBeNull();
+  });
+
+  it("keeps scoped thread ids with the lane-header prefix draggable", () => {
+    const key = "sidebar-branch-lane-env:a";
+    expect(
+      resolveSidebarBranchDropTarget({
+        items: [pinnedHeader, divider, thread(key, "active"), thread("b", "active")],
+        activeKey: "b",
+        overId: key,
+        laneKeyByThreadKey: new Map([
+          [key, "branch-a"],
+          ["b", "branch-a"],
+        ]),
+        activeOrder: [key, "b"],
+      })?.activeOrder,
+    ).toEqual(["b", key]);
+  });
+
+  it("keeps global order unchanged for a self drop or an unchanged first lane position", () => {
+    expect(target("b", "b")?.activeOrder).toEqual(activeOrder);
+    expect(plan("b", "b")).toEqual({ kind: "none" });
+    expect(plan("a", sidebarBranchLaneId("branch-a"))).toEqual({ kind: "none" });
+  });
+
+  it("preserves active, pinned and settlement capability gates", () => {
+    expect(plan("a", "b", { activeReorderableKeys: new Set(["b", "c", "x", "y"]) })).toEqual({
+      kind: "none",
+    });
+    expect(
+      plan("a", sidebarMarkerId("pinned-header"), {
+        reorderableKeys: new Set(["p", "foreign-pin"]),
+      }),
+    ).toEqual({ kind: "none" });
+    expect(plan("a", sidebarMarkerId("settled-header"), { supportsSettlement: false })).toEqual({
+      kind: "none",
+    });
+    expect(plan("s", "a", { supportsSettlement: false })).toEqual({ kind: "none" });
+  });
+});
+
+describe("branch lane sorting projection", () => {
+  const items = [
+    pinnedHeader,
+    thread("p1", "pinned"),
+    thread("p2", "pinned"),
+    divider,
+    thread("a1", "active"),
+    thread("a2", "active"),
+    thread("b", "active"),
+    settledHeader,
+    thread("s", "settled"),
+  ];
+  const strategy = () =>
+    createSidebarBranchSortingStrategy({
+      items,
+      laneKeyByThreadKey: new Map([
+        ["a1", "a"],
+        ["a2", "a"],
+        ["b", "b"],
+      ]),
+    });
+
+  it.each([
+    ["a1", "a2"],
+    ["p1", "p2"],
+  ])("uses vertical sorting within a lane from %s to %s", (active, over) => {
+    const args = layout(items, active, over);
+    expect(strategy()({ ...args, index: args.overIndex })).toEqual(
+      verticalListSortingStrategy({ ...args, index: args.overIndex }),
+    );
+  });
+
+  it.each([
+    ["a1", "b"],
+    ["a1", "p1"],
+    ["p1", "a1"],
+    ["a1", "s"],
+  ])("does not shift rows across lanes from %s to %s", (active, over) => {
+    const args = layout(items, active, over);
+    expect(strategy()({ ...args, index: args.overIndex })).toBeNull();
+  });
+});
 
 function layout(
   items: readonly SidebarListItem[],

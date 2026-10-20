@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -14,9 +15,13 @@ export interface QuickAction {
 
 export function QuickActions({
   actions,
+  children,
+  variant = "default",
   className,
 }: {
   actions: readonly QuickAction[];
+  children?: ReactNode;
+  variant?: "default" | "row";
   className?: string;
 }) {
   return (
@@ -24,7 +29,8 @@ export function QuickActions({
       role="group"
       aria-label="Thread actions"
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-[5px] border border-sb-border bg-sb-surface p-0.5",
+        "inline-flex items-center rounded-[5px]",
+        variant === "default" && "gap-0.5 border border-sb-border bg-sb-surface p-0.5",
         className,
       )}
     >
@@ -32,16 +38,25 @@ export function QuickActions({
         <Tooltip key={id}>
           <TooltipTrigger
             render={<Button variant="chip" disabled={disabled} />}
-            className="sb-action size-6 disabled:opacity-50"
+            className={cn(
+              "sb-action size-6 disabled:opacity-50",
+              variant === "row" &&
+                "min-h-6 text-sb-muted hover:bg-[color-mix(in_srgb,var(--sb-foreground)_8%,var(--sb-surface))] hover:text-sb-foreground",
+            )}
             aria-label={label}
             aria-pressed={pressed}
             onClick={onClick}
           >
-            <Icon aria-hidden="true" className="size-3" strokeWidth={1.75} />
+            <Icon
+              aria-hidden="true"
+              className={variant === "row" ? "size-3.5" : "size-3"}
+              strokeWidth={1.75}
+            />
           </TooltipTrigger>
           <TooltipPopup>{label}</TooltipPopup>
         </Tooltip>
       ))}
+      {children}
     </div>
   );
 }

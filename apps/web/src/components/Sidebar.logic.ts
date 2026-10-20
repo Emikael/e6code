@@ -23,6 +23,7 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
+import type { SwitchboardStatus } from "./sidebar/primitives/status";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 
@@ -116,6 +117,67 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
 
 export type SidebarSection = "pinned" | "active" | "snoozed" | "settled";
 
+export function sidebarBranchLaneKey(
+  thread: Pick<SidebarThreadSummary, "environmentId" | "projectId" | "branch" | "worktreePath">,
+): string {
+  const identity = thread.worktreePath
+    ? `wt:${thread.worktreePath}`
+    : thread.branch
+      ? `br:${thread.branch}`
+      : "none";
+  return `${thread.environmentId}:${thread.projectId}:${identity}`;
+}
+
+export function groupSidebarBranchLanes(activeThreads: readonly SidebarThreadSummary[]) {
+  const lanes = new Map<
+    string,
+    {
+      lane: {
+        key: string;
+        environmentId: EnvironmentId;
+        projectId: SidebarThreadSummary["projectId"];
+        branch: string | null;
+        worktreePath: string | null;
+        threads: SidebarThreadSummary[];
+      };
+      live: boolean;
+      timestamp: number;
+    }
+  >();
+  for (const thread of activeThreads) {
+    const key = sidebarBranchLaneKey(thread);
+    let entry = lanes.get(key);
+    if (!entry) {
+      entry = {
+        lane: {
+          key,
+          environmentId: thread.environmentId,
+          projectId: thread.projectId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          threads: [],
+        },
+        live: false,
+        timestamp: Number.NEGATIVE_INFINITY,
+      };
+      lanes.set(key, entry);
+    }
+    entry.lane.threads.push(thread);
+    const status = resolveSidebarThreadStatus(thread);
+    entry.live ||= status === "working" || status === "monitoring";
+    entry.timestamp = Math.max(entry.timestamp, getThreadSortTimestamp(thread, "updated_at"));
+  }
+  return [...lanes.values()]
+    .sort((a, b) => Number(b.live) - Number(a.live) || b.timestamp - a.timestamp)
+    .map(({ lane }) => lane);
+}
+
+const SIDEBAR_BRANCH_LANE_PREFIX = "sidebar-branch-lane-";
+
+export function sidebarBranchLaneId(key: string): string {
+  return `${SIDEBAR_BRANCH_LANE_PREFIX}${key}`;
+}
+
 /** Sortable ids: thread rows use their scoped key; structural items use a
     colon-free prefix: scoped thread keys always contain a colon. */
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
@@ -190,6 +252,85 @@ export function resolveSidebarDropTarget(
     else activeOrder.push(item.key);
   }
   return { section, pinnedOrder, activeOrder };
+}
+
+/** Branch rows keep their lane, while manual keys still describe the global active order. */
+export function resolveSidebarBranchDropTarget(input: {
+  readonly items: readonly SidebarListItem[];
+  readonly activeKey: string;
+  readonly overId: string;
+  readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
+  readonly activeOrder: readonly string[];
+}): SidebarDropTarget | null {
+  const { items, activeKey, overId, laneKeyByThreadKey, activeOrder } = input;
+  const source = items.find((item) => item.kind === "thread" && item.key === activeKey);
+  if (source?.kind !== "thread") return null;
+  const sourceLane = laneKeyByThreadKey.get(activeKey);
+  const over = items.find((item) => sidebarListItemId(item) === overId);
+  const headerLane =
+    !over && overId.startsWith(SIDEBAR_BRANCH_LANE_PREFIX)
+      ? overId.slice(SIDEBAR_BRANCH_LANE_PREFIX.length)
+      : null;
+  if (
+    (over?.kind === "thread" && over.section === "snoozed") ||
+    overId === sidebarMarkerId("snoozed-header")
+  )
+    return null;
+  const laneRows = items.flatMap((item) =>
+    item.kind === "thread" && item.section === "active" ? [item] : [],
+  );
+  let target: SidebarDropTarget | null;
+  if (headerLane !== null) {
+    const firstIndex = laneRows.findIndex(
+      (item) => laneKeyByThreadKey.get(item.key) === headerLane,
+    );
+    if (firstIndex < 0 || sourceLane !== headerLane) return null;
+    const order = laneRows.map((item) => item.key).filter((key) => key !== activeKey);
+    order.splice(firstIndex, 0, activeKey);
+    target = {
+      section: "active",
+      pinnedOrder: items.flatMap((item) =>
+        item.kind === "thread" && item.section === "pinned" && item.key !== activeKey
+          ? [item.key]
+          : [],
+      ),
+      activeOrder: order,
+    };
+  } else {
+    target = resolveSidebarDropTarget(items, activeKey, overId);
+  }
+  if (!target) return null;
+  if (target.section !== "active") {
+    return { ...target, activeOrder: activeOrder.filter((key) => key !== activeKey) };
+  }
+  const destinationLane =
+    headerLane ?? (over?.kind === "thread" ? laneKeyByThreadKey.get(over.key) : sourceLane);
+  if (!sourceLane || sourceLane !== destinationLane) return null;
+  const laneOrder = target.activeOrder.filter((key) => laneKeyByThreadKey.get(key) === sourceLane);
+  const originalLaneOrder = activeOrder.filter((key) => laneKeyByThreadKey.get(key) === sourceLane);
+  if (
+    laneOrder.length === originalLaneOrder.length &&
+    laneOrder.every((key, index) => key === originalLaneOrder[index])
+  ) {
+    return { ...target, activeOrder };
+  }
+  const index = laneOrder.indexOf(activeKey);
+  if (index < 0) return null;
+  const order = activeOrder.filter((key) => key !== activeKey);
+  const previousKey = laneOrder[index - 1];
+  const nextKey = laneOrder[index + 1];
+  const previousIndex = originalLaneOrder.indexOf(activeKey);
+  const movingDown = previousIndex >= 0 && index > previousIndex;
+  const insertionIndex =
+    movingDown && previousKey !== undefined
+      ? order.indexOf(previousKey) + 1
+      : nextKey !== undefined
+        ? order.indexOf(nextKey)
+        : previousKey !== undefined
+          ? order.indexOf(previousKey) + 1
+          : order.length;
+  order.splice(insertionIndex, 0, activeKey);
+  return { ...target, activeOrder: order };
 }
 
 export type SidebarThreadDropPlan =
@@ -515,7 +656,8 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Error";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -529,6 +671,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Awaiting Input": 5,
   Working: 4,
   Connecting: 4,
+  Error: 3,
   "Plan Ready": 3,
   Monitoring: 2,
   Completed: 1,
@@ -999,8 +1142,10 @@ export function resolveWorkingStartedAt(
   return firstValidTimestamp(thread.session?.updatedAt);
 }
 
-export function formatWorkingDurationLabel(elapsedMs: number): string {
+export function formatWorkingDurationLabel(elapsedMs: number, clock = false): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
+  if (clock)
+    return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -1009,6 +1154,7 @@ export function formatWorkingDurationLabel(elapsedMs: number): string {
 
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
+  showError?: boolean;
 }): ThreadStatusPill | null {
   const { thread } = input;
 
@@ -1045,6 +1191,15 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
+    };
+  }
+
+  if (input.showError && thread.session?.status === "error") {
+    return {
+      label: "Error",
+      colorClass: "text-[var(--state-error)]",
+      dotClass: "bg-[var(--state-error)]",
+      pulse: false,
     };
   }
 
@@ -1096,6 +1251,21 @@ export function resolveThreadStatusPill(input: {
   }
 
   return null;
+}
+
+export function resolveSidebarBranchStatus(input: {
+  thread: ThreadStatusInput;
+  isWoke?: boolean;
+}): { status: SwitchboardStatus; label: string | null } {
+  const pill = resolveThreadStatusPill({ thread: input.thread, showError: true });
+  if (input.isWoke && (!pill || pill.label === "Completed")) {
+    return { status: "woke", label: "Woke" };
+  }
+  if (!pill) return { status: "ready", label: null };
+  return {
+    status: pill.label === "Error" ? "error" : PILL_STATUS_KIND[pill.label],
+    label: pill.label,
+  };
 }
 
 export function resolveProjectStatusIndicator(
@@ -1374,7 +1544,7 @@ const PILL_STATUS_KIND = {
   Connecting: "connecting",
   Monitoring: "monitoring",
   Completed: "completed",
-} as const satisfies Record<ThreadStatusPill["label"], ProjectStatusKind>;
+} as const satisfies Record<Exclude<ThreadStatusPill["label"], "Error">, ProjectStatusKind>;
 
 const NEED_YOU_LABELS = new Set<ThreadStatusPill["label"]>([
   "Pending Approval",
@@ -1430,7 +1600,7 @@ export function countProjectSidebarThreads(
     threads: threadCount,
     worktrees: worktrees.size,
     badge:
-      attention === null || needYou === 0
+      attention === null || attention.label === "Error" || needYou === 0
         ? null
         : { status: PILL_STATUS_KIND[attention.label], count: needYou },
     liveDot: live > 0,
