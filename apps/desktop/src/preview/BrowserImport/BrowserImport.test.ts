@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - Builds a Firefox cookie jar so
+// the import can reach the partition check without a keychain prompt.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -10,6 +12,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as NodeSqlite from "node:sqlite";
 
 import * as BrowserSession from "../BrowserSession.ts";
 import * as BrowserImport from "./BrowserImport.ts";
@@ -42,6 +45,7 @@ const rejectedBeforeSession = Layer.succeed(
     getSession: () => Effect.die("getSession must not be reached"),
     clearCookies: () => Effect.die("clearCookies must not be reached"),
     clearCache: () => Effect.die("clearCache must not be reached"),
+    findPartition: () => Effect.die("findPartition must not be reached"),
   }),
 );
 
@@ -49,34 +53,92 @@ const rejectedBeforeSession = Layer.succeed(
  * Builds the service against a scratch home containing an installed, closed
  * copy of the source browser.
  */
-const withImporter = Effect.fnUntraced(function* () {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "e6code-import-" });
-  const environment = Layer.succeed(HostProcessEnvironment, { HOME: home });
-  const context = yield* sourcePathContext.pipe(
-    Effect.provideService(HostProcessEnvironment, { HOME: home }),
-    Effect.provideService(HostProcessPlatform, "darwin"),
-  );
-  const root = helium.userDataDirectory(context);
-  if (root === undefined) throw new Error("Helium has no macOS user-data directory");
-  yield* fileSystem.makeDirectory(`${root}/Default`, { recursive: true });
-  // The cookie database is what marks a source as installed, so a fixture
-  // without one is reported as absent before any other check runs.
-  yield* fileSystem.writeFileString(`${root}/Default/Cookies`, "db");
+const withImporter = (
+  sessionLayer: Layer.Layer<BrowserSession.BrowserSession> = rejectedBeforeSession,
+) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "e6code-import-" });
+    const environment = Layer.succeed(HostProcessEnvironment, { HOME: home });
+    const context = yield* sourcePathContext.pipe(
+      Effect.provideService(HostProcessEnvironment, { HOME: home }),
+      Effect.provideService(HostProcessPlatform, "darwin"),
+    );
+    const root = helium.userDataDirectory(context);
+    if (root === undefined) throw new Error("Helium has no macOS user-data directory");
+    yield* fileSystem.makeDirectory(`${root}/Default`, { recursive: true });
+    // The cookie database is what marks a source as installed, so a fixture
+    // without one is reported as absent before any other check runs.
+    yield* fileSystem.writeFileString(`${root}/Default/Cookies`, "db");
 
-  const importer = yield* BrowserImport.BrowserImport.pipe(
-    Effect.provide(
-      BrowserImport.layer.pipe(
-        Layer.provide(rejectedBeforeSession),
-        Layer.provide(environment),
-        Layer.provide(Layer.succeed(HostProcessPlatform, "darwin")),
-        Layer.provide(Layer.succeed(HostProcessExecutablePath, "/Applications/E6 Code.app")),
-        Layer.provide(NodeServices.layer),
+    const importer = yield* BrowserImport.BrowserImport.pipe(
+      Effect.provide(
+        BrowserImport.layer.pipe(
+          Layer.provide(sessionLayer),
+          Layer.provide(environment),
+          Layer.provide(Layer.succeed(HostProcessPlatform, "darwin")),
+          Layer.provide(Layer.succeed(HostProcessExecutablePath, "/Applications/E6 Code.app")),
+          Layer.provide(NodeServices.layer),
+        ),
       ),
-    ),
-  );
-  return { importer, home, root };
-});
+    );
+    return { importer, home, root };
+  });
+
+const firefox = BROWSER_IMPORT_SOURCES.find((source) => source.id === "firefox")!;
+
+/**
+ * A closed Firefox profile with one plaintext cookie, so the import reaches
+ * the session write (or the refusal just before it) without a keychain.
+ */
+const withFirefoxImporter = (sessionLayer: Layer.Layer<BrowserSession.BrowserSession>) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "e6code-import-ff-" });
+    const environment = Layer.succeed(HostProcessEnvironment, { HOME: home });
+    const context = yield* sourcePathContext.pipe(
+      Effect.provideService(HostProcessEnvironment, { HOME: home }),
+      Effect.provideService(HostProcessPlatform, "darwin"),
+    );
+    const root = firefox.userDataDirectory(context);
+    if (root === undefined) throw new Error("Firefox has no macOS user-data directory");
+    const profile = `${root}/profile`;
+    yield* fileSystem.makeDirectory(profile, { recursive: true });
+    yield* fileSystem.writeFileString(
+      `${root}/profiles.ini`,
+      "[Profile0]\nName=Default\nIsRelative=1\nPath=profile\n",
+    );
+    const database = new NodeSqlite.DatabaseSync(`${profile}/cookies.sqlite`);
+    database.exec("pragma user_version = 15");
+    database.exec(
+      `create table moz_cookies (
+         id integer primary key, host text, name text, value text, path text,
+         expiry integer, isSecure integer, isHttpOnly integer, sameSite integer,
+         originAttributes text not null default ''
+       )`,
+    );
+    database
+      .prepare(
+        `insert into moz_cookies
+           (host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(".example.test", "sid", "secret", "/", 2_000_000_000, 1, 1, 1, "");
+    database.close();
+
+    const importer = yield* BrowserImport.BrowserImport.pipe(
+      Effect.provide(
+        BrowserImport.layer.pipe(
+          Layer.provide(sessionLayer),
+          Layer.provide(environment),
+          Layer.provide(Layer.succeed(HostProcessPlatform, "darwin")),
+          Layer.provide(Layer.succeed(HostProcessExecutablePath, "/Applications/E6 Code.app")),
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
+    );
+    return { importer };
+  });
 
 describe("BrowserImport.importCookies", () => {
   it.effect("rejects a source profile the browser never reported", () =>
@@ -130,6 +192,96 @@ describe("BrowserImport.importCookies", () => {
 
         assert.equal(error.reason, "browserRunning");
       }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("refuses an agent partition before reading the source browser", () =>
+    Effect.gen(function* () {
+      const { importer } = yield* withImporter();
+      const error = yield* importer
+        .importCookies({
+          input: {
+            sourceId: "helium",
+            sourceProfileDirectory: "Default",
+            targetProfileId: "default",
+          },
+          scope: "agent:test",
+          persistent: true,
+          namespace: "agent",
+        })
+        .pipe(Effect.flip);
+
+      assert.equal(error.reason, "agentPartition");
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("writes imported cookies into a user partition", () =>
+    Effect.gen(function* () {
+      const written: Array<string> = [];
+      const sessionLayer = Layer.succeed(
+        BrowserSession.BrowserSession,
+        BrowserSession.BrowserSession.of({
+          getPartition: () => Effect.succeed("persist:e6code-preview-user"),
+          isPartition: () => true,
+          findPartition: () => Effect.succeed(undefined),
+          getSession: () =>
+            Effect.succeed({
+              cookies: {
+                set: (cookie: { name: string }) => {
+                  written.push(cookie.name);
+                  return Promise.resolve();
+                },
+                flushStore: () => Promise.resolve(),
+              },
+            } as never),
+          clearCookies: () => Effect.die("clearCookies must not be reached"),
+          clearCache: () => Effect.die("clearCache must not be reached"),
+        }),
+      );
+      const { importer } = yield* withFirefoxImporter(sessionLayer);
+      const result = yield* importer.importCookies({
+        input: {
+          sourceId: "firefox",
+          sourceProfileDirectory: "profile",
+          targetProfileId: "default",
+        },
+        scope: "environment",
+        persistent: true,
+      });
+
+      assert.equal(result.imported, 1);
+      assert.deepEqual(written, ["sid"]);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("never writes imported cookies into an agent partition", () =>
+    Effect.gen(function* () {
+      const sessionLayer = Layer.succeed(
+        BrowserSession.BrowserSession,
+        BrowserSession.BrowserSession.of({
+          getPartition: () => Effect.succeed("persist:e6code-preview-agent-abc"),
+          isPartition: () => true,
+          findPartition: () => Effect.succeed(undefined),
+          getSession: () => Effect.die("getSession must not write the agent partition"),
+          clearCookies: () => Effect.die("clearCookies must not be reached"),
+          clearCache: () => Effect.die("clearCache must not be reached"),
+        }),
+      );
+      const { importer } = yield* withFirefoxImporter(sessionLayer);
+      const error = yield* importer
+        .importCookies({
+          input: {
+            sourceId: "firefox",
+            sourceProfileDirectory: "profile",
+            targetProfileId: "default",
+          },
+          scope: "agent:environment",
+          persistent: true,
+          namespace: "profile",
+        })
+        .pipe(Effect.flip);
+
+      assert.equal(error.reason, "agentPartition");
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 });
 

@@ -19,7 +19,22 @@ const PREVIEW_PARTITION_PREFIX = "persist:e6code-preview-";
 const PREVIEW_EPHEMERAL_PARTITION_PREFIX = "e6code-preview-ephemeral-";
 const PROFILE_PARTITION_MARKER = "profile-";
 
-export type BrowserSessionPartitionNamespace = "profile";
+export type BrowserSessionPartitionNamespace = "profile" | "agent";
+
+const PARTITION_NAMESPACE_MARKER: Record<BrowserSessionPartitionNamespace, string> = {
+  profile: PROFILE_PARTITION_MARKER,
+  agent: "agent-",
+};
+
+/** Persistent agent partitions. Cookie import must never write here. */
+const PREVIEW_AGENT_PARTITION_PREFIX = `${PREVIEW_PARTITION_PREFIX}agent-`;
+
+export function isAgentPartition(partition: string): boolean {
+  return (
+    partition.startsWith(PREVIEW_AGENT_PARTITION_PREFIX) ||
+    partition.startsWith(`${PREVIEW_EPHEMERAL_PARTITION_PREFIX}agent-`)
+  );
+}
 
 // Permissions granted to preview web content. `clipboard-sanitized-write` is the
 // Electron permission behind `navigator.clipboard.writeText()` — note it is NOT
@@ -111,6 +126,8 @@ export class BrowserSession extends Context.Service<
       namespace?: BrowserSessionPartitionNamespace,
     ) => Effect.Effect<string, BrowserSessionPartitionDerivationError>;
     readonly isPartition: (partition: string) => boolean;
+    /** The partition this session was created for, when this service created it. */
+    readonly findPartition: (candidate: Session) => Effect.Effect<string | undefined>;
     readonly getSession: (
       scope?: string,
       persistent?: boolean,
@@ -179,10 +196,11 @@ export const make = Effect.gen(function* BrowserSessionMake() {
       ),
     );
     const prefix = persistent ? PREVIEW_PARTITION_PREFIX : PREVIEW_EPHEMERAL_PARTITION_PREFIX;
-    // Legacy/default partitions are prefix + hex digest. The non-hex profile
-    // marker creates a disjoint namespace while leaving every legacy default
+    // Legacy/default partitions are prefix + hex digest. A non-hex marker
+    // creates a disjoint namespace while leaving every legacy default
     // partition byte-for-byte unchanged.
-    return `${prefix}${namespace === "profile" ? PROFILE_PARTITION_MARKER : ""}${Encoding.encodeHex(digest).slice(0, 20)}`;
+    const marker = namespace === undefined ? "" : PARTITION_NAMESPACE_MARKER[namespace];
+    return `${prefix}${marker}${Encoding.encodeHex(digest).slice(0, 20)}`;
   });
 
   const getSession = Effect.fn("BrowserSession.getSession")(function* (
@@ -228,6 +246,15 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     isPartition: (partition) =>
       partition.startsWith(PREVIEW_PARTITION_PREFIX) ||
       partition.startsWith(PREVIEW_EPHEMERAL_PARTITION_PREFIX),
+    findPartition: (candidate) =>
+      SynchronizedRef.get(sessionsRef).pipe(
+        Effect.map((sessions) => {
+          for (const [partition, browserSession] of sessions) {
+            if (browserSession === candidate) return partition;
+          }
+          return undefined;
+        }),
+      ),
     getSession,
     clearCookies: Effect.fn("BrowserSession.clearCookies")(function* (partitions?) {
       const sessions = yield* SynchronizedRef.get(sessionsRef);
@@ -236,7 +263,14 @@ export const make = Effect.gen(function* BrowserSessionMake() {
           Effect.tryPromise({
             try: () =>
               browserSession.clearStorageData({
-                storages: ["cookies", "localstorage", "indexdb", "serviceworkers"],
+                storages: [
+                  "cookies",
+                  "localstorage",
+                  "indexdb",
+                  "serviceworkers",
+                  "cachestorage",
+                  "filesystem",
+                ],
               }),
             catch: (cause) =>
               new BrowserSessionStorageClearError({

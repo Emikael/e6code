@@ -196,35 +196,55 @@ function BrowserMiniPlayer({
       miniPlayer={miniPlayer}
       sourceSize={sourceSize}
       composerOverlayElement={composerOverlayElement}
-      label="Floating browser preview"
+      label={
+        desktopOverlay?.importedCookieGrant
+          ? `Agent can use cookies imported from ${desktopOverlay.importedCookieBrowser ?? "your browser"}`
+          : "Floating browser preview"
+      }
       recording={recording}
       onOpenInPanel={openInPanel}
       pillActions={
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant={desktopOverlay?.pictureInPicture ? "secondary" : "ghost"}
-                size="icon-xs"
-                aria-label={
-                  desktopOverlay?.pictureInPicture
-                    ? "Close popped-out preview"
-                    : "Pop preview into separate window"
-                }
-                disabled={!desktopOverlay?.hasWebContents}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={toggleNativePictureInPicture}
-              />
-            }
-          >
-            <PictureInPicture2 />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {desktopOverlay?.pictureInPicture
-              ? "Close separate window"
-              : "Pop into separate window"}
-          </TooltipPopup>
-        </Tooltip>
+        <>
+          {desktopOverlay?.importedCookieGrant ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => {
+                if (!previewBridge) return;
+                void previewBridge.revokeAgentImportedCookieAccess(runtimeTabId);
+              }}
+            >
+              Revoke
+            </Button>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant={desktopOverlay?.pictureInPicture ? "secondary" : "ghost"}
+                  size="icon-xs"
+                  aria-label={
+                    desktopOverlay?.pictureInPicture
+                      ? "Close popped-out preview"
+                      : "Pop preview into separate window"
+                  }
+                  disabled={!desktopOverlay?.hasWebContents}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={toggleNativePictureInPicture}
+                />
+              }
+            >
+              <PictureInPicture2 />
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {desktopOverlay?.pictureInPicture
+                ? "Close separate window"
+                : "Pop into separate window"}
+            </TooltipPopup>
+          </Tooltip>
+        </>
       }
     >
       {(frame) => (

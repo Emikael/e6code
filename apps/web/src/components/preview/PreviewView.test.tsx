@@ -432,7 +432,9 @@ describe("PreviewView navigation", () => {
     mocks.submittedUrl?.(submitted);
 
     await vi.waitFor(() =>
-      expect(mocks.navigate).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID, expected),
+      expect(mocks.navigate).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID, expected, {
+        actor: "user",
+      }),
     );
     expect(mocks.rememberPreviewUrl).toHaveBeenCalledWith(
       {
@@ -484,6 +486,7 @@ describe("PreviewView navigation", () => {
       expect(mocks.navigate).toHaveBeenCalledWith(
         TEST_RUNTIME_TAB_ID,
         "http://172.25.85.75:5173/app?mode=test#top",
+        { actor: "user" },
       ),
     );
     expect(mocks.rememberPreviewUrl).toHaveBeenCalledWith(

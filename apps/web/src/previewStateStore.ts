@@ -32,6 +32,9 @@ export interface DesktopPreviewOverlay {
   audible: boolean;
   controller: "human" | "agent" | "none";
   favicon: DesktopPreviewFavicon | null;
+  /** Set when the user has allowed an agent to use this tab's imported cookies. */
+  importedCookieGrant?: boolean;
+  importedCookieBrowser?: string | null;
 }
 
 export interface ThreadPreviewState {
@@ -373,6 +376,8 @@ function isPreviewStateEqual(
       previous.audioMuted === next.audioMuted &&
       previous.audible === next.audible &&
       previous.controller === next.controller &&
+      previous.importedCookieGrant === next.importedCookieGrant &&
+      previous.importedCookieBrowser === next.importedCookieBrowser &&
       previous.favicon?.dataUrl === next.favicon?.dataUrl &&
       previous.favicon?.pageUrl === next.favicon?.pageUrl &&
       previous.favicon?.capturedAt === next.favicon?.capturedAt)

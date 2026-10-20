@@ -1,4 +1,5 @@
 import {
+  AGENT_BROWSER_PROFILE_ID,
   DEFAULT_CLIENT_SETTINGS,
   EnvironmentId,
   ThreadId,
@@ -135,7 +136,7 @@ afterEach(async () => {
 });
 
 describe("PreviewAutomationHosts open", () => {
-  it("waits for saved settings before opening a tab with the configured profile and viewport", async () => {
+  it("waits for saved settings and opens a new agent tab on the isolated partition", async () => {
     const readStarted = deferred<void>();
     const read = deferred<ClientSettings>();
     const response = deferred<PreviewAutomationResponse>();
@@ -158,7 +159,7 @@ describe("PreviewAutomationHosts open", () => {
 
     expect(mocks.open).toHaveBeenCalledExactlyOnceWith({
       environmentId,
-      input: { threadId, viewport, profileId: "work" },
+      input: { threadId, viewport, profileId: AGENT_BROWSER_PROFILE_ID },
     });
     expect(mocks.getClientSettings).toHaveBeenCalledOnce();
     await expect(response.promise).resolves.toMatchObject({ requestId: "open-request", ok: true });

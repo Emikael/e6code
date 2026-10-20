@@ -78,6 +78,11 @@ export const BrowserImportFailureReason = Schema.Literals([
   "profileLimitReached",
   /** Anything else: a corrupt database, a failed decrypt, a vanished file. */
   "readFailed",
+  /**
+   * The target is the agent-isolated partition. Imported cookies are only
+   * written to partitions the user drives directly.
+   */
+  "agentPartition",
 ]);
 export type BrowserImportFailureReason = typeof BrowserImportFailureReason.Type;
 
@@ -162,4 +167,5 @@ export const BROWSER_IMPORT_FAILURE_COPY: Readonly<Record<BrowserImportFailureRe
   profileLimitReached:
     "You've reached the profile limit. Delete a profile or import into an existing one.",
   readFailed: "The browser's cookie database could not be read.",
+  agentPartition: "Imported cookies stay in your own preview profiles.",
 };

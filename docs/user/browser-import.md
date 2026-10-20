@@ -10,6 +10,13 @@ unlock prompt if one appears.
 This is a one-time copy. Later login changes stay separate between the two browsers, and some
 sites may still require you to sign in again.
 
+Imported cookies stay in the preview profile you imported them into. When an agent opens a
+browser, it uses a separate profile that does not receive those cookies. Driving any other
+preview tab asks you first. The prompt names the browser and profile when the cookies were
+imported. Allowing it applies only to that tab until you quit the app. Choosing **Don't allow**
+sticks for that tab until you quit. While the permission is on, the preview shows it, and you
+can revoke it from that banner.
+
 On macOS, Safari imports need Full Disk Access. Choose **Allow**, drag E6 Code into the
 System Settings permission list, and turn access on. **Continue** becomes available when access
 is detected. macOS may require you to quit and reopen E6 Code before the grant applies; reopen

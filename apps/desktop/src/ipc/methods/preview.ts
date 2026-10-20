@@ -18,6 +18,9 @@ import {
   DesktopPreviewSetColorSchemeInputSchema,
   BrowserImportResult,
   BrowserImportSource,
+  DesktopPreviewAgentCookieAccessSchema,
+  DesktopPreviewAgentCookieAccessInputSchema,
+  DesktopPreviewAgentCookiePromptSchema,
   DesktopPreviewClearDataInputSchema,
   DesktopPreviewImportCookiesInputSchema,
   DesktopPreviewCreateTabInputSchema,
@@ -25,8 +28,7 @@ import {
   DesktopPreviewWebviewConfigSchema,
   PreviewAnnotationSubmissionResultSchema,
   PreviewAutomationSnapshot,
-  DEFAULT_BROWSER_PROFILE_ID,
-  INCOGNITO_BROWSER_PROFILE_ID,
+  AGENT_BROWSER_PROFILE_ID,
 } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -34,8 +36,11 @@ import * as Option from "effect/Option";
 import * as NodeURL from "node:url";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as AgentImportedCookieAccess from "../../preview/AgentImportedCookieAccess.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
+import { BROWSER_IMPORT_SOURCES } from "../../preview/BrowserImport/Sources.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
+import { resolvePartitionScope } from "../../preview/PartitionScope.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
 import * as IpcChannels from "../channels.ts";
@@ -98,9 +103,19 @@ export const navigate = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_NAVIGATE_CHANNEL,
   payload: DesktopPreviewNavigateInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.navigate")(function* ({ tabId, url }) {
+  handler: Effect.fn("desktop.ipc.preview.navigate")(function* ({
+    tabId,
+    url,
+    actor,
+    environmentId,
+    profileId,
+  }) {
     const manager = yield* PreviewManager.PreviewManager;
-    yield* manager.navigate(tabId, url);
+    yield* manager.navigate(tabId, url, {
+      actor,
+      ...(environmentId === undefined ? {} : { environmentId }),
+      ...(profileId === undefined ? {} : { profileId }),
+    });
   }),
 });
 
@@ -236,33 +251,7 @@ export const clearCache = DesktopIpc.makeIpcMethod({
   }),
 });
 
-/**
- * Partition scope for an (environment, profile) pair.
- *
- * The default profile keeps the bare environment id it used before profiles
- * existed, so upgrading does not strand anyone's existing logins in an
- * orphaned partition. Incognito derives a non-persistent partition.
- */
-export function resolvePartitionScope(
-  environmentId: string,
-  profileId: string | undefined,
-): {
-  readonly scope: string;
-  readonly persistent: boolean;
-  readonly namespace?: "profile";
-} {
-  if (profileId === undefined || profileId === DEFAULT_BROWSER_PROFILE_ID) {
-    return { scope: environmentId, persistent: true };
-  }
-  // JSON's tuple framing is injective for strings, including lone UTF-16
-  // surrogates (which it escapes). URI encoding throws on those supported ids,
-  // while replacing them with U+FFFD would collapse distinct identities.
-  return {
-    scope: JSON.stringify([environmentId, profileId]),
-    persistent: profileId !== INCOGNITO_BROWSER_PROFILE_ID,
-    namespace: "profile" as const,
-  };
-}
+export { resolvePartitionScope };
 
 /**
  * Clearing without a profile keeps the historical "everything" behaviour for
@@ -333,12 +322,140 @@ export const importBrowserCookies = DesktopIpc.makeIpcMethod({
       environmentId,
       importInput.targetProfileId,
     );
-    return yield* browserImport.importCookies({
+    if (importInput.targetProfileId === AGENT_BROWSER_PROFILE_ID) {
+      return yield* new BrowserImport.BrowserImportFailedError({
+        sourceId: importInput.sourceId,
+        reason: "agentPartition",
+      });
+    }
+    const result = yield* browserImport.importCookies({
       input: importInput,
       scope,
       persistent,
       ...(namespace === undefined ? {} : { namespace }),
     });
+    // Recording lives in the desktop main process, not in client settings.
+    // An agent that can edit settings still cannot erase this ledger, and
+    // writing it does not approve agent use of the partition.
+    if (result.imported > 0) {
+      const manager = yield* PreviewManager.PreviewManager;
+      const access = yield* AgentImportedCookieAccess.AgentImportedCookieAccess;
+      const sourceName =
+        BROWSER_IMPORT_SOURCES.find((source) => source.id === importInput.sourceId)?.name ??
+        importInput.sourceId;
+      yield* access.recordImport({
+        partition: yield* manager.getBrowserPartition(scope, persistent, namespace),
+        sourceId: importInput.sourceId,
+        sourceName,
+        profileId: importInput.targetProfileId,
+      });
+    }
+    return result;
+  }),
+});
+
+export const agentImportedCookieAccess = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_AGENT_COOKIE_ACCESS_CHANNEL,
+  payload: DesktopPreviewAgentCookieAccessInputSchema,
+  result: DesktopPreviewAgentCookieAccessSchema,
+  handler: Effect.fn("desktop.ipc.preview.agentImportedCookieAccess")(function* ({
+    tabId,
+    environmentId,
+    profileId,
+  }) {
+    const manager = yield* PreviewManager.PreviewManager;
+    return yield* manager.agentImportedCookieAccess(tabId, {
+      ...(environmentId === undefined ? {} : { environmentId }),
+      ...(profileId === undefined ? {} : { profileId }),
+    });
+  }),
+});
+
+/**
+ * The main window is the only renderer allowed to grant, deny, or drive the
+ * approval prompt. Preview guests share a preload that can call `ipcRenderer`.
+ */
+const authorizeImportedCookieGrantSender = (event?: DesktopIpc.DesktopIpcInvokeEvent) =>
+  Effect.gen(function* () {
+    const manager = yield* PreviewManager.PreviewManager;
+    if (yield* manager.acceptsImportedCookieGrantSender(event)) return;
+    return yield* new PreviewManager.PreviewOperationError({
+      operation: "grantAgentImportedCookieAccess",
+      cause: new Error("Imported-cookie approval can only be changed from the desktop window."),
+    });
+  });
+
+/**
+ * Granted only from the desktop confirm dialog. Not registered as a server
+ * or agent RPC, and not stored in settings the agent can write.
+ */
+export const grantAgentImportedCookieAccess = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_GRANT_AGENT_COOKIE_ACCESS_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.grantAgentImportedCookieAccess")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.grantAgentImportedCookieAccess(tabId);
+  }),
+});
+
+export const revokeAgentImportedCookieAccess = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_REVOKE_AGENT_COOKIE_ACCESS_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.revokeAgentImportedCookieAccess")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.revokeAgentImportedCookieAccess(tabId);
+  }),
+});
+
+export const beginAgentImportedCookiePrompt = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_BEGIN_AGENT_COOKIE_PROMPT_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: DesktopPreviewAgentCookiePromptSchema,
+  handler: Effect.fn("desktop.ipc.preview.beginAgentImportedCookiePrompt")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    return yield* manager.beginAgentImportedCookiePrompt(tabId);
+  }),
+});
+
+export const finishAgentImportedCookiePrompt = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_FINISH_AGENT_COOKIE_PROMPT_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.finishAgentImportedCookiePrompt")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.finishAgentImportedCookiePrompt(tabId);
+  }),
+});
+
+export const denyAgentImportedCookieAccess = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_DENY_AGENT_COOKIE_ACCESS_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.denyAgentImportedCookieAccess")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.denyAgentImportedCookieAccess(tabId);
   }),
 });
 
@@ -500,6 +617,12 @@ export const methods = [
   clearCookies,
   clearCache,
   getPreviewConfig,
+  agentImportedCookieAccess,
+  grantAgentImportedCookieAccess,
+  revokeAgentImportedCookieAccess,
+  beginAgentImportedCookiePrompt,
+  finishAgentImportedCookiePrompt,
+  denyAgentImportedCookieAccess,
   setAnnotationTheme,
   pickElement,
   cancelPickElement,

@@ -3,11 +3,13 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
 import {
+  AGENT_BROWSER_PROFILE_ID,
   BrowserProfileId,
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
   INCOGNITO_BROWSER_PROFILE_ID,
   findBrowserProfile,
+  isAgentBrowserProfileId,
   isBuiltInBrowserProfileId,
   resolveBrowserProfiles,
   type BrowserProfile,
@@ -24,6 +26,17 @@ describe("resolveBrowserProfiles", () => {
       INCOGNITO_BROWSER_PROFILE_ID,
       work.id,
     ]);
+  });
+
+  it("drops the reserved agent partition id", () => {
+    const resolved = resolveBrowserProfiles([
+      { id: AGENT_BROWSER_PROFILE_ID, name: "Not isolated", kind: "persistent" },
+      work,
+    ]);
+
+    expect(resolved).toEqual([...BUILT_IN_BROWSER_PROFILES, work]);
+    expect(isAgentBrowserProfileId(AGENT_BROWSER_PROFILE_ID)).toBe(true);
+    expect(isAgentBrowserProfileId(work.id)).toBe(false);
   });
 
   it("drops stored entries that collide with a built-in id", () => {
