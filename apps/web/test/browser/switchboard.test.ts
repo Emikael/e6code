@@ -557,16 +557,36 @@ NodeTest.test(
         1,
         "The need-you label wraps at the 256px column",
       );
-      await page.locator("[data-switchboard='sidebar'] header").screenshot({
-        path: NodePath.join(artifacts, "flag-on-masthead-256.png"),
-        animations: "disabled",
-      });
-
       // A real Electron bridge changes auth bootstrap. The macOS inset is the
       // same CSS variable the desktop shell sets, so simulate that here.
       await page.evaluate(() => {
         document.documentElement.style.setProperty("--workspace-controls-left", "90px");
       });
+      const titleWrap = page.locator("[data-switchboard='sidebar'] header h2").locator("..");
+      const titleWidth = await titleWrap.evaluate((node) => node.getBoundingClientRect().width);
+      NodeAssert.ok(titleWidth >= 72, `Masthead title collapsed to ${titleWidth}px`);
+      const actions = page.getByRole("button", { name: "Project actions" });
+      const column = page.locator("[data-switchboard='sidebar']").first();
+      const [actionsBox, columnBox] = await Promise.all([
+        actions.boundingBox(),
+        column.boundingBox(),
+      ]);
+      NodeAssert.ok(actionsBox && columnBox);
+      NodeAssert.ok(
+        actionsBox.x + actionsBox.width <= columnBox.x + columnBox.width + 1,
+        `Project actions overflow the column: ${JSON.stringify({ actionsBox, columnBox })}`,
+      );
+      await page.locator("[data-switchboard='sidebar'] header").screenshot({
+        path: NodePath.join(artifacts, "flag-on-masthead-256.png"),
+        animations: "disabled",
+      });
+      await actions.click();
+      await page.getByRole("menuitem", { name: "Reveal in file manager" }).waitFor();
+      await page.screenshot({
+        path: NodePath.join(artifacts, "flag-on-project-actions.png"),
+        animations: "disabled",
+      });
+      await page.keyboard.press("Escape");
       const toggle = page.getByRole("button", { name: "Toggle main sidebar" });
       const home = page.getByRole("button", { name: /Go to threads/ });
       const title = page.getByRole("heading", { name: "Switchboard QA", exact: true });
@@ -606,6 +626,9 @@ NodeTest.test(
         addBox.x + addBox.width <= sortBox.x + 1,
         `Add project overlaps Sort: ${JSON.stringify({ addBox, sortBox })}`,
       );
+      NodeAssert.ok(sortBox.width >= 24, `Sort projects is ${sortBox.width}px wide`);
+      const stripOverflow = await strip.evaluate((node) => node.scrollWidth - node.clientWidth);
+      NodeAssert.ok(stripOverflow <= 1, `Mobile strip overflows by ${stripOverflow}px`);
       await strip.screenshot({
         path: NodePath.join(artifacts, "flag-on-mobile-strip.png"),
         animations: "disabled",
@@ -617,8 +640,31 @@ NodeTest.test(
   },
 );
 
+async function rootCustomProperties(context: BrowserContext, url: string) {
+  const page = await context.newPage();
+  try {
+    await page.clock.setFixedTime(new Date(fixedTime));
+    await page.goto(`${url}/`);
+    await page.getByText("Flags-off parity", { exact: true }).first().waitFor({
+      state: "visible",
+      timeout: 60_000,
+    });
+    return await page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      const vars: Record<string, string> = {};
+      for (let index = 0; index < styles.length; index += 1) {
+        const name = styles.item(index);
+        if (name.startsWith("--")) vars[name] = styles.getPropertyValue(name).trim();
+      }
+      return vars;
+    });
+  } finally {
+    await page.close();
+  }
+}
+
 NodeTest.test(
-  "flags-off sidebar and settings snapshots are pixel-identical to main",
+  "flags-off sidebar and settings snapshots are pixel-identical to PR base",
   { timeout: 180_000 },
   async () => {
     const context = await newContext();
@@ -630,9 +676,76 @@ NodeTest.test(
         await NodeFSP.writeFile(NodePath.join(artifacts, `${surface}-current.png`), actual);
         NodeAssert.ok(
           actual.equals(expected),
-          `${surface} flags-off screenshot differs from main; inspect ${artifacts}`,
+          `${surface} flags-off screenshot differs from the PR base; inspect ${artifacts}`,
         );
       }
+      const [baseVars, currentVars] = await Promise.all([
+        rootCustomProperties(context, mainUrl),
+        rootCustomProperties(context, currentUrl),
+      ]);
+      const names = new Set([...Object.keys(baseVars), ...Object.keys(currentVars)]);
+      const added = [...names].filter((name) => !(name in baseVars)).sort();
+      const removed = [...names].filter((name) => !(name in currentVars)).sort();
+      const changed = [...names]
+        .filter(
+          (name) => name in baseVars && name in currentVars && baseVars[name] !== currentVars[name],
+        )
+        .sort();
+      await NodeFSP.writeFile(
+        NodePath.join(artifacts, "flags-off-root-vars.json"),
+        JSON.stringify(
+          {
+            baseCount: Object.keys(baseVars).length,
+            currentCount: Object.keys(currentVars).length,
+            added,
+            removed,
+            changed,
+          },
+          null,
+          2,
+        ),
+      );
+      NodeAssert.deepEqual({ added, removed, changed }, { added: [], removed: [], changed: [] });
+
+      await NodeFSP.writeFile(
+        NodePath.join(sandbox, "project", "README.md"),
+        "# Flags-off preview\n",
+      );
+      const preview = await context.newPage();
+      await preview.clock.setFixedTime(new Date(fixedTime));
+      await preview.setViewportSize({ width: 1440, height: 900 });
+      await preview.goto(`${currentUrl}/`);
+      await preview
+        .locator('[data-testid="sidebar-row-card"]', { hasText: "Flags-off parity" })
+        .click();
+      try {
+        await preview.waitForFunction(() => location.pathname.includes("/qa-thread"));
+      } catch (error) {
+        throw new Error(`Thread row stayed at ${preview.url()}`, { cause: error });
+      }
+      const opened = await preview.evaluate(async () => {
+        const match = location.pathname.match(/\/([^/]+)\/qa-thread$/);
+        if (!match?.[1]) return false;
+        const specifier = "/src/rightPanelStore.ts";
+        const store = (await import(specifier)) as {
+          useRightPanelStore: {
+            getState: () => {
+              openFile: (ref: { environmentId: string; threadId: string }, path: string) => void;
+            };
+          };
+        };
+        store.useRightPanelStore
+          .getState()
+          .openFile({ environmentId: match[1], threadId: "qa-thread" }, "README.md");
+        return true;
+      });
+      NodeAssert.equal(opened, true);
+      await preview.getByRole("button", { name: "Open file in preferred editor" }).waitFor();
+      await preview.screenshot({
+        path: NodePath.join(artifacts, "flags-off-file-preview.png"),
+        animations: "disabled",
+      });
+      await preview.close();
     } finally {
       await context.close();
     }

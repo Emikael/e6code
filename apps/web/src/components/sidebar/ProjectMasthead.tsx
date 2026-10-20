@@ -1,13 +1,15 @@
+import { scopeProjectRef, scopeThreadRef } from "@e6tools/client-runtime/environment";
+import { safeErrorLogAttributes } from "@e6tools/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
-import type { ProjectScript } from "@e6tools/contracts";
+import type { ProjectScript, ScopedProjectRef } from "@e6tools/contracts";
 import { EnvironmentId } from "@e6tools/contracts";
 import { resolveProjectScripts } from "@e6tools/shared/projectScripts";
 import { useNavigate } from "@tanstack/react-router";
 import { CopyIcon, EllipsisIcon, FolderOpenIcon, FoldersIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -16,8 +18,10 @@ import { useE6ProjectFileState } from "../../hooks/useE6ProjectFileScripts";
 import { readLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
 import { environmentCatalog } from "../../connection/catalog";
+import { useComposerDraftStore } from "../../composerDraftStore";
+import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
-import { useProjects } from "../../state/entities";
+import { useProjects, useThreadShellsForProjectRefs } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { shellEnvironment } from "../../state/shell";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -35,6 +39,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { useProjectScriptSettings } from "../settings/useProjectScriptSettings";
+import { stackedThreadToast } from "../ui/toastHelpers";
 import { toastManager } from "../ui/toast";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { useSidebar } from "../ui/sidebar";
@@ -48,6 +53,7 @@ const STATS: ReadonlyArray<{ id: SwitchboardStatFilter; label: string }> = [
 ];
 
 const DISCONNECTED_PHASES = new Set(["error", "offline", "unsupported"]);
+const NO_PROJECT_REFS: readonly ScopedProjectRef[] = [];
 
 export function ProjectMasthead({
   project,
@@ -74,6 +80,11 @@ export function ProjectMasthead({
       : resolveSidebarStageBackdropVariant(stageLabel);
   const channelLabel = resolveEnvironmentIdentificationPillLabel(stageLabel);
   const members = project?.memberProjects ?? [];
+  const memberThreads = useThreadShellsForProjectRefs(
+    project?.memberProjectRefs ?? NO_PROJECT_REFS,
+  );
+  const memberThreadsRef = useRef(memberThreads);
+  memberThreadsRef.current = memberThreads;
   const chatMember = members.find((member) => member.id === activeChatProjectId) ?? null;
   const member =
     chatMember ??
@@ -147,19 +158,104 @@ export function ProjectMasthead({
     );
   };
 
-  const removeProject = async () => {
-    if (members.length === 0) return;
-    const message = members
-      .map((entry) => `Remove project "${entry.title}"?\nPath: ${entry.workspaceRoot}`)
-      .join("\n\n");
+  const removeDisplayedProject = async () => {
+    // Same one-entry removal as LegacySidebar handleRemoveProject. A grouped
+    // project drops only the entry this masthead is showing.
+    if (!member) return;
     const api = readLocalApi();
-    const confirmed = api ? await api.dialogs.confirm(message) : window.confirm(message);
-    if (!confirmed) return;
-    for (const entry of members) {
-      await deleteProject({
-        environmentId: entry.environmentId,
-        input: { projectId: entry.id, force: true },
+    if (!api) return;
+    const target = member;
+    const threadsForTarget = () =>
+      memberThreadsRef.current.filter(
+        (thread) => thread.environmentId === target.environmentId && thread.projectId === target.id,
+      );
+    const confirmCopy = (threadCount: number) =>
+      threadCount > 0
+        ? [
+            `Remove project "${target.title}" and delete its ${threadCount} thread${
+              threadCount === 1 ? "" : "s"
+            }?`,
+            `Path: ${target.workspaceRoot}`,
+            ...(target.environmentLabel ? [`Environment: ${target.environmentLabel}`] : []),
+            "This permanently clears conversation history for those threads and any archived threads.",
+            "This removes only this project entry.",
+            "This action cannot be undone.",
+          ].join("\n")
+        : [
+            `Remove project "${target.title}"?`,
+            `Path: ${target.workspaceRoot}`,
+            ...(target.environmentLabel ? [`Environment: ${target.environmentLabel}`] : []),
+            "This permanently clears any archived conversation history.",
+            "This removes only this project entry.",
+          ].join("\n");
+    const deleteEntry = async () => {
+      const result = await deleteProject({
+        environmentId: target.environmentId,
+        input: { projectId: target.id, force: true },
       });
+      if (result._tag === "Failure") return result;
+      const memberProjectRef = scopeProjectRef(target.environmentId, target.id);
+      const draftStore = useComposerDraftStore.getState();
+      releaseProjectDraftUploads(
+        memberProjectRef,
+        threadsForTarget().map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
+      );
+      const projectDraftThread = draftStore.getDraftThreadByProjectRef(memberProjectRef);
+      if (projectDraftThread) draftStore.clearDraftThread(projectDraftThread.draftId);
+      draftStore.clearProjectDraftThreadId(memberProjectRef);
+      return result;
+    };
+    const reportFailure = (error: unknown) => {
+      const message = error instanceof Error ? error.message : "Unknown error removing project.";
+      console.error("Failed to remove project", {
+        projectId: target.id,
+        environmentId: target.environmentId,
+        ...safeErrorLogAttributes(error),
+      });
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: `Failed to remove "${target.title}"`,
+          description: message,
+        }),
+      );
+    };
+    if (threadsForTarget().length > 0) {
+      const warningToastId = toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Project is not empty",
+          description: "Delete all threads in this project before removing it.",
+          actionVariant: "destructive",
+          actionProps: {
+            children: "Delete anyway",
+            onClick: () => {
+              void (async () => {
+                toastManager.close(warningToastId);
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, 180);
+                });
+                const latestCount = threadsForTarget().length;
+                const confirmed = await api.dialogs.confirm(confirmCopy(latestCount), {
+                  variant: "destructive",
+                });
+                if (!confirmed) return;
+                const result = await deleteEntry();
+                if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+                  reportFailure(squashAtomCommandFailure(result));
+                }
+              })().catch(reportFailure);
+            },
+          },
+        }),
+      );
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(confirmCopy(0), { variant: "destructive" });
+    if (!confirmed) return;
+    const result = await deleteEntry();
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      reportFailure(squashAtomCommandFailure(result));
     }
   };
 
@@ -191,7 +287,7 @@ export function ProjectMasthead({
     <header className="@container/sidebar-header flex shrink-0 flex-col gap-2 border-b border-sb-border px-3 pb-2.5 pt-0">
       <div
         className={cn(
-          "flex min-h-[var(--workspace-topbar-height)] min-w-0 items-center gap-2 ps-[max(0px,calc(var(--workspace-titlebar-content-left)-60px-0.75rem+0.25rem))]",
+          "@container/masthead-row flex min-h-[var(--workspace-topbar-height)] min-w-0 items-center gap-2 ps-[max(0px,calc(var(--workspace-titlebar-content-left)-60px-0.75rem+0.25rem))]",
           isElectron && "drag-region",
         )}
       >
@@ -200,7 +296,7 @@ export function ProjectMasthead({
         ) : (
           <FoldersIcon aria-hidden className="size-5 shrink-0 text-sb-muted" strokeWidth={1.75} />
         )}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[4.5rem] flex-1">
           <h2 className="truncate text-[15px] leading-5 font-semibold text-sb-foreground">
             {project?.displayName ?? "All projects"}
           </h2>
@@ -214,7 +310,7 @@ export function ProjectMasthead({
           <span
             data-environment-identification={channel}
             className={cn(
-              "relative z-10 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[13rem]/sidebar-header:inline-flex",
+              "relative z-10 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[18rem]/masthead-row:inline-flex",
               channel === "nightly"
                 ? "bg-(--brand-orange)/14 text-(--brand-orange-ink)"
                 : "bg-(--brand-cyan)/14 text-(--brand-cyan-ink)",
@@ -242,14 +338,17 @@ export function ProjectMasthead({
                 )
               }
             />
-            <OpenInPicker
-              environmentId={member.environmentId}
-              keybindings={environment.serverConfig.keybindings}
-              availableEditors={environment.serverConfig.availableEditors}
-              openInCwd={member.workspaceRoot}
-              compact
-              enableShortcut={false}
-            />
+            <div className="hidden @[13rem]/masthead-row:contents">
+              <OpenInPicker
+                environmentId={member.environmentId}
+                keybindings={environment.serverConfig.keybindings}
+                availableEditors={environment.serverConfig.availableEditors}
+                openInCwd={member.workspaceRoot}
+                compact
+                enableShortcut={false}
+                ariaLabel="Open project in editor"
+              />
+            </div>
             <Menu>
               <MenuTrigger aria-label="Project actions" className="sb-action size-7 text-sb-muted">
                 <EllipsisIcon aria-hidden className="size-4" strokeWidth={1.75} />
@@ -266,6 +365,14 @@ export function ProjectMasthead({
                 >
                   Project settings
                 </MenuItem>
+                <OpenInPicker
+                  environmentId={member.environmentId}
+                  keybindings={environment.serverConfig.keybindings}
+                  availableEditors={environment.serverConfig.availableEditors}
+                  openInCwd={member.workspaceRoot}
+                  presentation="menu"
+                  enableShortcut={false}
+                />
                 <MenuItem
                   onClick={() => {
                     void revealInFileManager({
@@ -289,7 +396,7 @@ export function ProjectMasthead({
                   <CopyIcon aria-hidden className="size-4" strokeWidth={1.75} />
                   Copy path
                 </MenuItem>
-                <MenuItem onClick={() => void removeProject()}>Remove project</MenuItem>
+                <MenuItem onClick={() => void removeDisplayedProject()}>Remove project</MenuItem>
               </MenuPopup>
             </Menu>
           </div>

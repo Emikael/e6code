@@ -753,6 +753,7 @@ function SidebarProjectGroupHeader(props: {
   onNewThread: (() => void) | null;
 }) {
   const { group } = props;
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const waiting = !group.expanded && group.attentionCount > 0;
   return (
     <li
@@ -773,7 +774,11 @@ function SidebarProjectGroupHeader(props: {
           className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-sidebar-control-surface ring-1 ring-sidebar-border/60 ring-inset"
         >
           {props.project ? (
-            <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+            <ProjectFavicon
+              project={props.project}
+              className="size-3.5 shrink-0"
+              monogramTone={switchboard ? "solid" : undefined}
+            />
           ) : (
             <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
           )}
@@ -4969,16 +4974,13 @@ export default function Sidebar() {
                 className="flex items-center justify-between gap-2 px-3 py-1 text-(length:--sb-text-meta) text-sb-muted"
               >
                 <span>Filtered: {statFilterLabel}</span>
-                <span className="flex items-center gap-1">
-                  <span aria-hidden>·</span>
-                  <button
-                    type="button"
-                    className="sb-action h-auto px-1"
-                    onClick={() => setStatFilter(null)}
-                  >
-                    Clear
-                  </button>
-                </span>
+                <button
+                  type="button"
+                  className="sb-action h-auto px-1"
+                  onClick={() => setStatFilter(null)}
+                >
+                  Clear
+                </button>
               </div>
             ) : null}
           </>

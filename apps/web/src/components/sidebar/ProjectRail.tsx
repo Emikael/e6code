@@ -43,6 +43,7 @@ import {
 } from "react";
 
 import { APP_VERSION } from "../../branding";
+import { isElectron } from "../../env";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { useUpdateClientSettings, useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -344,15 +345,28 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
         className={cn(
           "shrink-0 bg-sb-rail-bg",
           horizontal
-            ? "flex h-[60px] w-full items-center gap-1 overflow-x-auto px-1"
-            : "flex h-full w-[60px] flex-col items-center gap-1 overflow-y-auto pb-2 pt-[var(--workspace-topbar-height)]",
+            ? "flex h-[60px] w-full items-center gap-1 overflow-x-auto"
+            : "flex h-full w-[60px] flex-col items-center gap-1 overflow-y-auto pb-2 pt-0",
         )}
         onKeyDownCapture={onRailKeyDown}
       >
+        {horizontal ? null : (
+          <div
+            aria-hidden
+            className={cn(
+              "-mb-1 h-[var(--workspace-topbar-height)] w-full shrink-0",
+              isElectron && "drag-region",
+            )}
+          />
+        )}
         <RailIconButton
           id="home"
-          label={`Go to threads. E6 Code ${buildLabel}`}
-          tooltip={<span className="tabular-nums">{buildLabel}</span>}
+          label="Go to threads"
+          tooltip={
+            <>
+              Go to threads <span className="tabular-nums text-sb-muted">· {buildLabel}</span>
+            </>
+          }
           tabIndex={tabIndexFor("home")}
           onFocus={() => setRovingId("home")}
           onClick={() => {
@@ -375,10 +389,7 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
         </RailIconButton>
         <span
           aria-hidden
-          className={cn(
-            "bg-sb-border",
-            horizontal ? "mx-0.5 h-6 w-px shrink-0" : "my-0.5 h-px w-6",
-          )}
+          className={cn("bg-sb-border", horizontal ? "h-6 w-px shrink-0" : "my-0.5 h-px w-6")}
         />
         <div
           tabIndex={-1}
@@ -414,7 +425,7 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
                   data-rail-id="sort"
                   aria-label="Sort projects"
                   tabIndex={tabIndexFor("sort")}
-                  className="sb-action size-9 text-sb-muted"
+                  className="sb-action size-9 min-w-6 text-sb-muted"
                   onFocus={() => setRovingId("sort")}
                 />
               }
