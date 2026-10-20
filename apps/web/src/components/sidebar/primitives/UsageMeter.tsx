@@ -5,12 +5,16 @@ export function UsageMeter({
   label,
   percent,
   className,
+  name,
 }: {
   label: string;
   percent: number | null;
   className?: string;
+  /** Accessible name for the meter. Falls back to the visible window label. */
+  name?: string;
 }) {
   const usage = resolveUsage(percent);
+  const accessibleName = name ?? label;
   const color =
     usage.severity === "error"
       ? "var(--state-error)"
@@ -26,12 +30,12 @@ export function UsageMeter({
     >
       <span>{label}</span>
       {usage.percent === null ? (
-        <span aria-label={`${label}: no usage source`}>No source</span>
+        <span aria-label={name ?? `${label}: no usage source`}>No source</span>
       ) : (
         <>
           <span
             role="meter"
-            aria-label={label}
+            aria-label={accessibleName}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={usage.percent}

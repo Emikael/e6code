@@ -252,6 +252,7 @@ import {
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+import { setProjectScriptRunTarget } from "./sidebar/projectScriptRunTarget";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
@@ -4320,6 +4321,26 @@ export default function ChatView(props: ChatViewProps) {
       writeTerminal,
     ],
   );
+  useEffect(() => {
+    setProjectScriptRunTarget(activeProject?.id ?? null);
+    return () => setProjectScriptRunTarget(null);
+  }, [activeProject?.id]);
+  useEffect(() => {
+    const onRun = (event: Event) => {
+      const detail = (event as CustomEvent<{ script: ProjectScript; projectId: ProjectId }>).detail;
+      if (!detail?.script) return;
+      if (!activeProject || detail.projectId !== activeProject.id) {
+        toastManager.add({
+          type: "warning",
+          title: "Open a thread in this project to run a script",
+        });
+        return;
+      }
+      void runProjectScript(detail.script);
+    };
+    window.addEventListener("e6code:run-project-script", onRun);
+    return () => window.removeEventListener("e6code:run-project-script", onRun);
+  }, [activeProject, runProjectScript]);
 
   const supportsProjectSettingsOverrides =
     environmentById.get(environmentId)?.serverConfig?.environment.capabilities

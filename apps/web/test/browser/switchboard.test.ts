@@ -9,7 +9,13 @@ import * as NodePath from "node:path";
 import * as NodeTest from "node:test";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "playwright-core";
 import { createServer, type ViteDevServer } from "vite-plus";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -27,6 +33,7 @@ let sandbox: string;
 let currentUrl: string;
 let mainUrl: string;
 let browser: Browser;
+let backendPort = 0;
 let backend: ReturnType<typeof NodeChildProcess.spawn> | undefined;
 const token = NodeCrypto.randomBytes(32).toString("hex");
 
@@ -104,7 +111,7 @@ async function frontend(root: string, name: string, backendPort: number) {
   return `http://localhost:${address.port}`;
 }
 
-async function newContext(): Promise<BrowserContext> {
+async function newContext(options?: { readonly switchboard?: boolean }): Promise<BrowserContext> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     colorScheme: "dark",
@@ -124,7 +131,7 @@ async function newContext(): Promise<BrowserContext> {
     },
   ]);
   await context.addInitScript(
-    ({ time }) => {
+    ({ time, switchboard }) => {
       localStorage.setItem(
         "e6code:client-settings:v1",
         JSON.stringify({ onboardingCompletedAt: time }),
@@ -132,13 +139,13 @@ async function newContext(): Promise<BrowserContext> {
       localStorage.setItem(
         "e6code:ui-state:v1",
         JSON.stringify({
-          sidebarSwitchboard: false,
+          sidebarSwitchboard: switchboard,
           settingsSwitchboard: false,
           projectExpandedById: { "qa-project": true },
         }),
       );
     },
-    { time: fixedTime },
+    { time: fixedTime, switchboard: options?.switchboard === true },
   );
   return context;
 }
@@ -188,7 +195,7 @@ NodeTest.before(
       const workspace = NodePath.join(sandbox, "project");
       await NodeFSP.mkdir(workspace);
       await exec("git", ["init", "--quiet", workspace]);
-      const backendPort = await freePort();
+      backendPort = await freePort();
       currentUrl = await frontend(repo, "current", backendPort);
       mainUrl = await frontend(baseline, "main", backendPort);
       backend = NodeChildProcess.spawn(
@@ -480,7 +487,190 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
 }
 
 NodeTest.test(
-  "flags-off sidebar and settings snapshots are pixel-identical to main",
+  "flag-on sidebar shows the project rail, masthead, footer, and sort picker",
+  { timeout: 180_000 },
+  async () => {
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      await page.clock.setFixedTime(new Date(fixedTime));
+      await page.goto(`${currentUrl}/`);
+      await page.getByRole("navigation", { name: "Projects" }).waitFor();
+      await page.getByRole("heading", { name: "All projects" }).waitFor();
+      const project = page
+        .getByRole("navigation", { name: "Projects" })
+        .getByRole("button", { name: "Switchboard QA", exact: true });
+      await project.waitFor();
+      await project.click();
+      await page.getByRole("heading", { name: "Switchboard QA", exact: true }).waitFor();
+      await page.getByRole("button", { name: /^\d+ threads, filter$/ }).waitFor();
+      await page
+        .locator("[data-switchboard='sidebar']")
+        .first()
+        .screenshot({
+          path: NodePath.join(artifacts, "flag-on-sidebar.png"),
+          animations: "disabled",
+        });
+      await page.getByRole("button", { name: "Sort projects" }).click();
+      await page.getByRole("menuitemradio", { name: "Last user message" }).waitFor();
+      await page.getByRole("menuitemradio", { name: "Created at" }).waitFor();
+      await page.getByRole("menuitemradio", { name: "Manual" }).waitFor();
+      await page.screenshot({
+        path: NodePath.join(artifacts, "flag-on-sort-picker.png"),
+        animations: "disabled",
+      });
+      await page.keyboard.press("Escape");
+
+      // thread.activity.append is not a client command, so the fixture stays at
+      // zero need-you threads and the rail renders no badge. The specimen uses
+      // the production pill classes on that real tile.
+      const projectTile = page
+        .getByRole("navigation", { name: "Projects" })
+        .getByRole("button", { name: "Switchboard QA", exact: true });
+      NodeAssert.equal(await projectTile.locator("span.ring-2").count(), 0);
+      await projectTile.evaluate((button) => {
+        const badge = document.createElement("span");
+        badge.setAttribute("data-badge-specimen", "");
+        badge.textContent = "1";
+        badge.className =
+          "absolute -right-0.5 -bottom-0.5 h-4 min-w-4 rounded-full px-1 text-center font-mono text-(length:--sb-text-meta) leading-4 font-semibold tabular-nums ring-2 ring-sb-rail-bg";
+        badge.style.backgroundColor = "var(--state-approval)";
+        badge.style.color = "var(--sb-rail-bg)";
+        button.append(badge);
+      });
+      await projectTile.screenshot({
+        path: NodePath.join(artifacts, "flag-on-badge.png"),
+        animations: "disabled",
+      });
+      await projectTile.locator("[data-badge-specimen]").evaluate((badge) => badge.remove());
+
+      await page.evaluate(() => {
+        localStorage.setItem("switchboard_column_width", "256");
+      });
+      await page.reload();
+      await page.getByRole("navigation", { name: "Projects" }).waitFor();
+      await page
+        .getByRole("navigation", { name: "Projects" })
+        .getByRole("button", { name: "Switchboard QA", exact: true })
+        .click();
+      const needYou = page.getByRole("button", { name: /need you, filter$/ });
+      await needYou.waitFor();
+      NodeAssert.equal(
+        await needYou
+          .locator("span")
+          .last()
+          .evaluate((node) => node.getClientRects().length),
+        1,
+        "The need-you label wraps at the 256px column",
+      );
+      // A real Electron bridge changes auth bootstrap. The macOS inset is the
+      // same CSS variable the desktop shell sets, so simulate that here.
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty("--workspace-controls-left", "90px");
+      });
+      const titleWrap = page.locator("[data-switchboard='sidebar'] header h2").locator("..");
+      const titleWidth = await titleWrap.evaluate((node) => node.getBoundingClientRect().width);
+      NodeAssert.ok(titleWidth >= 72, `Masthead title collapsed to ${titleWidth}px`);
+      const actions = page.getByRole("button", { name: "Project actions" });
+      const column = page.locator("[data-switchboard='sidebar']").first();
+      const [actionsBox, columnBox] = await Promise.all([
+        actions.boundingBox(),
+        column.boundingBox(),
+      ]);
+      NodeAssert.ok(actionsBox && columnBox);
+      NodeAssert.ok(
+        actionsBox.x + actionsBox.width <= columnBox.x + columnBox.width + 1,
+        `Project actions overflow the column: ${JSON.stringify({ actionsBox, columnBox })}`,
+      );
+      await page.locator("[data-switchboard='sidebar'] header").screenshot({
+        path: NodePath.join(artifacts, "flag-on-masthead-256.png"),
+        animations: "disabled",
+      });
+      await actions.click();
+      await page.getByRole("menuitem", { name: "Reveal in file manager" }).waitFor();
+      await page.screenshot({
+        path: NodePath.join(artifacts, "flag-on-project-actions.png"),
+        animations: "disabled",
+      });
+      await page.keyboard.press("Escape");
+      const toggle = page.getByRole("button", { name: "Toggle main sidebar" });
+      const home = page.getByRole("button", { name: /Go to threads/ });
+      const title = page.getByRole("heading", { name: "Switchboard QA", exact: true });
+      const [toggleBox, homeBox, titleBox] = await Promise.all([
+        toggle.boundingBox(),
+        home.boundingBox(),
+        title.boundingBox(),
+      ]);
+      NodeAssert.ok(toggleBox && homeBox && titleBox);
+      NodeAssert.ok(
+        homeBox.y >= toggleBox.y + toggleBox.height - 1,
+        `Home mark overlaps the sidebar toggle: ${JSON.stringify({ toggleBox, homeBox })}`,
+      );
+      NodeAssert.ok(
+        titleBox.x >= toggleBox.x + toggleBox.width - 1,
+        `Masthead title overlaps the sidebar toggle: ${JSON.stringify({ toggleBox, titleBox })}`,
+      );
+      await page
+        .locator("[data-switchboard='sidebar']")
+        .first()
+        .screenshot({
+          path: NodePath.join(artifacts, "flag-on-macos-inset.png"),
+          animations: "disabled",
+        });
+
+      const mobile = await context.newPage();
+      await mobile.setViewportSize({ width: 390, height: 844 });
+      await mobile.clock.setFixedTime(new Date(fixedTime));
+      await mobile.goto(`${currentUrl}/`);
+      await mobile.getByRole("button", { name: "Toggle main sidebar" }).click();
+      const strip = mobile.getByRole("navigation", { name: "Projects" });
+      await strip.waitFor();
+      const addBox = await strip.getByRole("button", { name: "Add project" }).boundingBox();
+      const sortBox = await mobile.getByRole("button", { name: "Sort projects" }).boundingBox();
+      NodeAssert.ok(addBox && sortBox);
+      NodeAssert.ok(
+        addBox.x + addBox.width <= sortBox.x + 1,
+        `Add project overlaps Sort: ${JSON.stringify({ addBox, sortBox })}`,
+      );
+      NodeAssert.ok(sortBox.width >= 24, `Sort projects is ${sortBox.width}px wide`);
+      const stripOverflow = await strip.evaluate((node) => node.scrollWidth - node.clientWidth);
+      NodeAssert.ok(stripOverflow <= 1, `Mobile strip overflows by ${stripOverflow}px`);
+      await strip.screenshot({
+        path: NodePath.join(artifacts, "flag-on-mobile-strip.png"),
+        animations: "disabled",
+      });
+      await mobile.close();
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+async function rootCustomProperties(context: BrowserContext, url: string) {
+  const page = await context.newPage();
+  try {
+    await page.clock.setFixedTime(new Date(fixedTime));
+    await page.goto(`${url}/`);
+    await page.getByText("Flags-off parity", { exact: true }).first().waitFor({
+      state: "visible",
+      timeout: 60_000,
+    });
+    return await page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      const vars: Record<string, string> = {};
+      for (let index = 0; index < styles.length; index += 1) {
+        const name = styles.item(index);
+        if (name.startsWith("--")) vars[name] = styles.getPropertyValue(name).trim();
+      }
+      return vars;
+    });
+  } finally {
+    await page.close();
+  }
+}
+
+NodeTest.test(
+  "flags-off sidebar and settings snapshots are pixel-identical to PR base",
   { timeout: 180_000 },
   async () => {
     const context = await newContext();
@@ -492,11 +682,164 @@ NodeTest.test(
         await NodeFSP.writeFile(NodePath.join(artifacts, `${surface}-current.png`), actual);
         NodeAssert.ok(
           actual.equals(expected),
-          `${surface} flags-off screenshot differs from main; inspect ${artifacts}`,
+          `${surface} flags-off screenshot differs from the PR base; inspect ${artifacts}`,
         );
       }
+      const [baseVars, currentVars] = await Promise.all([
+        rootCustomProperties(context, mainUrl),
+        rootCustomProperties(context, currentUrl),
+      ]);
+      const names = new Set([...Object.keys(baseVars), ...Object.keys(currentVars)]);
+      const added = [...names].filter((name) => !(name in baseVars)).sort();
+      const removed = [...names].filter((name) => !(name in currentVars)).sort();
+      const changed = [...names]
+        .filter(
+          (name) => name in baseVars && name in currentVars && baseVars[name] !== currentVars[name],
+        )
+        .sort();
+      await NodeFSP.writeFile(
+        NodePath.join(artifacts, "flags-off-root-vars.json"),
+        JSON.stringify(
+          {
+            baseCount: Object.keys(baseVars).length,
+            currentCount: Object.keys(currentVars).length,
+            added,
+            removed,
+            changed,
+          },
+          null,
+          2,
+        ),
+      );
+      NodeAssert.deepEqual({ added, removed, changed }, { added: [], removed: [], changed: [] });
+
+      await NodeFSP.writeFile(
+        NodePath.join(sandbox, "project", "README.md"),
+        "# Flags-off preview\n",
+      );
+      const preview = await context.newPage();
+      await preview.clock.setFixedTime(new Date(fixedTime));
+      await preview.setViewportSize({ width: 1440, height: 900 });
+      await preview.goto(`${currentUrl}/`);
+      await preview
+        .locator('[data-testid="sidebar-row-card"]', { hasText: "Flags-off parity" })
+        .click();
+      try {
+        await preview.waitForFunction(() => location.pathname.includes("/qa-thread"));
+      } catch (error) {
+        throw new Error(`Thread row stayed at ${preview.url()}`, { cause: error });
+      }
+      const opened = await preview.evaluate(async () => {
+        const match = location.pathname.match(/\/([^/]+)\/qa-thread$/);
+        if (!match?.[1]) return false;
+        const specifier = "/src/rightPanelStore.ts";
+        const store = (await import(specifier)) as {
+          useRightPanelStore: {
+            getState: () => {
+              openFile: (ref: { environmentId: string; threadId: string }, path: string) => void;
+            };
+          };
+        };
+        store.useRightPanelStore
+          .getState()
+          .openFile({ environmentId: match[1], threadId: "qa-thread" }, "README.md");
+        return true;
+      });
+      NodeAssert.equal(opened, true);
+      await preview.getByRole("button", { name: "Open file in preferred editor" }).waitFor();
+      await preview.screenshot({
+        path: NodePath.join(artifacts, "flags-off-file-preview.png"),
+        animations: "disabled",
+      });
+      await preview.close();
     } finally {
       await context.close();
     }
   },
 );
+
+NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000 }, async () => {
+  const stripProjects = [
+    ["strip-1", "Strip One"],
+    ["strip-2", "Strip Two"],
+    ["strip-3", "Strip Three"],
+    ["strip-4", "Strip Four"],
+    ["strip-5", "Strip Five"],
+  ] as const;
+  const dispatch = async (command: object) => {
+    const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(command),
+    });
+    NodeAssert.equal(response.status, 200, await response.text());
+  };
+  for (const [id, title] of stripProjects) {
+    const root = NodePath.join(sandbox, id);
+    await NodeFSP.mkdir(root, { recursive: true });
+    await exec("git", ["init", "--quiet", root]);
+    await dispatch({
+      type: "project.create",
+      commandId: `qa-${id}-create`,
+      projectId: id,
+      title,
+      workspaceRoot: root,
+      createdAt: fixedTime,
+    });
+  }
+
+  const context = await newContext({ switchboard: true });
+  try {
+    const mobile = await context.newPage();
+    await mobile.setViewportSize({ width: 390, height: 844 });
+    await mobile.clock.setFixedTime(new Date(fixedTime));
+    await mobile.goto(`${currentUrl}/`);
+    await mobile.getByRole("button", { name: "Toggle main sidebar" }).click();
+    const strip = mobile.getByRole("navigation", { name: "Projects" });
+    const owned: Array<Locator> = [];
+    for (const [, title] of stripProjects) {
+      const button = strip.getByRole("button", { name: title, exact: true });
+      await button.waitFor();
+      owned.push(button);
+    }
+    NodeAssert.equal(owned.length, stripProjects.length);
+    NodeAssert.equal(await strip.evaluate((node) => getComputedStyle(node).scrollbarWidth), "none");
+    const pageBox = await mobile.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    NodeAssert.ok(
+      pageBox.scrollWidth <= pageBox.clientWidth,
+      `The page overflows horizontally: ${JSON.stringify(pageBox)}`,
+    );
+    let last = owned[0];
+    NodeAssert.ok(last);
+    let lastRight = Number.NEGATIVE_INFINITY;
+    for (const button of owned) {
+      const box = await button.boundingBox();
+      NodeAssert.ok(box);
+      const right = box.x + box.width;
+      if (right >= lastRight) {
+        lastRight = right;
+        last = button;
+      }
+    }
+    await last.scrollIntoViewIfNeeded();
+    const [lastBox, stripBox] = await Promise.all([last.boundingBox(), strip.boundingBox()]);
+    NodeAssert.ok(lastBox && stripBox);
+    NodeAssert.ok(
+      lastBox.x >= stripBox.x - 1 && lastBox.x + lastBox.width <= stripBox.x + stripBox.width + 1,
+      `The last project is outside the strip: ${JSON.stringify({ lastBox, stripBox })}`,
+    );
+    await mobile.screenshot({
+      path: NodePath.join(artifacts, "flag-on-mobile-strip-5.png"),
+      animations: "disabled",
+    });
+    await mobile.close();
+  } finally {
+    await context.close();
+  }
+});

@@ -200,6 +200,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   presentation = "toolbar",
   compact = false,
   enableShortcut = true,
+  ariaLabel,
 }: {
   environmentId: EnvironmentId;
   keybindings: ResolvedKeybindingsConfig;
@@ -208,6 +209,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   presentation?: "toolbar" | "menu";
   compact?: boolean;
   enableShortcut?: boolean;
+  ariaLabel?: string;
 }) {
   const openInEditorMutation = useAtomCommand(shellEnvironment.openInEditor, "open in editor");
   const remote = useRemoteOpenState(environmentId);
@@ -307,7 +309,7 @@ export const OpenInPicker = memo(function OpenInPicker({
             >
               <Icon aria-hidden="true" className={getOpenInIconClass(kind)} />
               <MenuItemLabel>{label}</MenuItemLabel>
-              {value === preferredEditor && openFavoriteEditorShortcutLabel && (
+              {enableShortcut && value === preferredEditor && openFavoriteEditorShortcutLabel && (
                 <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
               )}
             </MenuItem>
@@ -333,7 +335,7 @@ export const OpenInPicker = memo(function OpenInPicker({
           >
             <primaryOption.Icon className={cn("size-4", getOpenInIconClass(primaryOption.kind))} />
             <MenuItemLabel className="truncate">Open in {primaryOption.label}</MenuItemLabel>
-            {openFavoriteEditorShortcutLabel && (
+            {enableShortcut && openFavoriteEditorShortcutLabel && (
               <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
             )}
           </MenuItem>
@@ -352,7 +354,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   return (
     <Group aria-label="Open in editor">
       <Button
-        aria-label={compact ? "Open file in preferred editor" : undefined}
+        aria-label={compact ? (ariaLabel ?? "Open file in preferred editor") : undefined}
         className="ps-[8.5px]"
         size="xs"
         variant="outline"

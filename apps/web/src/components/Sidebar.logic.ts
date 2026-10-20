@@ -1337,3 +1337,139 @@ export function groupSidebarThreadsByProject<
     ];
   });
 }
+
+export type ProjectStatusKind =
+  | "approval"
+  | "input"
+  | "plan"
+  | "working"
+  | "connecting"
+  | "monitoring"
+  | "completed";
+
+export interface ProjectSidebarCounts {
+  readonly needYou: number;
+  readonly live: number;
+  readonly threads: number;
+  readonly worktrees: number;
+  readonly badge: { readonly status: ProjectStatusKind; readonly count: number } | null;
+  readonly liveDot: boolean;
+}
+
+export type ProjectCountThread = ThreadStatusInput & {
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly archivedAt: string | null;
+  readonly settledOverride: string | null;
+  readonly worktreePath: string | null;
+};
+
+export type SwitchboardStatFilter = "need-you" | "live" | "threads" | "worktrees";
+
+const PILL_STATUS_KIND = {
+  "Pending Approval": "approval",
+  "Awaiting Input": "input",
+  "Plan Ready": "plan",
+  Working: "working",
+  Connecting: "connecting",
+  Monitoring: "monitoring",
+  Completed: "completed",
+} as const satisfies Record<ThreadStatusPill["label"], ProjectStatusKind>;
+
+const NEED_YOU_LABELS = new Set<ThreadStatusPill["label"]>([
+  "Pending Approval",
+  "Awaiting Input",
+  "Plan Ready",
+]);
+
+const LIVE_LABELS = new Set<ThreadStatusPill["label"]>(["Working", "Connecting", "Monitoring"]);
+
+const EMPTY_PROJECT_COUNTS: ProjectSidebarCounts = {
+  needYou: 0,
+  live: 0,
+  threads: 0,
+  worktrees: 0,
+  badge: null,
+  liveDot: false,
+};
+
+export function countProjectSidebarThreads(
+  threads: readonly ProjectCountThread[],
+): ProjectSidebarCounts {
+  let needYou = 0;
+  let live = 0;
+  let threadCount = 0;
+  const worktrees = new Set<string>();
+  const pills: Array<ThreadStatusPill | null> = [];
+
+  for (const thread of threads) {
+    if (thread.archivedAt !== null) continue;
+    if (thread.worktreePath) worktrees.add(thread.worktreePath);
+    if (thread.settledOverride !== "settled") threadCount += 1;
+    const pill = resolveThreadStatusPill({ thread });
+    pills.push(pill);
+    if (!pill) continue;
+    if (NEED_YOU_LABELS.has(pill.label)) needYou += 1;
+    if (LIVE_LABELS.has(pill.label)) live += 1;
+  }
+
+  let attention: ThreadStatusPill | null = null;
+  for (const pill of pills) {
+    if (!pill || !NEED_YOU_LABELS.has(pill.label)) continue;
+    if (
+      attention === null ||
+      THREAD_STATUS_PRIORITY[pill.label] > THREAD_STATUS_PRIORITY[attention.label]
+    ) {
+      attention = pill;
+    }
+  }
+
+  return {
+    needYou,
+    live,
+    threads: threadCount,
+    worktrees: worktrees.size,
+    badge:
+      attention === null || needYou === 0
+        ? null
+        : { status: PILL_STATUS_KIND[attention.label], count: needYou },
+    liveDot: live > 0,
+  };
+}
+
+export function countThreadsForLogicalProject(
+  project: LogicalSidebarProject,
+  threads: readonly ProjectCountThread[],
+): ProjectSidebarCounts {
+  const memberKeys = new Set(
+    project.memberProjectRefs.map(
+      (projectRef) => `${projectRef.environmentId}\0${projectRef.projectId}`,
+    ),
+  );
+  return countProjectSidebarThreads(
+    threads.filter((thread) => memberKeys.has(`${thread.environmentId}\0${thread.projectId}`)),
+  );
+}
+
+export function threadMatchesSwitchboardStatFilter(
+  thread: ProjectCountThread,
+  filter: SwitchboardStatFilter,
+): boolean {
+  if (thread.archivedAt !== null) return false;
+  if (filter === "threads") return thread.settledOverride !== "settled";
+  if (filter === "worktrees") return thread.worktreePath !== null && thread.worktreePath.length > 0;
+  const pill = resolveThreadStatusPill({ thread });
+  if (!pill) return false;
+  return filter === "need-you" ? NEED_YOU_LABELS.has(pill.label) : LIVE_LABELS.has(pill.label);
+}
+
+export function selectSwitchboardRailProjects<
+  TProject extends LogicalSidebarProject,
+  TThread extends ScopedSidebarThread,
+>(
+  projects: readonly TProject[],
+  threads: readonly TThread[],
+  sortOrder: SidebarProjectSortOrder,
+): TProject[] {
+  return sortLogicalProjectsForSidebar(projects, threads, sortOrder);
+}

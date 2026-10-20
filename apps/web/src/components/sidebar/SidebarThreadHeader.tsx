@@ -31,6 +31,11 @@ export interface SidebarThreadHeaderProps {
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   /** Without projects there is nothing to scope, so those controls stay out. */
   hasProjects: boolean;
+  /**
+   * The switchboard rail owns project scope and add-project. Defaults to the
+   * existing header controls so a caller that omits the prop is unchanged.
+   */
+  showProjectControls?: boolean;
   /** The project scope combobox, rendered as the first icon of the group. */
   projectScope: ReactNode;
   onNewProject: () => void;
@@ -57,6 +62,7 @@ export interface SidebarThreadHeaderProps {
 export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
+  showProjectControls = true,
   projectScope,
   onNewProject,
   onNewThread,
@@ -149,7 +155,7 @@ export function SidebarThreadHeader({
       {/* Secondary scope/project icons stay grouped, while New Thread gets
           a tactile primary pill target for Fitts's Law ergonomics. */}
       <div className="flex shrink-0 items-center gap-1">
-        {hasProjects ? (
+        {hasProjects && showProjectControls ? (
           <div className="flex shrink-0 items-center gap-0.5">
             {projectScope}
             <SidebarHeaderIconButton label="New project" onClick={onNewProject}>

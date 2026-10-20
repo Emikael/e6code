@@ -10,7 +10,11 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
-import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
   resolveShortcutCommand,
@@ -18,6 +22,7 @@ import {
 } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { useUiStateStore } from "../uiStateStore";
 import { useLegacySidebarEnabled } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
@@ -28,15 +33,27 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { ProjectRail } from "./sidebar/ProjectRail";
 import { useProjects } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
+  SWITCHBOARD_SIDEBAR_WIDTH_STORAGE_KEY,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
   THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
-import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
+import {
+  Sidebar,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+  SWITCHBOARD_COLUMN_MAX_WIDTH,
+  SWITCHBOARD_COLUMN_MIN_WIDTH,
+  SWITCHBOARD_RAIL_WIDTH,
+  resolveSwitchboardColumnWidth,
+  useSidebar,
+} from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
@@ -50,16 +67,29 @@ function readViewportWidth(): number {
   return window.innerWidth;
 }
 
-function readInitialThreadSidebarWidth(): number {
+function readStoredWidth(storageKey: string): number | null {
   try {
-    return resolveInitialThreadSidebarWidth(
-      getLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, Schema.Finite),
-      window.innerWidth,
-    );
+    return getLocalStorageItem(storageKey, Schema.Finite);
   } catch (error) {
-    console.error("Could not read persisted thread sidebar width.", error);
-    return resolveInitialThreadSidebarWidth(null, window.innerWidth);
+    console.error("Could not read persisted sidebar width.", error);
+    return null;
   }
+}
+
+function readInitialThreadSidebarWidth(): number {
+  return resolveInitialThreadSidebarWidth(
+    readStoredWidth(THREAD_SIDEBAR_WIDTH_STORAGE_KEY),
+    window.innerWidth,
+  );
+}
+
+function readInitialSwitchboardSidebarWidth(): number {
+  return (
+    resolveSwitchboardColumnWidth(
+      readStoredWidth(SWITCHBOARD_SIDEBAR_WIDTH_STORAGE_KEY),
+      window.innerWidth,
+    ) + SWITCHBOARD_RAIL_WIDTH
+  );
 }
 
 function SidebarControl() {
@@ -127,9 +157,38 @@ function ProjectProjectionRetention() {
   return null;
 }
 
+function SwitchboardSidebarFrame({
+  isOnSettings,
+  pathname,
+}: {
+  isOnSettings: boolean;
+  pathname: string;
+}) {
+  const { isMobile } = useSidebar();
+  return (
+    <div
+      data-switchboard="sidebar"
+      className={isMobile ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-1 flex-row"}
+    >
+      <ProjectRail orientation={isMobile ? "horizontal" : "vertical"} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {isOnSettings ? (
+          <>
+            <SidebarChromeHeader isElectron={isElectron} />
+            <SettingsSidebarNav pathname={pathname} />
+          </>
+        ) : (
+          <ThreadSidebar />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -139,19 +198,59 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const routePanelAnimationsActive = panelAnimationsActive && !panelAnimationsSuppressed;
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
-  const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    useUiStateStore.getState().sidebarSwitchboard
+      ? readInitialSwitchboardSidebarWidth()
+      : readInitialThreadSidebarWidth(),
+  );
+  const [widthMode, setWidthMode] = useState(switchboard);
+  if (widthMode !== switchboard) {
+    setWidthMode(switchboard);
+    setSidebarWidth(
+      switchboard ? readInitialSwitchboardSidebarWidth() : readInitialThreadSidebarWidth(),
+    );
+  }
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render
   // that would otherwise refresh a render-time snapshot.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
-  const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth);
+  const sidebarMaximumWidth = switchboard
+    ? Math.min(
+        SWITCHBOARD_COLUMN_MAX_WIDTH,
+        Math.max(
+          SWITCHBOARD_COLUMN_MIN_WIDTH,
+          Math.floor(viewportWidth) - THREAD_MAIN_CONTENT_MIN_WIDTH - SWITCHBOARD_RAIL_WIDTH,
+        ),
+      ) + SWITCHBOARD_RAIL_WIDTH
+    : resolveThreadSidebarMaximumWidth(viewportWidth);
   const resetSidebarWidth = () => {
+    if (switchboard) {
+      try {
+        removeLocalStorageItem(SWITCHBOARD_SIDEBAR_WIDTH_STORAGE_KEY);
+      } catch (error) {
+        console.error("Could not clear persisted switchboard column width.", error);
+      }
+      setSidebarWidth(resolveSwitchboardColumnWidth(null, viewportWidth) + SWITCHBOARD_RAIL_WIDTH);
+      return;
+    }
     try {
       removeLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY);
     } catch (error) {
       console.error("Could not clear persisted thread sidebar width.", error);
     }
     setSidebarWidth(resolveInitialThreadSidebarWidth(null, viewportWidth));
+  };
+  const persistSwitchboardWidth = (totalWidth: number) => {
+    setSidebarWidth(totalWidth);
+    try {
+      setLocalStorageItem(
+        SWITCHBOARD_SIDEBAR_WIDTH_STORAGE_KEY,
+        Math.round(totalWidth - SWITCHBOARD_RAIL_WIDTH),
+        Schema.Finite,
+      );
+    } catch (error) {
+      console.error("Could not persist switchboard column width.", error);
+    }
   };
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(() => {
     const getWindowFullscreenState = window.desktopBridge?.getWindowFullscreenState;
@@ -218,17 +317,30 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           collapsible="offcanvas"
           data-app-sidebar=""
           className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
-          resizable={{
-            maxWidth: sidebarMaximumWidth,
-            minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-            shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-              nextWidth <= currentWidth ||
-              wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-            onResize: setSidebarWidth,
-          }}
+          resizable={
+            switchboard
+              ? {
+                  maxWidth: sidebarMaximumWidth,
+                  minWidth: SWITCHBOARD_COLUMN_MIN_WIDTH + SWITCHBOARD_RAIL_WIDTH,
+                  shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+                    nextWidth <= currentWidth ||
+                    wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+                  onResize: persistSwitchboardWidth,
+                }
+              : {
+                  maxWidth: sidebarMaximumWidth,
+                  minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+                  shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+                    nextWidth <= currentWidth ||
+                    wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+                  storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+                  onResize: setSidebarWidth,
+                }
+          }
         >
-          {isOnSettings ? (
+          {switchboard ? (
+            <SwitchboardSidebarFrame isOnSettings={isOnSettings} pathname={pathname} />
+          ) : isOnSettings ? (
             <>
               <SidebarChromeHeader isElectron={isElectron} />
               <SettingsSidebarNav pathname={pathname} />
