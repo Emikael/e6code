@@ -69,6 +69,12 @@ irm https://e6code.com/install.ps1 | iex
 
 Then run `e6` to start the server and open the local web app.
 
+The installer verifies `SHA256SUMS` with Cosign v3 (or the archive's GitHub
+attestation with `gh`). Install one of those first.
+`E6CODE_SKIP_SIGNATURE_VERIFY=1` skips that check only for the official GitHub
+release, and only when neither tool is installed. The commands are in
+[Install](./docs/user/install.md#command-line).
+
 | Command              | What it does                          |
 | -------------------- | ------------------------------------- |
 | `e6`                 | Start the server and open the web app |

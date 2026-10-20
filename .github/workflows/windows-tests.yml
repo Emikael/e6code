@@ -68,14 +68,30 @@ jobs:
       # so file-scoped runs call `vp test run` inside the package instead.
       - name: Test
         shell: pwsh
+        env:
+          TEST_PACKAGE: ${{ inputs.package }}
+          TEST_FILES: ${{ inputs.files }}
         run: |
-          $package = '${{ inputs.package }}'
-          $files = '${{ inputs.files }}'
+          $package = if ($null -eq $env:TEST_PACKAGE) { "" } else { $env:TEST_PACKAGE }
+          $files = if ($null -eq $env:TEST_FILES) { "" } else { $env:TEST_FILES }
+          if ($package -ne "" -and ($package -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$' -or $package.Contains(".."))) {
+            throw "package must be a relative workspace path such as apps/server"
+          }
+          $fileArgs = @()
+          if ($files -ne "") {
+            if ($package -eq "") { throw "files requires package" }
+            foreach ($file in $files.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)) {
+              if ($file -notmatch '^[A-Za-z0-9._/*?-]+$' -or $file.Contains("..")) {
+                throw "invalid test file: $file"
+              }
+              $fileArgs += $file
+            }
+          }
           if ($package -eq '') {
             vp run --parallel --concurrency-limit 4 --filter '!e6' --filter '!@e6tools/monorepo' test
-          } elseif ($files -eq '') {
+          } elseif ($fileArgs.Count -eq 0) {
             vp run --filter "./$package" test
           } else {
             Set-Location $package
-            vp test run $files.Split(' ')
+            vp test run @fileArgs
           }

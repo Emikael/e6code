@@ -233,13 +233,22 @@ jobs:
         working-directory: apps/mobile
         env:
           MOBILE_BUILD_PROFILE: ${{ inputs.profile || 'production' }}
+          MOBILE_PLATFORM: ${{ inputs.platform }}
         run: |
+          case "$MOBILE_PLATFORM" in
+            ios|android|all) ;;
+            *) echo "::error::platform must be ios, android, or all" >&2; exit 1 ;;
+          esac
+          case "$MOBILE_BUILD_PROFILE" in
+            production|v2-preview) ;;
+            *) echo "::error::profile must be production or v2-preview" >&2; exit 1 ;;
+          esac
           version="$(npx expo config --json --type public | jq -r '.version')"
           {
             echo "## Manual $MOBILE_BUILD_PROFILE build"
             echo
             echo "- App version: \`$version\`"
-            echo "- Platform: \`${{ inputs.platform }}\`"
+            echo "- Platform: \`$MOBILE_PLATFORM\`"
             echo
             echo "> Apple closes an iOS release train after App Store approval. Before building iOS, confirm \`$version\` is newer than the approved App Store version."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -250,19 +259,48 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           MOBILE_BUILD_PROFILE: ${{ inputs.profile || 'production' }}
-        run: eas build --platform ${{ inputs.platform }} --profile "$MOBILE_BUILD_PROFILE" --auto-submit --non-interactive --no-wait
+          MOBILE_PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$MOBILE_PLATFORM" in
+            ios|android|all) ;;
+            *) echo "::error::platform must be ios, android, or all" >&2; exit 1 ;;
+          esac
+          case "$MOBILE_BUILD_PROFILE" in
+            production|v2-preview) ;;
+            *) echo "::error::profile must be production or v2-preview" >&2; exit 1 ;;
+          esac
+          eas build --platform "$MOBILE_PLATFORM" --profile "$MOBILE_BUILD_PROFILE" --auto-submit --non-interactive --no-wait
 
       - name: Publish OTA update (manual)
         if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'update'
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          MOBILE_PLATFORM: ${{ inputs.platform }}
+          MOBILE_UPDATE_MESSAGE: ${{ inputs.message }}
         run: |
+          case "$MOBILE_PLATFORM" in
+            ios|android|all) ;;
+            *) echo "::error::platform must be ios, android, or all" >&2; exit 1 ;;
+          esac
+          if [ -n "$MOBILE_UPDATE_MESSAGE" ]; then
+            message="$MOBILE_UPDATE_MESSAGE"
+          else
+            message="Production OTA (${GITHUB_SHA})"
+          fi
+          if printf '%s' "$message" | grep -q '[[:cntrl:]]'; then
+            echo "::error::OTA message must be a single line" >&2
+            exit 1
+          fi
+          if [ "${#message}" -gt 500 ]; then
+            echo "::error::OTA message must be 500 characters or fewer" >&2
+            exit 1
+          fi
           eas update \
             --channel production \
             --environment production \
-            --platform ${{ inputs.platform }} \
-            --message "${{ inputs.message || format('Production OTA ({0})', github.sha) }}" \
+            --platform "$MOBILE_PLATFORM" \
+            --message "$message" \
             --non-interactive
 
       # No --status filter on build:list: an in-queue/in-progress build must

@@ -9,21 +9,105 @@
 #   E6CODE_VERSION           exact version to install (overrides E6CODE_CHANNEL)
 #   E6CODE_HOME              E6 home directory (default: ~\.e6)
 #   E6CODE_INSTALL_BIN_DIR   where e6.exe is linked (default: ~\.local\bin)
-#   E6CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
+#   E6CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub).
+#                            Signature verification cannot be skipped for a
+#                            non-default host.
+#   E6CODE_SKIP_SIGNATURE_VERIFY
+#                            Set to 1 to install an official GitHub release when
+#                            neither cosign nor gh is installed. Prints a warning.
+#                            Ignored when a verifier is installed, and rejected
+#                            when E6CODE_RELEASE_BASE_URL is not the official host.
 #
 # The archive is unpacked into $E6CODE_HOME\runtime\versions\<version>, the
 # same layout `e6 service install` uses, so the service reuses this download.
 $ErrorActionPreference = "Stop"
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# TLS 1.2+, plus TLS 1.3 when this runtime's enum knows it. Do not enable 1.0 or 1.1.
+$tls = [Net.SecurityProtocolType]::Tls12
+if ([enum]::GetNames([Net.SecurityProtocolType]) -contains "Tls13") {
+  $tls = $tls -bor [Net.SecurityProtocolType]::Tls13
+}
+[Net.ServicePointManager]::SecurityProtocol = $tls
 
 $repo = "Emikael/e6code"
 $baseUrl = if ($env:E6CODE_RELEASE_BASE_URL) { $env:E6CODE_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
+$officialBase = "https://github.com/$repo/releases/download"
+$officialRelease = $baseUrl -eq $officialBase
+# Fulcio SAN for release.yml. Tag pushes are refs/tags/*; schedule and
+# workflow_dispatch (how nightlies and most stables are cut) are refs/heads/main.
+$releaseIdentityRegexp = '^https://github\.com/Emikael/e6code/\.github/workflows/release\.yml@refs/(tags/.+|heads/main)$'
+$releaseOidcIssuer = "https://token.actions.githubusercontent.com"
+
+function Assert-Https([string] $uri) {
+  $parsed = $uri -as [Uri]
+  if (-not $parsed -or $parsed.Scheme -ne "https") { Fail "refusing non-HTTPS URL: $uri" }
+}
+
+function Get-E6SslProtocols {
+  $protocols = [System.Security.Authentication.SslProtocols]::Tls12
+  if ([enum]::GetNames([System.Security.Authentication.SslProtocols]) -contains "Tls13") {
+    $protocols = $protocols -bor [System.Security.Authentication.SslProtocols]::Tls13
+  }
+  return $protocols
+}
 if ($env:E6CODE_HOME) { $e6Home = $env:E6CODE_HOME } else { $e6Home = Join-Path $HOME ".e6" }
 $binDir = if ($env:E6CODE_INSTALL_BIN_DIR) { $env:E6CODE_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }
 
 function Fail([string] $message) {
   Write-Error "e6 install: $message"
   exit 1
+}
+
+function Invoke-SignatureTool([string] $tool, [string[]] $toolArgs, [string] $failure) {
+  if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+  }
+  & $tool @toolArgs
+  if ($LASTEXITCODE -ne 0) { Fail $failure }
+}
+
+# Checksum file first (cosign verify-blob of SHA256SUMS.bundle). That works
+# without gh auth. If cosign is absent, gh attestation verify checks the
+# archive. A present verifier always runs; the skip env only covers a missing
+# tool on the official GitHub host.
+function Confirm-ReleaseSignature([string] $staging, [string] $archive) {
+  $cosign = Get-Command cosign -ErrorAction SilentlyContinue
+  if ($cosign) {
+    Step "Verifying the release signature..."
+    try {
+      Fetch "$baseUrl/v$version/SHA256SUMS.bundle" (Join-Path $staging "SHA256SUMS.bundle")
+    } catch {
+      Fail "could not download the release signature bundle (SHA256SUMS.bundle)"
+    }
+    Invoke-SignatureTool $cosign.Source @(
+      "verify-blob",
+      "--new-bundle-format",
+      "--certificate-identity-regexp", $releaseIdentityRegexp,
+      "--certificate-oidc-issuer", $releaseOidcIssuer,
+      "--bundle", (Join-Path $staging "SHA256SUMS.bundle"),
+      (Join-Path $staging "SHA256SUMS")
+    ) "signature verification failed for SHA256SUMS"
+    return
+  }
+  $gh = Get-Command gh -ErrorAction SilentlyContinue
+  if ($gh) {
+    Step "Verifying the release attestation..."
+    Invoke-SignatureTool $gh.Source @(
+      "attestation", "verify", (Join-Path $staging $archive),
+      "--repo", $repo,
+      "--signer-workflow", "$repo/.github/workflows/release.yml",
+      "--cert-identity-regex", $releaseIdentityRegexp,
+      "--cert-oidc-issuer", $releaseOidcIssuer
+    ) "attestation verification failed for $archive"
+    return
+  }
+  if ($officialRelease -and $env:E6CODE_SKIP_SIGNATURE_VERIFY -eq "1") {
+    Write-Warning "e6 install: signature verification skipped because E6CODE_SKIP_SIGNATURE_VERIFY=1. SHA256SUMS was downloaded from the same host as the archive and was not authenticated. Install cosign (https://docs.sigstore.dev/cosign/installation/) or the GitHub CLI to verify releases."
+    return
+  }
+  if ($officialRelease) {
+    Fail "no signature verifier found. Install cosign or the GitHub CLI (gh), then re-run. To install the official GitHub release without verifying its signature, set E6CODE_SKIP_SIGNATURE_VERIFY=1."
+  }
+  Fail "no signature verifier found. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped. Install cosign or the GitHub CLI (gh)."
 }
 
 $terminal = -not [Console]::IsErrorRedirected -and $env:TERM -ne "dumb"
@@ -63,14 +147,21 @@ function Draw-Download([long] $bytes, [long] $total) {
   }
 }
 function Fetch([string] $uri, [string] $destination, [switch] $progress) {
+  Assert-Https $uri
   if (-not $progress -or -not $interactive) {
     $ProgressPreference = if ($progress -and $terminal) { "Continue" } else { "SilentlyContinue" }
-    Invoke-WebRequest -Uri $uri -OutFile $destination -UseBasicParsing
+    $request = @{ Uri = $uri; OutFile = $destination; UseBasicParsing = $true }
+    if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("SslProtocol")) {
+      $request.SslProtocol = Get-E6SslProtocols
+    }
+    Invoke-WebRequest @request
     return
   }
   # Read the response once, displaying actual bytes received at most ten times a second.
   Add-Type -AssemblyName System.Net.Http
-  $client = New-Object System.Net.Http.HttpClient
+  $handler = New-Object System.Net.Http.HttpClientHandler
+  $handler.SslProtocols = Get-E6SslProtocols
+  $client = New-Object System.Net.Http.HttpClient $handler
   $response = $source = $file = $null
   try {
     $response = $client.GetAsync($uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
@@ -139,7 +230,13 @@ if (-not $version) {
     "preview" { '^v\d+\.\d+\.\d+-preview\.\d+\.\d+$' }
     default { Fail "E6CODE_CHANNEL must be stable, nightly, or preview" }
   }
-  $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers @{ "User-Agent" = "e6-install" }
+  $releaseIndex = "https://api.github.com/repos/$repo/releases?per_page=100"
+  Assert-Https $releaseIndex
+  $releaseRequest = @{ Uri = $releaseIndex; Headers = @{ "User-Agent" = "e6-install" } }
+  if ((Get-Command Invoke-RestMethod).Parameters.ContainsKey("SslProtocol")) {
+    $releaseRequest.SslProtocol = Get-E6SslProtocols
+  }
+  $releases = Invoke-RestMethod @releaseRequest
   $tag = ($releases | Where-Object { -not $_.draft -and $_.tag_name -match $tagPattern } | Select-Object -First 1).tag_name
   if (-not $tag) { Fail "could not find a $channel release; set E6CODE_VERSION" }
   $version = $tag.Substring(1)
@@ -185,6 +282,7 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
     $expected = ($expected -split "\s+")[0].ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $staging $archive)).Hash.ToLowerInvariant()
     if ($actual -ne $expected) { Fail "checksum mismatch for $archive" }
+    Confirm-ReleaseSignature $staging $archive
 
     Step "Extracting E6 Code..."
     # The archive module reads the global preference, not the caller's local scope.
@@ -196,6 +294,8 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
     # The archive wraps everything in one directory named after its stem.
     Get-ChildItem (Join-Path $staging $stem) | Move-Item -Destination $staging
     Remove-Item (Join-Path $staging $stem), (Join-Path $staging $archive), (Join-Path $staging "SHA256SUMS") -Recurse -Force
+    $bundlePath = Join-Path $staging "SHA256SUMS.bundle"
+    if (Test-Path $bundlePath) { Remove-Item $bundlePath -Force }
 
     $stagedExe = Join-Path $staging "e6.exe"
     & $stagedExe --version | Out-Null

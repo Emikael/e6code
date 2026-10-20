@@ -101,19 +101,68 @@ jobs:
     runs-on: ${{ inputs.runner }}
     # Apple notarization can remain queued after packaging has completed.
     timeout-minutes: ${{ inputs.platform == 'mac' && 120 || 30 }}
+    # Signing material is gated by its own environment so npm publish and the
+    # hosted-app deploy (`production`) never see the certificates. Callers
+    # still pass the secret names; an environment secret wins over a
+    # repository secret of the same name. Linux builds use this job too,
+    # because the packaging step's env block references the same secrets.
+    environment: signing
     env:
       E6CODE_CLERK_PUBLISHABLE_KEY: ${{ inputs.clerk_publishable_key }}
       E6CODE_CLERK_JWT_TEMPLATE: ${{ inputs.clerk_jwt_template }}
       E6CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ inputs.clerk_cli_oauth_client_id }}
       E6CODE_RELAY_URL: ${{ inputs.relay_url }}
+      BUILD_PLATFORM: ${{ inputs.platform }}
+      BUILD_TARGET: ${{ inputs.target }}
+      BUILD_ARCH: ${{ inputs.arch }}
+      BUILD_VERSION: ${{ inputs.version }}
+      BUILD_RUST_TARGET: ${{ inputs.rust_target }}
+      BUILD_RESOURCE_KEY: ${{ inputs.resource_key }}
+      BUILD_RELEASE_CHANNEL: ${{ inputs.release_channel }}
+      CHECKOUT_REF: ${{ inputs.ref }}
     steps:
+      - name: Validate caller inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$BUILD_PLATFORM" in
+            mac|linux|win) ;;
+            *) echo "::error::platform must be mac, linux, or win" >&2; exit 1 ;;
+          esac
+          case "$BUILD_TARGET" in
+            dmg|nsis|AppImage) ;;
+            *) echo "::error::target must be dmg, nsis, or AppImage" >&2; exit 1 ;;
+          esac
+          case "$BUILD_ARCH" in
+            x64|arm64) ;;
+            *) echo "::error::arch must be x64 or arm64" >&2; exit 1 ;;
+          esac
+          case "$BUILD_RELEASE_CHANNEL" in
+            stable|nightly|preview) ;;
+            *) echo "::error::release_channel must be stable, nightly, or preview" >&2; exit 1 ;;
+          esac
+          case "$BUILD_RUST_TARGET" in
+            aarch64-apple-darwin|x86_64-apple-darwin|x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc) ;;
+            *) echo "::error::rust_target is not a release target" >&2; exit 1 ;;
+          esac
+          case "$BUILD_RESOURCE_KEY" in
+            darwin-arm64|darwin-x64|linux-x64|linux-arm64|win32-x64|win32-arm64) ;;
+            *) echo "::error::resource_key is not a release target" >&2; exit 1 ;;
+          esac
+          if ! printf '%s' "$BUILD_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "::error::version is not a release version" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$CHECKOUT_REF" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+            echo "::error::ref must be a 40-character commit SHA" >&2
+            exit 1
+          fi
       # This repository is public, so Git needs no credentials. checkout's
       # credential cleanup runs submodule foreach even with submodules disabled,
       # which fails on the orphaned gitlinks in our vendored .repos tree.
       - name: Checkout
         shell: bash
         env:
-          CHECKOUT_REF: ${{ inputs.ref }}
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
@@ -198,7 +247,7 @@ jobs:
           cat "$config_path" >> "$GITHUB_ENV"
 
       - name: Align package versions to release version
-        run: node scripts/update-release-package-versions.ts "${{ inputs.version }}"
+        run: node scripts/update-release-package-versions.ts "$BUILD_VERSION"
 
       # The artifact root is `apps/` (upload-artifact keeps the least common
       # ancestor of its paths), so extracting into `apps` restores
@@ -225,9 +274,10 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $installPath = & $vswhere -products * -latest -property installationPath
           $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $spectre = if ($env:BUILD_ARCH -eq "arm64") { "ARM64" } else { "x86.x64" }
           $proc = Start-Process -FilePath $setupExe `
             -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
-            "Microsoft.VisualStudio.Component.VC.Runtimes.${{ inputs.arch == 'arm64' && 'ARM64' || 'x86.x64' }}.Spectre", "--quiet", "--norestart" `
+            "Microsoft.VisualStudio.Component.VC.Runtimes.$spectre.Spectre", "--quiet", "--norestart" `
             -Wait -PassThru -NoNewWindow
           if ($null -eq $proc -or $proc.ExitCode -ne 0) {
             $code = if ($null -ne $proc) { $proc.ExitCode } else { 1 }
@@ -339,10 +389,10 @@ jobs:
           AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
         run: |
           args=(
-            --platform "${{ inputs.platform }}"
-            --target "${{ inputs.target }}"
-            --arch "${{ inputs.arch }}"
-            --build-version "${{ inputs.version }}"
+            --platform "$BUILD_PLATFORM"
+            --target "$BUILD_TARGET"
+            --arch "$BUILD_ARCH"
+            --build-version "$BUILD_VERSION"
             --skip-build
             --verbose
           )
@@ -356,7 +406,7 @@ jobs:
             return 0
           }
 
-          if [[ "${{ inputs.platform }}" == "mac" ]]; then
+          if [[ "$BUILD_PLATFORM" == "mac" ]]; then
             if has_all "$CSC_LINK" "$CSC_KEY_PASSWORD" "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"; then
               if [[ -n "$E6CODE_CLERK_PUBLISHABLE_KEY" || -n "$E6CODE_CLERK_PASSKEY_RP_DOMAINS" ]]; then
                 if ! has_all "$APPLE_TEAM_ID" "$MACOS_PROVISIONING_PROFILE"; then
@@ -405,10 +455,10 @@ jobs:
             else
               echo "macOS signing disabled (missing one or more Apple signing secrets)."
             fi
-          elif [[ "${{ inputs.platform }}" == "win" ]]; then
+          elif [[ "$BUILD_PLATFORM" == "win" ]]; then
             # Embed the Linux CLI archive built by the same-arch Linux job as
             # the WSL runtime. Required for a working WSL backend on Windows.
-            args+=(--wsl-runtime "$GITHUB_WORKSPACE"/wsl-runtime/e6-*-linux-${{ inputs.arch }}.tar.gz)
+            args+=(--wsl-runtime "$GITHUB_WORKSPACE"/wsl-runtime/e6-*-linux-"$BUILD_ARCH".tar.gz)
             if has_all \
               "$AZURE_TENANT_ID" \
               "$AZURE_CLIENT_ID" \
@@ -423,7 +473,7 @@ jobs:
               echo "Windows signing disabled (missing one or more Azure Trusted Signing secrets)."
             fi
           else
-            echo "Signing disabled for ${{ inputs.platform }}."
+            echo "Signing disabled for ${BUILD_PLATFORM}."
           fi
 
           vp run dist:desktop:artifact "${args[@]}"
@@ -480,12 +530,12 @@ jobs:
         run: |
           set -euo pipefail
           binary_name="e6-resource-monitor"
-          if [[ "${{ inputs.platform }}" == "win" ]]; then
+          if [[ "$BUILD_PLATFORM" == "win" ]]; then
             binary_name="${binary_name}.exe"
           fi
-          target_dir="$RUNNER_TEMP/cli-resource-monitor/${{ inputs.resource_key }}"
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/${BUILD_RESOURCE_KEY}"
           mkdir -p "$target_dir"
-          cp "native/resource-monitor/target/${{ inputs.rust_target }}/release/${binary_name}" "$target_dir/$binary_name"
+          cp "native/resource-monitor/target/${BUILD_RUST_TARGET}/release/${binary_name}" "$target_dir/$binary_name"
 
       - name: Build CLI archive
         if: inputs.cli_archive
@@ -502,22 +552,22 @@ jobs:
           AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.platform }}" == "mac" && -n "${APPLE_API_KEY:-}" ]]; then
+          if [[ "$BUILD_PLATFORM" == "mac" && -n "${APPLE_API_KEY:-}" ]]; then
             key_path="$RUNNER_TEMP/AuthKey_cli_${APPLE_API_KEY_ID}.p8"
             printf '%s' "$APPLE_API_KEY" > "$key_path"
             export APPLE_API_KEY="$key_path"
           fi
           node scripts/build-cli-archive.ts \
-            --platform "${{ inputs.platform }}" \
-            --arch "${{ inputs.arch }}" \
-            --version "${{ inputs.version }}" \
+            --platform "$BUILD_PLATFORM" \
+            --arch "$BUILD_ARCH" \
+            --version "$BUILD_VERSION" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
 
       - name: Smoke-test CLI archive
         if: inputs.cli_archive
         shell: bash
-        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ inputs.version }}"
+        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "$BUILD_VERSION"
 
       - name: Upload CLI archive
         if: inputs.cli_archive
@@ -543,7 +593,7 @@ jobs:
           # Preview builds have no publish config, so electron-builder writes
           # no feed manifest for them, but it still emits blockmaps beside the
           # installers. Neither belongs on a release no updater may follow.
-          if [[ "${{ inputs.release_channel }}" != "preview" ]]; then
+          if [[ "$BUILD_RELEASE_CHANNEL" != "preview" ]]; then
             patterns+=("release/*.blockmap" "release/*.yml")
           fi
           for pattern in "${patterns[@]}"; do
@@ -552,10 +602,10 @@ jobs:
             done
           done
 
-          if [[ "${{ inputs.platform }}" == "mac" && "${{ inputs.arch }}" != "arm64" ]]; then
+          if [[ "$BUILD_PLATFORM" == "mac" && "$BUILD_ARCH" != "arm64" ]]; then
             shopt -s nullglob
             for manifest in release-publish/*-mac.yml; do
-              mv "$manifest" "${manifest%.yml}-${{ inputs.arch }}.yml"
+              mv "$manifest" "${manifest%.yml}-${BUILD_ARCH}.yml"
             done
           fi
 
@@ -564,10 +614,10 @@ jobs:
           # arm64 jobs would upload the same name. Suffix each per-arch copy;
           # the release job merges them back into one manifest per channel.
           # builder-debug.yml is electron-builder's config dump, not a feed.
-          if [[ "${{ inputs.platform }}" == "win" ]]; then
+          if [[ "$BUILD_PLATFORM" == "win" ]]; then
             for manifest in release-publish/*.yml; do
               [[ "$manifest" == */builder-debug.yml ]] && continue
-              mv "$manifest" "${manifest%.yml}-win-${{ inputs.arch }}.yml"
+              mv "$manifest" "${manifest%.yml}-win-${BUILD_ARCH}.yml"
             done
           fi
 
@@ -576,11 +626,11 @@ jobs:
         run: |
           set -euo pipefail
           binary_name="e6-resource-monitor"
-          if [[ "${{ inputs.platform }}" == "win" ]]; then
+          if [[ "$BUILD_PLATFORM" == "win" ]]; then
             binary_name="${binary_name}.exe"
           fi
-          source_path="native/resource-monitor/target/${{ inputs.rust_target }}/release/${binary_name}"
-          target_dir="resource-monitor-publish/${{ inputs.resource_key }}"
+          source_path="native/resource-monitor/target/${BUILD_RUST_TARGET}/release/${binary_name}"
+          target_dir="resource-monitor-publish/${BUILD_RESOURCE_KEY}"
           mkdir -p "$target_dir"
           cp "$source_path" "$target_dir/$binary_name"
 
