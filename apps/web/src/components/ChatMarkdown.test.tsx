@@ -195,12 +195,7 @@ describe("ChatMarkdown streaming", () => {
       await act(async () => {
         renderer!.update(<ChatMarkdown cwd="/tmp/project" text={text + "\n```"} />);
       });
-      expect(
-        highlight.mock.calls.every((call) => {
-          const code = call[0];
-          return typeof code === "string" && !code.includes("const completed");
-        }),
-      ).toBe(true);
+      expect(highlight.mock.calls.every(([code]) => !code.includes("const completed"))).toBe(true);
     } finally {
       await act(async () => renderer?.unmount());
       vi.unstubAllGlobals();
@@ -212,12 +207,10 @@ describe("ChatMarkdown streaming", () => {
     const highlighter = await getSyntaxHighlighterPromise("text");
     const codeToHast = highlighter.codeToHast.bind(highlighter);
     let fail = true;
-    vi.spyOn(highlighter, "codeToHast").mockImplementation(
-      (...args: Parameters<typeof codeToHast>) => {
-        if (fail) throw new Error("Temporary highlighter failure");
-        return codeToHast(...args);
-      },
-    );
+    vi.spyOn(highlighter, "codeToHast").mockImplementation((...args) => {
+      if (fail) throw new Error("Temporary highlighter failure");
+      return codeToHast(...args);
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
