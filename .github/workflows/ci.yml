@@ -145,11 +145,22 @@ jobs:
         run: vp run --filter @e6tools/web test:browser:install
 
       - name: Audit contrast and flags-off snapshots
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
         run: |
-          if ! git rev-parse --verify --quiet origin/main >/dev/null; then
-            git fetch --no-tags origin main
+          # Flags-off pixels are compared with this PR's base (feature/new-design
+          # for the switchboard work), not with main.
+          if [ -n "$PR_BASE_REF" ]; then
+            git fetch --no-tags origin "$PR_BASE_REF" || true
           fi
-          export E6CODE_VISUAL_BASE_REF=$(git merge-base origin/main HEAD)
+          if [ -n "$PR_BASE_REF" ] && git rev-parse --verify --quiet "origin/$PR_BASE_REF" >/dev/null; then
+            export E6CODE_VISUAL_BASE_REF="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+          else
+            if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+              git fetch --no-tags origin main
+            fi
+            export E6CODE_VISUAL_BASE_REF="$(git merge-base origin/main HEAD)"
+          fi
           vp run --filter @e6tools/web test:browser
 
       - name: Upload browser evidence
