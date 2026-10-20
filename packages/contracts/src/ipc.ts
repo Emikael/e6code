@@ -1048,15 +1048,20 @@ export const DesktopPreviewNavigateInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
   url: Schema.String,
   /**
-   * Who asked for the navigation. Omitted means the user. Agent navigations
-   * are refused when the tab's partition holds imported cookies and this
-   * desktop session has not approved that tab.
+   * Who asked for the navigation. Required so a missing actor cannot be
+   * treated as the user. Agent navigations are refused until this desktop
+   * session approves a tab that is not the agent's own partition.
    */
-  actor: Schema.optional(Schema.Literals(["user", "agent"])),
+  actor: Schema.Literals(["user", "agent"]),
   /** Used to identify the partition before the guest has attached. */
   environmentId: Schema.optional(Schema.String),
   profileId: Schema.optional(BrowserProfileId),
 });
+
+export const DesktopPreviewAgentCookiePromptSchema = Schema.Struct({
+  allowed: Schema.Boolean,
+});
+export type DesktopPreviewAgentCookiePrompt = typeof DesktopPreviewAgentCookiePromptSchema.Type;
 
 export const DesktopPreviewAgentCookieAccessInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
@@ -1293,8 +1298,8 @@ export interface DesktopPreviewBridge {
   navigate: (
     tabId: string,
     url: string,
-    options?: {
-      readonly actor?: "user" | "agent";
+    options: {
+      readonly actor: "user" | "agent";
       readonly environmentId?: string;
       readonly profileId?: string;
     },
@@ -1355,6 +1360,15 @@ export interface DesktopPreviewBridge {
    * dialog calls this. There is no server or agent RPC that grants it.
    */
   grantAgentImportedCookieAccess: (tabId: string) => Promise<void>;
+  /**
+   * Reserves the one in-flight approval prompt for this tab. Main remembers a
+   * denial for the session and refuses another prompt within 60 seconds.
+   */
+  beginAgentImportedCookiePrompt: (tabId: string) => Promise<DesktopPreviewAgentCookiePrompt>;
+  /** Releases the in-flight prompt reservation without granting or denying. */
+  finishAgentImportedCookiePrompt: (tabId: string) => Promise<void>;
+  /** Remembers a denial for this tab until the app quits. */
+  denyAgentImportedCookieAccess: (tabId: string) => Promise<void>;
   /** Drops this tab's approval until the user confirms again. */
   revokeAgentImportedCookieAccess: (tabId: string) => Promise<void>;
   setAnnotationTheme: (theme: DesktopPreviewAnnotationTheme) => Promise<void>;

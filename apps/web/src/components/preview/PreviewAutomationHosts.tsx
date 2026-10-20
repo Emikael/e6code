@@ -53,7 +53,7 @@ import {
   getBrowserDefaults,
   resolveBrowserDefaults,
 } from "~/browser/browserDefaults";
-import { requestConfirmDialog } from "~/confirmDialog";
+import { requestImportedCookieApproval } from "~/importedCookieApprovalDialog";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
@@ -252,12 +252,26 @@ const currentStatus = async (
     return { ...status, tabId, visible, ...viewportStatus };
   }
   const navStatus = snapshot?.navStatus;
+  let url = navStatus && navStatus._tag !== "Idle" ? navStatus.url : null;
+  let title = navStatus && navStatus._tag !== "Idle" ? navStatus.title : null;
+  if (runtimeTabId && previewBridge?.agentImportedCookieAccess) {
+    try {
+      const access = await previewBridge.agentImportedCookieAccess(runtimeTabId);
+      if (access.holdsImportedCookies && !access.approved) {
+        url = null;
+        title = null;
+      }
+    } catch {
+      url = null;
+      title = null;
+    }
+  }
   return {
     available: Boolean(previewBridge?.automation),
     visible,
     tabId,
-    url: navStatus && navStatus._tag !== "Idle" ? navStatus.url : null,
-    title: navStatus && navStatus._tag !== "Idle" ? navStatus.title : null,
+    url,
+    title,
     loading: navStatus?._tag === "Loading",
     ...viewportStatus,
   };
@@ -353,7 +367,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           ...(profileId === undefined ? {} : { profileId }),
           profileName: (id) =>
             getBrowserDefaults().profiles.find((profile) => profile.id === id)?.name ?? id,
-          confirm: async (message) => (await requestConfirmDialog(message)) ?? false,
+          confirm: requestImportedCookieApproval,
         });
       };
       try {
@@ -798,6 +812,14 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               request.input !== null &&
               "transferToEnvironment" in request.input &&
               request.input.transferToEnvironment === true;
+            if (stopRuntimeTabId) {
+              await allowImportedCookies(
+                stopRuntimeTabId,
+                stopTabId
+                  ? readThreadPreviewState(threadRef).sessions[stopTabId]?.profileId
+                  : undefined,
+              );
+            }
             const artifact = stopRuntimeTabId
               ? transferToEnvironment
                 ? await stopBrowserRecordingForUpload(stopRuntimeTabId, (saved, blob) =>

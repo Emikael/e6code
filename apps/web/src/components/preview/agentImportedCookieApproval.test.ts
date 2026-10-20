@@ -13,6 +13,12 @@ const access = {
   profileId: "work",
 };
 
+const promptMethods = {
+  beginAgentImportedCookiePrompt: async () => ({ allowed: true }),
+  finishAgentImportedCookiePrompt: async () => undefined,
+  denyAgentImportedCookieAccess: async () => undefined,
+};
+
 describe("ensureAgentImportedCookieAccess", () => {
   it("names the browser and profile in the confirm dialog", () => {
     expect(
@@ -34,6 +40,7 @@ describe("ensureAgentImportedCookieAccess", () => {
           approved: false,
         }),
         grantAgentImportedCookieAccess: grant,
+        ...promptMethods,
       },
       tabId: "tab-1",
       profileName: (id) => id,
@@ -50,6 +57,8 @@ describe("ensureAgentImportedCookieAccess", () => {
         bridge: {
           agentImportedCookieAccess: async () => access,
           grantAgentImportedCookieAccess: grant,
+          ...promptMethods,
+          denyAgentImportedCookieAccess: vi.fn(async () => undefined),
         },
         tabId: "tab-1",
         profileName: () => "Work",
@@ -69,6 +78,7 @@ describe("ensureAgentImportedCookieAccess", () => {
       bridge: {
         agentImportedCookieAccess: async () => access,
         grantAgentImportedCookieAccess: grant,
+        ...promptMethods,
       },
       tabId: "tab-1",
       profileName: () => "Work",
@@ -84,11 +94,30 @@ describe("ensureAgentImportedCookieAccess", () => {
       bridge: {
         agentImportedCookieAccess: async () => ({ ...access, approved: true }),
         grantAgentImportedCookieAccess: grant,
+        ...promptMethods,
       },
       tabId: "tab-1",
       profileName: () => "Work",
       confirm,
     });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(grant).not.toHaveBeenCalled();
+  });
+
+  it("does not grant when the prompt gate or the deny channel is missing", async () => {
+    const grant = vi.fn(async () => undefined);
+    const confirm = vi.fn(async () => true);
+    await expect(
+      ensureAgentImportedCookieAccess({
+        bridge: {
+          agentImportedCookieAccess: async () => access,
+          grantAgentImportedCookieAccess: grant,
+        },
+        tabId: "tab-1",
+        profileName: () => "Work",
+        confirm,
+      }),
+    ).rejects.toBeInstanceOf(AgentImportedCookieAccessDeniedError);
     expect(confirm).not.toHaveBeenCalled();
     expect(grant).not.toHaveBeenCalled();
   });

@@ -1,21 +1,33 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
   AGENT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_PROFILE_ID,
   INCOGNITO_BROWSER_PROFILE_ID,
+  PREVIEW_AUTOMATION_OPERATIONS,
   PreviewAutomationStatus,
+  WS_METHODS,
 } from "@e6tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as AgentImportedCookieAccess from "../../preview/AgentImportedCookieAccess.ts";
+import { isMainWindowGrantSender } from "../../preview/mainWindowGrantSender.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
+import * as DesktopIpc from "../DesktopIpc.ts";
 import * as PreviewIpc from "./preview.ts";
+
+class PreviewIpcInvokeError extends Data.TaggedError("PreviewIpcInvokeError")<{
+  readonly cause: unknown;
+}> {}
 
 const { fromPartition } = vi.hoisted(() => ({
   fromPartition: vi.fn(() => {
@@ -107,6 +119,9 @@ describe("preview IPC methods", () => {
       describe: () => Effect.die("describe must not run"),
       decide: () => Effect.die("decide must not run"),
       revokeTab: () => Effect.die("revokeTab must not run"),
+      beginPrompt: () => Effect.die("beginPrompt must not run"),
+      finishPrompt: () => Effect.die("finishPrompt must not run"),
+      denyTab: () => Effect.die("denyTab must not run"),
     });
     const isImportFailed = Schema.is(BrowserImport.BrowserImportFailedError);
     return Effect.gen(function* () {
@@ -163,6 +178,9 @@ describe("preview IPC methods", () => {
       describe: () => Effect.die("describe must not run"),
       decide: () => Effect.die("decide must not run"),
       revokeTab: () => Effect.die("revokeTab must not run"),
+      beginPrompt: () => Effect.die("beginPrompt must not run"),
+      finishPrompt: () => Effect.die("finishPrompt must not run"),
+      denyTab: () => Effect.die("denyTab must not run"),
     });
     return Effect.gen(function* () {
       const result = yield* PreviewIpc.importBrowserCookies.handler({
@@ -212,6 +230,9 @@ describe("preview IPC methods", () => {
       describe: () => Effect.die("describe must not run"),
       decide: () => Effect.die("decide must not run"),
       revokeTab: () => Effect.die("revokeTab must not run"),
+      beginPrompt: () => Effect.die("beginPrompt must not run"),
+      finishPrompt: () => Effect.die("finishPrompt must not run"),
+      denyTab: () => Effect.die("denyTab must not run"),
     });
 
     return Effect.gen(function* () {
@@ -269,6 +290,79 @@ describe("preview IPC methods", () => {
           .handler({ tabId })
           .pipe(Effect.provideService(PreviewManager.PreviewManager, manager)),
       ).toEqual(status);
+    }),
+  );
+
+  effectIt.effect("rejects imported-cookie grant IPC from a preview guest", () =>
+    Effect.gen(function* () {
+      let listener: DesktopIpc.DesktopIpcHandleListener | undefined;
+      let granted = false;
+      const ipc = DesktopIpc.make({
+        removeHandler: vi.fn(),
+        handle: (_channel, registered) => {
+          listener = registered;
+        },
+        removeAllListeners: vi.fn(),
+        on: vi.fn(),
+      });
+      const main = {
+        id: 1,
+        getType: () => "window",
+        mainFrame: { frameTreeNodeId: 10 },
+      };
+      const manager = PreviewManager.PreviewManager.of({
+        acceptsImportedCookieGrantSender: (event?: DesktopIpc.DesktopIpcInvokeEvent) =>
+          Effect.succeed(isMainWindowGrantSender(event, main)),
+        grantAgentImportedCookieAccess: () =>
+          Effect.sync(() => {
+            granted = true;
+          }),
+      } as unknown as PreviewManager.PreviewManager["Service"]);
+
+      yield* Effect.scoped(ipc.handle(PreviewIpc.grantAgentImportedCookieAccess)).pipe(
+        Effect.provideService(PreviewManager.PreviewManager, manager),
+      );
+      expect(listener).toBeTypeOf("function");
+
+      const invoke = (event: DesktopIpc.DesktopIpcInvokeEvent) =>
+        Effect.tryPromise({
+          try: () => Promise.resolve(listener!(event, { tabId: "tab-1" })),
+          catch: (cause) => new PreviewIpcInvokeError({ cause }),
+        });
+      const guest = yield* Effect.exit(
+        invoke({
+          sender: { id: 99, getType: () => "webview" },
+          senderFrame: { frameTreeNodeId: 10 },
+        }),
+      );
+      const subframe = yield* Effect.exit(
+        invoke({
+          sender: { id: 1, getType: () => "window" },
+          senderFrame: { frameTreeNodeId: 99 },
+        }),
+      );
+      expect(Exit.isFailure(guest)).toBe(true);
+      expect(Exit.isFailure(subframe)).toBe(true);
+      expect(granted).toBe(false);
+
+      yield* invoke({
+        sender: { id: 1, getType: () => "window" },
+        senderFrame: { frameTreeNodeId: 10 },
+      });
+      expect(granted).toBe(true);
+
+      const preload = yield* Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const file = yield* path.fromFileUrl(
+          new URL("../../preview/PickPreload.ts", import.meta.url),
+        );
+        return yield* fileSystem.readFileString(file);
+      }).pipe(Effect.provide(NodeServices.layer));
+      expect(preload).not.toContain("grantAgentImportedCookieAccess");
+      expect(preload).not.toContain("desktop:preview-grant-agent-cookie-access");
+      expect(Object.keys(WS_METHODS)).not.toContain("preview.grantAgentImportedCookieAccess");
+      expect([...PREVIEW_AUTOMATION_OPERATIONS]).not.toContain("grantAgentImportedCookieAccess");
     }),
   );
 

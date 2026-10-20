@@ -67,8 +67,10 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
+import type { DesktopIpcInvokeEvent } from "../ipc/DesktopIpc.ts";
 import * as AgentImportedCookieAccess from "./AgentImportedCookieAccess.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import { isMainWindowGrantSender } from "./mainWindowGrantSender.ts";
 import { resolvePartitionScope } from "./PartitionScope.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -675,6 +677,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   >(new Map());
   const controlEpochRef = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
   const navigationActorRef = yield* Ref.make<ReadonlyMap<string, "user" | "agent">>(new Map());
+  const attachedPartitionRef = yield* Ref.make<ReadonlyMap<number, string>>(new Map());
+  const discardedRecordingTabsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
   const actionTimelineRef = yield* Ref.make<
     ReadonlyMap<string, ReadonlyArray<PreviewAutomationActionEvent>>
   >(new Map());
@@ -1542,6 +1546,43 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     };
     yield* pushAction(tabId, actionEvent);
     const epoch = (yield* Ref.get(controlEpochRef)).get(tabId) ?? 0;
+    const finalizeControl = Effect.fn("PreviewManager.finalizeControlAction")(function* (
+      exit: Exit.Exit<A, PreviewManagerError>,
+    ) {
+      const completedAt = yield* currentIso;
+      if (exit._tag === "Success") {
+        yield* replaceAction(tabId, {
+          ...actionEvent,
+          status: "succeeded",
+          completedAt,
+        });
+      } else {
+        const error = Option.getOrNull(Cause.findErrorOption(exit.cause));
+        const interrupted = isPreviewAutomationControlInterruptedError(error);
+        const errorMessage = isPreviewOperationError(error)
+          ? PreviewOperationError.toTimelineMessage(error)
+          : isPreviewAutomationEvaluationError(error)
+            ? PreviewAutomationEvaluationError.toTimelineMessage(error)
+            : isPreviewAutomationInvalidSelectorError(error)
+              ? PreviewAutomationInvalidSelectorError.toTimelineMessage(error)
+              : error instanceof Error
+                ? error.message
+                : String(error);
+        yield* replaceAction(tabId, {
+          ...actionEvent,
+          status: interrupted ? "interrupted" : "failed",
+          completedAt,
+          error: errorMessage,
+        });
+      }
+      const tabs = yield* SynchronizedRef.get(tabsRef);
+      if (tabs.has(tabId)) yield* update(tabId, { controller: "none" });
+    });
+    // Refuse before attaching the debugger so an unapproved tab never receives
+    // a CDP session from the agent.
+    yield* rejectUnapprovedImportedCookies(tabId).pipe(
+      Effect.tapError((error) => finalizeControl(Exit.fail(error))),
+    );
     const control = yield* ensureControlSession(wc);
     const execute = Effect.fn("PreviewManager.executeControlAction")(function* () {
       yield* rejectUnapprovedImportedCookies(tabId);
@@ -1590,39 +1631,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
       return yield* use(send, sendCleanup, checkControl);
     });
-    const finalize = Effect.fn("PreviewManager.finalizeControlAction")(function* (
-      exit: Exit.Exit<A, PreviewManagerError>,
-    ) {
-      const completedAt = yield* currentIso;
-      if (exit._tag === "Success") {
-        yield* replaceAction(tabId, {
-          ...actionEvent,
-          status: "succeeded",
-          completedAt,
-        });
-      } else {
-        const error = Option.getOrNull(Cause.findErrorOption(exit.cause));
-        const interrupted = isPreviewAutomationControlInterruptedError(error);
-        const errorMessage = isPreviewOperationError(error)
-          ? PreviewOperationError.toTimelineMessage(error)
-          : isPreviewAutomationEvaluationError(error)
-            ? PreviewAutomationEvaluationError.toTimelineMessage(error)
-            : isPreviewAutomationInvalidSelectorError(error)
-              ? PreviewAutomationInvalidSelectorError.toTimelineMessage(error)
-              : error instanceof Error
-                ? error.message
-                : String(error);
-        yield* replaceAction(tabId, {
-          ...actionEvent,
-          status: interrupted ? "interrupted" : "failed",
-          completedAt,
-          error: errorMessage,
-        });
-      }
-      const tabs = yield* SynchronizedRef.get(tabsRef);
-      if (tabs.has(tabId)) yield* update(tabId, { controller: "none" });
-    });
-    return yield* control.semaphore.withPermit(execute().pipe(Effect.onExit(finalize)));
+    return yield* control.semaphore.withPermit(execute().pipe(Effect.onExit(finalizeControl)));
   });
 
   const evaluateWithDebugger = <A = unknown>(
@@ -2422,7 +2431,11 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     // emitIfCurrent, not emit: audio-state-changed can land between the commit
     // above and here, and republishing this snapshot would roll the UI back to
     // a superseded audibility that syncTabAudible will not re-send.
-    const registeredPartition = yield* browserSession.findPartition(wc.session);
+    const notedPartition = (yield* Ref.get(attachedPartitionRef)).get(webContentsId);
+    const registeredPartition =
+      notedPartition !== undefined && browserSession.isPartition(notedPartition)
+        ? notedPartition
+        : undefined;
     if (registeredPartition !== undefined) {
       yield* cookieAccess.bindTab(tabId, registeredPartition);
     }
@@ -2475,7 +2488,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       readonly profileId?: string;
     },
   ) {
-    const actor = options?.actor ?? "user";
+    // A missing actor is an agent. Callers that omit it must not inherit the
+    // user's cookie jar, and the IPC schema rejects the omission as well.
+    const actor = options?.actor === "user" ? "user" : "agent";
     if (actor === "agent") {
       yield* rejectUnapprovedImportedCookies(tabId, options);
     }
@@ -3611,6 +3626,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     return yield* withTabLifecycleLock(
       tabId,
       Effect.gen(function* () {
+        yield* rejectUnapprovedImportedCookies(tabId);
+        yield* Ref.update(discardedRecordingTabsRef, (tabs) => {
+          if (!tabs.has(tabId)) return tabs;
+          const next = new Set(tabs);
+          next.delete(tabId);
+          return next;
+        });
         yield* startFrameCapture(tabId, "recording");
         yield* SynchronizedRef.update(frameCaptureSessionsRef, (sessions) =>
           replaceMap(sessions, (copy) => {
@@ -3682,11 +3704,28 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
+  const recordingDiscarded = (tabId: string) =>
+    Effect.map(Ref.get(discardedRecordingTabsRef), (tabs) => tabs.has(tabId));
+
+  const rejectDiscardedRecording = Effect.fn("PreviewManager.rejectDiscardedRecording")(function* (
+    tabId: string,
+  ) {
+    if (!(yield* recordingDiscarded(tabId))) return;
+    return yield* new PreviewAgentImportedCookieAccessError({
+      tabId,
+      browserName: "this preview",
+      profileId: "revoked",
+    });
+  });
+
   const saveRecording = Effect.fn("PreviewManager.saveRecording")(function* (
     tabId: string,
     mimeType: string,
     data: Uint8Array,
   ) {
+    yield* rejectDiscardedRecording(tabId);
+    yield* rejectUnapprovedImportedCookies(tabId);
+    yield* rejectDiscardedRecording(tabId);
     const [createdAt, millis] = yield* Effect.all([currentIso, currentMillis]);
     const id = `browser-recording-${millis.toString(36)}`;
     const extension = recordingFileExtension(mimeType);
@@ -3723,16 +3762,27 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     };
   });
 
+  const automationLocationIsHidden = Effect.fn("PreviewManager.automationLocationIsHidden")(
+    function* (tabId: string) {
+      const partition = yield* partitionForAgentCheck(tabId).pipe(Effect.orElseSucceed(() => null));
+      return yield* cookieAccess.decide(tabId, partition).pipe(
+        Effect.map((decision) => decision._tag === "NeedsApproval"),
+        Effect.orElseSucceed(() => true),
+      );
+    },
+  );
+
   const automationStatus = Effect.fn("PreviewManager.automationStatus")(function* (tabId: string) {
     const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+    const hidden = yield* automationLocationIsHidden(tabId);
     if (!tab || tab.webContentsId == null) {
       const navStatus = tab?.navStatus;
       return {
         available: false,
         visible: true,
         tabId,
-        url: !navStatus || navStatus.kind === "Idle" ? null : navStatus.url,
-        title: !navStatus || navStatus.kind === "Idle" ? null : navStatus.title,
+        url: hidden || !navStatus || navStatus.kind === "Idle" ? null : navStatus.url,
+        title: hidden || !navStatus || navStatus.kind === "Idle" ? null : navStatus.title,
         loading: navStatus?.kind === "Loading",
       };
     }
@@ -3750,8 +3800,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           available: true,
           visible: true,
           tabId,
-          url: wc.getURL() || null,
-          title: wc.getTitle() || null,
+          url: hidden ? null : wc.getURL() || null,
+          title: hidden ? null : wc.getTitle() || null,
           loading: wc.isLoading(),
         };
   });
@@ -4728,11 +4778,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     },
   );
 
+  const beginAgentImportedCookiePrompt = (tabId: string) => cookieAccess.beginPrompt(tabId);
+  const finishAgentImportedCookiePrompt = (tabId: string) => cookieAccess.finishPrompt(tabId);
+  const denyAgentImportedCookieAccess = (tabId: string) => cookieAccess.denyTab(tabId);
+
   const revokeAgentImportedCookieAccess = Effect.fn(
     "PreviewManager.revokeAgentImportedCookieAccess",
   )(function* (tabId: string) {
     yield* cookieAccess.revokeTab(tabId);
     yield* interruptAgentControl(tabId);
+    yield* Ref.update(discardedRecordingTabsRef, (tabs) => new Set(tabs).add(tabId));
+    yield* stopRecording(tabId).pipe(Effect.ignore);
     if ((yield* SynchronizedRef.get(tabsRef)).has(tabId)) {
       const current = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
       yield* setImportedCookieGrant(tabId, null);
@@ -4788,6 +4844,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     navigate,
     agentImportedCookieAccess,
     grantAgentImportedCookieAccess,
+    beginAgentImportedCookiePrompt,
+    finishAgentImportedCookiePrompt,
+    denyAgentImportedCookieAccess,
     revokeAgentImportedCookieAccess,
     releaseImportedCookiePartitions,
     openPictureInPicture,
@@ -4796,6 +4855,21 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     reapplyZoom,
     refresh,
     registerWebview,
+    rememberAttachedWebviewPartition: (webContentsId: number, partition: string) =>
+      Ref.update(attachedPartitionRef, (partitions) =>
+        new Map(partitions).set(webContentsId, partition),
+      ),
+    acceptsImportedCookieGrantSender: (event: DesktopIpcInvokeEvent | undefined) =>
+      Effect.gen(function* () {
+        const mainWindow = yield* Ref.get(mainWindowRef);
+        if (Option.isNone(mainWindow)) return false;
+        const contents = mainWindow.value.webContents;
+        return isMainWindowGrantSender(event, {
+          id: contents.id,
+          getType: () => contents.getType(),
+          mainFrame: contents.mainFrame,
+        });
+      }),
     resetZoom: (tabId: string) => applyZoom(tabId, () => DEFAULT_ZOOM_FACTOR),
     revealArtifact,
     saveRecording,
@@ -5143,6 +5217,14 @@ export class PreviewManager extends Context.Service<
       tabId: string,
       webContentsId: number,
     ) => Effect.Effect<void, PreviewManagerError>;
+    /** Records the partition from `will-attach-webview`, keyed by guest id. */
+    readonly rememberAttachedWebviewPartition: (
+      webContentsId: number,
+      partition: string,
+    ) => Effect.Effect<void>;
+    readonly acceptsImportedCookieGrantSender: (
+      event: DesktopIpcInvokeEvent | undefined,
+    ) => Effect.Effect<boolean>;
     readonly navigate: (
       tabId: string,
       url: string,
@@ -5162,6 +5244,11 @@ export class PreviewManager extends Context.Service<
     readonly grantAgentImportedCookieAccess: (
       tabId: string,
     ) => Effect.Effect<void, PreviewManagerError>;
+    readonly beginAgentImportedCookiePrompt: (
+      tabId: string,
+    ) => Effect.Effect<AgentImportedCookieAccess.AgentImportedCookiePrompt>;
+    readonly finishAgentImportedCookiePrompt: (tabId: string) => Effect.Effect<void>;
+    readonly denyAgentImportedCookieAccess: (tabId: string) => Effect.Effect<void>;
     readonly revokeAgentImportedCookieAccess: (
       tabId: string,
     ) => Effect.Effect<void, PreviewManagerError>;
@@ -5288,9 +5375,14 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     createTab: operations.createTab,
     closeTab: operations.closeTab,
     registerWebview: operations.registerWebview,
+    rememberAttachedWebviewPartition: operations.rememberAttachedWebviewPartition,
+    acceptsImportedCookieGrantSender: operations.acceptsImportedCookieGrantSender,
     navigate: operations.navigate,
     agentImportedCookieAccess: operations.agentImportedCookieAccess,
     grantAgentImportedCookieAccess: operations.grantAgentImportedCookieAccess,
+    beginAgentImportedCookiePrompt: operations.beginAgentImportedCookiePrompt,
+    finishAgentImportedCookiePrompt: operations.finishAgentImportedCookiePrompt,
+    denyAgentImportedCookieAccess: operations.denyAgentImportedCookieAccess,
     revokeAgentImportedCookieAccess: operations.revokeAgentImportedCookieAccess,
     goBack: operations.goBack,
     goForward: operations.goForward,
@@ -5304,8 +5396,17 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     setAudioMuted: operations.setAudioMuted,
     openDevTools: operations.openDevTools,
     clearCookies: Effect.fn("PreviewManager.clearCookies")(function* (partitions) {
+      // The ledger entry survives until cookies, DOM storage, and the HTTP
+      // cache are all gone. A cookies-only wipe must not forget the partition.
       yield* browserSession
         .clearCookies(partitions)
+        .pipe(
+          Effect.mapError(
+            (cause) => new PreviewOperationError({ operation: "clearCookies", cause }),
+          ),
+        );
+      yield* browserSession
+        .clearCache(partitions)
         .pipe(
           Effect.mapError(
             (cause) => new PreviewOperationError({ operation: "clearCookies", cause }),
@@ -5358,5 +5459,9 @@ export const make = Effect.gen(function* PreviewManagerMake() {
 }).pipe(Effect.withSpan("PreviewManager.make"));
 
 export const layer = Layer.effect(PreviewManager, make).pipe(
-  Layer.provideMerge(AgentImportedCookieAccess.layer),
+  Layer.provideMerge(
+    AgentImportedCookieAccess.layer.pipe(
+      Layer.provide(AgentImportedCookieAccess.electronPartitionCookieProbeLayer),
+    ),
+  ),
 );

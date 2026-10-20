@@ -510,6 +510,7 @@ export const make = Effect.gen(function* () {
     flushMainWindowBounds = flushBoundsPersist;
 
     yield* previewManager.setMainWindow(window);
+    const pendingAttachPartitions: Array<string> = [];
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -518,6 +519,7 @@ export const make = Effect.gen(function* () {
         event.preventDefault();
         return;
       }
+      pendingAttachPartitions.push(params.partition);
       webPreferences.sandbox = true;
       webPreferences.nodeIntegration = false;
       webPreferences.nodeIntegrationInSubFrames = false;
@@ -598,6 +600,10 @@ export const make = Effect.gen(function* () {
     };
     installContextMenu(window, window.webContents);
     window.webContents.on("did-attach-webview", (_event, contents) => {
+      const partition = pendingAttachPartitions.shift();
+      if (partition !== undefined) {
+        void runPromise(previewManager.rememberAttachedWebviewPartition(contents.id, partition));
+      }
       installContextMenu(window, contents);
     });
 

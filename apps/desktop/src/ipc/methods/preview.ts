@@ -20,6 +20,7 @@ import {
   BrowserImportSource,
   DesktopPreviewAgentCookieAccessSchema,
   DesktopPreviewAgentCookieAccessInputSchema,
+  DesktopPreviewAgentCookiePromptSchema,
   DesktopPreviewClearDataInputSchema,
   DesktopPreviewImportCookiesInputSchema,
   DesktopPreviewCreateTabInputSchema,
@@ -111,7 +112,7 @@ export const navigate = DesktopIpc.makeIpcMethod({
   }) {
     const manager = yield* PreviewManager.PreviewManager;
     yield* manager.navigate(tabId, url, {
-      actor: actor ?? "user",
+      actor,
       ...(environmentId === undefined ? {} : { environmentId }),
       ...(profileId === undefined ? {} : { profileId }),
     });
@@ -371,6 +372,20 @@ export const agentImportedCookieAccess = DesktopIpc.makeIpcMethod({
 });
 
 /**
+ * The main window is the only renderer allowed to grant, deny, or drive the
+ * approval prompt. Preview guests share a preload that can call `ipcRenderer`.
+ */
+const authorizeImportedCookieGrantSender = (event?: DesktopIpc.DesktopIpcInvokeEvent) =>
+  Effect.gen(function* () {
+    const manager = yield* PreviewManager.PreviewManager;
+    if (yield* manager.acceptsImportedCookieGrantSender(event)) return;
+    return yield* new PreviewManager.PreviewOperationError({
+      operation: "grantAgentImportedCookieAccess",
+      cause: new Error("Imported-cookie approval can only be changed from the desktop window."),
+    });
+  });
+
+/**
  * Granted only from the desktop confirm dialog. Not registered as a server
  * or agent RPC, and not stored in settings the agent can write.
  */
@@ -378,7 +393,11 @@ export const grantAgentImportedCookieAccess = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_GRANT_AGENT_COOKIE_ACCESS_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.grantAgentImportedCookieAccess")(function* ({ tabId }) {
+  handler: Effect.fn("desktop.ipc.preview.grantAgentImportedCookieAccess")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
     const manager = yield* PreviewManager.PreviewManager;
     yield* manager.grantAgentImportedCookieAccess(tabId);
   }),
@@ -388,9 +407,55 @@ export const revokeAgentImportedCookieAccess = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_REVOKE_AGENT_COOKIE_ACCESS_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.revokeAgentImportedCookieAccess")(function* ({ tabId }) {
+  handler: Effect.fn("desktop.ipc.preview.revokeAgentImportedCookieAccess")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
     const manager = yield* PreviewManager.PreviewManager;
     yield* manager.revokeAgentImportedCookieAccess(tabId);
+  }),
+});
+
+export const beginAgentImportedCookiePrompt = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_BEGIN_AGENT_COOKIE_PROMPT_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: DesktopPreviewAgentCookiePromptSchema,
+  handler: Effect.fn("desktop.ipc.preview.beginAgentImportedCookiePrompt")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    return yield* manager.beginAgentImportedCookiePrompt(tabId);
+  }),
+});
+
+export const finishAgentImportedCookiePrompt = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_FINISH_AGENT_COOKIE_PROMPT_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.finishAgentImportedCookiePrompt")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.finishAgentImportedCookiePrompt(tabId);
+  }),
+});
+
+export const denyAgentImportedCookieAccess = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_DENY_AGENT_COOKIE_ACCESS_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.denyAgentImportedCookieAccess")(function* (
+    { tabId },
+    event,
+  ) {
+    yield* authorizeImportedCookieGrantSender(event);
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.denyAgentImportedCookieAccess(tabId);
   }),
 });
 
@@ -555,6 +620,9 @@ export const methods = [
   agentImportedCookieAccess,
   grantAgentImportedCookieAccess,
   revokeAgentImportedCookieAccess,
+  beginAgentImportedCookiePrompt,
+  finishAgentImportedCookiePrompt,
+  denyAgentImportedCookieAccess,
   setAnnotationTheme,
   pickElement,
   cancelPickElement,

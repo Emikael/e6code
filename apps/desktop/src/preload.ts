@@ -290,9 +290,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.invoke(IpcChannels.PREVIEW_NAVIGATE_CHANNEL, {
         tabId,
         url,
-        ...(options?.actor === undefined ? {} : { actor: options.actor }),
-        ...(options?.environmentId === undefined ? {} : { environmentId: options.environmentId }),
-        ...(options?.profileId === undefined ? {} : { profileId: options.profileId }),
+        actor: options.actor,
+        ...(options.environmentId === undefined ? {} : { environmentId: options.environmentId }),
+        ...(options.profileId === undefined ? {} : { profileId: options.profileId }),
       }),
     goBack: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_GO_BACK_CHANNEL, { tabId }),
     goForward: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_GO_FORWARD_CHANNEL, { tabId }),
@@ -318,6 +318,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       }),
     grantAgentImportedCookieAccess: (tabId) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_GRANT_AGENT_COOKIE_ACCESS_CHANNEL, { tabId }),
+    beginAgentImportedCookiePrompt: (tabId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_BEGIN_AGENT_COOKIE_PROMPT_CHANNEL, { tabId }),
+    finishAgentImportedCookiePrompt: (tabId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_FINISH_AGENT_COOKIE_PROMPT_CHANNEL, { tabId }),
+    denyAgentImportedCookieAccess: (tabId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_DENY_AGENT_COOKIE_ACCESS_CHANNEL, { tabId }),
     revokeAgentImportedCookieAccess: (tabId) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_REVOKE_AGENT_COOKIE_ACCESS_CHANNEL, { tabId }),
     clearCookies: (environmentId, profileId) =>

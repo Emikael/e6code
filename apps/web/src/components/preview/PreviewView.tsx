@@ -192,7 +192,7 @@ export function PreviewView({
     async (resolvedUrl: string) => {
       if (runtimeTabId && previewBridge) {
         // The bridge mirrors the resolved URL back to the server.
-        await previewBridge.navigate(runtimeTabId, resolvedUrl);
+        await previewBridge.navigate(runtimeTabId, resolvedUrl, { actor: "user" });
         rememberPreviewUrl(threadRef, resolvedUrl);
         return true;
       }

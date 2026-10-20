@@ -274,7 +274,14 @@ describe("BrowserSession", () => {
         assert.strictEqual(browserSession.clearStorageData.mock.calls.length, 1);
         assert.deepEqual(browserSession.clearStorageData.mock.calls[0], [
           {
-            storages: ["cookies", "localstorage", "indexdb", "serviceworkers"],
+            storages: [
+              "cookies",
+              "localstorage",
+              "indexdb",
+              "serviceworkers",
+              "cachestorage",
+              "filesystem",
+            ],
           },
         ]);
         assert.strictEqual(browserSession.clearCache.mock.calls.length, 1);

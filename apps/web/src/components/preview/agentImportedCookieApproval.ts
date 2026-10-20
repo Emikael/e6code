@@ -25,7 +25,15 @@ export async function ensureAgentImportedCookieAccess(input: {
   readonly bridge: Pick<
     DesktopPreviewBridge,
     "agentImportedCookieAccess" | "grantAgentImportedCookieAccess"
-  >;
+  > &
+    Partial<
+      Pick<
+        DesktopPreviewBridge,
+        | "beginAgentImportedCookiePrompt"
+        | "finishAgentImportedCookiePrompt"
+        | "denyAgentImportedCookieAccess"
+      >
+    >;
   readonly tabId: string;
   readonly environmentId?: string | undefined;
   readonly profileId?: string | undefined;
@@ -40,11 +48,26 @@ export async function ensureAgentImportedCookieAccess(input: {
   const browserName = access.browserName ?? "your browser";
   const profileName =
     access.profileId === null ? "this profile" : input.profileName(access.profileId);
-  const confirmed = await input.confirm(
-    agentImportedCookieApprovalMessage({ browserName, profileName }),
-  );
-  if (!confirmed) {
-    throw new AgentImportedCookieAccessDeniedError(browserName, profileName);
+  const denied = () => new AgentImportedCookieAccessDeniedError(browserName, profileName);
+  if (
+    !input.bridge.beginAgentImportedCookiePrompt ||
+    !input.bridge.finishAgentImportedCookiePrompt ||
+    !input.bridge.denyAgentImportedCookieAccess
+  ) {
+    throw denied();
   }
-  await input.bridge.grantAgentImportedCookieAccess(input.tabId);
+  const began = await input.bridge.beginAgentImportedCookiePrompt(input.tabId);
+  if (!began.allowed) throw denied();
+  try {
+    const confirmed = await input.confirm(
+      agentImportedCookieApprovalMessage({ browserName, profileName }),
+    );
+    if (!confirmed) {
+      await input.bridge.denyAgentImportedCookieAccess(input.tabId);
+      throw denied();
+    }
+    await input.bridge.grantAgentImportedCookieAccess(input.tabId);
+  } finally {
+    await input.bridge.finishAgentImportedCookiePrompt(input.tabId);
+  }
 }

@@ -23,6 +23,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as AgentImportedCookieAccess from "./AgentImportedCookieAccess.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as PreviewManager from "./Manager.ts";
 
@@ -184,6 +185,7 @@ const {
   clipboardItemConstructor,
   createFromPath,
   fromId,
+  fromPartition,
   getFocusedWebContents,
   mkdir,
   showItemInFolder,
@@ -198,6 +200,7 @@ const {
     toPNG: () => Buffer.from("png"),
   })),
   fromId: vi.fn<(_id?: number) => Electron.WebContents | null>((_id?: number) => null),
+  fromPartition: vi.fn(),
   getFocusedWebContents: vi.fn(() => null),
   mkdir: vi.fn((_path: string) => undefined),
   showItemInFolder: vi.fn(),
@@ -223,13 +226,15 @@ vi.mock("electron", () => ({
     showItemInFolder,
   },
   session: {
-    fromPartition: vi.fn(),
+    fromPartition,
   },
   webContents: {
     fromId,
     getFocusedWebContents,
   },
 }));
+
+let failPreviewCacheClear = false;
 
 const browserSessionLayer = Layer.succeed(
   BrowserSession.BrowserSession,
@@ -238,7 +243,15 @@ const browserSessionLayer = Layer.succeed(
     isPartition: (partition) => partition.startsWith("persist:e6code-preview-"),
     getSession: () => Effect.die("unexpected getSession"),
     clearCookies: () => Effect.void,
-    clearCache: () => Effect.void,
+    clearCache: () =>
+      failPreviewCacheClear
+        ? Effect.fail(
+            new BrowserSession.BrowserSessionCacheClearError({
+              partition: "persist:e6code-preview-test",
+              cause: new Error("cache clear failed"),
+            }),
+          )
+        : Effect.void,
     findPartition: () => Effect.succeed(undefined),
   }),
 );
@@ -341,6 +354,7 @@ const makeTestPreviewWebContents = (
     getURL: () => "https://example.com",
     getTitle: () => "Example",
     isLoading: () => false,
+    isDevToolsOpened: () => false,
     getZoomFactor: () => 1,
     setZoomFactor: vi.fn(),
     setAudioMuted: vi.fn(),
@@ -387,7 +401,9 @@ const setupRecordingRaceTabs = (manager: PreviewManager.PreviewManager["Service"
     );
     yield* manager.createTab("tab_race_a");
     yield* manager.createTab("tab_race_b");
+    yield* manager.rememberAttachedWebviewPartition(41, "persist:e6code-preview-agent-test");
     yield* manager.registerWebview("tab_race_a", 41);
+    yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
     yield* manager.registerWebview("tab_race_b", 42);
     const grants: Array<{ video?: unknown }> = [];
     return {
@@ -543,6 +559,8 @@ const makeTestPictureInPictureWindow = (loadURL: () => Promise<void> = async () 
 
 describe("PreviewManager", () => {
   beforeEach(() => {
+    failPreviewCacheClear = false;
+    fromPartition.mockReset();
     browserWindowConstructor.mockReset();
     fromId.mockClear();
     getFocusedWebContents.mockReset();
@@ -571,6 +589,7 @@ describe("PreviewManager", () => {
           webContents: hostWebContents,
         } as never);
         yield* manager.createTab("tab_keys");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_keys", 42);
 
         expect(
@@ -621,6 +640,7 @@ describe("PreviewManager", () => {
         const preview = makeFaviconWebContents();
         fromId.mockReturnValue(preview.webContents);
         yield* manager.createTab("tab_editing");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_editing", 42);
 
         const popup = makeFaviconWebContents({ id: 43 });
@@ -818,17 +838,18 @@ describe("PreviewManager", () => {
           },
         } as never);
 
-        yield* manager.navigate("tab_pending", "localhost:3200");
+        yield* manager.navigate("tab_pending", "localhost:3200", { actor: "user" });
 
         expect(yield* manager.automationStatus("tab_pending")).toEqual({
           available: false,
           visible: true,
           tabId: "tab_pending",
-          url: "http://localhost:3200/",
-          title: "",
+          url: null,
+          title: null,
           loading: true,
         });
 
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_pending", 42);
         yield* Effect.yieldNow;
 
@@ -850,11 +871,14 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_destroyed_navigation");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_destroyed_navigation", 42);
         yield* manager.setColorScheme("tab_destroyed_navigation", "dark");
         preview.setDestroyed(true);
 
-        yield* manager.navigate("tab_destroyed_navigation", "https://example.com/");
+        yield* manager.navigate("tab_destroyed_navigation", "https://example.com/", {
+          actor: "user",
+        });
 
         expect(preview.loadURL).not.toHaveBeenCalled();
         expect(preview.reload).not.toHaveBeenCalled();
@@ -917,12 +941,13 @@ describe("PreviewManager", () => {
           },
         } as never);
         yield* manager.createTab("tab_pinned_debugger");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_pinned_debugger", 42);
         yield* manager.setColorScheme("tab_pinned_debugger", "dark");
         expect(attached).toBe(true);
         destroyed = true;
 
-        yield* manager.navigate("tab_pinned_debugger", "https://example.com/");
+        yield* manager.navigate("tab_pinned_debugger", "https://example.com/", { actor: "user" });
 
         expect(debuggerOff).toHaveBeenCalledWith("message", expect.any(Function));
         expect(debuggerDetach).toHaveBeenCalledOnce();
@@ -942,6 +967,7 @@ describe("PreviewManager", () => {
         });
         fromId.mockImplementation(() => current);
         yield* manager.createTab("tab_destroyed_replacement_race");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_destroyed_replacement_race", 42);
         yield* manager.setColorScheme("tab_destroyed_replacement_race", "dark");
         const replacementRegistration = yield* Effect.promise(() => replacementReady).pipe(
@@ -960,7 +986,9 @@ describe("PreviewManager", () => {
           }),
         );
 
-        yield* manager.navigate("tab_destroyed_replacement_race", "https://example.com/");
+        yield* manager.navigate("tab_destroyed_replacement_race", "https://example.com/", {
+          actor: "user",
+        });
         const registrationExit = yield* Fiber.await(replacementRegistration);
 
         expect(Exit.isSuccess(registrationExit)).toBe(true);
@@ -989,6 +1017,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_loading");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_loading", 42);
 
         preview.listeners.get("page-favicon-updated")?.(
@@ -1031,6 +1060,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_latest");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_latest", 42);
 
         const faviconUpdated = preview.listeners.get("page-favicon-updated")!;
@@ -1067,6 +1097,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_retry");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_retry", 42);
         const faviconUpdated = preview.listeners.get("page-favicon-updated")!;
 
@@ -1100,6 +1131,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_navigation");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_navigation", 42);
         preview.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1135,6 +1167,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_reload");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_reload", 42);
         preview.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1142,7 +1175,7 @@ describe("PreviewManager", () => {
         );
         yield* settle(() => states.at(-1)?.favicon !== undefined);
 
-        yield* manager.navigate("tab_favicon_reload", "http://localhost:3200/");
+        yield* manager.navigate("tab_favicon_reload", "http://localhost:3200/", { actor: "user" });
 
         expect(preview.reload).toHaveBeenCalledOnce();
         expect(states.at(-1)?.favicon?.dataUrl).toBe(TEST_FAVICON);
@@ -1162,6 +1195,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_origin");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_origin", 42);
         preview.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1192,6 +1226,7 @@ describe("PreviewManager", () => {
             }),
           );
           yield* manager.createTab("tab_favicon_failed_origin");
+          yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
           yield* manager.registerWebview("tab_favicon_failed_origin", 42);
           preview.listeners.get("page-favicon-updated")?.(
             {} as never,
@@ -1228,6 +1263,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_blank");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_blank", 42);
         preview.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1265,6 +1301,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_replace");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_replace", 42);
         initial.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1272,6 +1309,7 @@ describe("PreviewManager", () => {
         );
         yield* settle(() => states.at(-1)?.favicon !== undefined);
 
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_replace", 43);
 
         expect(states.at(-1)?.webContentsId).toBe(43);
@@ -1302,6 +1340,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_late_replace");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_late_replace", 42);
         initial.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1309,6 +1348,7 @@ describe("PreviewManager", () => {
         );
         yield* settle(() => initial.fetch.mock.calls.length === 1);
 
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_late_replace", 43);
         resolveFetch(
           new Response(new Uint8Array(makeSourcePng()), {
@@ -1339,6 +1379,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_reused_id");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_reused_id", 42);
         initial.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1347,6 +1388,7 @@ describe("PreviewManager", () => {
         yield* settle(() => states.at(-1)?.favicon !== undefined);
 
         active = replacement.webContents;
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_reused_id", 42);
 
         expect(states.at(-1)?.favicon).toBeUndefined();
@@ -1368,6 +1410,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_favicon_reregister");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_reregister", 42);
         preview.listeners.get("page-favicon-updated")?.(
           {} as never,
@@ -1375,6 +1418,7 @@ describe("PreviewManager", () => {
         );
         yield* settle(() => states.at(-1)?.favicon !== undefined);
 
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_favicon_reregister", 42);
 
         expect(states.at(-1)?.favicon?.dataUrl).toBe(TEST_FAVICON);
@@ -1432,6 +1476,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_zoom");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_zoom", 42);
 
         expect(states.at(-1)?.zoomFactor).toBe(1);
@@ -1490,6 +1535,7 @@ describe("PreviewManager", () => {
           },
         } as never);
 
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_zoom", 43);
 
         expect(replacementSetZoomFactor).toHaveBeenCalledWith(1.1);
@@ -1532,6 +1578,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_reapply");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_reapply", 42);
         yield* manager.zoomIn("tab_reapply");
         setZoomFactor.mockClear();
@@ -1585,11 +1632,13 @@ describe("PreviewManager", () => {
         );
 
         yield* manager.createTab("tab_reregister_zoom");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_reregister_zoom", 42);
         yield* manager.zoomIn("tab_reregister_zoom");
         setZoomFactor.mockClear();
         const publishedBefore = states.length;
 
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_reregister_zoom", 42);
 
         expect(setZoomFactor).toHaveBeenCalledWith(1.1);
@@ -1645,6 +1694,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_scheme");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_scheme", 42);
         yield* Effect.yieldNow;
 
@@ -1657,6 +1707,7 @@ describe("PreviewManager", () => {
 
         const replacement = makeWebContents(43);
         fromId.mockReturnValue(replacement.wc);
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_scheme", 43);
         yield* Effect.yieldNow;
 
@@ -1747,6 +1798,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_audio");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio", 42);
         yield* Effect.yieldNow;
 
@@ -1759,6 +1811,7 @@ describe("PreviewManager", () => {
 
         const replacement = makeAudioWebContents(43);
         fromId.mockReturnValue(replacement.wc);
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio", 43);
         yield* Effect.yieldNow;
 
@@ -1786,6 +1839,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_audio_fail");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio_fail", 42);
         yield* Effect.yieldNow;
 
@@ -1807,6 +1861,7 @@ describe("PreviewManager", () => {
         const first = makeAudioWebContents(42);
         fromId.mockReturnValue(first.wc);
         yield* manager.createTab("tab_audio_attach_fail");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio_attach_fail", 42);
         yield* Effect.yieldNow;
         yield* manager.setAudioMuted("tab_audio_attach_fail", true);
@@ -1841,6 +1896,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_audio_window");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio_window", 42);
         yield* Effect.yieldNow;
 
@@ -1865,6 +1921,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_audible");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audible", 42);
         yield* Effect.yieldNow;
 
@@ -1901,11 +1958,13 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_audio_stale");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio_stale", 42);
         yield* Effect.yieldNow;
 
         const replacement = makeAudioWebContents(43);
         fromId.mockReturnValue(replacement.wc);
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio_stale", 43);
         yield* Effect.yieldNow;
 
@@ -1932,6 +1991,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_audio_nav");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_audio_nav", 42);
         yield* Effect.yieldNow;
 
@@ -1940,7 +2000,7 @@ describe("PreviewManager", () => {
         yield* Effect.yieldNow;
         expect(states.at(-1)?.audible).toBe(true);
 
-        yield* manager.navigate("tab_audio_nav", "https://example.com/next");
+        yield* manager.navigate("tab_audio_nav", "https://example.com/next", { actor: "user" });
         yield* Effect.yieldNow;
 
         // navigate runs before loadURL swaps the document, so the old page can
@@ -1982,6 +2042,7 @@ describe("PreviewManager", () => {
         });
 
         yield* manager.createTab("tab_close_register_race");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_close_register_race", 42);
         yield* manager.openPictureInPicture("tab_close_register_race");
 
@@ -2075,6 +2136,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_failed");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_failed", 42);
 
         listeners.get("did-fail-load")?.(
@@ -2163,6 +2225,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
 
         expect(webviewSend).toHaveBeenCalledWith(
@@ -2245,7 +2308,9 @@ describe("PreviewManager", () => {
 
         yield* manager.createTab("tab_capture_throttling_1");
         yield* manager.createTab("tab_capture_throttling_2");
+        yield* manager.rememberAttachedWebviewPartition(41, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_capture_throttling_1", 41);
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_capture_throttling_2", 42);
         yield* manager.setMainWindow({
           isDestroyed: () => false,
@@ -2284,6 +2349,7 @@ describe("PreviewManager", () => {
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage));
 
         yield* manager.createTab("tab_capture_throttling_failure");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_capture_throttling_failure", 42);
         yield* manager.setMainWindow({
           isDestroyed: () => false,
@@ -2334,6 +2400,7 @@ describe("PreviewManager", () => {
         fromId.mockReturnValue(wc);
 
         yield* manager.createTab("tab_guest_throttling_failure");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_guest_throttling_failure", 42);
         yield* manager.setMainWindow({
           isDestroyed: () => false,
@@ -2377,6 +2444,7 @@ describe("PreviewManager", () => {
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage));
 
         yield* manager.createTab("tab_capture_replacement_failure");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_capture_replacement_failure", 42);
         yield* manager.startRecording("tab_capture_replacement_failure");
 
@@ -2408,6 +2476,7 @@ describe("PreviewManager", () => {
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage));
 
         yield* manager.createTab("tab_replaced_window_close");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_replaced_window_close", 42);
         yield* manager.setMainWindow({
           isDestroyed: () => false,
@@ -2453,7 +2522,9 @@ describe("PreviewManager", () => {
 
         yield* manager.createTab("tab_window_close_recording");
         yield* manager.createTab("tab_window_close_race");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_window_close_recording", 42);
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_window_close_race", 43);
         yield* manager.setMainWindow({
           isDestroyed: () => false,
@@ -2515,6 +2586,7 @@ describe("PreviewManager", () => {
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage, 42, host));
 
         yield* manager.createTab("tab_window_close_warmup");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_window_close_warmup", 42);
         yield* manager.setMainWindow({
           isDestroyed: () => false,
@@ -2554,6 +2626,7 @@ describe("PreviewManager", () => {
         }));
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage, 42));
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
 
         capturePage.mockRejectedValueOnce(new Error("UnknownVizError"));
@@ -2564,6 +2637,7 @@ describe("PreviewManager", () => {
         yield* TestClock.adjust(60);
         expect(capturePage).toHaveBeenCalledTimes(1);
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage, 43));
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 43);
         yield* TestClock.adjust(1_000);
         const exit = yield* Fiber.join(fiber);
@@ -2587,6 +2661,7 @@ describe("PreviewManager", () => {
         const capturePage = vi.fn(() => pending.promise);
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage, 42));
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
 
         const fiber = yield* Effect.exit(manager.captureScreenshot("tab_1")).pipe(
@@ -2595,6 +2670,7 @@ describe("PreviewManager", () => {
         yield* TestClock.adjust(0);
         expect(capturePage).toHaveBeenCalledOnce();
         fromId.mockReturnValue(makeTestPreviewWebContents(capturePage, 43));
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 43);
         pending.resolve(image);
         const exit = yield* Fiber.join(fiber);
@@ -2635,6 +2711,7 @@ describe("PreviewManager", () => {
         });
         fromId.mockReturnValue(wc);
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
 
         const snapshot = yield* Effect.exit(manager.automationSnapshot("tab_1")).pipe(
@@ -2729,7 +2806,9 @@ describe("PreviewManager", () => {
         );
         yield* manager.createTab("tab_1");
         yield* manager.createTab("tab_2");
+        yield* manager.rememberAttachedWebviewPartition(41, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 41);
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_2", 42);
 
         const grants: Array<{ video?: unknown }> = [];
@@ -2918,6 +2997,7 @@ describe("PreviewManager", () => {
           );
           fromId.mockReturnValue(contents as never);
           yield* manager.createTab("tab_cursor");
+          yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
           yield* manager.registerWebview("tab_cursor", 42);
           const failed = yield* Effect.exit(manager.startRecording("tab_cursor"));
           expect(Exit.isFailure(failed)).toBe(true);
@@ -2958,6 +3038,7 @@ describe("PreviewManager", () => {
         );
         fromId.mockReturnValue(contents as never);
         yield* manager.createTab("tab_cursor_reload");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_cursor_reload", 42);
         yield* manager.startRecording("tab_cursor_reload", options);
         for (const recording of [true, false]) {
@@ -3001,6 +3082,7 @@ describe("PreviewManager", () => {
         );
         fromId.mockReturnValue(contents as never);
         yield* manager.createTab("tab_recording_input");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_recording_input", 42);
         const received: DesktopPreviewRecordingInputEvent[] = [];
         yield* manager.subscribeRecordingInputs(() => Effect.die("renderer unavailable"));
@@ -3061,6 +3143,7 @@ describe("PreviewManager", () => {
         fromId.mockReturnValue(webContents);
 
         yield* manager.createTab("tab_recording_warmup_failure");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_recording_warmup_failure", 42);
 
         yield* manager.startRecording("tab_recording_warmup_failure");
@@ -3112,11 +3195,13 @@ describe("PreviewManager", () => {
         });
 
         yield* manager.createTab("tab_recording_replacement_race");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_recording_replacement_race", 42);
         const start = yield* manager
           .startRecording("tab_recording_replacement_race")
           .pipe(Effect.forkChild({ startImmediately: true }));
         yield* Effect.promise(() => warmupStarted);
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         const replacement = yield* manager
           .registerWebview("tab_recording_replacement_race", 43)
           .pipe(Effect.forkChild({ startImmediately: true }));
@@ -3229,6 +3314,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_pip");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_pip", 42);
         yield* manager.openPictureInPicture("tab_pip");
 
@@ -3322,6 +3408,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_recording_then_pip");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_recording_then_pip", 42);
         yield* manager.startRecording("tab_recording_then_pip");
 
@@ -3362,6 +3449,7 @@ describe("PreviewManager", () => {
         );
 
         yield* manager.createTab("tab_native_pip_close");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_native_pip_close", 42);
         yield* manager.openPictureInPicture("tab_native_pip_close");
 
@@ -3394,6 +3482,7 @@ describe("PreviewManager", () => {
         });
 
         yield* manager.createTab("tab_pip_delivery_retry");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_pip_delivery_retry", 42);
         yield* manager.openPictureInPicture("tab_pip_delivery_retry");
         expect(send).toHaveBeenCalledOnce();
@@ -3423,6 +3512,7 @@ describe("PreviewManager", () => {
         });
 
         yield* manager.createTab("tab_pip_reload");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_pip_reload", 42);
         yield* manager.openPictureInPicture("tab_pip_reload");
         expect(send).toHaveBeenCalledOnce();
@@ -3455,6 +3545,7 @@ describe("PreviewManager", () => {
         });
 
         yield* manager.createTab("tab_empty_frame");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_empty_frame", 42);
         yield* manager.openPictureInPicture("tab_empty_frame");
 
@@ -3494,6 +3585,7 @@ describe("PreviewManager", () => {
         );
 
         yield* manager.createTab("tab_pip_teardown");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_pip_teardown", 42);
         const openExit = yield* Effect.exit(manager.openPictureInPicture("tab_pip_teardown"));
 
@@ -3534,6 +3626,7 @@ describe("PreviewManager", () => {
           }),
         );
         yield* manager.createTab("tab_concurrent_pip");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_concurrent_pip", 42);
 
         const firstOpen = yield* manager
@@ -3613,6 +3706,7 @@ describe("PreviewManager", () => {
         });
 
         yield* manager.createTab("tab_replaced_webview");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_replaced_webview", 42);
         const open = yield* manager
           .openPictureInPicture("tab_replaced_webview")
@@ -3625,6 +3719,7 @@ describe("PreviewManager", () => {
           .pipe(Effect.forkChild({ startImmediately: true }));
         yield* Effect.yieldNow;
 
+        yield* manager.rememberAttachedWebviewPartition(43, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_replaced_webview", 43);
         resolveLoad?.();
 
@@ -3690,6 +3785,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
         const pick = yield* manager.pickElement("tab_1").pipe(Effect.forkChild);
         yield* Effect.yieldNow;
@@ -3758,6 +3854,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
         const pick = yield* manager.pickElement("tab_1").pipe(Effect.forkChild);
         yield* Effect.yieldNow;
@@ -3847,6 +3944,7 @@ describe("PreviewManager", () => {
         };
 
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
         const firstPick = yield* manager.pickElement("tab_1").pipe(Effect.forkChild);
         yield* Effect.yieldNow;
@@ -3921,6 +4019,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_nav");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_nav", 42);
         expect(mouseNavigate).toBeDefined();
 
@@ -4079,6 +4178,7 @@ describe("PreviewManager", () => {
             }),
           );
           yield* manager.createTab("tab_1");
+          yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
           yield* manager.registerWebview("tab_1", 42);
           yield* manager.startRecording("tab_1");
           const click = yield* manager
@@ -4255,6 +4355,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_input");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_input", 42);
         yield* manager.automationType("tab_input", { text: "hello", clear: true });
         yield* manager.automationType("tab_input", { text: "", clear: true });
@@ -4448,6 +4549,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
         yield* manager.startRecording("tab_1");
 
@@ -4520,6 +4622,7 @@ describe("PreviewManager", () => {
         } as never);
 
         yield* manager.createTab("tab_1");
+        yield* manager.rememberAttachedWebviewPartition(42, "persist:e6code-preview-agent-test");
         yield* manager.registerWebview("tab_1", 42);
         const exit = yield* Effect.exit(
           manager.automationEvaluate("tab_1", { expression: "fallbackDetail" }),
@@ -4638,4 +4741,233 @@ describe("Preview automation diagnostics", () => {
     expect(JSON.stringify(error)).not.toContain(selector);
     expect("locator" in error).toBe(false);
   });
+});
+
+const cookieJar = (hosts: ReadonlyArray<string>) => {
+  fromPartition.mockImplementation(() => ({
+    cookies: {
+      get: async () => hosts.map((domain) => ({ domain })),
+    },
+  }));
+};
+
+describe("PreviewManager imported-cookie enforcement", () => {
+  const userPartition = "persist:e6code-preview-user";
+
+  effectIt.effect("blocks agent control without a grant and clears it on close or revoke", () =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const access = yield* AgentImportedCookieAccess.AgentImportedCookieAccess;
+      const capturePage = async () => ({
+        toJPEG: () => Buffer.from("frame"),
+        getSize: () => ({ width: 1280, height: 720 }),
+      });
+      const guest = makeTestPreviewWebContents(capturePage, 42);
+      fromId.mockReturnValue(guest as never);
+      cookieJar(["github.com"]);
+
+      yield* manager.createTab("tab_cookies");
+      yield* manager.registerWebview("tab_cookies", 42);
+      const unbound = yield* Effect.exit(manager.automationClick("tab_cookies", { x: 1, y: 1 }));
+      expect(Exit.isFailure(unbound)).toBe(true);
+      if (Exit.isFailure(unbound)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(unbound.cause))).toMatchObject({
+          _tag: "PreviewAgentImportedCookieAccessError",
+        });
+      }
+      expect(yield* access.partitionForTab("tab_cookies")).toBeUndefined();
+
+      yield* manager.closeTab("tab_cookies");
+      yield* manager.createTab("tab_cookies");
+      yield* manager.rememberAttachedWebviewPartition(42, userPartition);
+      yield* manager.registerWebview("tab_cookies", 42);
+      expect(yield* access.partitionForTab("tab_cookies")).toBe(userPartition);
+      expect(yield* manager.automationStatus("tab_cookies")).toMatchObject({
+        url: null,
+        title: null,
+      });
+      const needsGrant = yield* Effect.exit(
+        manager.automationEvaluate("tab_cookies", { expression: "document.cookie" }),
+      );
+      expect(Exit.isFailure(needsGrant)).toBe(true);
+      if (Exit.isFailure(needsGrant)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(needsGrant.cause))).toMatchObject({
+          _tag: "PreviewAgentImportedCookieAccessError",
+        });
+      }
+
+      yield* manager.grantAgentImportedCookieAccess("tab_cookies");
+      expect(yield* manager.automationStatus("tab_cookies")).toMatchObject({
+        url: "https://example.com",
+        title: "Example",
+      });
+      vi.mocked(guest.debugger.sendCommand).mockResolvedValue({ result: { value: 1 } });
+      yield* manager.automationEvaluate("tab_cookies", { expression: "1" });
+
+      yield* manager.revokeAgentImportedCookieAccess("tab_cookies");
+      const revoked = yield* Effect.exit(manager.automationClick("tab_cookies", { x: 1, y: 1 }));
+      expect(Exit.isFailure(revoked)).toBe(true);
+      if (Exit.isFailure(revoked)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(revoked.cause))).toMatchObject({
+          _tag: "PreviewAgentImportedCookieAccessError",
+        });
+      }
+
+      yield* manager.grantAgentImportedCookieAccess("tab_cookies");
+      yield* manager.closeTab("tab_cookies");
+      yield* manager.createTab("tab_cookies");
+      yield* manager.rememberAttachedWebviewPartition(42, userPartition);
+      yield* manager.registerWebview("tab_cookies", 42);
+      const reopened = yield* Effect.exit(manager.automationClick("tab_cookies", { x: 1, y: 1 }));
+      expect(Exit.isFailure(reopened)).toBe(true);
+      if (Exit.isFailure(reopened)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(reopened.cause))).toMatchObject({
+          _tag: "PreviewAgentImportedCookieAccessError",
+        });
+      }
+    }).pipe(
+      Effect.provide(layer),
+      Effect.scoped,
+      Effect.ensuring(Effect.sync(() => fromPartition.mockReset())),
+    ),
+  );
+
+  effectIt.effect("stops the next command when approval is revoked mid-command", () =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      cookieJar(["github.com"]);
+      let markEntered: () => void = () => undefined;
+      const entered = new Promise<void>((resolve) => {
+        markEntered = resolve;
+      });
+      let releaseCommand: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        releaseCommand = resolve;
+      });
+      const sendCommand = vi.fn(async (method: string) => {
+        if (method === "Runtime.evaluate") {
+          markEntered();
+          await released;
+          return { result: { value: true } };
+        }
+        return undefined;
+      });
+      fromId.mockReturnValue({
+        ...makeTestPreviewWebContents(async () => ({
+          toJPEG: () => Buffer.from("frame"),
+          getSize: () => ({ width: 1, height: 1 }),
+        })),
+        isDevToolsOpened: () => false,
+        debugger: {
+          isAttached: () => false,
+          attach: vi.fn(),
+          sendCommand,
+          on: vi.fn(),
+          off: vi.fn(),
+        },
+      } as never);
+
+      yield* manager.createTab("tab_interrupt");
+      yield* manager.rememberAttachedWebviewPartition(42, userPartition);
+      yield* manager.registerWebview("tab_interrupt", 42);
+      yield* manager.grantAgentImportedCookieAccess("tab_interrupt");
+      const evaluated = yield* manager
+        .automationEvaluate("tab_interrupt", { expression: "1" })
+        .pipe(Effect.forkChild);
+      yield* Effect.promise(() => entered);
+      yield* manager.revokeAgentImportedCookieAccess("tab_interrupt");
+      releaseCommand();
+      const interrupted = yield* Effect.exit(Fiber.join(evaluated));
+      expect(Exit.isFailure(interrupted)).toBe(true);
+      if (Exit.isFailure(interrupted)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(interrupted.cause))).toMatchObject({
+          _tag: "PreviewAutomationControlInterruptedError",
+        });
+      }
+      const next = yield* Effect.exit(
+        manager.automationEvaluate("tab_interrupt", { expression: "2" }),
+      );
+      expect(Exit.isFailure(next)).toBe(true);
+      if (Exit.isFailure(next)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(next.cause))).toMatchObject({
+          _tag: "PreviewAgentImportedCookieAccessError",
+        });
+      }
+    }).pipe(
+      Effect.provide(layer),
+      Effect.scoped,
+      Effect.ensuring(Effect.sync(() => fromPartition.mockReset())),
+    ),
+  );
+
+  effectIt.effect(
+    "discards a recording upload after revoke and keeps the ledger when cache clearing fails",
+    () =>
+      Effect.gen(function* () {
+        const manager = yield* PreviewManager.PreviewManager;
+        const access = yield* AgentImportedCookieAccess.AgentImportedCookieAccess;
+        cookieJar(["github.com"]);
+        writeFile.mockClear();
+        fromId.mockReturnValue(
+          makeTestPreviewWebContents(async () => ({
+            toJPEG: () => Buffer.from("frame"),
+            getSize: () => ({ width: 1280, height: 720 }),
+          })) as never,
+        );
+        yield* manager.createTab("tab_recording");
+        yield* manager.rememberAttachedWebviewPartition(42, userPartition);
+        yield* manager.registerWebview("tab_recording", 42);
+        const blockedRecording = yield* Effect.exit(manager.startRecording("tab_recording"));
+        expect(Exit.isFailure(blockedRecording)).toBe(true);
+
+        yield* manager.grantAgentImportedCookieAccess("tab_recording");
+        yield* manager.startRecording("tab_recording");
+        yield* manager.revokeAgentImportedCookieAccess("tab_recording");
+        const saved = yield* Effect.exit(
+          manager.saveRecording("tab_recording", "video/webm", new Uint8Array([1, 2, 3])),
+        );
+        expect(Exit.isFailure(saved)).toBe(true);
+        if (Exit.isFailure(saved)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(saved.cause))).toMatchObject({
+            _tag: "PreviewAgentImportedCookieAccessError",
+          });
+        }
+        expect(writeFile).not.toHaveBeenCalled();
+
+        yield* access.recordImport({
+          partition: userPartition,
+          sourceId: "chrome",
+          sourceName: "Chrome",
+          profileId: "work",
+        });
+        yield* access.bindTab("tab_recording", userPartition);
+        failPreviewCacheClear = true;
+        const failedClear = yield* Effect.exit(manager.clearCookies([userPartition]));
+        expect(Exit.isFailure(failedClear)).toBe(true);
+        expect((yield* access.decide("tab_recording", userPartition))._tag).toBe("NeedsApproval");
+        if ((yield* access.decide("fresh", userPartition))._tag === "NeedsApproval") {
+          expect(
+            (yield* access.decide("fresh", userPartition)) as {
+              readonly browserName: string;
+            },
+          ).toMatchObject({ browserName: "Chrome" });
+        }
+        failPreviewCacheClear = false;
+        yield* manager.clearCookies([userPartition]);
+        const afterForget = yield* access.decide("fresh", userPartition);
+        expect(afterForget._tag).toBe("NeedsApproval");
+        if (afterForget._tag === "NeedsApproval") {
+          expect(afterForget.browserName).toBe("this preview");
+        }
+      }).pipe(
+        Effect.provide(layer),
+        Effect.scoped,
+        Effect.ensuring(
+          Effect.sync(() => {
+            failPreviewCacheClear = false;
+            fromPartition.mockReset();
+          }),
+        ),
+      ),
+  );
 });

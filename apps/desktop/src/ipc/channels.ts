@@ -91,6 +91,11 @@ export const PREVIEW_GRANT_AGENT_COOKIE_ACCESS_CHANNEL =
   "desktop:preview-grant-agent-cookie-access";
 export const PREVIEW_REVOKE_AGENT_COOKIE_ACCESS_CHANNEL =
   "desktop:preview-revoke-agent-cookie-access";
+export const PREVIEW_BEGIN_AGENT_COOKIE_PROMPT_CHANNEL =
+  "desktop:preview-begin-agent-cookie-prompt";
+export const PREVIEW_FINISH_AGENT_COOKIE_PROMPT_CHANNEL =
+  "desktop:preview-finish-agent-cookie-prompt";
+export const PREVIEW_DENY_AGENT_COOKIE_ACCESS_CHANNEL = "desktop:preview-deny-agent-cookie-access";
 export const PREVIEW_SET_ANNOTATION_THEME_CHANNEL = "desktop:preview-set-annotation-theme";
 export const PREVIEW_PICK_ELEMENT_CHANNEL = "desktop:preview-pick-element";
 export const PREVIEW_CANCEL_PICK_ELEMENT_CHANNEL = "desktop:preview-cancel-pick-element";
