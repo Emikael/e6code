@@ -2281,28 +2281,31 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Working", pulse: true });
   });
 
-  it("shows Error only when requested and below approval, input, and working", () => {
+  it("keeps the shared pill free of Error so only branch rows show it", () => {
     const failed = { ...baseThread, session: { ...baseThread.session, status: "error" as const } };
     expect(resolveThreadStatusPill({ thread: failed })).toBeNull();
-    expect(resolveThreadStatusPill({ thread: failed, showError: true })).toMatchObject({
+    expect(resolveSidebarBranchStatus({ thread: failed })).toEqual({
+      status: "error",
       label: "Error",
-      pulse: false,
     });
     expect(
-      resolveThreadStatusPill({ thread: { ...failed, hasPendingApprovals: true }, showError: true })
-        ?.label,
+      resolveSidebarBranchStatus({ thread: { ...failed, hasPendingApprovals: true } }).label,
     ).toBe("Pending Approval");
     expect(
-      resolveThreadStatusPill({ thread: { ...failed, hasPendingUserInput: true }, showError: true })
-        ?.label,
+      resolveSidebarBranchStatus({ thread: { ...failed, hasPendingUserInput: true } }).label,
     ).toBe("Awaiting Input");
-    expect(resolveThreadStatusPill({ thread: baseThread, showError: true })?.label).toBe("Working");
+    expect(resolveSidebarBranchStatus({ thread: baseThread }).label).toBe("Working");
+    for (const backgroundLiveness of ["working", "monitoring"] as const) {
+      expect(resolveSidebarBranchStatus({ thread: { ...failed, backgroundLiveness } }).label).toBe(
+        "Error",
+      );
+    }
     expect(
-      resolveThreadStatusPill({
-        thread: { ...failed, backgroundLiveness: "monitoring" },
-        showError: true,
-      })?.label,
+      resolveSidebarBranchStatus({
+        thread: { ...failed, hasActionableProposedPlan: true, latestTurn: makeLatestTurn() },
+      }).label,
     ).toBe("Error");
+    expect(resolveSidebarBranchStatus({ thread: failed, isWoke: true }).status).toBe("error");
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {

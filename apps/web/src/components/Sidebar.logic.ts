@@ -656,8 +656,7 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready"
-    | "Error";
+    | "Plan Ready";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -671,7 +670,6 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Awaiting Input": 5,
   Working: 4,
   Connecting: 4,
-  Error: 3,
   "Plan Ready": 3,
   Monitoring: 2,
   Completed: 1,
@@ -1154,7 +1152,6 @@ export function formatWorkingDurationLabel(elapsedMs: number, clock = false): st
 
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
-  showError?: boolean;
 }): ThreadStatusPill | null {
   const { thread } = input;
 
@@ -1191,15 +1188,6 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
-    };
-  }
-
-  if (input.showError && thread.session?.status === "error") {
-    return {
-      label: "Error",
-      colorClass: "text-[var(--state-error)]",
-      dotClass: "bg-[var(--state-error)]",
-      pulse: false,
     };
   }
 
@@ -1257,15 +1245,22 @@ export function resolveSidebarBranchStatus(input: {
   thread: ThreadStatusInput;
   isWoke?: boolean;
 }): { status: SwitchboardStatus; label: string | null } {
-  const pill = resolveThreadStatusPill({ thread: input.thread, showError: true });
+  const { thread } = input;
+  // Only branch rows show Error. A failed session cannot also be running or
+  // starting, so approval and input are the only states that outrank it.
+  if (
+    thread.session?.status === "error" &&
+    !thread.hasPendingApprovals &&
+    !thread.hasPendingUserInput
+  ) {
+    return { status: "error", label: "Error" };
+  }
+  const pill = resolveThreadStatusPill({ thread });
   if (input.isWoke && (!pill || pill.label === "Completed")) {
     return { status: "woke", label: "Woke" };
   }
   if (!pill) return { status: "ready", label: null };
-  return {
-    status: pill.label === "Error" ? "error" : PILL_STATUS_KIND[pill.label],
-    label: pill.label,
-  };
+  return { status: PILL_STATUS_KIND[pill.label], label: pill.label };
 }
 
 export function resolveProjectStatusIndicator(
@@ -1544,7 +1539,7 @@ const PILL_STATUS_KIND = {
   Connecting: "connecting",
   Monitoring: "monitoring",
   Completed: "completed",
-} as const satisfies Record<Exclude<ThreadStatusPill["label"], "Error">, ProjectStatusKind>;
+} as const satisfies Record<ThreadStatusPill["label"], ProjectStatusKind>;
 
 const NEED_YOU_LABELS = new Set<ThreadStatusPill["label"]>([
   "Pending Approval",
@@ -1600,7 +1595,7 @@ export function countProjectSidebarThreads(
     threads: threadCount,
     worktrees: worktrees.size,
     badge:
-      attention === null || attention.label === "Error" || needYou === 0
+      attention === null || needYou === 0
         ? null
         : { status: PILL_STATUS_KIND[attention.label], count: needYou },
     liveDot: live > 0,
