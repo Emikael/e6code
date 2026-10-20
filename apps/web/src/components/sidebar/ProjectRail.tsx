@@ -345,7 +345,8 @@ export function ProjectRail({ orientation }: { orientation: "vertical" | "horizo
         className={cn(
           "shrink-0 bg-sb-rail-bg",
           horizontal
-            ? "flex h-[60px] w-full min-w-0 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            ? // [data-switchboard] * sets scrollbar-width: thin and outranks a plain utility.
+              "flex h-[60px] w-full min-w-0 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]! [&::-webkit-scrollbar]:hidden"
             : "flex h-full w-[60px] flex-col items-center gap-1 overflow-y-auto pb-2 pt-0",
         )}
         onKeyDownCapture={onRailKeyDown}

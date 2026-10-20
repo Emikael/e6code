@@ -9,7 +9,13 @@ import * as NodePath from "node:path";
 import * as NodeTest from "node:test";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "playwright-core";
 import { createServer, type ViteDevServer } from "vite-plus";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -753,6 +759,13 @@ NodeTest.test(
 );
 
 NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000 }, async () => {
+  const stripProjects = [
+    ["strip-1", "Strip One"],
+    ["strip-2", "Strip Two"],
+    ["strip-3", "Strip Three"],
+    ["strip-4", "Strip Four"],
+    ["strip-5", "Strip Five"],
+  ] as const;
   const dispatch = async (command: object) => {
     const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
       method: "POST",
@@ -764,12 +777,7 @@ NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000
     });
     NodeAssert.equal(response.status, 200, await response.text());
   };
-  for (const [id, title] of [
-    ["rail-1", "Rail One"],
-    ["rail-2", "Rail Two"],
-    ["rail-3", "Rail Three"],
-    ["rail-4", "Rail Four"],
-  ] as const) {
+  for (const [id, title] of stripProjects) {
     const root = NodePath.join(sandbox, id);
     await NodeFSP.mkdir(root, { recursive: true });
     await exec("git", ["init", "--quiet", root]);
@@ -791,10 +799,14 @@ NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000
     await mobile.goto(`${currentUrl}/`);
     await mobile.getByRole("button", { name: "Toggle main sidebar" }).click();
     const strip = mobile.getByRole("navigation", { name: "Projects" });
-    const projects = strip.locator(
-      "button[data-rail-item]:not([data-rail-id='home']):not([data-rail-id='all']):not([data-rail-id='add']):not([data-rail-id='sort']):not([data-rail-id='pull-requests']):not([data-rail-id='usage']):not([data-rail-id='settings'])",
-    );
-    NodeAssert.equal(await projects.count(), 5);
+    const owned: Array<Locator> = [];
+    for (const [, title] of stripProjects) {
+      const button = strip.getByRole("button", { name: title, exact: true });
+      await button.waitFor();
+      owned.push(button);
+    }
+    NodeAssert.equal(owned.length, stripProjects.length);
+    NodeAssert.equal(await strip.evaluate((node) => getComputedStyle(node).scrollbarWidth), "none");
     const pageBox = await mobile.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -803,7 +815,18 @@ NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000
       pageBox.scrollWidth <= pageBox.clientWidth,
       `The page overflows horizontally: ${JSON.stringify(pageBox)}`,
     );
-    const last = projects.last();
+    let last = owned[0];
+    NodeAssert.ok(last);
+    let lastRight = Number.NEGATIVE_INFINITY;
+    for (const button of owned) {
+      const box = await button.boundingBox();
+      NodeAssert.ok(box);
+      const right = box.x + box.width;
+      if (right >= lastRight) {
+        lastRight = right;
+        last = button;
+      }
+    }
     await last.scrollIntoViewIfNeeded();
     const [lastBox, stripBox] = await Promise.all([last.boundingBox(), strip.boundingBox()]);
     NodeAssert.ok(lastBox && stripBox);
