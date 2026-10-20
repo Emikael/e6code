@@ -10,6 +10,27 @@ export function resolveThreadSidebarMaximumWidth(viewportWidth: number): number 
   );
 }
 
+export const SWITCHBOARD_COLUMN_MIN_WIDTH = 256;
+export const SWITCHBOARD_COLUMN_MAX_WIDTH = 420;
+export const SWITCHBOARD_RAIL_WIDTH = 60;
+export const SWITCHBOARD_SIDEBAR_WIDTH_STORAGE_KEY = "switchboard_column_width";
+
+export function resolveSwitchboardColumnWidth(
+  storedColumnWidth: number | null,
+  viewportWidth: number,
+): number {
+  const fallback = viewportWidth >= 1440 ? 324 : viewportWidth >= 1280 ? 300 : 272;
+  const preferred = storedColumnWidth === null ? fallback : storedColumnWidth;
+  const available =
+    Math.floor(viewportWidth) - THREAD_MAIN_CONTENT_MIN_WIDTH - SWITCHBOARD_RAIL_WIDTH;
+  const viewportCap = Math.max(SWITCHBOARD_COLUMN_MIN_WIDTH, available);
+  return Math.min(
+    SWITCHBOARD_COLUMN_MAX_WIDTH,
+    viewportCap,
+    Math.max(SWITCHBOARD_COLUMN_MIN_WIDTH, preferred),
+  );
+}
+
 export function resolveInitialThreadSidebarWidth(
   storedWidth: number | null,
   viewportWidth: number,

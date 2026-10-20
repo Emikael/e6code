@@ -18,6 +18,13 @@ import { useResizeDrag } from "~/hooks/useResizeDrag";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
+
+export {
+  SWITCHBOARD_COLUMN_MAX_WIDTH,
+  SWITCHBOARD_COLUMN_MIN_WIDTH,
+  SWITCHBOARD_RAIL_WIDTH,
+  resolveSwitchboardColumnWidth,
+} from "../threadSidebarWidth";
 import * as Schema from "effect/Schema";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";

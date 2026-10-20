@@ -187,7 +187,10 @@ import {
   resolveWorkingStartedAt,
   sidebarListItemId,
   sidebarMarkerId,
+  countProjectSidebarThreads,
   sortLogicalProjectsForSidebar,
+  threadMatchesSwitchboardStatFilter,
+  type SwitchboardStatFilter,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
   sortThreadsForSidebar,
@@ -244,6 +247,8 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { ProjectMasthead } from "./sidebar/ProjectMasthead";
+import { SwitchboardSidebarFooter } from "./sidebar/SidebarFooter";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -2512,6 +2517,15 @@ export default function Sidebar() {
   // app restarts keep it.
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
+  const setSidebarGroupBy = useUiStateStore((store) => store.setSidebarGroupBy);
+  const [statFilter, setStatFilter] = useState<SwitchboardStatFilter | null>(null);
+  const [statFilterScope, setStatFilterScope] = useState(projectScopeKey);
+  if (statFilterScope !== projectScopeKey) {
+    setStatFilterScope(projectScopeKey);
+    setStatFilter(null);
+  }
+  const activeStatFilter = statFilterScope === projectScopeKey ? statFilter : null;
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2568,6 +2582,29 @@ export default function Sidebar() {
         ? null
         : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
     [projectGroups, projectScopeKey],
+  );
+  const switchboardCounts = useMemo(
+    () =>
+      countProjectSidebarThreads(
+        threads.filter(
+          (thread) =>
+            scopedProjectGroup === null ||
+            scopedProjectGroup.memberProjectRefs.some(
+              (projectRef) =>
+                projectRef.environmentId === thread.environmentId &&
+                projectRef.projectId === thread.projectId,
+            ),
+        ),
+      ),
+    [scopedProjectGroup, threads],
+  );
+  const handleStatSelect = useCallback(
+    (stat: SwitchboardStatFilter) => {
+      setStatFilter((current) => (current === stat ? null : stat));
+      if (stat === "need-you") setSidebarGroupBy("status");
+      if (stat === "worktrees") setSidebarGroupBy("branch");
+    },
+    [setSidebarGroupBy],
   );
   const scopedProjectKeys = useMemo(
     () =>
@@ -2685,12 +2722,23 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
-      (thread) =>
-        thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
+    const visible = threads.filter((thread) => {
+      if (thread.archivedAt !== null) return false;
+      if (
+        scopedProjectKeys !== null &&
+        !scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)
+      ) {
+        return false;
+      }
+      if (
+        switchboard &&
+        activeStatFilter !== null &&
+        !threadMatchesSwitchboardStatFilter(thread, activeStatFilter)
+      ) {
+        return false;
+      }
+      return true;
+    });
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
@@ -2775,7 +2823,16 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    nowMinute,
+    optimisticDrop,
+    scopedProjectKeys,
+    serverConfigs,
+    snoozeWakeTick,
+    activeStatFilter,
+    switchboard,
+    threads,
+  ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -4699,7 +4756,16 @@ export default function Sidebar() {
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
-      <SidebarChromeHeader isElectron={isElectron} />
+      {switchboard ? (
+        <ProjectMasthead
+          project={scopedProjectGroup}
+          counts={switchboardCounts}
+          activeStat={activeStatFilter}
+          onStatSelect={handleStatSelect}
+        />
+      ) : (
+        <SidebarChromeHeader isElectron={isElectron} />
+      )}
       <SidebarContent
         className="gap-0 min-h-full"
         fixedHeader={
@@ -4709,6 +4775,7 @@ export default function Sidebar() {
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
+              {...(switchboard ? { showProjectControls: false } : {})}
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -5310,7 +5377,7 @@ export default function Sidebar() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
-      <SidebarChromeFooter />
+      {switchboard ? <SwitchboardSidebarFooter /> : <SidebarChromeFooter />}
     </>
   );
 }

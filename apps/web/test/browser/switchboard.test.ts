@@ -104,7 +104,7 @@ async function frontend(root: string, name: string, backendPort: number) {
   return `http://localhost:${address.port}`;
 }
 
-async function newContext(): Promise<BrowserContext> {
+async function newContext(options?: { readonly switchboard?: boolean }): Promise<BrowserContext> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     colorScheme: "dark",
@@ -124,7 +124,7 @@ async function newContext(): Promise<BrowserContext> {
     },
   ]);
   await context.addInitScript(
-    ({ time }) => {
+    ({ time, switchboard }) => {
       localStorage.setItem(
         "e6code:client-settings:v1",
         JSON.stringify({ onboardingCompletedAt: time }),
@@ -132,13 +132,13 @@ async function newContext(): Promise<BrowserContext> {
       localStorage.setItem(
         "e6code:ui-state:v1",
         JSON.stringify({
-          sidebarSwitchboard: false,
+          sidebarSwitchboard: switchboard,
           settingsSwitchboard: false,
           projectExpandedById: { "qa-project": true },
         }),
       );
     },
-    { time: fixedTime },
+    { time: fixedTime, switchboard: options?.switchboard === true },
   );
   return context;
 }
@@ -478,6 +478,45 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
     await page.close();
   }
 }
+
+NodeTest.test(
+  "flag-on sidebar shows the project rail, masthead, footer, and sort picker",
+  { timeout: 120_000 },
+  async () => {
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      await page.clock.setFixedTime(new Date(fixedTime));
+      await page.goto(`${currentUrl}/`);
+      await page.getByRole("navigation", { name: "Projects" }).waitFor();
+      await page.getByRole("heading", { name: "All projects" }).waitFor();
+      const project = page
+        .getByRole("navigation", { name: "Projects" })
+        .getByRole("button", { name: "Switchboard QA", exact: true });
+      await project.waitFor();
+      await project.click();
+      await page.getByRole("heading", { name: "Switchboard QA", exact: true }).waitFor();
+      await page.getByRole("button", { name: /^\d+ threads, filter$/ }).waitFor();
+      await page
+        .locator("[data-switchboard='sidebar']")
+        .first()
+        .screenshot({
+          path: NodePath.join(artifacts, "flag-on-sidebar.png"),
+          animations: "disabled",
+        });
+      await page.getByRole("button", { name: "Sort projects" }).click();
+      await page.getByRole("menuitemradio", { name: "Last user message" }).waitFor();
+      await page.getByRole("menuitemradio", { name: "Created at" }).waitFor();
+      await page.getByRole("menuitemradio", { name: "Manual" }).waitFor();
+      await page.screenshot({
+        path: NodePath.join(artifacts, "flag-on-sort-picker.png"),
+        animations: "disabled",
+      });
+    } finally {
+      await context.close();
+    }
+  },
+);
 
 NodeTest.test(
   "flags-off sidebar and settings snapshots are pixel-identical to main",

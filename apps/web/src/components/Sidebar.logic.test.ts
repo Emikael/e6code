@@ -32,8 +32,13 @@ import {
   formatWorkingDurationLabel,
   shouldClearThreadSelectionOnMouseDown,
   shouldRecedeSidebarThread,
+  countProjectSidebarThreads,
+  countThreadsForLogicalProject,
+  type ProjectCountThread,
+  selectSwitchboardRailProjects,
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebar,
+  threadMatchesSwitchboardStatFilter,
   resolveSidebarDropTarget,
   pinOrderKeyBetween,
   planPinnedReorder,
@@ -2514,6 +2519,236 @@ describe("sortLogicalProjectsForSidebar", () => {
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("countProjectSidebarThreads", () => {
+  function countThread(
+    overrides: Partial<ProjectCountThread> & {
+      id: string;
+      projectId: ProjectCountThread["projectId"];
+    },
+  ): ProjectCountThread {
+    return {
+      environmentId: localEnvironmentId,
+      archivedAt: null,
+      settledOverride: null,
+      worktreePath: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+      interactionMode: "default",
+      session: null,
+      latestTurn: null,
+      ...overrides,
+    };
+  }
+
+  it("counts a mixed-status project and ignores archived and other-project threads", () => {
+    const projectId = ProjectId.make("alpha");
+    const otherId = ProjectId.make("beta");
+    const settledTurn = makeLatestTurn();
+    const threads = [
+      countThread({
+        id: ThreadId.make("approval"),
+        projectId,
+        hasPendingApprovals: true,
+      }),
+      countThread({
+        id: ThreadId.make("input"),
+        projectId,
+        hasPendingUserInput: true,
+        worktreePath: "/wt/a",
+      }),
+      countThread({
+        id: ThreadId.make("plan"),
+        projectId,
+        hasActionableProposedPlan: true,
+        interactionMode: "plan",
+        latestTurn: settledTurn,
+        worktreePath: "/wt/a",
+        session: { status: "ready", activeTurnId: null } as never,
+      }),
+      countThread({
+        id: ThreadId.make("working"),
+        projectId,
+        worktreePath: "/wt/b",
+        session: { status: "running", activeTurnId: "turn" } as never,
+      }),
+      countThread({
+        id: ThreadId.make("connecting"),
+        projectId,
+        session: { status: "starting", activeTurnId: null } as never,
+      }),
+      countThread({
+        id: ThreadId.make("monitoring"),
+        projectId,
+        backgroundLiveness: "monitoring",
+        session: { status: "ready", activeTurnId: null } as never,
+      }),
+      countThread({
+        id: ThreadId.make("completed"),
+        projectId,
+        latestTurn: settledTurn,
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+        session: { status: "ready", activeTurnId: null } as never,
+      }),
+      countThread({
+        id: ThreadId.make("settled"),
+        projectId,
+        settledOverride: "settled",
+        worktreePath: "/wt/c",
+      }),
+      countThread({
+        id: ThreadId.make("archived-approval"),
+        projectId,
+        archivedAt: "2026-03-09T12:00:00.000Z",
+        hasPendingApprovals: true,
+        worktreePath: "/wt/archived",
+      }),
+      countThread({
+        id: ThreadId.make("other-approval"),
+        projectId: otherId,
+        hasPendingApprovals: true,
+      }),
+    ];
+    const project = {
+      ...makeProject({ id: projectId, title: "Alpha" }),
+      projectKey: "logical-alpha",
+      memberProjectRefs: [{ environmentId: localEnvironmentId, projectId }],
+    };
+
+    expect(countThreadsForLogicalProject(project, threads)).toEqual({
+      needYou: 3,
+      live: 3,
+      threads: 7,
+      worktrees: 3,
+      badge: { status: "approval", count: 1 },
+      liveDot: true,
+    });
+    expect(countProjectSidebarThreads([])).toEqual({
+      needYou: 0,
+      live: 0,
+      threads: 0,
+      worktrees: 0,
+      badge: null,
+      liveDot: false,
+    });
+    expect(threadMatchesSwitchboardStatFilter(threads[0]!, "need-you")).toBe(true);
+    expect(threadMatchesSwitchboardStatFilter(threads[3]!, "live")).toBe(true);
+    expect(threadMatchesSwitchboardStatFilter(threads[7]!, "threads")).toBe(false);
+    expect(threadMatchesSwitchboardStatFilter(threads[7]!, "worktrees")).toBe(true);
+    expect(threadMatchesSwitchboardStatFilter(threads[8]!, "need-you")).toBe(false);
+  });
+});
+
+describe("selectSwitchboardRailProjects", () => {
+  it("matches sortLogicalProjectsForSidebar in last-message, created-at, and manual order", () => {
+    const earlyId = ProjectId.make("project-early");
+    const lateId = ProjectId.make("project-late");
+    const middleId = ProjectId.make("project-middle");
+    const projects = [
+      {
+        ...makeProject({
+          id: middleId,
+          title: "Middle",
+          createdAt: "2026-03-09T10:05:00.000Z",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+        projectKey: "logical-middle",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: middleId }],
+      },
+      {
+        ...makeProject({
+          id: earlyId,
+          title: "Early",
+          createdAt: "2026-03-01T10:00:00.000Z",
+          updatedAt: "2026-03-01T10:00:00.000Z",
+        }),
+        projectKey: "logical-early",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: earlyId }],
+      },
+      {
+        ...makeProject({
+          id: lateId,
+          title: "Late",
+          createdAt: "2026-03-12T10:00:00.000Z",
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        }),
+        projectKey: "logical-late",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: lateId }],
+      },
+    ];
+    const threads = [
+      makeThread({
+        id: ThreadId.make("early-thread"),
+        projectId: earlyId,
+        createdAt: "2026-03-01T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:00:00.000Z",
+        messages: [
+          {
+            id: "message-early" as never,
+            role: "user",
+            text: "newest user message",
+            turnId: null,
+            createdAt: "2026-03-20T10:00:00.000Z",
+            updatedAt: "2026-03-20T10:00:00.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+      makeThread({
+        id: ThreadId.make("middle-thread"),
+        projectId: middleId,
+        createdAt: "2026-03-09T10:05:00.000Z",
+        updatedAt: "2026-03-10T10:00:00.000Z",
+        messages: [
+          {
+            id: "message-middle" as never,
+            role: "user",
+            text: "middle user message",
+            turnId: null,
+            createdAt: "2026-03-10T10:00:00.000Z",
+            updatedAt: "2026-03-10T10:00:00.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+      makeThread({
+        id: ThreadId.make("late-thread"),
+        projectId: lateId,
+        createdAt: "2026-03-12T10:00:00.000Z",
+        updatedAt: "2026-03-08T10:00:00.000Z",
+        messages: [
+          {
+            id: "message-late" as never,
+            role: "user",
+            text: "oldest user message",
+            turnId: null,
+            createdAt: "2026-03-02T10:00:00.000Z",
+            updatedAt: "2026-03-02T10:00:00.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+    ];
+
+    const keys = (projectsInOrder: readonly { projectKey: string }[]) =>
+      projectsInOrder.map((project) => project.projectKey);
+    const modes = ["updated_at", "created_at", "manual"] as const;
+    for (const mode of modes) {
+      expect(keys(selectSwitchboardRailProjects(projects, threads, mode))).toEqual(
+        keys(sortLogicalProjectsForSidebar(projects, threads, mode)),
+      );
+    }
+    const byActivity = keys(sortLogicalProjectsForSidebar(projects, threads, "updated_at"));
+    const byCreated = keys(sortLogicalProjectsForSidebar(projects, threads, "created_at"));
+    const manual = keys(sortLogicalProjectsForSidebar(projects, threads, "manual"));
+    expect(byActivity).toEqual(["logical-early", "logical-middle", "logical-late"]);
+    expect(byCreated).toEqual(["logical-late", "logical-middle", "logical-early"]);
+    expect(manual).toEqual(["logical-middle", "logical-early", "logical-late"]);
+    expect(byActivity).not.toEqual(byCreated);
+    expect(manual).not.toEqual(byActivity);
   });
 });
 

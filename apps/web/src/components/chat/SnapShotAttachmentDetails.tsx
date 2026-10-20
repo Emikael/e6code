@@ -54,7 +54,7 @@ function HighlightedAccessibilityJson({
   );
 
   let lineOffset = 0;
-  return lines.map((line) => {
+  return lines.map((line: ReadonlyArray<SyntaxToken>) => {
     const lineContent = line.map((token) => token.content).join("");
     const lineKey = `${lineOffset}:${lineContent}`;
     const hasNextLine = lineOffset + lineContent.length < content.length;

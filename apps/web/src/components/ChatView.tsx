@@ -4320,6 +4320,22 @@ export default function ChatView(props: ChatViewProps) {
       writeTerminal,
     ],
   );
+  useEffect(() => {
+    const onRun = (event: Event) => {
+      const detail = (event as CustomEvent<{ script: ProjectScript; projectId: ProjectId }>).detail;
+      if (!detail?.script) return;
+      if (!activeProject || detail.projectId !== activeProject.id) {
+        toastManager.add({
+          type: "warning",
+          title: "Open a thread in this project to run a script",
+        });
+        return;
+      }
+      void runProjectScript(detail.script);
+    };
+    window.addEventListener("e6code:run-project-script", onRun);
+    return () => window.removeEventListener("e6code:run-project-script", onRun);
+  }, [activeProject, runProjectScript]);
 
   const supportsProjectSettingsOverrides =
     environmentById.get(environmentId)?.serverConfig?.environment.capabilities
