@@ -619,7 +619,7 @@ NodeTest.test(
       await mobile.getByRole("button", { name: "Toggle main sidebar" }).click();
       const strip = mobile.getByRole("navigation", { name: "Projects" });
       await strip.waitFor();
-      const addBox = await mobile.getByRole("button", { name: "Add project" }).boundingBox();
+      const addBox = await strip.getByRole("button", { name: "Add project" }).boundingBox();
       const sortBox = await mobile.getByRole("button", { name: "Sort projects" }).boundingBox();
       NodeAssert.ok(addBox && sortBox);
       NodeAssert.ok(
@@ -751,3 +751,72 @@ NodeTest.test(
     }
   },
 );
+
+NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000 }, async () => {
+  const dispatch = async (command: object) => {
+    const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(command),
+    });
+    NodeAssert.equal(response.status, 200, await response.text());
+  };
+  for (const [id, title] of [
+    ["rail-1", "Rail One"],
+    ["rail-2", "Rail Two"],
+    ["rail-3", "Rail Three"],
+    ["rail-4", "Rail Four"],
+  ] as const) {
+    const root = NodePath.join(sandbox, id);
+    await NodeFSP.mkdir(root, { recursive: true });
+    await exec("git", ["init", "--quiet", root]);
+    await dispatch({
+      type: "project.create",
+      commandId: `qa-${id}-create`,
+      projectId: id,
+      title,
+      workspaceRoot: root,
+      createdAt: fixedTime,
+    });
+  }
+
+  const context = await newContext({ switchboard: true });
+  try {
+    const mobile = await context.newPage();
+    await mobile.setViewportSize({ width: 390, height: 844 });
+    await mobile.clock.setFixedTime(new Date(fixedTime));
+    await mobile.goto(`${currentUrl}/`);
+    await mobile.getByRole("button", { name: "Toggle main sidebar" }).click();
+    const strip = mobile.getByRole("navigation", { name: "Projects" });
+    const projects = strip.locator(
+      "button[data-rail-item]:not([data-rail-id='home']):not([data-rail-id='all']):not([data-rail-id='add']):not([data-rail-id='sort']):not([data-rail-id='pull-requests']):not([data-rail-id='usage']):not([data-rail-id='settings'])",
+    );
+    NodeAssert.equal(await projects.count(), 5);
+    const pageBox = await mobile.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    NodeAssert.ok(
+      pageBox.scrollWidth <= pageBox.clientWidth,
+      `The page overflows horizontally: ${JSON.stringify(pageBox)}`,
+    );
+    const last = projects.last();
+    await last.scrollIntoViewIfNeeded();
+    const [lastBox, stripBox] = await Promise.all([last.boundingBox(), strip.boundingBox()]);
+    NodeAssert.ok(lastBox && stripBox);
+    NodeAssert.ok(
+      lastBox.x >= stripBox.x - 1 && lastBox.x + lastBox.width <= stripBox.x + stripBox.width + 1,
+      `The last project is outside the strip: ${JSON.stringify({ lastBox, stripBox })}`,
+    );
+    await mobile.screenshot({
+      path: NodePath.join(artifacts, "flag-on-mobile-strip-5.png"),
+      animations: "disabled",
+    });
+    await mobile.close();
+  } finally {
+    await context.close();
+  }
+});
