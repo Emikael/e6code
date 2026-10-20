@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { contrastRatio } from "../fixtures/contrast";
-import { PROJECT_ICON_COLORS, projectMonogramClassName } from "../projectIconColors";
+import { PROJECT_ICON_COLORS } from "../projectIconColors";
 
 // Tailwind v4 default palette shades used by the solid monogram tiles.
 const MONOGRAM_OKLCH: Record<string, string> = {
@@ -104,17 +104,11 @@ function oklch(name: string): readonly [number, number, number] {
   return [gamma(red), gamma(green), gamma(blue)];
 }
 
-function pair(className: string, appearance: "light" | "dark"): { ink: string; surface: string } {
-  const pattern =
-    appearance === "light"
-      ? /bg-([a-z]+)-(\d+)\s+text-\1-(\d+)/
-      : /dark:bg-([a-z]+)-(\d+)\s+dark:text-\1-(\d+)/;
-  const match = className.match(pattern);
-  if (!match) throw new Error(`Could not read ${appearance} monogram shades from ${className}`);
-  return {
-    surface: `${match[1]}-${match[2]}`,
-    ink: `${match[1]}-${match[3]}`,
-  };
+function pair(color: string, appearance: "light" | "dark"): { ink: string; surface: string } {
+  // These shades are inlined on [data-switchboard] [data-sb-monogram] in index.css.
+  return appearance === "light"
+    ? { surface: `${color}-100`, ink: `${color}-900` }
+    : { surface: `${color}-950`, ink: `${color}-100` };
 }
 
 describe("ProjectMonogram solid tiles", () => {
@@ -124,8 +118,7 @@ describe("ProjectMonogram solid tiles", () => {
       let minimum = Number.POSITIVE_INFINITY;
       let weakest = "";
       for (const color of PROJECT_ICON_COLORS) {
-        const className = projectMonogramClassName(color.value);
-        const shades = pair(className, appearance);
+        const shades = pair(color.value, appearance);
         const ratio = contrastRatio(oklch(shades.ink), oklch(shades.surface));
         if (ratio < minimum) {
           minimum = ratio;

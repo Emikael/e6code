@@ -1,5 +1,5 @@
 import type { ProjectIconColor } from "@e6tools/contracts";
-import { projectIconColorClassName, projectMonogramClassName } from "../projectIconColors";
+import { projectIconColorClassName } from "../projectIconColors";
 import { cn } from "~/lib/utils";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -30,9 +30,10 @@ export function ProjectMonogram({
     >
       <svg
         viewBox="0 0 16 16"
+        data-sb-monogram={tone === "solid" ? color : undefined}
         className={cn(
           "size-full overflow-hidden rounded-[25%] font-mono select-none",
-          tone === "solid" ? projectMonogramClassName(color) : projectIconColorClassName(color),
+          tone === "soft" && projectIconColorClassName(color),
         )}
         style={
           tone === "solid"
