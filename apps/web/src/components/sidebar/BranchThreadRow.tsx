@@ -9,19 +9,22 @@ export interface BranchThreadRowProps {
   status: SwitchboardStatus;
   age: ReactNode;
   meta: ReactNode;
-  actions?: ReactNode;
+  /** Row actions render beside the option in `BranchThreadRowActions`; the age yields to them. */
+  hasActions?: boolean;
   actionsVisible?: boolean;
   selected?: boolean;
   planProgress?: { step: string; completedSteps: number; totalSteps: number } | null | undefined;
   lastError?: string | null | undefined;
 }
 
+/** The visible row inside a thread option. Only the title reaches the option's
+ * name: the rest is aria-hidden, so the option describes status separately. */
 export function BranchThreadRow({
   title,
   status,
   age,
   meta,
-  actions,
+  hasActions = false,
   actionsVisible = false,
   selected = false,
   planProgress,
@@ -31,9 +34,9 @@ export function BranchThreadRow({
     <div
       data-sb-thread-content
       className={cn(
-        "group/sidebar-row relative flex h-12 min-w-0 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sb-foreground hover:bg-sb-hover",
+        "group/sidebar-row relative flex h-12 min-w-0 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sb-foreground hover:bg-sb-hover group-hover/sidebar-row:bg-sb-hover",
         (lastError || planProgress) && "h-[68px]",
-        selected && "bg-sb-selection hover:bg-sb-selection",
+        selected && "bg-sb-selection hover:bg-sb-selection group-hover/sidebar-row:bg-sb-selection",
       )}
     >
       {selected && (
@@ -47,46 +50,71 @@ export function BranchThreadRow({
           {title}
         </div>
         <span
+          aria-hidden="true"
           className={cn(
             "shrink-0 font-mono text-(length:--sb-text-meta) text-sb-muted tabular-nums",
-            actions && "group-focus-within/sidebar-row:hidden group-hover/sidebar-row:hidden",
-            actions && actionsVisible && "hidden",
+            hasActions && "group-focus-within/sidebar-row:hidden group-hover/sidebar-row:hidden",
+            hasActions && actionsVisible && "hidden",
             "[[data-sb-dragging]_&]:inline",
           )}
         >
           {age}
         </span>
-        {actions && (
-          <div
-            className={cn(
-              "sb-row-actions -my-[3px] -mr-[5px] shrink-0 items-center group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex",
-              actionsVisible ? "inline-flex" : "hidden",
-              "[[data-sb-dragging]_&]:hidden",
-            )}
-          >
-            {actions}
-          </div>
-        )}
       </div>
       <div className="flex h-4 min-w-0 items-center gap-1.5 text-(length:--sb-text-meta) leading-4 text-sb-muted @max-[280px]/sidebar-column:[&_[data-sb-model]]:sr-only @max-[360px]/sidebar-column:[&_[data-sb-environment-label]]:sr-only">
         {meta}
       </div>
       {lastError ? (
-        <div className="mt-0.5 h-4 truncate text-(length:--sb-text-meta) leading-4 text-(--state-error)">
+        <div
+          aria-hidden="true"
+          className="mt-0.5 h-4 truncate text-(length:--sb-text-meta) leading-4 text-(--state-error)"
+        >
           {lastError}
         </div>
       ) : planProgress ? (
-        <PlanProgress
-          completed={planProgress.completedSteps}
-          total={planProgress.totalSteps}
-          currentStep={planProgress.step}
-          className="mt-0.5 h-4 leading-4"
-        />
+        <div aria-hidden="true" className="mt-0.5 min-w-0">
+          <PlanProgress
+            completed={planProgress.completedSteps}
+            total={planProgress.totalSteps}
+            currentStep={planProgress.step}
+            className="h-4 leading-4"
+          />
+        </div>
       ) : null}
-      {/* Last in the DOM so the row's name starts with its title; placed on the lane line. */}
-      <span className="absolute top-[7px] -left-[17px] flex size-4 items-center justify-center bg-sb-surface">
+      {/* Placed on the lane line. */}
+      <span
+        aria-hidden="true"
+        className="absolute top-[7px] -left-[17px] flex size-4 items-center justify-center bg-sb-surface"
+      >
         <StatusGlyph status={status} />
       </span>
+    </div>
+  );
+}
+
+/** Pointer shortcuts for the row's context menu, beside the thread option: an
+ * option may not hold interactive content. Render inside the row's
+ * `group/sidebar-row` item, which reveals them on hover or focus over the age.
+ * A listbox also counts everything in its groups as its own children, so the
+ * shortcuts stay out of the accessibility tree and keyboard users reach the
+ * same actions through the context menu (tab stops are C10). */
+export function BranchThreadRowActions({
+  visible = false,
+  children,
+}: {
+  visible?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "sb-row-actions absolute top-[3px] right-[3px] items-center group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex",
+        visible ? "inline-flex" : "hidden",
+        "[[data-sb-dragging]_&]:hidden",
+      )}
+    >
+      {children}
     </div>
   );
 }

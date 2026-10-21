@@ -7,7 +7,11 @@ import { Button } from "~/components/ui/button";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { BranchDragChip } from "~/components/sidebar/BranchDragChip";
 import { BranchLane } from "~/components/sidebar/BranchLane";
-import { BranchThreadRow, type BranchThreadRowProps } from "~/components/sidebar/BranchThreadRow";
+import {
+  BranchThreadRow,
+  BranchThreadRowActions,
+  type BranchThreadRowProps,
+} from "~/components/sidebar/BranchThreadRow";
 import { BranchLabel } from "~/components/sidebar/primitives/BranchLabel";
 import { CountBadge } from "~/components/sidebar/primitives/CountBadge";
 import { DiffStat } from "~/components/sidebar/primitives/DiffStat";
@@ -77,17 +81,22 @@ function Sample({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
-function FixtureBranchRow(props: BranchThreadRowProps) {
+function FixtureBranchRow({ actions, ...props }: BranchThreadRowProps & { actions?: ReactNode }) {
   return (
-    <li role="presentation">
+    <li role="presentation" className="group/sidebar-row relative">
       <div
         role="option"
         aria-selected={props.selected ?? false}
         tabIndex={0}
-        className="group/sidebar-row rounded-lg"
+        className="rounded-lg"
       >
-        <BranchThreadRow {...props} />
+        <BranchThreadRow {...props} hasActions={actions !== undefined} />
       </div>
+      {actions && (
+        <BranchThreadRowActions visible={props.actionsVisible ?? false}>
+          {actions}
+        </BranchThreadRowActions>
+      )}
     </li>
   );
 }

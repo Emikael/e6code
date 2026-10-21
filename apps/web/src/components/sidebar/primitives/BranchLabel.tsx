@@ -6,16 +6,20 @@ export function BranchLabel({
   branch,
   worktree = false,
   lane = false,
+  decorative = false,
   className,
 }: {
   branch: string | null;
   worktree?: boolean;
   lane?: boolean;
+  /** Hide from assistive tech when the surrounding row describes it instead. */
+  decorative?: boolean;
   className?: string;
 }) {
   const Icon = lane && worktree ? FolderGit2 : GitBranch;
   return (
     <span
+      aria-hidden={decorative || undefined}
       className={cn(
         "inline-flex min-w-0 max-w-full items-center gap-1.5 text-(length:--sb-text-meta) text-sb-muted",
         lane && "text-[11.5px] font-medium text-sb-foreground",

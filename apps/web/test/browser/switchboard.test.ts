@@ -124,10 +124,13 @@ async function frontend(root: string, name: string, backendPort: number) {
   return `http://localhost:${address.port}`;
 }
 
-async function newContext(options?: { readonly switchboard?: boolean }): Promise<BrowserContext> {
+async function newContext(options?: {
+  readonly switchboard?: boolean;
+  readonly colorScheme?: "light" | "dark";
+}): Promise<BrowserContext> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    colorScheme: "dark",
+    colorScheme: options?.colorScheme ?? "dark",
     reducedMotion: "reduce",
     timezoneId: "UTC",
     locale: "en-US",
@@ -805,11 +808,6 @@ function dropIndicatorOn(row: Locator) {
   return row.locator("xpath=..").locator(":scope > [data-sb-drop-indicator]");
 }
 
-/** Rows are named by their content, which starts with the title. */
-function optionName(title: string) {
-  return new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-}
-
 async function moveDragTo(page: Page, target: Locator, fraction = 0.5, followScroll = false) {
   // Sortable rows shift to preview the drop, so only re-aim at targets that
   // move because the list auto-scrolled near its edge.
@@ -957,18 +955,17 @@ async function openBranchProject(
   return page.locator('[data-switchboard="sidebar"]').first();
 }
 
-/** Critical and serious axe violations inside `selector`, as readable lines. */
+/** Critical and serious axe violations inside every `selector` match, as readable lines. */
 async function seriousAxeViolations(page: Page, selector: string): Promise<string[]> {
   await page.addScriptTag({
     path: NodeURL.fileURLToPath(import.meta.resolve("axe-core/axe.min.js")),
   });
   const violations = await page.evaluate(async (scope) => {
     const { axe } = window as unknown as {
-      axe: { run: (context: Element, options: object) => Promise<AxeResults> };
+      axe: { run: (context: object, options: object) => Promise<AxeResults> };
     };
-    const root = document.querySelector(scope);
-    if (!root) throw new Error(`No axe scope ${scope}`);
-    const result = await axe.run(root, { resultTypes: ["violations"] });
+    if (!document.querySelector(scope)) throw new Error(`No axe scope ${scope}`);
+    const result = await axe.run({ include: [[scope]] }, { resultTypes: ["violations"] });
     return result.violations.map((violation) => ({
       id: violation.id,
       impact: violation.impact,
@@ -989,26 +986,100 @@ async function seriousAxeViolations(page: Page, selector: string): Promise<strin
     .flatMap(({ id, impact, nodes }) => nodes.map((node) => `${impact} ${id} ${node}`));
 }
 
+/** The accessible name and description Chromium computes for the first `selector` match. */
+async function accessibleText(page: Page, selector: string) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { root } = await cdp.send("DOM.getDocument", { depth: 0 });
+    const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+    const { nodes } = await cdp.send("Accessibility.getPartialAXTree", {
+      nodeId,
+      fetchRelatives: false,
+    });
+    return {
+      name: String(nodes[0]?.name?.value ?? ""),
+      description: String(nodes[0]?.description?.value ?? ""),
+    };
+  } finally {
+    await cdp.detach();
+  }
+}
+
 NodeTest.test(
-  "branch lanes have no critical or serious axe violations",
-  { timeout: 180_000 },
+  "branch lanes have no critical or serious axe violations at rest, on hover, focus and selection, or mid-drag",
+  { timeout: 300_000 },
   async () => {
     const project = await seedBranchProject("qa-branch-a11y");
-    const context = await newContext({ switchboard: true });
-    try {
-      const page = await context.newPage();
-      const sidebar = await openBranchProject(page, project);
-      await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
-      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
-      await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
-      await sidebar.getByText("Settled thread", { exact: true }).waitFor();
-      // Audit the resting sidebar: hovering a row reveals its actions (tab stops are C10).
-      await page.mouse.move(1000, 450);
-      const scope = '[data-switchboard="sidebar"]';
-      NodeAssert.deepEqual(await seriousAxeViolations(page, scope), []);
-    } finally {
-      await context.close();
+    const scope = '[data-switchboard="sidebar"]';
+    const violations: string[] = [];
+    for (const colorScheme of ["dark", "light"] as const) {
+      const context = await newContext({ switchboard: true, colorScheme });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project);
+        NodeAssert.equal(
+          await page.evaluate(() => document.documentElement.classList.contains("dark")),
+          colorScheme === "dark",
+        );
+        await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+        await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+        await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+        // Rows are named by their title; status and details are the description.
+        const option = sidebar.getByRole("option", { name: "Alpha first", exact: true });
+        const snoozedRow = sidebar.getByRole("button", { name: "Snoozed thread", exact: true });
+        const settledRow = sidebar.getByRole("button", { name: "Settled thread", exact: true });
+        await settledRow.waitFor();
+        const rowSelector = async (row: Locator) =>
+          `[data-sb-thread-row="${await row.getAttribute("data-sb-thread-row")}"]`;
+        const optionText = await accessibleText(page, await rowSelector(option));
+        NodeAssert.equal(optionText.name, "Alpha first");
+        NodeAssert.match(optionText.description, /^Ready\. Codex: \S/);
+        NodeAssert.deepEqual(await accessibleText(page, await rowSelector(snoozedRow)), {
+          name: "Snoozed thread",
+          description: `Ready. Wakes in ${Math.ceil((Date.parse("2099-01-01T00:00:00.000Z") - Date.parse(fixedTime)) / 86_400_000)}d`,
+        });
+        NodeAssert.deepEqual(await accessibleText(page, await rowSelector(settledRow)), {
+          name: "Settled thread",
+          description: "Ready",
+        });
+
+        const audit = async (state: string) => {
+          for (const violation of await seriousAxeViolations(page, scope)) {
+            violations.push(`${colorScheme} ${state}: ${violation}`);
+          }
+        };
+        const away = () => page.mouse.move(1000, 450);
+        await away();
+        await audit("rest");
+        for (const [kind, row] of [
+          ["option", option],
+          ["shelf row", settledRow],
+        ] as const) {
+          await row.hover();
+          await row.locator("xpath=..").locator("button[tabindex='-1']").first().waitFor();
+          await audit(`${kind} hover`);
+          await away();
+          await row.focus();
+          await audit(`${kind} focus`);
+          await row.click();
+          await row.and(sidebar.locator('[aria-current="page"]')).waitFor();
+          await audit(`${kind} selected`);
+          await away();
+        }
+        await startRowDrag(
+          page,
+          sidebar.getByRole("option", { name: "Alpha second", exact: true }),
+        );
+        await moveDragTo(page, sidebar.getByRole("option", { name: "Beta thread", exact: true }));
+        await sidebar.locator("[data-sb-drop-rejected]").waitFor();
+        await page.locator('[data-sb-drag-verb="Can\'t move here"]').waitFor();
+        await audit("drag reject");
+        await page.mouse.up();
+      } finally {
+        await context.close();
+      }
     }
+    NodeAssert.deepEqual(violations, []);
   },
 );
 
@@ -1175,7 +1246,7 @@ NodeTest.test(
         exact: true,
       });
       await alphaLane.waitFor();
-      const firstRow = alphaLane.getByRole("option", { name: optionName("Alpha first") });
+      const firstRow = alphaLane.getByRole("option", { name: "Alpha first", exact: true });
       const scopedKey = await firstRow.getAttribute("data-sb-thread-row");
       NodeAssert.ok(scopedKey);
       NodeAssert.ok(scopedKey?.endsWith(`:${project.threadId("alphaFirst")}`));
@@ -1243,8 +1314,10 @@ NodeTest.test(
       await page
         .getByRole("tooltip", { name: "Branch comes from the thread's worktree", exact: true })
         .waitFor();
-      // A drag hides the hovered row's quick actions; its age stays visible.
-      NodeAssert.equal(await row("beta").locator(".sb-row-actions").isVisible(), false);
+      // A drag hides the hovered row's quick actions, which sit beside the option.
+      const betaActions = row("beta").locator("xpath=..").locator(":scope > .sb-row-actions");
+      NodeAssert.equal(await betaActions.count(), 1);
+      NodeAssert.equal(await betaActions.isVisible(), false);
       NodeAssert.equal(
         await page.evaluate(({ x, y }) => {
           const target = document.elementFromPoint(x, y);
@@ -1278,7 +1351,7 @@ NodeTest.test(
       await pinned;
       await sidebar
         .getByRole("group", { name: "Pinned, 1 thread", exact: true })
-        .getByRole("option", { name: optionName("Alpha first") })
+        .getByRole("option", { name: "Alpha first", exact: true })
         .waitFor();
       NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
       const pinnedThread = fixtureThreads(await readShell()).find(
@@ -1400,7 +1473,7 @@ NodeTest.test(
       await wakePinned;
       await sidebar
         .getByRole("group", { name: "Pinned, 3 threads", exact: true })
-        .getByRole("option", { name: optionName("Snoozed thread") })
+        .getByRole("option", { name: "Snoozed thread", exact: true })
         .waitFor();
       const wokenThread = fixtureThreads(await readShell()).find(
         (thread) => thread.id === project.threadId("snoozed"),

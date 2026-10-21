@@ -5,10 +5,13 @@ import { normalizeCount } from "./metrics";
 export function DiffStat({
   additions,
   deletions,
+  decorative = false,
   className,
 }: {
   additions?: number | null;
   deletions?: number | null;
+  /** Hide from assistive tech when the surrounding row describes it instead. */
+  decorative?: boolean;
   className?: string;
 }) {
   const added = normalizeCount(additions);
@@ -18,8 +21,7 @@ export function DiffStat({
     <Tooltip>
       <TooltipTrigger
         render={<span />}
-        role="img"
-        aria-label={summary}
+        {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": summary })}
         className={cn(
           "inline-flex gap-1 font-mono text-(length:--sb-text-meta) tabular-nums",
           className,

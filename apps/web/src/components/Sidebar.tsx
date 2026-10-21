@@ -71,6 +71,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -228,7 +229,8 @@ import { createSidebarListMotion, playSidebarStatusSettle } from "./Sidebar.moti
 import { canAnimate, prefersReducedMotion } from "~/lib/motion";
 import { BranchDragChip } from "./sidebar/BranchDragChip";
 import { BranchLane } from "./sidebar/BranchLane";
-import { BranchThreadRow } from "./sidebar/BranchThreadRow";
+import { BranchThreadRow, BranchThreadRowActions } from "./sidebar/BranchThreadRow";
+import { SWITCHBOARD_STATUS } from "./sidebar/primitives/status";
 import { BranchLabel } from "./sidebar/primitives/BranchLabel";
 import { DiffStat } from "./sidebar/primitives/DiffStat";
 import { ProviderMark } from "./sidebar/primitives/ProviderMark";
@@ -515,7 +517,7 @@ function SnoozePopoverButton(props: {
                 <button
                   type="button"
                   aria-label="Snooze thread"
-                  // Inside a switchboard row option it is reachable by pointer only (C10).
+                  // Beside a switchboard row option it is reachable by pointer only (C10).
                   tabIndex={props.switchboard ? -1 : undefined}
                   onClick={(event) => event.stopPropagation()}
                   onDoubleClick={(event) => event.stopPropagation()}
@@ -1593,6 +1595,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // would fade the hover actions out from under the open menu. Pin them and
   // suppress the row tooltip so its portal cannot overlap the popover.
   const [snoozeMenuOpenRaw, setSnoozeMenuOpen] = useState(false);
+  const descriptionId = useId();
   // Snooze is offered only where it can succeed: capability-gated and never
   // on blocked-on-you work or queued turns (the server rejects both).
   const showSnoozeButton =
@@ -1636,7 +1639,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
-    variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
+    // Branch shelf rows share their list item with a sibling action, so the
+    // item, not the row, carries the hover and focus state. Their receded text
+    // keeps AA contrast in both appearances.
+    variantAction === "unsettle" &&
+      (props.branchMode
+        ? "[li:not(:hover):not(:focus-within)>&_*]:text-sb-muted"
+        : "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70"),
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
       : isSelected
@@ -1644,8 +1653,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         : hasUnsentDraft
           ? cn(draftSurfaceClassName, "text-sidebar-foreground")
           : shouldRecede
-            ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-            : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+            ? cn(
+                "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                props.branchMode &&
+                  "group-hover/sidebar-row:bg-sidebar-row-hover group-hover/sidebar-row:text-sidebar-foreground",
+              )
+            : cn(
+                "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+                props.branchMode && "group-hover/sidebar-row:bg-sidebar-row-hover",
+              ),
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     // The hover tint must not clobber an active/selected row's own surface.
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
@@ -1830,6 +1846,23 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           : prState === "open"
             ? "var(--state-completed)"
             : "var(--sb-muted)";
+    const modelDescription = `${providerEntry?.displayName ?? modelInstanceId}: ${modelLabel}`;
+    // The option is named by its title alone; everything else it shows is
+    // aria-hidden and read from this description instead.
+    const description = [
+      branchStatus.label ?? SWITCHBOARD_STATUS[branchStatus.status].label,
+      isUnread && "Unseen completion",
+      branchStatus.status === "error" && thread.session?.lastError,
+      branchStatus.status === "working" &&
+        thread.planProgress &&
+        `${thread.planProgress.completedSteps} of ${thread.planProgress.totalSteps} plan steps completed, ${thread.planProgress.step}`,
+      driverKind ? modelDescription : modelLabel,
+      diff && `Last turn: +${diff.insertions ?? "?"} −${diff.deletions ?? "?"}`,
+      terminalStatus && terminalProcessLabel(terminalProcessCount),
+      isRemote && (props.environmentLabel ?? "Remote environment"),
+    ]
+      .filter(Boolean)
+      .join(". ");
     return (
       <li
         data-thread-item
@@ -1837,7 +1870,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
         className={cn(
-          "relative list-none",
+          "group/sidebar-row relative list-none",
           sortable?.isDragging &&
             "rounded-lg border border-dashed border-sb-border [&>*]:invisible",
         )}
@@ -1862,9 +1895,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 aria-selected={props.isActive || isSelected}
                 aria-current={props.isActive ? "page" : undefined}
                 aria-busy={isRegeneratingTitle || undefined}
+                aria-describedby={descriptionId}
                 data-sb-thread-row={threadKey}
                 className={cn(
-                  "group/sidebar-row relative cursor-pointer rounded-lg outline-none select-none",
+                  "relative cursor-pointer rounded-lg outline-none select-none",
                   isFileDragOver && "ring-1 ring-sb-accent",
                 )}
                 onClick={handleClick}
@@ -1905,77 +1939,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               }
               planProgress={branchStatus.status === "working" ? thread.planProgress : null}
               lastError={branchStatus.status === "error" ? thread.session?.lastError : null}
+              hasActions
               actionsVisible={snoozeMenuOpen}
-              actions={
-                <span
-                  role="group"
-                  aria-label="Thread actions"
-                  className="inline-flex items-center"
-                  onClick={(event) => event.stopPropagation()}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  {props.pinningSupported && (
-                    <QuickActionButton
-                      variant="row"
-                      tabIndex={-1}
-                      action={{
-                        id: "pin",
-                        label: props.isPinned ? "Unpin thread" : "Pin thread",
-                        icon: props.isPinned ? PinOffIcon : PinIcon,
-                        onClick: () =>
-                          props.isPinned ? onUnpin(threadRef) : props.onPin(threadRef),
-                      }}
-                    />
-                  )}
-                  {showSnoozeButton && (
-                    <SnoozePopoverButton
-                      open={snoozeMenuOpen}
-                      onOpenChange={setSnoozeMenuOpen}
-                      onSnooze={handleSnoozePreset}
-                      timestampFormat={props.timestampFormat}
-                      switchboard
-                    />
-                  )}
-                  {props.settlementSupported && (
-                    <QuickActionButton
-                      variant="row"
-                      tabIndex={-1}
-                      action={{
-                        id: "settle",
-                        label: "Settle thread",
-                        icon: CheckIcon,
-                        onClick: () => onSettle(threadRef),
-                      }}
-                    />
-                  )}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          aria-label="More thread actions"
-                          className="sb-action size-6 min-h-6"
-                          onClick={(event) => {
-                            const rect = event.currentTarget.getBoundingClientRect();
-                            onContextMenu(threadRef, { x: rect.right, y: rect.bottom });
-                          }}
-                        />
-                      }
-                    >
-                      <EllipsisIcon aria-hidden className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup>More thread actions</TooltipPopup>
-                  </Tooltip>
-                </span>
-              }
               meta={
                 isFileDragOver ? (
                   <span className="truncate text-sb-accent-text">Drop files into composer</span>
                 ) : (
                   <>
                     {props.isPinned && (
-                      <BranchLabel branch={thread.branch} className="max-w-[30%] shrink-[3]" />
+                      <BranchLabel
+                        branch={thread.branch}
+                        decorative
+                        className="max-w-[30%] shrink-[3]"
+                      />
                     )}
                     {branchStatus.status === "woke" ? (
                       <button
@@ -1990,13 +1966,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         <StatusPill
                           status={branchStatus.status}
                           label={branchStatus.label}
+                          decorative
                           className="shrink-0"
                         />
                       )
                     )}
                     <Tooltip>
                       <TooltipTrigger
-                        render={<span className="flex min-w-0 shrink items-center gap-1" />}
+                        render={
+                          <span
+                            aria-hidden="true"
+                            className="flex min-w-0 shrink items-center gap-1"
+                          />
+                        }
                       >
                         {driverKind && (
                           <ProviderMark
@@ -2014,6 +1996,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       <DiffStat
                         additions={diff.insertions}
                         deletions={diff.deletions}
+                        decorative
                         className="shrink-0"
                       />
                     )}
@@ -2027,8 +2010,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     )}
                     {terminalStatus && (
                       <span
-                        role="img"
-                        aria-label={terminalProcessLabel(terminalProcessCount)}
+                        aria-hidden="true"
                         data-testid={`sidebar-terminal-status-${thread.id}`}
                         className="inline-flex shrink-0"
                       >
@@ -2055,8 +2037,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     )}
                     {isRemote && (
                       <span
-                        role="img"
-                        aria-label={props.environmentLabel ?? "Remote environment"}
+                        aria-hidden="true"
                         className="inline-flex min-w-0 shrink-0 items-center gap-1"
                       >
                         <EnvironmentMachineIcon
@@ -2070,28 +2051,157 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       </span>
                     )}
                     {props.isPinned && (
-                      <span role="img" aria-label="Pinned" className="inline-flex shrink-0">
-                        <PinIcon aria-hidden className="size-3" />
+                      <span aria-hidden="true" className="inline-flex shrink-0">
+                        <PinIcon className="size-3" />
                       </span>
                     )}
                   </>
                 )
               }
             />
+            <span id={descriptionId} hidden>
+              {description}
+            </span>
             {props.jumpLabel && <JumpHintBadge label={props.jumpLabel} />}
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
+        <BranchThreadRowActions visible={snoozeMenuOpen}>
+          <span
+            role="group"
+            aria-label="Thread actions"
+            className="inline-flex items-center"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {props.pinningSupported && (
+              <QuickActionButton
+                variant="row"
+                tabIndex={-1}
+                action={{
+                  id: "pin",
+                  label: props.isPinned ? "Unpin thread" : "Pin thread",
+                  icon: props.isPinned ? PinOffIcon : PinIcon,
+                  onClick: () => (props.isPinned ? onUnpin(threadRef) : props.onPin(threadRef)),
+                }}
+              />
+            )}
+            {showSnoozeButton && (
+              <SnoozePopoverButton
+                open={snoozeMenuOpen}
+                onOpenChange={setSnoozeMenuOpen}
+                onSnooze={handleSnoozePreset}
+                timestampFormat={props.timestampFormat}
+                switchboard
+              />
+            )}
+            {props.settlementSupported && (
+              <QuickActionButton
+                variant="row"
+                tabIndex={-1}
+                action={{
+                  id: "settle",
+                  label: "Settle thread",
+                  icon: CheckIcon,
+                  onClick: () => onSettle(threadRef),
+                }}
+              />
+            )}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label="More thread actions"
+                    className="sb-action size-6 min-h-6"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      onContextMenu(threadRef, { x: rect.right, y: rect.bottom });
+                    }}
+                  />
+                }
+              >
+                <EllipsisIcon aria-hidden className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup>More thread actions</TooltipPopup>
+            </Tooltip>
+          </span>
+        </BranchThreadRowActions>
       </li>
     );
   }
 
   if (variant === "slim") {
-    // Branch shelves keep row actions out of the tree at rest: a row button
-    // may not hold focusable controls (full tab stops are C10).
+    // Branch shelves render the row action beside the row button, which may not
+    // hold focusable controls, and keep it out of the tree at rest (tab stops are C10).
     const branchShelfActionClassName = props.branchMode
       ? "hidden group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex"
       : undefined;
+    const shelfAction =
+      variantAction === "unsnooze" ? (
+        !props.snoozeSupported ? null : (
+          <button
+            type="button"
+            tabIndex={props.branchMode ? -1 : undefined}
+            aria-label="Wake thread now"
+            onClick={handleUnsnoozeClick}
+            className={cn(
+              "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
+              isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+              branchShelfActionClassName,
+            )}
+          >
+            <AlarmClockOffIcon className="mb-px size-3" />
+          </button>
+        )
+      ) : !props.settlementSupported ? null : variantAction === "unsettle" ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                tabIndex={props.branchMode ? -1 : undefined}
+                aria-label="Un-settle thread"
+                onClick={handleUnsettleClick}
+                className={cn(
+                  "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
+                  isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+                  branchShelfActionClassName,
+                )}
+              />
+            }
+          >
+            <Undo2Icon className="mb-px size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Un-settle thread</TooltipPopup>
+        </Tooltip>
+      ) : (
+        <button
+          type="button"
+          tabIndex={props.branchMode ? -1 : undefined}
+          aria-label="Settle thread"
+          onClick={handleSettleClick}
+          className={cn(
+            "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
+            isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+            branchShelfActionClassName,
+          )}
+        >
+          <CheckIcon className="size-3" />
+        </button>
+      );
+    const shelfDescription = branchStatus
+      ? [
+          branchStatus.label ?? SWITCHBOARD_STATUS[branchStatus.status].label,
+          props.snoozeWakeLabelText !== null &&
+            (props.snoozeWakeLabelText === "now"
+              ? "Wakes now"
+              : `Wakes in ${props.snoozeWakeLabelText}`),
+        ]
+          .filter(Boolean)
+          .join(". ")
+      : null;
     return (
       <li
         data-thread-item
@@ -2101,6 +2211,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
+          props.branchMode && "group/sidebar-row relative",
         )}
       >
         <Tooltip disabled={sortable?.isDragging || props.dragActive}>
@@ -2114,6 +2225,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
+                aria-describedby={shelfDescription ? descriptionId : undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
@@ -2125,6 +2237,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {/* Settled history recedes: dimmed favicon at rest, restored on
               hover so the tail stays scannable when you're hunting. */}
             <span
+              aria-hidden={props.branchMode || undefined}
               className={cn(
                 "shrink-0 transition-opacity",
                 (!props.isActive || variantAction === "unsettle") &&
@@ -2135,7 +2248,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </span>
             {draftIndicator}
             {title}
-            {branchStatus && <span className="sr-only">{branchStatus.label ?? "Ready"}</span>}
+            {shelfDescription && (
+              <span id={descriptionId} hidden>
+                {shelfDescription}
+              </span>
+            )}
             {pinIndicator}
             <ThreadWorktreeIndicator thread={thread} />
             {terminalStatusIcon}
@@ -2151,8 +2268,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {sortable?.isDragging ? (
               dragDestination
             ) : (
-              <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end">
+              <span
+                className={cn(
+                  "relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end",
+                  // Leaves room for the sibling action beside the Woke button.
+                  props.branchMode &&
+                    isWoke &&
+                    shelfAction &&
+                    "group-focus-within/sidebar-row:mr-7 group-hover/sidebar-row:mr-7",
+                )}
+              >
                 <span
+                  aria-hidden={(props.branchMode && !isWoke) || undefined}
                   className={cn(
                     "inline-flex justify-end tabular-nums text-secondary-label transition-opacity",
                     !isWoke && "group-hover/sidebar-row:opacity-0",
@@ -2191,64 +2318,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     </span>
                   )}
                 </span>
-                {variantAction === "unsnooze" ? (
-                  !props.snoozeSupported ? null : (
-                    <button
-                      type="button"
-                      tabIndex={props.branchMode ? -1 : undefined}
-                      aria-label="Wake thread now"
-                      onClick={handleUnsnoozeClick}
-                      className={cn(
-                        "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-                        isWoke && "group-hover/sidebar-row:static",
-                        branchShelfActionClassName,
-                      )}
-                    >
-                      <AlarmClockOffIcon className="mb-px size-3" />
-                    </button>
-                  )
-                ) : !props.settlementSupported ? null : variantAction === "unsettle" ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          tabIndex={props.branchMode ? -1 : undefined}
-                          aria-label="Un-settle thread"
-                          onClick={handleUnsettleClick}
-                          className={cn(
-                            "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-                            isWoke && "group-hover/sidebar-row:static",
-                            branchShelfActionClassName,
-                          )}
-                        />
-                      }
-                    >
-                      <Undo2Icon className="mb-px size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">Un-settle thread</TooltipPopup>
-                  </Tooltip>
-                ) : (
-                  <button
-                    type="button"
-                    tabIndex={props.branchMode ? -1 : undefined}
-                    aria-label="Settle thread"
-                    onClick={handleSettleClick}
-                    className={cn(
-                      "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-                      isWoke && "group-hover/sidebar-row:static",
-                      branchShelfActionClassName,
-                    )}
-                  >
-                    <CheckIcon className="size-3" />
-                  </button>
-                )}
+                {!props.branchMode && shelfAction}
               </span>
             )}
             {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
+        {props.branchMode &&
+          shelfAction &&
+          !sortable?.isDragging && (
+            // Positioned like the in-row slot above, but beside the row button.
+            <span className="pointer-events-none absolute top-1.5 right-2.5 h-6 [[data-sb-dragging]_&]:hidden">
+              {shelfAction}
+            </span>
+          )}
       </li>
     );
   }
