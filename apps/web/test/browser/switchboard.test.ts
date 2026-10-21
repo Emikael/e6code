@@ -776,6 +776,11 @@ async function startRowDrag(page: Page, source: Locator) {
   return { x: x + 12, y: y + 2 };
 }
 
+/** The drop indicator sits beside the row element, inside the row's list item. */
+function dropIndicatorOn(row: Locator) {
+  return row.locator("xpath=..").locator(":scope > [data-sb-drop-indicator]");
+}
+
 async function moveDragTo(page: Page, target: Locator, fraction = 0.5, followScroll = false) {
   // Sortable rows shift to preview the drop, so only re-aim at targets that
   // move because the list auto-scrolled near its edge.
@@ -1105,6 +1110,8 @@ NodeTest.test(
       await startRowDrag(page, row("alphaSecond"));
       await page.locator("[data-sb-drag-overlay]").getByText("Move", { exact: true }).waitFor();
       await moveDragTo(page, row("alphaFirst"), 0.2);
+      // Release only once the drop targets the row, not the pickup slot.
+      await dropIndicatorOn(row("alphaFirst")).waitFor();
       await page.mouse.up();
       await reordered;
       await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
@@ -1212,6 +1219,7 @@ NodeTest.test(
       const pinReordered = writes.next("thread.pin.reorder");
       await startRowDrag(page, row("alphaSecond"));
       await moveDragTo(page, row("alphaFirst"), 0.8);
+      await dropIndicatorOn(row("alphaFirst")).waitFor();
       await page.mouse.up();
       await pinReordered;
       const pinOrder = await sidebar
@@ -1287,7 +1295,9 @@ NodeTest.test(
       const middleReordered = writes.next("thread.pin.reorder");
       await overlay.waitFor({ state: "detached" });
       await startRowDrag(page, pinnedLane.getByRole("option", { name: thirdPin, exact: true }));
-      await moveDragTo(page, pinnedLane.getByRole("option", { name: secondPin, exact: true }));
+      const middlePin = pinnedLane.getByRole("option", { name: secondPin, exact: true });
+      await moveDragTo(page, middlePin);
+      await dropIndicatorOn(middlePin).waitFor();
       await page.mouse.up();
       await middleReordered;
       await overlay.waitFor({ state: "detached" });

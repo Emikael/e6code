@@ -1834,6 +1834,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         {props.dropIndicator && (
           <span
             aria-hidden
+            data-sb-drop-indicator={props.dropIndicator}
             className={cn(
               "pointer-events-none absolute right-0 -left-[13px] z-10 h-0.5 rounded-full bg-sb-accent before:absolute before:-top-[3px] before:-left-0.5 before:size-2 before:rounded-full before:border-2 before:border-sb-accent before:bg-sb-surface",
               props.dropIndicator === "before" ? "-top-px" : "-bottom-px",
