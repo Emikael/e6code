@@ -2171,8 +2171,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   if (variant === "slim") {
     // Branch shelves render the row action beside the row button, which may not
     // hold focusable controls, and keep it out of the tree at rest (tab stops are C10).
+    // Focusing the row shows it as hovering does.
     const branchShelfActionClassName = props.branchMode
-      ? "hidden group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex"
+      ? "hidden group-focus-within/sidebar-row:inline-flex group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:inline-flex"
       : undefined;
     const shelfAction =
       variantAction === "unsnooze" ? (
@@ -2317,6 +2318,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   className={cn(
                     "inline-flex justify-end tabular-nums text-secondary-label transition-opacity",
                     !isWoke && "group-hover/sidebar-row:opacity-0",
+                    props.branchMode &&
+                      !isWoke &&
+                      shelfAction &&
+                      "group-focus-within/sidebar-row:opacity-0",
                   )}
                 >
                   {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (

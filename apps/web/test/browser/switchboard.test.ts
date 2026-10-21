@@ -1064,6 +1064,21 @@ NodeTest.test(
           await audit(`${kind} hover`);
           await away();
           await row.focus();
+          if (kind === "shelf row") {
+            // Keyboard focus shows the shelf action over the age, as hover does.
+            await page.waitForFunction(
+              ([action, age]) =>
+                getComputedStyle(action!).opacity === "1" && getComputedStyle(age!).opacity === "0",
+              [
+                await row
+                  .locator("xpath=..")
+                  .getByRole("button", { name: "Un-settle thread" })
+                  .elementHandle(),
+                await row.locator("span.tabular-nums.text-secondary-label").first().elementHandle(),
+              ],
+              { timeout: 5_000 },
+            );
+          }
           await audit(`${kind} focus`);
           await row.click();
           await row.and(sidebar.locator('[aria-current="page"]')).waitFor();
