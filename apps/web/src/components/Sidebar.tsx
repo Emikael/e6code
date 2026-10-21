@@ -504,6 +504,9 @@ function SnoozePopoverButton(props: {
 }) {
   const { open, onOpenChange, onSnooze, timestampFormat } = props;
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Set when the menu closes from the keyboard; a pointer dismiss leaves focus
+  // wherever the pointer put it.
+  const closedByKeyboardRef = useRef(false);
   // Presets resolve at open time so "In 1 hour" is relative to the click,
   // not to when the row mounted.
   const presets = useMemo(
@@ -511,7 +514,13 @@ function SnoozePopoverButton(props: {
     [open, timestampFormat],
   );
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen, details) => {
+        closedByKeyboardRef.current = !nextOpen && details.reason === "escape-key";
+        onOpenChange(nextOpen);
+      }}
+    >
       <Tooltip>
         <TooltipTrigger
           render={
@@ -544,13 +553,14 @@ function SnoozePopoverButton(props: {
         align="end"
         className="w-56"
         viewportClassName="p-1"
-        // A switchboard row hides this trigger from assistive tech, so closing
-        // returns focus to the row option rather than into the hidden actions.
+        // A switchboard row hides this trigger from assistive tech, so a keyboard
+        // close returns focus to the row option rather than into the hidden actions.
         finalFocus={
           props.switchboard
             ? () =>
-                triggerRef.current?.closest("li")?.querySelector<HTMLElement>('[role="option"]') ??
-                true
+                closedByKeyboardRef.current &&
+                (triggerRef.current?.closest("li")?.querySelector<HTMLElement>('[role="option"]') ??
+                  false)
             : undefined
         }
       >
@@ -560,6 +570,8 @@ function SnoozePopoverButton(props: {
             type="button"
             onClick={(event) => {
               event.stopPropagation();
+              // A keyboard-activated click reports no pointer presses.
+              closedByKeyboardRef.current = event.detail === 0;
               onOpenChange(false);
               onSnooze(preset);
             }}
@@ -577,6 +589,8 @@ function SnoozePopoverButton(props: {
           className="flex w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
           onClick={async (event) => {
             event.stopPropagation();
+            // The custom snooze dialog takes focus from here.
+            closedByKeyboardRef.current = false;
             onOpenChange(false);
             const choice = await requestCustomSnooze();
             if (choice) onSnooze(choice);

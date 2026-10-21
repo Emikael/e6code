@@ -1096,6 +1096,20 @@ NodeTest.test(
         await page.locator('[data-sb-drag-verb="Can\'t move here"]').waitFor();
         await audit("drag reject");
         await page.mouse.up();
+        // A pointer dismiss leaves focus where the pointer put it: clicking the
+        // composer to close the menu must not pull focus back to the row.
+        await option.hover();
+        await snooze.click();
+        await snoozeMenu.waitFor();
+        const composer = page.getByTestId("composer-editor");
+        await composer.click();
+        await snoozeMenu.waitFor({ state: "detached" });
+        NodeAssert.ok(
+          await composer.evaluate((editor) => editor.contains(document.activeElement)),
+          "focus left the composer after the snooze menu closed",
+        );
+        await page.keyboard.type("Typed after closing");
+        NodeAssert.match(await composer.innerText(), /Typed after closing/);
       } finally {
         await context.close();
       }
