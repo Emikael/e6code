@@ -371,16 +371,19 @@ export function resolveSidebarBranchDragFeedback(input: {
   return { target, overLaneKey, rejectedLaneKey };
 }
 
-export type SidebarBranchDragVerb = "Move" | "Pin" | "Settle" | "Can't move here";
+export type SidebarBranchDragVerb = "Move" | "Pin" | "Settle" | "Wake" | "Can't move here";
 
-/** The drag chip's badge; null when the pointer is over no drop target. */
+/** The drag chip's badge; null over no drop target and over the row's own
+ * slot, which is also where targets the server refuses fall back to. */
 export function resolveSidebarBranchDragVerb(input: {
   readonly sourceSection: SidebarSection;
   readonly targetSection: SidebarSection | null;
   readonly rejected: boolean;
+  readonly overSelf: boolean;
 }): SidebarBranchDragVerb | null {
   if (input.rejected) return "Can't move here";
-  if (input.targetSection === null) return null;
+  if (input.overSelf || input.targetSection === null) return null;
+  if (input.sourceSection === "snoozed" && input.targetSection === "active") return "Wake";
   if (input.targetSection === "pinned" && input.sourceSection !== "pinned") return "Pin";
   if (input.targetSection === "settled" && input.sourceSection !== "settled") return "Settle";
   return "Move";

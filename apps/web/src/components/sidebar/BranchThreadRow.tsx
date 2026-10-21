@@ -51,6 +51,7 @@ export function BranchThreadRow({
             "shrink-0 font-mono text-(length:--sb-text-meta) text-sb-muted tabular-nums",
             actions && "group-focus-within/sidebar-row:hidden group-hover/sidebar-row:hidden",
             actions && actionsVisible && "hidden",
+            "[[data-sb-dragging]_&]:inline",
           )}
         >
           {age}
@@ -60,6 +61,7 @@ export function BranchThreadRow({
             className={cn(
               "sb-row-actions -my-[3px] -mr-[5px] shrink-0 items-center group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex",
               actionsVisible ? "inline-flex" : "hidden",
+              "[[data-sb-dragging]_&]:hidden",
             )}
           >
             {actions}

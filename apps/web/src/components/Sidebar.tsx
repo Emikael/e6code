@@ -223,7 +223,7 @@ import {
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion, playSidebarStatusSettle } from "./Sidebar.motion";
-import { canAnimate } from "~/lib/motion";
+import { canAnimate, prefersReducedMotion } from "~/lib/motion";
 import { BranchDragChip } from "./sidebar/BranchDragChip";
 import { BranchLane } from "./sidebar/BranchLane";
 import { BranchThreadRow } from "./sidebar/BranchThreadRow";
@@ -1180,6 +1180,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
   branchMode?: boolean;
+  /** Branch mode only: a drag is in progress, so hover details stay closed. */
+  dragActive?: boolean;
   dropIndicator?: "before" | "after" | undefined;
   // Under a project group header: the header owns the project identity, so
   // the row drops its favicon, hangs off the group rail, and cards fold the
@@ -1848,7 +1850,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             )}
           />
         )}
-        <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
+        <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging || props.dragActive}>
           <TooltipTrigger
             render={
               <div
@@ -2099,7 +2101,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           sortable?.isDragging && "relative z-20",
         )}
       >
-        <Tooltip disabled={sortable?.isDragging}>
+        <Tooltip disabled={sortable?.isDragging || props.dragActive}>
           <TooltipTrigger
             render={
               <div
@@ -5615,14 +5617,17 @@ export default function Sidebar() {
                               return `Can't move to ${branch}. Branch comes from the thread's worktree.`;
                             }
                             const sourceSection = sectionByThreadKey.get(activeKey);
+                            const overSelf = String(over.id) === activeKey;
                             const verb = sourceSection
                               ? resolveSidebarBranchDragVerb({
                                   sourceSection,
                                   targetSection: feedback.target?.section ?? null,
                                   rejected: false,
+                                  overSelf,
                                 })
                               : null;
-                            return verb ? `${verb} thread` : "Cannot drop here";
+                            if (verb) return `${verb} thread`;
+                            return overSelf ? "Thread is back in its place" : "Cannot drop here";
                           },
                         },
                       },
@@ -5657,6 +5662,7 @@ export default function Sidebar() {
                           thread={thread}
                           variant={rowVariant}
                           branchMode={branchMode}
+                          dragActive={branchMode && dragState !== null}
                           dropIndicator={
                             branchMode &&
                             dragState?.overId === threadKey &&
@@ -5811,7 +5817,12 @@ export default function Sidebar() {
                       switch (item.marker) {
                         case "pinned-header":
                           if (branchMode) {
-                            if (pinnedThreads.length > 0 || from !== null)
+                            // Drop to pin is only offered when the dragged thread's server can pin.
+                            const canPinDragged =
+                              draggedThread !== undefined &&
+                              serverConfigs.get(draggedThread.environmentId)?.environment
+                                .capabilities.threadPinning === true;
+                            if (pinnedThreads.length > 0 || (from !== null && canPinDragged))
                               items.push(
                                 <BranchLane
                                   key="pinned-lane"
@@ -6031,6 +6042,8 @@ export default function Sidebar() {
                     }
                     return (
                       <div
+                        // Rows hide their hover actions and show their age while anything drags.
+                        data-sb-dragging={dragState !== null || undefined}
                         className={cn(
                           "relative flex flex-col gap-px @container/sidebar-column",
                           sidebarListItems.length > 0 && "flex-1",
@@ -6066,7 +6079,13 @@ export default function Sidebar() {
                 {branchMode &&
                   createPortal(
                     <div data-switchboard="sidebar">
-                      <DragOverlay dropAnimation={null}>
+                      <DragOverlay
+                        dropAnimation={
+                          prefersReducedMotion()
+                            ? null
+                            : { duration: 180, easing: "cubic-bezier(0.2,0,0,1)" }
+                        }
+                      >
                         {draggedThread && dragState && (
                           <SidebarDraggedThreadChip
                             thread={draggedThread}
@@ -6075,6 +6094,9 @@ export default function Sidebar() {
                               sourceSection: dragState.activeSection,
                               targetSection: dragTargetSection,
                               rejected: rejectedLaneKey !== null,
+                              // Until the first drag-over, the pointer is over its own slot.
+                              overSelf:
+                                (dragState.overId ?? dragState.activeKey) === dragState.activeKey,
                             })}
                           />
                         )}

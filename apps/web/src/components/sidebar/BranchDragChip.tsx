@@ -1,4 +1,4 @@
-import { Archive, ArrowUpDown, Ban, Pin, type LucideIcon } from "lucide-react";
+import { AlarmClock, Archive, ArrowUpDown, Ban, Pin, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import type { SidebarBranchDragVerb } from "../Sidebar.logic";
@@ -9,12 +9,14 @@ const VERB_ICONS: Record<SidebarBranchDragVerb, LucideIcon> = {
   Move: ArrowUpDown,
   Pin,
   Settle: Archive,
+  Wake: AlarmClock,
   "Can't move here": Ban,
 };
 
-/** Branch-mode drag overlay: glyph, title and the drop verb. A rejected drop
- * shows its reason as a static tooltip, since a positioned popup cannot track
- * the overlay's per-frame transform. */
+/** Branch-mode drag overlay: glyph, title and the drop verb. It is portaled
+ * and may cross the column edge, so it never clips its title to the column.
+ * A rejected drop shows its reason as a static tooltip, since a positioned
+ * popup cannot track the overlay's per-frame transform. */
 export function BranchDragChip({
   status,
   title,
@@ -29,11 +31,11 @@ export function BranchDragChip({
   const rejected = verb === "Can't move here";
   const VerbIcon = verb ? VERB_ICONS[verb] : null;
   return (
-    <div className="pointer-events-none relative inline-flex max-w-full">
+    <div className="pointer-events-none relative inline-flex">
       <div
         data-sb-drag-overlay
         className={cn(
-          "inline-flex h-8 max-w-full items-center gap-2 rounded-lg bg-popover px-2.5 text-popover-foreground shadow-lg",
+          "inline-flex h-8 items-center gap-2 rounded-lg bg-popover px-2.5 text-popover-foreground shadow-lg",
           rejected && "cursor-not-allowed",
         )}
       >

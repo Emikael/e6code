@@ -1208,8 +1208,22 @@ describe("branch drag feedback", () => {
     [{ sourceSection: "pinned", targetSection: "pinned", rejected: false }, "Move"],
     [{ sourceSection: "active", targetSection: "settled", rejected: false }, "Settle"],
     [{ sourceSection: "settled", targetSection: "settled", rejected: false }, "Move"],
-    [{ sourceSection: "snoozed", targetSection: "active", rejected: false }, "Move"],
+    [{ sourceSection: "snoozed", targetSection: "active", rejected: false }, "Wake"],
+    [{ sourceSection: "settled", targetSection: "active", rejected: false }, "Move"],
   ] as const)("labels the chip for %j as %s", (input, verb) => {
-    expect(resolveSidebarBranchDragVerb(input)).toBe(verb);
+    expect(resolveSidebarBranchDragVerb({ ...input, overSelf: false })).toBe(verb);
+  });
+
+  it("shows no verb over the row's own slot, where refused targets also land", () => {
+    for (const sourceSection of ["active", "pinned", "snoozed"] as const) {
+      expect(
+        resolveSidebarBranchDragVerb({
+          sourceSection,
+          targetSection: sourceSection === "snoozed" ? null : sourceSection,
+          rejected: false,
+          overSelf: true,
+        }),
+      ).toBeNull();
+    }
   });
 });

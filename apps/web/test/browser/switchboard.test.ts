@@ -795,6 +795,11 @@ async function startRowDrag(page: Page, source: Locator) {
   return { x: x + 12, y: y + 2 };
 }
 
+/** dnd-kit's live region, while it announces `text`. */
+function dndAnnouncement(page: Page, text: string) {
+  return page.locator('[id^="DndLiveRegion"]').filter({ hasText: text });
+}
+
 /** The drop indicator sits beside the row element, inside the row's list item. */
 function dropIndicatorOn(row: Locator) {
   return row.locator("xpath=..").locator(":scope > [data-sb-drop-indicator]");
@@ -1189,10 +1194,12 @@ NodeTest.test(
       const beforeReorder = await readShell();
       const reordered = writes.next("thread.active.reorder");
       await startRowDrag(page, row("alphaSecond"));
-      await page.locator("[data-sb-drag-overlay]").getByText("Move", { exact: true }).waitFor();
+      // Over its own slot the chip names no verb.
+      NodeAssert.equal(await page.locator("[data-sb-drag-overlay] [data-sb-drag-verb]").count(), 0);
       await moveDragTo(page, row("alphaFirst"), 0.2);
       // Release only once the drop targets the row, not the pickup slot.
       await dropIndicatorOn(row("alphaFirst")).waitFor();
+      await page.locator("[data-sb-drag-overlay]").getByText("Move", { exact: true }).waitFor();
       await page.mouse.up();
       await reordered;
       await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
@@ -1226,6 +1233,8 @@ NodeTest.test(
       await page
         .getByRole("tooltip", { name: "Branch comes from the thread's worktree", exact: true })
         .waitFor();
+      // A drag hides the hovered row's quick actions; its age stays visible.
+      NodeAssert.equal(await row("beta").locator(".sb-row-actions").isVisible(), false);
       NodeAssert.equal(
         await page.evaluate(({ x, y }) => {
           const target = document.elementFromPoint(x, y);
@@ -1267,6 +1276,23 @@ NodeTest.test(
       );
       NodeAssert.ok(pinnedThread?.pinnedAt);
       NodeAssert.equal(pinnedThread.branch, "feature/alpha");
+
+      // A snoozed row over its own lane wakes; the chip and the live region say so.
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await row("snoozed").waitFor();
+      const writesBeforeWake = writes.commands.length;
+      await startRowDrag(page, row("snoozed"));
+      await moveDragTo(page, row("beta"));
+      await overlay.getByText("Wake", { exact: true }).waitFor();
+      await dndAnnouncement(page, "Wake thread").waitFor({ state: "attached" });
+      // Back over its own slot: no verb, and releasing there writes nothing.
+      await moveDragTo(page, row("snoozed"));
+      await overlay.locator("[data-sb-drag-verb]").waitFor({ state: "detached" });
+      await page.mouse.up();
+      await overlay.waitFor({ state: "detached" });
+      NodeAssert.equal(writes.commands.length, writesBeforeWake);
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await row("snoozed").waitFor({ state: "detached" });
 
       const settled = writes.next("thread.settle");
       await startRowDrag(page, row("beta"));
@@ -1343,10 +1369,10 @@ NodeTest.test(
       // The Snoozed shelf is never a target, and never reads as another branch.
       const writesBeforeShelfHover = writes.commands.length;
       await startRowDrag(page, row("worktree"));
-      await overlay.getByText("Move", { exact: true }).waitFor();
       await moveDragTo(page, row("snoozed"), 0.5, true);
-      // Only a non-target clears the verb; a misread lane would say "Can't move here".
-      await overlay.locator("[data-sb-drag-verb]").waitFor({ state: "detached" });
+      // The live region confirms a non-target; a misread lane would announce "Can't move to …".
+      await dndAnnouncement(page, "Cannot drop here").waitFor({ state: "attached" });
+      NodeAssert.equal(await overlay.locator("[data-sb-drag-verb]").count(), 0);
       NodeAssert.equal(await sidebar.locator("[data-sb-drop-rejected]").count(), 0);
       await page.mouse.up();
       await overlay.waitFor({ state: "detached" });
