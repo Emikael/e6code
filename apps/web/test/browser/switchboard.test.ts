@@ -799,7 +799,7 @@ async function startRowDrag(page: Page, source: Locator) {
 }
 
 /** dnd-kit's live region, while it announces `text`. */
-function dndAnnouncement(page: Page, text: string) {
+function dndAnnouncement(page: Page, text: string | RegExp) {
   return page.locator('[id^="DndLiveRegion"]').filter({ hasText: text });
 }
 
@@ -1264,10 +1264,14 @@ NodeTest.test(
       const beforePickup = await readShell();
       for (const key of ["worktree", "alphaSecond"] as const) {
         const held = await startRowDrag(page, row(key));
+        await dndAnnouncement(page, `Picked up ${project.rows[key].title}`).waitFor({
+          state: "attached",
+        });
         await sidebar.getByText("Drop to pin", { exact: true }).waitFor();
         await page.mouse.move(held.x, held.y + 3);
         await page.mouse.up();
         await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+        await dndAnnouncement(page, /^Thread returned$/).waitFor({ state: "attached" });
       }
       NodeAssert.deepEqual(await readShell(), beforePickup, "A held pickup must persist no event");
       NodeAssert.equal(writes.commands.length, 0, "A held pickup must send no command");
@@ -1284,6 +1288,7 @@ NodeTest.test(
       await page.mouse.up();
       await reordered;
       await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      await dndAnnouncement(page, "Moved thread").waitFor({ state: "attached" });
       NodeAssert.deepEqual(
         await alphaLane
           .getByRole("option")
@@ -1327,6 +1332,9 @@ NodeTest.test(
       );
       await page.mouse.up();
       await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      await dndAnnouncement(page, "Can't move here. Thread returned.").waitFor({
+        state: "attached",
+      });
       NodeAssert.deepEqual(
         await readShell(),
         beforeReject,
@@ -1345,10 +1353,12 @@ NodeTest.test(
       await moveDragTo(page, pinTarget);
       const overlay = page.locator("[data-sb-drag-overlay]");
       await overlay.getByText("Pin", { exact: true }).waitFor();
+      await dndAnnouncement(page, "Pin thread: drop to pin").waitFor({ state: "attached" });
       const overlayBox = await overlay.boundingBox();
       NodeAssert.ok(overlayBox && overlayBox.height <= 40, "Drag overlay must stay a compact chip");
       await page.mouse.up();
       await pinned;
+      await dndAnnouncement(page, "Pinned thread").waitFor({ state: "attached" });
       await sidebar
         .getByRole("group", { name: "Pinned, 1 thread", exact: true })
         .getByRole("option", { name: "Alpha first", exact: true })

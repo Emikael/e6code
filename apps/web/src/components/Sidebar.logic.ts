@@ -419,6 +419,42 @@ export function resolveSidebarBranchDragVerb(input: {
   return "Move";
 }
 
+const SIDEBAR_BRANCH_DROP_RESULTS = {
+  Move: "Moved thread",
+  Pin: "Pinned thread",
+  Settle: "Settled thread",
+  Wake: "Woke thread",
+} as const;
+
+/** What the drag live region says while a branch-mode drag is `over` a target
+ * and when it `end`s, given the chip's verb. Undefined keeps it quiet: a row
+ * that has not left its own slot since pick-up has nothing to report. */
+export function resolveSidebarBranchDragAnnouncement(input: {
+  readonly phase: "over" | "end";
+  readonly verb: SidebarBranchDragVerb | null;
+  /** False while the pointer is over no drop target at all. */
+  readonly hasTarget: boolean;
+  readonly overSelf: boolean;
+  /** Whether the drag has been over another target since it started. */
+  readonly leftOwnSlot: boolean;
+  /** The lane a rejected drop was aimed at; null is the "No branch" lane. */
+  readonly rejectedBranch: string | null;
+}): string | undefined {
+  const { verb } = input;
+  if (input.phase === "end") {
+    if (verb === "Can't move here") return "Can't move here. Thread returned.";
+    return verb === null ? "Thread returned" : SIDEBAR_BRANCH_DROP_RESULTS[verb];
+  }
+  if (!input.hasTarget) return "No drop target";
+  if (verb === "Can't move here") {
+    return `Can't move to ${input.rejectedBranch ?? "No branch"}. Branch comes from the thread's worktree.`;
+  }
+  if (verb === "Pin") return "Pin thread: drop to pin";
+  if (verb !== null) return `${verb} thread`;
+  if (!input.overSelf) return "Cannot drop here";
+  return input.leftOwnSlot ? "Thread is back in its place" : undefined;
+}
+
 export type SidebarThreadDropPlan =
   | { readonly kind: "none" }
   /** Within the pinned block: the existing key writes. */

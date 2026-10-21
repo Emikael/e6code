@@ -11,6 +11,7 @@ import {
 } from "./Sidebar.drag";
 import {
   resolveSidebarDropTarget,
+  resolveSidebarBranchDragAnnouncement,
   resolveSidebarBranchDragFeedback,
   resolveSidebarBranchDragVerb,
   resolveSidebarBranchDropTarget,
@@ -1225,5 +1226,48 @@ describe("branch drag feedback", () => {
         }),
       ).toBeNull();
     }
+  });
+
+  const announce = (
+    input: Partial<Parameters<typeof resolveSidebarBranchDragAnnouncement>[0]>,
+  ): string | undefined =>
+    resolveSidebarBranchDragAnnouncement({
+      phase: "over",
+      verb: null,
+      hasTarget: true,
+      overSelf: false,
+      leftOwnSlot: true,
+      rejectedBranch: null,
+      ...input,
+    });
+
+  it("stays quiet over the row's own slot until the drag has been somewhere else", () => {
+    expect(announce({ overSelf: true, leftOwnSlot: false })).toBeUndefined();
+    expect(announce({ overSelf: true, leftOwnSlot: true })).toBe("Thread is back in its place");
+    expect(announce({ hasTarget: false, leftOwnSlot: false })).toBe("No drop target");
+  });
+
+  it("announces what a drop would do, and why a rejected one cannot happen", () => {
+    expect(announce({ verb: "Pin" })).toBe("Pin thread: drop to pin");
+    expect(announce({ verb: "Wake" })).toBe("Wake thread");
+    expect(announce({ verb: "Move" })).toBe("Move thread");
+    expect(announce({ verb: "Can't move here", rejectedBranch: "feature/beta" })).toBe(
+      "Can't move to feature/beta. Branch comes from the thread's worktree.",
+    );
+    expect(announce({ verb: "Can't move here" })).toBe(
+      "Can't move to No branch. Branch comes from the thread's worktree.",
+    );
+    expect(announce({ verb: null })).toBe("Cannot drop here");
+  });
+
+  it.each([
+    ["Move", "Moved thread"],
+    ["Pin", "Pinned thread"],
+    ["Settle", "Settled thread"],
+    ["Wake", "Woke thread"],
+    ["Can't move here", "Can't move here. Thread returned."],
+    [null, "Thread returned"],
+  ] as const)("reports a %s drop as %j", (verb, message) => {
+    expect(announce({ phase: "end", verb })).toBe(message);
   });
 });

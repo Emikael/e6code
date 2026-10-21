@@ -9,6 +9,7 @@ import {
   DragOverlay,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
@@ -183,6 +184,7 @@ import {
   resolveSidebarThreadStatus,
   resolveSidebarBranchStatus,
   groupSidebarBranchLanes,
+  resolveSidebarBranchDragAnnouncement,
   resolveSidebarBranchDragFeedback,
   resolveSidebarBranchDragVerb,
   resolveSidebarBranchDropTarget,
@@ -3894,6 +3896,9 @@ export default function Sidebar() {
   );
   const threadListRef = useRef<HTMLUListElement | null>(null);
   const dragLabelOffsetRef = useRef(0);
+  // Whether the branch drag has left the row's own slot, so the live region
+  // stays quiet until the pointer actually goes somewhere.
+  const branchDragLeftSlotRef = useRef(false);
   const restrictBelowPins = useCallback<Modifier>(
     (args) => restrictBelowSidebarLabel(args, dragLabelOffsetRef.current),
     [],
@@ -4189,6 +4194,50 @@ export default function Sidebar() {
     snoozedThreads.length,
     visibleSnoozedThreads,
   ]);
+  const announceBranchDrag = (
+    phase: "over" | "end",
+    activeKey: string,
+    overId: string | null,
+  ): string | undefined => {
+    const overSelf = overId === activeKey;
+    if (overId !== null && !overSelf) branchDragLeftSlotRef.current = true;
+    const feedback = resolveSidebarBranchDragFeedback({
+      items: sidebarListItems,
+      activeKey,
+      overId,
+      laneKeyByThreadKey,
+      activeOrder: activeKeys,
+    });
+    const sourceSection = sectionByThreadKey.get(activeKey);
+    return resolveSidebarBranchDragAnnouncement({
+      phase,
+      verb: sourceSection
+        ? resolveSidebarBranchDragVerb({
+            sourceSection,
+            targetSection: feedback.target?.section ?? null,
+            rejected: feedback.rejectedLaneKey !== null,
+            overSelf,
+          })
+        : null,
+      hasTarget: overId !== null,
+      overSelf,
+      leftOwnSlot: branchDragLeftSlotRef.current,
+      rejectedBranch:
+        branchLanes.find((lane) => lane.key === feedback.rejectedLaneKey)?.branch ?? null,
+    });
+  };
+  const branchDragAnnouncements: Announcements = {
+    onDragStart: ({ active }) => {
+      branchDragLeftSlotRef.current = false;
+      const title = threadByKey.get(String(active.id))?.title;
+      return title ? `Picked up ${title}` : "Picked up thread";
+    },
+    onDragOver: ({ active, over }) =>
+      announceBranchDrag("over", String(active.id), over ? String(over.id) : null),
+    onDragEnd: ({ active, over }) =>
+      announceBranchDrag("end", String(active.id), over ? String(over.id) : null),
+    onDragCancel: () => "Drag cancelled",
+  };
   useEffect(() => {
     if (
       dragState !== null &&
@@ -5683,44 +5732,7 @@ export default function Sidebar() {
                     : [restrictToVerticalAxis, restrictBelowPins, restrictToFirstScrollableAncestor]
                 }
                 {...(branchMode
-                  ? {
-                      accessibility: {
-                        announcements: {
-                          onDragStart: () => "Picked up thread",
-                          onDragEnd: () => "Thread dropped",
-                          onDragCancel: () => "Drag cancelled",
-                          onDragOver: ({ active, over }) => {
-                            if (!over) return;
-                            const activeKey = String(active.id);
-                            const feedback = resolveSidebarBranchDragFeedback({
-                              items: sidebarListItems,
-                              activeKey,
-                              overId: String(over.id),
-                              laneKeyByThreadKey,
-                              activeOrder: activeKeys,
-                            });
-                            if (feedback.rejectedLaneKey !== null) {
-                              const branch =
-                                branchLanes.find((lane) => lane.key === feedback.rejectedLaneKey)
-                                  ?.branch ?? "No branch";
-                              return `Can't move to ${branch}. Branch comes from the thread's worktree.`;
-                            }
-                            const sourceSection = sectionByThreadKey.get(activeKey);
-                            const overSelf = String(over.id) === activeKey;
-                            const verb = sourceSection
-                              ? resolveSidebarBranchDragVerb({
-                                  sourceSection,
-                                  targetSection: feedback.target?.section ?? null,
-                                  rejected: false,
-                                  overSelf,
-                                })
-                              : null;
-                            if (verb) return `${verb} thread`;
-                            return overSelf ? "Thread is back in its place" : "Cannot drop here";
-                          },
-                        },
-                      },
-                    }
+                  ? { accessibility: { announcements: branchDragAnnouncements } }
                   : {})}
                 onDragStart={handleThreadDragStart}
                 onDragOver={handleThreadDragOver}
