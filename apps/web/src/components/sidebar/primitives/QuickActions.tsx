@@ -1,5 +1,4 @@
 import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -13,15 +12,48 @@ export interface QuickAction {
   pressed?: boolean;
 }
 
+type QuickActionVariant = "default" | "row";
+
+/** One icon action. Rows place these inside their own "Thread actions" group
+ * when other controls sit between them. */
+export function QuickActionButton({
+  action: { label, icon: Icon, onClick, disabled, pressed },
+  variant = "default",
+}: {
+  action: QuickAction;
+  variant?: QuickActionVariant;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<Button variant="chip" disabled={disabled} />}
+        className={cn(
+          "sb-action size-6 disabled:opacity-50",
+          variant === "row" &&
+            "min-h-6 text-sb-muted hover:bg-[color-mix(in_srgb,var(--sb-foreground)_8%,var(--sb-surface))] hover:text-sb-foreground",
+        )}
+        aria-label={label}
+        aria-pressed={pressed}
+        onClick={onClick}
+      >
+        <Icon
+          aria-hidden="true"
+          className={variant === "row" ? "size-3.5" : "size-3"}
+          strokeWidth={1.75}
+        />
+      </TooltipTrigger>
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 export function QuickActions({
   actions,
-  children,
   variant = "default",
   className,
 }: {
   actions: readonly QuickAction[];
-  children?: ReactNode;
-  variant?: "default" | "row";
+  variant?: QuickActionVariant;
   className?: string;
 }) {
   return (
@@ -34,29 +66,9 @@ export function QuickActions({
         className,
       )}
     >
-      {actions.map(({ id, label, icon: Icon, onClick, disabled, pressed }) => (
-        <Tooltip key={id}>
-          <TooltipTrigger
-            render={<Button variant="chip" disabled={disabled} />}
-            className={cn(
-              "sb-action size-6 disabled:opacity-50",
-              variant === "row" &&
-                "min-h-6 text-sb-muted hover:bg-[color-mix(in_srgb,var(--sb-foreground)_8%,var(--sb-surface))] hover:text-sb-foreground",
-            )}
-            aria-label={label}
-            aria-pressed={pressed}
-            onClick={onClick}
-          >
-            <Icon
-              aria-hidden="true"
-              className={variant === "row" ? "size-3.5" : "size-3"}
-              strokeWidth={1.75}
-            />
-          </TooltipTrigger>
-          <TooltipPopup>{label}</TooltipPopup>
-        </Tooltip>
+      {actions.map((action) => (
+        <QuickActionButton key={action.id} action={action} variant={variant} />
       ))}
-      {children}
     </div>
   );
 }

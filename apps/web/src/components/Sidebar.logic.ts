@@ -178,6 +178,14 @@ export function sidebarBranchLaneId(key: string): string {
   return `${SIDEBAR_BRANCH_LANE_PREFIX}${key}`;
 }
 
+/** The lane a wrapper droppable id names. List items win: a scoped thread key
+    may itself start with the lane prefix. */
+function sidebarBranchLaneKeyOfId(items: readonly SidebarListItem[], id: string): string | null {
+  if (!id.startsWith(SIDEBAR_BRANCH_LANE_PREFIX)) return null;
+  if (items.some((item) => sidebarListItemId(item) === id)) return null;
+  return id.slice(SIDEBAR_BRANCH_LANE_PREFIX.length);
+}
+
 /** Sortable ids: thread rows use their scoped key; structural items use a
     colon-free prefix: scoped thread keys always contain a colon. */
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
@@ -267,10 +275,7 @@ export function resolveSidebarBranchDropTarget(input: {
   if (source?.kind !== "thread") return null;
   const sourceLane = laneKeyByThreadKey.get(activeKey);
   const over = items.find((item) => sidebarListItemId(item) === overId);
-  const headerLane =
-    !over && overId.startsWith(SIDEBAR_BRANCH_LANE_PREFIX)
-      ? overId.slice(SIDEBAR_BRANCH_LANE_PREFIX.length)
-      : null;
+  const headerLane = over ? null : sidebarBranchLaneKeyOfId(items, overId);
   if (
     (over?.kind === "thread" && over.section === "snoozed") ||
     overId === sidebarMarkerId("snoozed-header")
@@ -331,6 +336,54 @@ export function resolveSidebarBranchDropTarget(input: {
           : order.length;
   order.splice(insertionIndex, 0, activeKey);
   return { ...target, activeOrder: order };
+}
+
+export interface SidebarBranchDragFeedback {
+  readonly target: SidebarDropTarget | null;
+  /** The active lane under the pointer. Pinned, snoozed and settled rows
+      belong to their shelf, not to their branch lane. */
+  readonly overLaneKey: string | null;
+  /** Set when that lane refuses the drop because it is another branch. */
+  readonly rejectedLaneKey: string | null;
+}
+
+export function resolveSidebarBranchDragFeedback(input: {
+  readonly items: readonly SidebarListItem[];
+  readonly activeKey: string;
+  readonly overId: string | null;
+  readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
+  readonly activeOrder: readonly string[];
+}): SidebarBranchDragFeedback {
+  const { items, activeKey, overId, laneKeyByThreadKey } = input;
+  if (overId === null) return { target: null, overLaneKey: null, rejectedLaneKey: null };
+  const target = resolveSidebarBranchDropTarget({ ...input, overId });
+  const over = items.find((item) => sidebarListItemId(item) === overId);
+  const overLaneKey =
+    over === undefined
+      ? sidebarBranchLaneKeyOfId(items, overId)
+      : over.kind === "thread" && over.section === "active"
+        ? (laneKeyByThreadKey.get(over.key) ?? null)
+        : null;
+  const rejectedLaneKey =
+    target === null && overLaneKey !== null && overLaneKey !== laneKeyByThreadKey.get(activeKey)
+      ? overLaneKey
+      : null;
+  return { target, overLaneKey, rejectedLaneKey };
+}
+
+export type SidebarBranchDragVerb = "Move" | "Pin" | "Settle" | "Can't move here";
+
+/** The drag chip's badge; null when the pointer is over no drop target. */
+export function resolveSidebarBranchDragVerb(input: {
+  readonly sourceSection: SidebarSection;
+  readonly targetSection: SidebarSection | null;
+  readonly rejected: boolean;
+}): SidebarBranchDragVerb | null {
+  if (input.rejected) return "Can't move here";
+  if (input.targetSection === null) return null;
+  if (input.targetSection === "pinned" && input.sourceSection !== "pinned") return "Pin";
+  if (input.targetSection === "settled" && input.sourceSection !== "settled") return "Settle";
+  return "Move";
 }
 
 export type SidebarThreadDropPlan =

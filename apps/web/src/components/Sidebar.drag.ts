@@ -1,4 +1,10 @@
-import { closestCenter, type CollisionDetection, type Modifier } from "@dnd-kit/core";
+import {
+  closestCenter,
+  pointerWithin,
+  type Collision,
+  type CollisionDetection,
+  type Modifier,
+} from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
   resolveSidebarDropTarget,
@@ -13,6 +19,91 @@ const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
 const hidden = { ...stationary, scaleY: 0 };
 type ThreadItem = Extract<SidebarListItem, { kind: "thread" }>;
 type Layout = Parameters<SortingStrategy>[0];
+
+/** Vertical travel that turns a pickup into a deliberate move. */
+const BRANCH_DRAG_RELEASE_PX = 8;
+
+/** Drag-scoped branch collision state, replaced at pickup. The detector is
+ * rebuilt whenever the shell changes mid-drag, so it must not own this. */
+export interface SidebarBranchDragGate {
+  originY: number | null;
+  released: boolean;
+}
+
+export function createSidebarBranchDragGate(): SidebarBranchDragGate {
+  return { originY: null, released: false };
+}
+
+/** Branch-mode collisions. `laneRows` maps each lane wrapper droppable to its
+ * row ids. Rows win over the wrappers around them; a wrapper hit (header,
+ * gutter or row gap) resolves to that lane's nearest row, never to its top.
+ * Pickup can mount the Drop to pin lane above every row, so the dragged row
+ * stays its own target until the pointer moves. Targets the server would
+ * refuse fall back to the dragged row. */
+export function createSidebarBranchCollisionDetection(input: {
+  readonly laneRows: ReadonlyMap<string, readonly string[]>;
+  readonly gate: SidebarBranchDragGate;
+  readonly isValidTarget: (id: string) => boolean;
+}): CollisionDetection {
+  const validity = new Map<string, boolean>();
+  return (args) => {
+    const containers = new Map(
+      args.droppableContainers.map((container) => [String(container.id), container]),
+    );
+    const collision = (id: string, value: number): Collision[] => {
+      const container = containers.get(id);
+      return container
+        ? [{ id: container.id, data: { droppableContainer: container, value } }]
+        : [];
+    };
+    const activeId = String(args.active.id);
+    const pointer = args.pointerCoordinates;
+    const { gate } = input;
+    if (pointer && !gate.released) {
+      gate.originY ??= pointer.y;
+      if (Math.abs(pointer.y - gate.originY) < BRANCH_DRAG_RELEASE_PX) {
+        return collision(activeId, 0);
+      }
+      gate.released = true;
+    }
+    const isLane = (id: string) => input.laneRows.has(id);
+    const hits = pointer
+      ? pointerWithin(args)
+      : closestCenter({
+          ...args,
+          droppableContainers: args.droppableContainers.filter(
+            (container) => !isLane(String(container.id)),
+          ),
+        });
+    let hit = hits.find((candidate) => !isLane(String(candidate.id)));
+    if (!hit) {
+      const laneId = hits.map((candidate) => String(candidate.id)).find(isLane);
+      if (laneId === undefined) return [];
+      let nearest: Collision[] = [];
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const row of input.laneRows.get(laneId) ?? []) {
+        const rect = args.droppableRects.get(row);
+        if (!rect || !pointer) continue;
+        const distance = Math.max(rect.top - pointer.y, pointer.y - rect.bottom, 0);
+        if (distance < nearestDistance) {
+          nearest = collision(row, distance);
+          nearestDistance = distance;
+        }
+      }
+      // An empty lane (Drop to pin) is itself the target.
+      hit = nearest[0] ?? collision(laneId, 0)[0];
+      if (!hit) return [];
+    }
+    const id = String(hit.id);
+    if (id === activeId) return [hit];
+    let valid = validity.get(id);
+    if (valid === undefined) {
+      valid = input.isValidTarget(id);
+      validity.set(id, valid);
+    }
+    return valid ? [hit] : collision(activeId, 0);
+  };
+}
 
 /** Lane wrappers stay fixed; only peers inside the source lane preview a reorder. */
 export function createSidebarBranchSortingStrategy(input: {

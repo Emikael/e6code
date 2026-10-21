@@ -7,8 +7,6 @@ import * as Schema from "effect/Schema";
 import {
   DndContext,
   DragOverlay,
-  closestCenter,
-  pointerWithin,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -184,6 +182,8 @@ import {
   resolveSidebarThreadStatus,
   resolveSidebarBranchStatus,
   groupSidebarBranchLanes,
+  resolveSidebarBranchDragFeedback,
+  resolveSidebarBranchDragVerb,
   resolveSidebarBranchDropTarget,
   sidebarBranchLaneId,
   sidebarBranchLaneKey,
@@ -206,12 +206,16 @@ import {
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
+  type SidebarBranchDragVerb,
+  type SidebarDropTarget,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
+  createSidebarBranchCollisionDetection,
+  createSidebarBranchDragGate,
   createSidebarCollisionDetection,
   createSidebarSortingStrategy,
   createSidebarBranchSortingStrategy,
@@ -220,13 +224,13 @@ import {
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion, playSidebarStatusSettle } from "./Sidebar.motion";
 import { canAnimate } from "~/lib/motion";
+import { BranchDragChip } from "./sidebar/BranchDragChip";
 import { BranchLane } from "./sidebar/BranchLane";
 import { BranchThreadRow } from "./sidebar/BranchThreadRow";
 import { BranchLabel } from "./sidebar/primitives/BranchLabel";
 import { DiffStat } from "./sidebar/primitives/DiffStat";
 import { ProviderMark } from "./sidebar/primitives/ProviderMark";
-import { QuickActions } from "./sidebar/primitives/QuickActions";
-import { StatusGlyph } from "./sidebar/primitives/StatusGlyph";
+import { QuickActionButton } from "./sidebar/primitives/QuickActions";
 import { StatusPill } from "./sidebar/primitives/StatusPill";
 import {
   ThreadPullRequestBadgeControl,
@@ -1124,6 +1128,47 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+function isSidebarThreadWoke(input: {
+  wokeAt: string | null;
+  lastVisitedAt: string | undefined;
+  settled: boolean;
+}): boolean {
+  const lastVisitedDate =
+    input.lastVisitedAt === undefined ? null : parseTimestampDate(input.lastVisitedAt);
+  const wokeAtDate = input.wokeAt === null ? null : parseTimestampDate(input.wokeAt);
+  return (
+    wokeAtDate !== null &&
+    (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
+    !input.settled
+  );
+}
+
+/** The drag chip shows the same status glyph as the row that was picked up. */
+function SidebarDraggedThreadChip(props: {
+  thread: SidebarThreadSummary;
+  wokeAt: string | null;
+  verb: SidebarBranchDragVerb | null;
+}) {
+  const threadKey = scopedThreadKey(scopeThreadRef(props.thread.environmentId, props.thread.id));
+  const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const { status } = resolveSidebarBranchStatus({
+    thread: { ...props.thread, lastVisitedAt },
+    isWoke: isSidebarThreadWoke({
+      wokeAt: props.wokeAt,
+      lastVisitedAt,
+      settled: props.thread.settledOverride === "settled",
+    }),
+  });
+  return (
+    <BranchDragChip
+      status={status}
+      title={props.thread.title}
+      verb={props.verb}
+      rejectReason="Branch comes from the thread's worktree"
+    />
+  );
+}
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1282,12 +1327,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // message, settling, archiving, or a change request state that settles the
   // thread. Timer wakes survive a mere visit. An unparseable visit timestamp
   // counts as never-visited, so corrupt local data cannot eat the wake signal.
-  const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
-  const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
-  const isWoke =
-    wokeAtDate !== null &&
-    (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
-    thread.settledOverride !== "settled";
+  const isWoke = isSidebarThreadWoke({
+    wokeAt: props.wokeAt,
+    lastVisitedAt,
+    settled: thread.settledOverride === "settled",
+  });
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
@@ -1857,22 +1901,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               actionsVisible={snoozeMenuOpen}
               actions={
                 <span
+                  role="group"
+                  aria-label="Thread actions"
                   className="inline-flex items-center"
                   onClick={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   {props.pinningSupported && (
-                    <QuickActions
+                    <QuickActionButton
                       variant="row"
-                      actions={[
-                        {
-                          id: "pin",
-                          label: props.isPinned ? "Unpin thread" : "Pin thread",
-                          icon: props.isPinned ? PinOffIcon : PinIcon,
-                          onClick: () =>
-                            props.isPinned ? onUnpin(threadRef) : props.onPin(threadRef),
-                        },
-                      ]}
+                      action={{
+                        id: "pin",
+                        label: props.isPinned ? "Unpin thread" : "Pin thread",
+                        icon: props.isPinned ? PinOffIcon : PinIcon,
+                        onClick: () =>
+                          props.isPinned ? onUnpin(threadRef) : props.onPin(threadRef),
+                      }}
                     />
                   )}
                   {showSnoozeButton && (
@@ -1885,16 +1929,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     />
                   )}
                   {props.settlementSupported && (
-                    <QuickActions
+                    <QuickActionButton
                       variant="row"
-                      actions={[
-                        {
-                          id: "settle",
-                          label: "Settle thread",
-                          icon: CheckIcon,
-                          onClick: () => onSettle(threadRef),
-                        },
-                      ]}
+                      action={{
+                        id: "settle",
+                        label: "Settle thread",
+                        icon: CheckIcon,
+                        onClick: () => onSettle(threadRef),
+                      }}
                     />
                   )}
                   <Tooltip>
@@ -3757,12 +3799,33 @@ export default function Sidebar() {
     [],
   );
   const listMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const [branchDragGate, setBranchDragGate] = useState(createSidebarBranchDragGate);
   const attachListMotionRef = useCallback((node: HTMLUListElement | null) => {
     threadListRef.current = node;
     listMotionRef.current?.dispose();
     listMotionRef.current = node === null ? null : createSidebarListMotion(node);
     listMotionRef.current?.update(false);
   }, []);
+  // Branch lanes nest their rows, so each lane's row list animates on its own
+  // while the outer list moves whole lanes.
+  const laneMotionsRef = useRef(new Set<ReturnType<typeof createSidebarListMotion>>());
+  const attachLaneMotion = useCallback((node: HTMLUListElement | null) => {
+    if (node === null) return;
+    const motion = createSidebarListMotion(node);
+    laneMotionsRef.current.add(motion);
+    motion.update(false);
+    return () => {
+      laneMotionsRef.current.delete(motion);
+      motion.dispose();
+    };
+  }, []);
+  const forEachListMotion = useCallback(
+    (run: (motion: ReturnType<typeof createSidebarListMotion>) => void) => {
+      if (listMotionRef.current) run(listMotionRef.current);
+      for (const motion of laneMotionsRef.current) run(motion);
+    },
+    [],
+  );
 
   // Hold the chosen section and order until every key write arrives. This
   // also covers first-time ordering, which assigns keys to keyless neighbors.
@@ -3774,23 +3837,15 @@ export default function Sidebar() {
     readonly activationY: number | null;
     readonly targetSection: SidebarSection | null;
     readonly overId?: string | null;
+    /** Branch mode: the active lane under the pointer, and that lane again
+        when it refuses the drop. */
+    readonly overLaneKey?: string | null;
+    readonly rejectedLaneKey?: string | null;
   } | null>(null);
   const dragTargetSection = dragState?.targetSection ?? null;
-  const dragOverLaneKey = dragState?.overId
-    ? (laneKeyByThreadKey.get(dragState.overId) ??
-      branchLanes.find((lane) => sidebarBranchLaneId(lane.key) === dragState.overId)?.key ??
-      null)
-    : null;
-  const rejectedLaneKey =
-    branchMode &&
-    dragState &&
-    dragOverLaneKey !== null &&
-    dragTargetSection === null &&
-    dragOverLaneKey !== laneKeyByThreadKey.get(dragState.activeKey)
-      ? dragOverLaneKey
-      : null;
+  const dragOverLaneKey = dragState?.overLaneKey ?? null;
+  const rejectedLaneKey = dragState?.rejectedLaneKey ?? null;
   const draggedThread = dragState ? threadByKey.get(dragState.activeKey) : undefined;
-  const draggedStatus = draggedThread ? resolveSidebarThreadStatus(draggedThread) : "ready";
   useEffect(() => {
     if (rejectedLaneKey === null) return;
     const previous = document.body.style.cursor;
@@ -3800,13 +3855,16 @@ export default function Sidebar() {
     };
   }, [rejectedLaneKey]);
   const dragSensorRef = useRef<SidebarPointerSensor | null>(null);
-  const finishThreadDrag = useCallback((started: boolean) => {
-    dragSensorRef.current = null;
-    if (started) {
-      listMotionRef.current?.release();
-      setDragState(null);
-    }
-  }, []);
+  const finishThreadDrag = useCallback(
+    (started: boolean) => {
+      dragSensorRef.current = null;
+      if (started) {
+        forEachListMotion((motion) => motion.release());
+        setDragState(null);
+      }
+    },
+    [forEachListMotion],
+  );
   const attachDragSensor = useCallback((sensor: SidebarPointerSensor) => {
     dragSensorRef.current = sensor;
   }, []);
@@ -3963,7 +4021,8 @@ export default function Sidebar() {
       const activeSection = sectionByThreadKey.get(activeKey);
       if (activeSection === undefined) return;
       // Stop normal section motion before dnd-kit measures the picked-up row.
-      listMotionRef.current?.suspend();
+      forEachListMotion((motion) => motion.suspend());
+      setBranchDragGate(createSidebarBranchDragGate());
       const list = threadListRef.current;
       const header = list?.querySelector<HTMLElement>('[data-testid="sidebar-pinned-header"]');
       if (list && header) {
@@ -3983,7 +4042,7 @@ export default function Sidebar() {
           event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
       });
     },
-    [sectionByThreadKey],
+    [forEachListMotion, sectionByThreadKey],
   );
   // Include every visible row in the measured order. Older servers disable
   // pickup on their rows without changing where those rows render.
@@ -4057,8 +4116,9 @@ export default function Sidebar() {
     // Later thread actions can animate while writes settle.
     // Draft navigation can reveal a frozen row without changing the draft count.
     void sidebarListOrderKey;
-    listMotionRef.current?.update(!listMotionPaused && sidebarListHasRows);
+    forEachListMotion((motion) => motion.update(!listMotionPaused && sidebarListHasRows));
   }, [
+    forEachListMotion,
     listMotionPaused,
     routeDraftIdForRows,
     sidebarListHasRows,
@@ -4067,28 +4127,30 @@ export default function Sidebar() {
   ]);
   const handleThreadDragOver = useCallback(
     (event: DragOverEvent) => {
-      const target = event.over
-        ? branchMode
-          ? resolveSidebarBranchDropTarget({
-              items: sidebarListItems,
-              activeKey: String(event.active.id),
-              overId: String(event.over.id),
-              laneKeyByThreadKey,
-              activeOrder: activeKeys,
-            })
-          : resolveSidebarDropTarget(
-              sidebarListItems,
-              String(event.active.id),
-              String(event.over.id),
-            )
+      const overId = event.over ? String(event.over.id) : null;
+      const feedback = branchMode
+        ? resolveSidebarBranchDragFeedback({
+            items: sidebarListItems,
+            activeKey: String(event.active.id),
+            overId,
+            laneKeyByThreadKey,
+            activeOrder: activeKeys,
+          })
         : null;
+      const target = feedback
+        ? feedback.target
+        : overId === null
+          ? null
+          : resolveSidebarDropTarget(sidebarListItems, String(event.active.id), overId);
       setDragState((current) =>
         current === null || current.activeKey !== String(event.active.id)
           ? current
           : {
               ...current,
               targetSection: target?.section ?? null,
-              overId: event.over ? String(event.over.id) : null,
+              overId,
+              overLaneKey: feedback?.overLaneKey ?? null,
+              rejectedLaneKey: feedback?.rejectedLaneKey ?? null,
             },
       );
     },
@@ -4151,45 +4213,68 @@ export default function Sidebar() {
   const draggedThreadKey = dragState?.activeKey;
   const draggedFromSection = dragState?.activeSection;
   const dragActivationY = dragState?.activationY;
+  // Each lane wrapper droppable and the rows inside it. The Pinned lane
+  // registers as the pinned-header marker.
+  const branchLaneRows = useMemo(() => {
+    const rows = new Map<string, readonly string[]>();
+    if (!branchMode) return rows;
+    const keysOf = (list: readonly EnvironmentThreadShell[]) =>
+      list.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+    rows.set(sidebarMarkerId("pinned-header"), keysOf(pinnedThreads));
+    for (const lane of branchLanes) rows.set(sidebarBranchLaneId(lane.key), keysOf(lane.threads));
+    return rows;
+  }, [branchLanes, branchMode, pinnedThreads]);
   const dndCollisionDetection = useMemo(() => {
-    if (branchMode)
-      return (args: Parameters<typeof pointerWithin>[0]) => {
-        const hits = pointerWithin(args);
-        const rowHits = hits.filter((hit) => !String(hit.id).startsWith("sidebar-branch-lane-"));
-        const candidates = rowHits.length > 0 ? rowHits : hits;
-        return closestCenter({
-          ...args,
-          droppableContainers: args.droppableContainers.filter((container) =>
-            candidates.some((hit) => hit.id === container.id),
-          ),
-        });
-      };
-    if (draggedThreadKey === undefined || draggedFromSection === undefined)
-      return createSidebarCollisionDetection(() => true);
+    if (draggedThreadKey === undefined || draggedFromSection === undefined) {
+      return branchMode
+        ? createSidebarBranchCollisionDetection({
+            laneRows: branchLaneRows,
+            gate: branchDragGate,
+            isValidTarget: () => true,
+          })
+        : createSidebarCollisionDetection(() => true);
+    }
     const source = threadByKey.get(draggedThreadKey);
+    const canDrop = (target: SidebarDropTarget) =>
+      source !== undefined &&
+      planSidebarThreadDrop({
+        activeKey: draggedThreadKey,
+        activeSection: draggedFromSection,
+        activePinned: source.pinnedAt != null,
+        activeSettled: source.settledOverride === "settled",
+        supportsSettlement:
+          serverConfigs.get(source.environmentId)?.environment.capabilities.threadSettlement ===
+          true,
+        target,
+        pinnedOrder: pinnedKeys,
+        pinnedKeysById,
+        reorderableKeys: draggableThreadKeys,
+        activeOrder: activeKeys,
+        activeKeysById,
+        activeReorderableKeys: activeReorderableThreadKeys,
+      }).kind !== "none";
+    if (branchMode) {
+      return createSidebarBranchCollisionDetection({
+        laneRows: branchLaneRows,
+        gate: branchDragGate,
+        isValidTarget: (id) => {
+          const target = resolveSidebarBranchDropTarget({
+            items: sidebarListItems,
+            activeKey: draggedThreadKey,
+            overId: id,
+            laneKeyByThreadKey,
+            activeOrder: activeKeys,
+          });
+          // Cross-lane and shelf hits stay targets so the feedback can explain them.
+          return target === null || canDrop(target);
+        },
+      });
+    }
     if (source === undefined) return createSidebarCollisionDetection(() => false);
     return createSidebarCollisionDetection(
       (id) => {
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
-        if (target === null) return false;
-        return (
-          planSidebarThreadDrop({
-            activeKey: draggedThreadKey,
-            activeSection: draggedFromSection,
-            activePinned: source.pinnedAt != null,
-            activeSettled: source.settledOverride === "settled",
-            supportsSettlement:
-              serverConfigs.get(source.environmentId)?.environment.capabilities.threadSettlement ===
-              true,
-            target,
-            pinnedOrder: pinnedKeys,
-            pinnedKeysById,
-            reorderableKeys: draggableThreadKeys,
-            activeOrder: activeKeys,
-            activeKeysById,
-            activeReorderableKeys: activeReorderableThreadKeys,
-          }).kind !== "none"
-        );
+        return target !== null && canDrop(target);
       },
       {
         items: sidebarListItems,
@@ -4198,6 +4283,7 @@ export default function Sidebar() {
     );
   }, [
     branchMode,
+    branchLaneRows,
     activeKeysById,
     pinnedKeysById,
     serverConfigs,
@@ -4207,7 +4293,9 @@ export default function Sidebar() {
     draggedFromSection,
     dragActivationY,
     draggableThreadKeys,
+    laneKeyByThreadKey,
     pinnedKeys,
+    branchDragGate,
     sidebarListItems,
     threadByKey,
   ]);
@@ -5503,27 +5591,29 @@ export default function Sidebar() {
                           onDragCancel: () => "Drag cancelled",
                           onDragOver: ({ active, over }) => {
                             if (!over) return;
-                            const overId = String(over.id);
-                            const target = resolveSidebarBranchDropTarget({
+                            const activeKey = String(active.id);
+                            const feedback = resolveSidebarBranchDragFeedback({
                               items: sidebarListItems,
-                              activeKey: String(active.id),
-                              overId,
+                              activeKey,
+                              overId: String(over.id),
                               laneKeyByThreadKey,
                               activeOrder: activeKeys,
                             });
-                            const laneKey =
-                              laneKeyByThreadKey.get(overId) ??
-                              branchLanes.find((lane) => sidebarBranchLaneId(lane.key) === overId)
-                                ?.key;
-                            if (
-                              !target &&
-                              laneKey &&
-                              laneKey !== laneKeyByThreadKey.get(String(active.id))
-                            )
-                              return `Can't move to ${branchLanes.find((lane) => lane.key === laneKey)?.branch ?? "No branch"}. Branch comes from the thread's worktree.`;
-                            return target
-                              ? `${target.section === "pinned" ? "Pin" : target.section === "settled" ? "Settle" : "Move"} thread`
-                              : "Cannot drop here";
+                            if (feedback.rejectedLaneKey !== null) {
+                              const branch =
+                                branchLanes.find((lane) => lane.key === feedback.rejectedLaneKey)
+                                  ?.branch ?? "No branch";
+                              return `Can't move to ${branch}. Branch comes from the thread's worktree.`;
+                            }
+                            const sourceSection = sectionByThreadKey.get(activeKey);
+                            const verb = sourceSection
+                              ? resolveSidebarBranchDragVerb({
+                                  sourceSection,
+                                  targetSection: feedback.target?.section ?? null,
+                                  rejected: false,
+                                })
+                              : null;
+                            return verb ? `${verb} thread` : "Cannot drop here";
                           },
                         },
                       },
@@ -5734,17 +5824,10 @@ export default function Sidebar() {
                                     pinned
                                     count={pinnedThreads.length}
                                     dragOver={dragTargetSection === "pinned"}
+                                    listRef={attachLaneMotion}
                                   >
                                     {pinnedThreads.map((thread) =>
                                       renderThreadRow(thread, "pinned"),
-                                    )}
-                                    {pinnedThreads.length === 0 && (
-                                      <li
-                                        role="presentation"
-                                        className="flex h-9 items-center text-[11px] text-sb-muted"
-                                      >
-                                        Drop to pin
-                                      </li>
                                     )}
                                   </BranchLane>,
                                 );
@@ -5808,6 +5891,7 @@ export default function Sidebar() {
                                             ) ?? "Project",
                                         })}
                                     rejected={rejectedLaneKey === lane.key}
+                                    listRef={attachLaneMotion}
                                     dragOver={
                                       dragState !== null &&
                                       dragOverLaneKey === lane.key &&
@@ -5909,7 +5993,9 @@ export default function Sidebar() {
                                 key="settled-placeholder"
                                 marker="settled-placeholder"
                                 label="Settled"
+                                // Branch mode drops on the shelf header; this hint has no hit area there.
                                 showHint={
+                                  !branchMode &&
                                   from !== null &&
                                   (renderedSettledThreads.length === 0 ||
                                     (from === "settled" &&
@@ -5943,45 +6029,16 @@ export default function Sidebar() {
                   createPortal(
                     <div data-switchboard="sidebar">
                       <DragOverlay dropAnimation={null}>
-                        {draggedThread && (
-                          // A static tooltip: a positioned popup cannot track the overlay's per-frame transform.
-                          <div className="pointer-events-none relative inline-flex">
-                            <div
-                              data-sb-drag-overlay
-                              className={cn(
-                                "inline-flex h-8 items-center gap-2 rounded-lg bg-popover px-2.5 text-[13px] text-popover-foreground shadow-lg",
-                                rejectedLaneKey && "cursor-not-allowed",
-                              )}
-                            >
-                              <StatusGlyph
-                                status={draggedStatus === "failed" ? "error" : draggedStatus}
-                              />
-                              <span className="max-w-[200px] truncate">{draggedThread.title}</span>
-                              <span
-                                className={cn(
-                                  "rounded-[5px] bg-sb-selection px-1 text-[10px] font-medium text-sb-accent-text",
-                                  rejectedLaneKey && "bg-(--state-error)/10 text-(--state-error)",
-                                )}
-                              >
-                                {rejectedLaneKey
-                                  ? "Can't move here"
-                                  : dragTargetSection === "pinned" &&
-                                      dragState?.activeSection !== "pinned"
-                                    ? "Pin"
-                                    : dragTargetSection === "settled"
-                                      ? "Settle"
-                                      : "Move"}
-                              </span>
-                            </div>
-                            {rejectedLaneKey && (
-                              <div
-                                role="tooltip"
-                                className="absolute bottom-full left-0 mb-1 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-popover-foreground text-xs shadow-md/5"
-                              >
-                                Branch comes from the thread's worktree
-                              </div>
-                            )}
-                          </div>
+                        {draggedThread && dragState && (
+                          <SidebarDraggedThreadChip
+                            thread={draggedThread}
+                            wokeAt={threadWokeAt(draggedThread, { now: snoozeNow })}
+                            verb={resolveSidebarBranchDragVerb({
+                              sourceSection: dragState.activeSection,
+                              targetSection: dragTargetSection,
+                              rejected: rejectedLaneKey !== null,
+                            })}
+                          />
                         )}
                       </DragOverlay>
                     </div>,

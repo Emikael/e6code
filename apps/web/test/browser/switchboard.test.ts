@@ -773,6 +773,7 @@ async function startRowDrag(page: Page, source: Locator) {
   await page.mouse.down();
   await page.mouse.move(x + 12, y + 2, { steps: 3 });
   await page.locator("[data-sb-drag-overlay]").waitFor();
+  return { x: x + 12, y: y + 2 };
 }
 
 async function moveDragTo(page: Page, target: Locator, fraction = 0.5, followScroll = false) {
@@ -1086,6 +1087,19 @@ NodeTest.test(
         fixtureThreads(shell).map(({ activeOrderKey: _activeOrderKey, ...thread }) => thread);
       NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
 
+      // Pickup mounts Drop to pin above every lane. Releasing without a
+      // deliberate move must not pin or reorder whatever slid under the pointer.
+      const beforePickup = await readShell();
+      for (const key of ["worktree", "alphaSecond"] as const) {
+        const held = await startRowDrag(page, row(key));
+        await sidebar.getByText("Drop to pin", { exact: true }).waitFor();
+        await page.mouse.move(held.x, held.y + 3);
+        await page.mouse.up();
+        await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      }
+      NodeAssert.deepEqual(await readShell(), beforePickup, "A held pickup must persist no event");
+      NodeAssert.equal(writes.commands.length, 0, "A held pickup must send no command");
+
       const beforeReorder = await readShell();
       const reordered = writes.next("thread.active.reorder");
       await startRowDrag(page, row("alphaSecond"));
@@ -1179,8 +1193,18 @@ NodeTest.test(
       );
 
       // Existing keyboard lifecycle actions still operate on the selected row.
+      // They act on the open thread, so wait for its view before pressing.
+      const openThread = async (key: keyof typeof project.rows) => {
+        await row(key).click();
+        await sidebar
+          .locator(
+            `[data-sb-thread-row="${environmentId}:${project.threadId(key)}"][aria-current="page"]`,
+          )
+          .waitFor();
+        await page.getByRole("heading", { name: project.rows[key].title, exact: true }).waitFor();
+      };
       const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
-      await row("alphaSecond").click();
+      await openThread("alphaSecond");
       const keyboardPin = writes.next("thread.pin");
       await page.keyboard.press(`${mod}+Shift+KeyP`);
       await keyboardPin;
@@ -1196,7 +1220,7 @@ NodeTest.test(
         .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label")));
       NodeAssert.deepEqual(pinOrder, ["Alpha first", "Alpha second"]);
 
-      await row("alphaSecond").click();
+      await openThread("alphaSecond");
       const keyboardSettle = writes.next("thread.settle");
       await page.keyboard.press(`${mod}+Shift+KeyS`);
       await keyboardSettle;
@@ -1220,6 +1244,18 @@ NodeTest.test(
 
       await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
       await row("snoozed").waitFor();
+      // The Snoozed shelf is never a target, and never reads as another branch.
+      const writesBeforeShelfHover = writes.commands.length;
+      await startRowDrag(page, row("worktree"));
+      await overlay.getByText("Move", { exact: true }).waitFor();
+      await moveDragTo(page, row("snoozed"), 0.5, true);
+      // Only a non-target clears the verb; a misread lane would say "Can't move here".
+      await overlay.locator("[data-sb-drag-verb]").waitFor({ state: "detached" });
+      NodeAssert.equal(await sidebar.locator("[data-sb-drop-rejected]").count(), 0);
+      await page.mouse.up();
+      await overlay.waitFor({ state: "detached" });
+      NodeAssert.equal(writes.commands.length, writesBeforeShelfHover);
+
       const wakePinned = writes.next("thread.pin");
       await startRowDrag(page, row("snoozed"));
       await moveDragTo(
@@ -1239,6 +1275,23 @@ NodeTest.test(
       );
       NodeAssert.equal(wokenThread?.snoozedUntil, null);
       NodeAssert.ok(wokenThread?.pinnedAt);
+
+      // With three pins, the Pinned lane itself must not outbid its middle row.
+      const pinnedLane = sidebar.getByRole("group", { name: "Pinned, 3 threads", exact: true });
+      const pinnedOrder = () =>
+        pinnedLane
+          .getByRole("option")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label")));
+      const [firstPin, secondPin, thirdPin] = await pinnedOrder();
+      NodeAssert.ok(firstPin && secondPin && thirdPin);
+      const middleReordered = writes.next("thread.pin.reorder");
+      await overlay.waitFor({ state: "detached" });
+      await startRowDrag(page, pinnedLane.getByRole("option", { name: thirdPin, exact: true }));
+      await moveDragTo(page, pinnedLane.getByRole("option", { name: secondPin, exact: true }));
+      await page.mouse.up();
+      await middleReordered;
+      await overlay.waitFor({ state: "detached" });
+      NodeAssert.deepEqual(await pinnedOrder(), [firstPin, thirdPin, secondPin]);
     } finally {
       await context.close();
     }

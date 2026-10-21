@@ -1,18 +1,11 @@
 import { ProviderDriverKind } from "@e6tools/contracts";
 import { BUILT_IN_THEMES } from "@e6tools/shared/themePalettes";
 import { DndContext } from "@dnd-kit/core";
-import {
-  Ban,
-  CircleCheck,
-  Clock3,
-  MoreHorizontal,
-  Pin,
-  Server,
-  ShieldQuestion,
-} from "lucide-react";
+import { CircleCheck, Clock3, MoreHorizontal, Pin, Server, ShieldQuestion } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import { TooltipProvider } from "~/components/ui/tooltip";
+import { BranchDragChip } from "~/components/sidebar/BranchDragChip";
 import { BranchLane } from "~/components/sidebar/BranchLane";
 import { BranchThreadRow, type BranchThreadRowProps } from "~/components/sidebar/BranchThreadRow";
 import { BranchLabel } from "~/components/sidebar/primitives/BranchLabel";
@@ -419,35 +412,20 @@ export function SwitchboardFixture() {
                   </BranchLane>
                 </ul>
               </DndContext>
+              {/* Separate context: the empty Pinned lane reuses the pinned droppable id. */}
+              <DndContext>
+                <ul aria-label="Fixture drop to pin">
+                  <BranchLane laneKey="fixture:drop-to-pin" branch={null} count={0} pinned />
+                </ul>
+              </DndContext>
               <div className="flex flex-col items-start gap-2">
                 {(["Move", "Pin", "Settle", "Can't move here"] as const).map((verb) => (
-                  <div
+                  <BranchDragChip
                     key={verb}
-                    className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg bg-popover px-2.5 text-popover-foreground shadow-md"
-                  >
-                    <StatusGlyph status="ready" />
-                    <span className="max-w-[200px] truncate text-[13px] font-medium">
-                      Session cookie rotation
-                    </span>
-                    <span
-                      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-[11px] font-medium"
-                      style={
-                        verb === "Can't move here"
-                          ? {
-                              color: "var(--state-error)",
-                              backgroundColor:
-                                "color-mix(in srgb, var(--state-error) 10%, var(--sb-surface))",
-                            }
-                          : {
-                              color: "var(--sb-accent-text)",
-                              backgroundColor: "var(--sb-selection)",
-                            }
-                      }
-                    >
-                      {verb === "Can't move here" && <Ban aria-hidden="true" className="size-3" />}
-                      {verb}
-                    </span>
-                  </div>
+                    status="ready"
+                    title="Session cookie rotation"
+                    verb={verb}
+                  />
                 ))}
               </div>
             </Sample>
