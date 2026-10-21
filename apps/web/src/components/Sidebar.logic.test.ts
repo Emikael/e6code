@@ -25,6 +25,7 @@ import {
   isContextMenuPointerDown,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
+  joinSidebarRowDescription,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
   resolveThreadRowClassName,
@@ -3236,5 +3237,27 @@ describe("groupSidebarThreadsByProject", () => {
     );
     expect(web).toMatchObject({ expanded: false, threadCount: 3, attentionCount: 2 });
     expect(web!.rendered.map((t) => t.id)).toEqual(["w2"]);
+  });
+});
+
+describe("joinSidebarRowDescription", () => {
+  it("reads one sentence per part without doubled stops", () => {
+    expect(joinSidebarRowDescription(["Error", "Turn failed.", null, false, "Codex: GPT-5"])).toBe(
+      "Error. Turn failed. Codex: GPT-5",
+    );
+    expect(joinSidebarRowDescription(["Working", "Reading files…"])).toBe("Working. Reading files");
+  });
+
+  it("keeps the first line of an error, capped", () => {
+    expect(joinSidebarRowDescription(["Error", "\nProvider exited.\n    at run (cli.js:1)"])).toBe(
+      "Error. Provider exited",
+    );
+    expect(joinSidebarRowDescription(["Error", "x".repeat(200)])).toBe(`Error. ${"x".repeat(120)}`);
+  });
+
+  it("keeps question marks that stand for unknown values", () => {
+    expect(joinSidebarRowDescription(["Ready", "Last turn: +? −?"])).toBe(
+      "Ready. Last turn: +? −?",
+    );
   });
 });

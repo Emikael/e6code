@@ -174,6 +174,7 @@ import {
   hasUnseenCompletion,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
+  joinSidebarRowDescription,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
   reduceSidebarProjectScopeMenuState,
@@ -1881,7 +1882,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     const modelDescription = `${providerEntry?.displayName ?? modelInstanceId}: ${modelLabel}`;
     // The option is named by its title alone; everything else it shows is
     // aria-hidden and read from this description instead.
-    const description = [
+    const description = joinSidebarRowDescription([
       branchStatus.label ?? SWITCHBOARD_STATUS[branchStatus.status].label,
       isUnread && "Unseen completion",
       branchStatus.status === "error" && thread.session?.lastError,
@@ -1892,9 +1893,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       diff && `Last turn: +${diff.insertions ?? "?"} −${diff.deletions ?? "?"}`,
       terminalStatus && terminalProcessLabel(terminalProcessCount),
       isRemote && (props.environmentLabel ?? "Remote environment"),
-    ]
-      .filter(Boolean)
-      .join(". ");
+    ]);
     return (
       <li
         data-thread-item
@@ -2229,15 +2228,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         </button>
       );
     const shelfDescription = branchStatus
-      ? [
+      ? joinSidebarRowDescription([
           branchStatus.label ?? SWITCHBOARD_STATUS[branchStatus.status].label,
           props.snoozeWakeLabelText !== null &&
             (props.snoozeWakeLabelText === "now"
               ? "Wakes now"
               : `Wakes in ${props.snoozeWakeLabelText}`),
-        ]
-          .filter(Boolean)
-          .join(". ")
+        ])
       : null;
     return (
       <li

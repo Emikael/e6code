@@ -1390,6 +1390,26 @@ export function resolveSidebarBranchStatus(input: {
   return { status: PILL_STATUS_KIND[pill.label], label: pill.label };
 }
 
+const SIDEBAR_ROW_DESCRIPTION_PART_LENGTH = 120;
+
+/**
+ * Joins what a switchboard row shows into the sentence its `aria-describedby`
+ * reads: one line per part, capped, without trailing stops the joiner would double.
+ */
+export function joinSidebarRowDescription(
+  parts: ReadonlyArray<string | false | null | undefined>,
+): string {
+  return parts
+    .flatMap((part) => {
+      if (!part) return [];
+      const line = (part.trim().split(/\r?\n/u)[0] ?? "")
+        .slice(0, SIDEBAR_ROW_DESCRIPTION_PART_LENGTH)
+        .replace(/[\s.,;:…]+$/u, "");
+      return line ? [line] : [];
+    })
+    .join(". ");
+}
+
 export function resolveProjectStatusIndicator(
   statuses: ReadonlyArray<ThreadStatusPill | null>,
 ): ThreadStatusPill | null {
