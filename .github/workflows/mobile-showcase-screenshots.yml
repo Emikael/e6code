@@ -49,6 +49,9 @@ jobs:
     # Capturing every palette multiplies the device matrix by six, and only the
     # one native build is shared between them.
     timeout-minutes: ${{ inputs.theme == 'all' && 300 || 60 }}
+    env:
+      SHOWCASE_APPEARANCE: ${{ inputs.appearance }}
+      SHOWCASE_THEME: ${{ inputs.theme }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -77,10 +80,19 @@ jobs:
           "$vp_pnpm_bin/pnpm" --version
 
       - name: Capture iOS showcase
-        run: pnpm screenshots:mobile --platform ios --appearance "${{ inputs.appearance }}" --theme "${{ inputs.theme }}"
+        run: |
+          case "$SHOWCASE_APPEARANCE" in
+            both|dark|light) ;;
+            *) echo "::error::appearance must be both, dark, or light" >&2; exit 1 ;;
+          esac
+          case "$SHOWCASE_THEME" in
+            e6-code|e6-chat|grove|ocean|ember|iris|all) ;;
+            *) echo "::error::theme is not a showcase palette" >&2; exit 1 ;;
+          esac
+          pnpm screenshots:mobile --platform ios --appearance "$SHOWCASE_APPEARANCE" --theme "$SHOWCASE_THEME"
 
       - name: Validate App Store Connect assets
-        run: pnpm screenshots:mobile --platform ios --appearance "${{ inputs.appearance }}" --theme "${{ inputs.theme }}" --validate-only
+        run: pnpm screenshots:mobile --platform ios --appearance "$SHOWCASE_APPEARANCE" --theme "$SHOWCASE_THEME" --validate-only
 
       - name: Upload iOS screenshots
         if: always()
@@ -100,6 +112,8 @@ jobs:
     timeout-minutes: ${{ inputs.theme == 'all' && 300 || 60 }}
     env:
       E6_SHOWCASE_ANDROID_ABI: x86_64
+      SHOWCASE_APPEARANCE: ${{ inputs.appearance }}
+      SHOWCASE_THEME: ${{ inputs.theme }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -154,10 +168,19 @@ jobs:
           cores: 8
           ram-size: 4096M
           disable-animations: false
-          script: pnpm screenshots:mobile --platform android --appearance "${{ inputs.appearance }}" --theme "${{ inputs.theme }}"
+          script: |
+            case "$SHOWCASE_APPEARANCE" in
+              both|dark|light) ;;
+              *) echo "::error::appearance must be both, dark, or light" >&2; exit 1 ;;
+            esac
+            case "$SHOWCASE_THEME" in
+              e6-code|e6-chat|grove|ocean|ember|iris|all) ;;
+              *) echo "::error::theme is not a showcase palette" >&2; exit 1 ;;
+            esac
+            pnpm screenshots:mobile --platform android --appearance "$SHOWCASE_APPEARANCE" --theme "$SHOWCASE_THEME"
 
       - name: Validate Google Play assets
-        run: pnpm screenshots:mobile --platform android --appearance "${{ inputs.appearance }}" --theme "${{ inputs.theme }}" --validate-only
+        run: pnpm screenshots:mobile --platform android --appearance "$SHOWCASE_APPEARANCE" --theme "$SHOWCASE_THEME" --validate-only
 
       - name: Upload Android screenshots
         if: always()

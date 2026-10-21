@@ -25,6 +25,9 @@ jobs:
     name: Validate macOS ${{ inputs.arch }} signing
     runs-on: blacksmith-12vcpu-macos-26
     timeout-minutes: 90
+    # Same signing environment as release-desktop.yml. Dispatch this from main:
+    # the environment's deployment branch policy does not include other branches.
+    environment: signing
     defaults:
       run:
         shell: bash

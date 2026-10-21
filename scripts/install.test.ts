@@ -1,17 +1,104 @@
-// @effect-diagnostics nodeBuiltinImport:off - Drives the real shell installer through a PTY and a gated HTTP fixture.
+// @effect-diagnostics nodeBuiltinImport:off - Drives the real shell installer through a PTY and a gated HTTPS fixture.
 import { HostProcessArchitecture, HostProcessPlatform } from "@e6tools/shared/hostProcess";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
-import * as NodeHttp from "node:http";
+import * as NodeHttps from "node:https";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
+const installerPath = NodePath.resolve(import.meta.dirname, "install.sh");
+
+function writeCert(directory: string) {
+  const cert = NodePath.join(directory, "cert.pem");
+  const key = NodePath.join(directory, "key.pem");
+  NodeChildProcess.execFileSync("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-keyout",
+    key,
+    "-out",
+    cert,
+    "-days",
+    "1",
+    "-nodes",
+    "-subj",
+    "/CN=127.0.0.1",
+    "-addext",
+    "subjectAltName=IP:127.0.0.1",
+  ]);
+  return { cert, key };
+}
+
+async function writeCosign(binDir: string) {
+  await NodeFSP.mkdir(binDir, { recursive: true });
+  const script = `#!/bin/sh
+set -eu
+bundle=
+previous=
+blob=
+for argument in "$@"; do
+  if [ "$previous" = "--bundle" ]; then
+    bundle=$argument
+  fi
+  previous=$argument
+  blob=$argument
+done
+[ -n "$bundle" ] && [ -f "$bundle" ] || exit 2
+cmp -s "$blob" "$COSIGN_TRUSTED_CHECKSUMS"
+`;
+  const path = NodePath.join(binDir, "cosign");
+  await NodeFSP.writeFile(path, script, { mode: 0o755 });
+  return path;
+}
+
+const officialReleaseBase = "https://github.com/Emikael/e6code/releases/download";
+
+async function linkCommands(directory: string, names: readonly string[]) {
+  await NodeFSP.mkdir(directory, { recursive: true });
+  for (const name of names) {
+    const source = NodeChildProcess.execFileSync("/bin/sh", ["-c", `command -v ${name}`], {
+      encoding: "utf8",
+    }).trim();
+    await NodeFSP.symlink(source, NodePath.join(directory, name));
+  }
+}
+
+// The installer treats only the real GitHub release host as official. Rewrite
+// those URLs inside curl so the policy can be tested against the local fixture.
+async function writeOfficialCurl(directory: string, port: number) {
+  const realCurl = NodeChildProcess.execFileSync("/bin/sh", ["-c", "command -v curl"], {
+    encoding: "utf8",
+  }).trim();
+  const script = [
+    "#!/bin/sh",
+    "set -eu",
+    'prefix="https://github.com/Emikael/e6code/releases/download"',
+    `local_base="https://127.0.0.1:${port}"`,
+    "count=$#",
+    "i=0",
+    'while [ "$i" -lt "$count" ]; do',
+    '  eval "arg=\\${$((i + 1))}"',
+    '  case "$arg" in',
+    '    "$prefix"*) arg="${local_base}${arg#$prefix}" ;;',
+    "  esac",
+    '  set -- "$@" "$arg"',
+    "  i=$((i + 1))",
+    "done",
+    'shift "$count"',
+    `exec ${JSON.stringify(realCurl)} "$@"`,
+    "",
+  ].join("\n");
+  await NodeFSP.writeFile(NodePath.join(directory, "curl"), script, { mode: 0o755 });
+}
+
 // util-linux's script gives the real installer a terminal without a browser or extra packages.
 describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer terminal", () => {
   it.each([false, true])(
-    "preserves download and install behavior (HTTP failure: %s)",
+    "preserves download and install behavior (download failure: %s)",
     async (fail) => {
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-install-progress-"));
       const version = "1.2.3";
@@ -37,24 +124,31 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
       ]);
       const archive = await NodeFSP.readFile(NodePath.join(root, archiveName));
       const checksum = NodeCrypto.createHash("sha256").update(archive).digest("hex");
-      const server = NodeHttp.createServer((request, response) => {
-        if (request.url?.endsWith("/SHA256SUMS")) {
-          response.end(`${checksum}  ${archiveName}\n`);
-        } else if (fail) {
-          response.writeHead(500).end();
-        } else {
-          response.writeHead(200, { "Content-Length": archive.length });
-          resumeDownload = () => response.end(archive.subarray(Math.floor(archive.length / 2)));
-          response.write(archive.subarray(0, Math.floor(archive.length / 2)));
-        }
-      });
+      const sums = `${checksum}  ${archiveName}\n`;
+      const trustedSums = NodePath.join(root, "trusted-SHA256SUMS");
+      await NodeFSP.writeFile(trustedSums, sums);
+      await writeCosign(NodePath.join(root, "bin-tools"));
+      const { cert, key } = writeCert(root);
+      const server = NodeHttps.createServer(
+        { cert: await NodeFSP.readFile(cert), key: await NodeFSP.readFile(key) },
+        (request, response) => {
+          if (request.url?.endsWith("/SHA256SUMS.bundle")) {
+            response.end("bundle\n");
+          } else if (request.url?.endsWith("/SHA256SUMS")) {
+            response.end(sums);
+          } else if (fail) {
+            response.writeHead(500).end();
+          } else {
+            response.writeHead(200, { "Content-Length": archive.length });
+            resumeDownload = () => response.end(archive.subarray(Math.floor(archive.length / 2)));
+            response.write(archive.subarray(0, Math.floor(archive.length / 2)));
+          }
+        },
+      );
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
-      const installer = NodePath.resolve(import.meta.dirname, "install.sh").replaceAll(
-        "'",
-        "'\\''",
-      );
+      const installer = installerPath.replaceAll("'", "'\\''");
       const child = NodeChildProcess.spawn("script", ["-qec", `sh '${installer}'`, "/dev/null"], {
         env: {
           ...process.env,
@@ -63,7 +157,12 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
           E6CODE_VERSION: version,
           E6CODE_HOME: NodePath.join(root, "home"),
           E6CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
-          E6CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
+          E6CODE_RELEASE_BASE_URL: `https://127.0.0.1:${address.port}`,
+          E6CODE_REQUIRE_SIGNATURE: "",
+          COSIGN_TRUSTED_CHECKSUMS: trustedSums,
+          CURL_CA_BUNDLE: cert,
+          SSL_CERT_FILE: cert,
+          PATH: `${NodePath.join(root, "bin-tools")}:${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -112,4 +211,301 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
       }
     },
   );
+
+  it("rejects a tampered SHA256SUMS whose checksum matches the archive", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-install-tamper-"));
+    const version = "1.2.3";
+    const stem = `e6-${version}-linux-${HostProcessArchitecture.defaultValue()}`;
+    const archiveName = `${stem}.tar.gz`;
+    await NodeFSP.mkdir(NodePath.join(root, stem));
+    await NodeFSP.writeFile(NodePath.join(root, stem, "e6"), "#!/bin/sh\necho 'tampered'\n", {
+      mode: 0o755,
+    });
+    NodeChildProcess.execFileSync("tar", [
+      "-czf",
+      NodePath.join(root, archiveName),
+      "-C",
+      root,
+      stem,
+    ]);
+    const archive = await NodeFSP.readFile(NodePath.join(root, archiveName));
+    const checksum = NodeCrypto.createHash("sha256").update(archive).digest("hex");
+    const tamperedSums = `${checksum}  ${archiveName}\n`;
+    const trustedSums = NodePath.join(root, "trusted-SHA256SUMS");
+    await NodeFSP.writeFile(trustedSums, `${"a".repeat(64)}  ${archiveName}\n`);
+    await writeCosign(NodePath.join(root, "bin-tools"));
+    const { cert, key } = writeCert(root);
+    const server = NodeHttps.createServer(
+      { cert: await NodeFSP.readFile(cert), key: await NodeFSP.readFile(key) },
+      (request, response) => {
+        if (request.url?.endsWith("/SHA256SUMS.bundle")) response.end("bundle\n");
+        else if (request.url?.endsWith("/SHA256SUMS")) response.end(tamperedSums);
+        else {
+          response.writeHead(200, { "Content-Length": archive.length });
+          response.end(archive);
+        }
+      },
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+    let output = "";
+    const child = NodeChildProcess.spawn("sh", [installerPath], {
+      env: {
+        ...process.env,
+        TERM: "dumb",
+        E6CODE_VERSION: version,
+        E6CODE_HOME: NodePath.join(root, "home"),
+        E6CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
+        E6CODE_RELEASE_BASE_URL: `https://127.0.0.1:${address.port}`,
+        E6CODE_REQUIRE_SIGNATURE: "",
+        COSIGN_TRUSTED_CHECKSUMS: trustedSums,
+        CURL_CA_BUNDLE: cert,
+        SSL_CERT_FILE: cert,
+        PATH: `${NodePath.join(root, "bin-tools")}:/usr/bin:/bin`,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    try {
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("close", resolve);
+      });
+      expect(code).not.toBe(0);
+      expect(output).toContain("signature verification failed for SHA256SUMS");
+      expect(output).not.toContain("Installed E6 Code");
+      expect(await NodeFSP.readdir(NodePath.join(root, "home/runtime/versions"))).toEqual([]);
+    } finally {
+      if (child.exitCode === null) child.kill();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a non-default release host when no signature verifier is installed", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-install-skip-"));
+    const version = "1.2.3";
+    const stem = `e6-${version}-linux-${HostProcessArchitecture.defaultValue()}`;
+    const archiveName = `${stem}.tar.gz`;
+    await NodeFSP.mkdir(NodePath.join(root, stem));
+    await NodeFSP.writeFile(NodePath.join(root, stem, "e6"), "#!/bin/sh\necho 'e6'\n", {
+      mode: 0o755,
+    });
+    NodeChildProcess.execFileSync("tar", [
+      "-czf",
+      NodePath.join(root, archiveName),
+      "-C",
+      root,
+      stem,
+    ]);
+    const archive = await NodeFSP.readFile(NodePath.join(root, archiveName));
+    const checksum = NodeCrypto.createHash("sha256").update(archive).digest("hex");
+    const { cert, key } = writeCert(root);
+    const minimalBin = NodePath.join(root, "minimal-bin");
+    await NodeFSP.mkdir(minimalBin);
+    for (const name of [
+      "curl",
+      "tar",
+      "sha256sum",
+      "grep",
+      "sed",
+      "head",
+      "mktemp",
+      "uname",
+      "cat",
+      "mkdir",
+      "ln",
+      "cut",
+      "rm",
+      "mv",
+      "wc",
+      "gzip",
+    ]) {
+      const source = NodeChildProcess.execFileSync("/bin/sh", ["-c", `command -v ${name}`], {
+        encoding: "utf8",
+      }).trim();
+      await NodeFSP.symlink(source, NodePath.join(minimalBin, name));
+    }
+    const server = NodeHttps.createServer(
+      { cert: await NodeFSP.readFile(cert), key: await NodeFSP.readFile(key) },
+      (request, response) => {
+        if (request.url?.endsWith("/SHA256SUMS")) {
+          response.end(`${checksum}  ${archiveName}\n`);
+        } else {
+          response.writeHead(200, { "Content-Length": archive.length });
+          response.end(archive);
+        }
+      },
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+    let output = "";
+    const child = NodeChildProcess.spawn("/bin/sh", [installerPath], {
+      env: {
+        ...process.env,
+        TERM: "dumb",
+        E6CODE_VERSION: version,
+        E6CODE_HOME: NodePath.join(root, "home"),
+        E6CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
+        E6CODE_RELEASE_BASE_URL: `https://127.0.0.1:${address.port}`,
+        E6CODE_REQUIRE_SIGNATURE: "",
+        CURL_CA_BUNDLE: cert,
+        SSL_CERT_FILE: cert,
+        PATH: minimalBin,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    try {
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("close", resolve);
+      });
+      expect(code).not.toBe(0);
+      expect(output).toContain("cannot be skipped");
+      expect(output).not.toContain("Installed E6 Code");
+      expect(output).not.toContain("signature not verified");
+    } finally {
+      if (child.exitCode === null) child.kill();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  async function runOfficial(options: { requireSignature: boolean; withCosign: boolean }) {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-install-official-"));
+    const version = "1.2.3";
+    const stem = `e6-${version}-linux-${HostProcessArchitecture.defaultValue()}`;
+    const archiveName = `${stem}.tar.gz`;
+    await NodeFSP.mkdir(NodePath.join(root, stem));
+    await NodeFSP.writeFile(NodePath.join(root, stem, "e6"), "#!/bin/sh\necho 'e6'\n", {
+      mode: 0o755,
+    });
+    NodeChildProcess.execFileSync("tar", [
+      "-czf",
+      NodePath.join(root, archiveName),
+      "-C",
+      root,
+      stem,
+    ]);
+    const archive = await NodeFSP.readFile(NodePath.join(root, archiveName));
+    const checksum = NodeCrypto.createHash("sha256").update(archive).digest("hex");
+    const { cert, key } = writeCert(root);
+    const minimalBin = NodePath.join(root, "minimal-bin");
+    await linkCommands(minimalBin, [
+      "tar",
+      "sha256sum",
+      "grep",
+      "sed",
+      "head",
+      "mktemp",
+      "uname",
+      "cat",
+      "mkdir",
+      "ln",
+      "cut",
+      "rm",
+      "mv",
+      "wc",
+      "gzip",
+    ]);
+    if (options.withCosign) {
+      const trustedSums = NodePath.join(root, "trusted-SHA256SUMS");
+      await NodeFSP.writeFile(trustedSums, `${checksum}  ${archiveName}\n`);
+      await writeCosign(minimalBin);
+    }
+    const server = NodeHttps.createServer(
+      { cert: await NodeFSP.readFile(cert), key: await NodeFSP.readFile(key) },
+      (request, response) => {
+        if (request.url?.endsWith("/SHA256SUMS.bundle")) {
+          response.writeHead(404).end("missing");
+          return;
+        }
+        if (request.url?.endsWith("/SHA256SUMS")) {
+          response.end(`${checksum}  ${archiveName}\n`);
+          return;
+        }
+        response.writeHead(200, { "Content-Length": archive.length });
+        response.end(archive);
+      },
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+    await writeOfficialCurl(minimalBin, address.port);
+    let output = "";
+    const child = NodeChildProcess.spawn("/bin/sh", [installerPath], {
+      env: {
+        ...process.env,
+        TERM: "dumb",
+        E6CODE_VERSION: version,
+        E6CODE_HOME: NodePath.join(root, "home"),
+        E6CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
+        E6CODE_RELEASE_BASE_URL: officialReleaseBase,
+        E6CODE_REQUIRE_SIGNATURE: options.requireSignature ? "1" : "",
+        COSIGN_TRUSTED_CHECKSUMS: NodePath.join(root, "trusted-SHA256SUMS"),
+        CURL_CA_BUNDLE: cert,
+        SSL_CERT_FILE: cert,
+        PATH: minimalBin,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    try {
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("close", resolve);
+      });
+      return { code, output };
+    } finally {
+      if (child.exitCode === null) child.kill();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  }
+
+  it("warns and continues for an official release when no verifier is installed", async () => {
+    const { code, output } = await runOfficial({ requireSignature: false, withCosign: false });
+    expect(code).toBe(0);
+    expect(output).toContain("signature not verified");
+    expect(output).toContain("https://docs.sigstore.dev/cosign/installation/");
+    expect(output).toContain("https://cli.github.com/");
+    expect(output).toContain("docs/user/install.md#command-line");
+    expect(output).toContain("Installed E6 Code");
+  });
+
+  it("warns and continues when an official release predates signing", async () => {
+    const { code, output } = await runOfficial({ requireSignature: false, withCosign: true });
+    expect(code).toBe(0);
+    expect(output).toContain("signature not verified");
+    expect(output).toContain("no SHA256SUMS.bundle");
+    expect(output).toContain("Installed E6 Code");
+  });
+
+  it("stops when E6CODE_REQUIRE_SIGNATURE=1 and no verifier is installed", async () => {
+    const { code, output } = await runOfficial({ requireSignature: true, withCosign: false });
+    expect(code).not.toBe(0);
+    expect(output).toContain("E6CODE_REQUIRE_SIGNATURE=1");
+    expect(output).not.toContain("Installed E6 Code");
+  });
 });

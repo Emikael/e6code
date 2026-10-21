@@ -291,6 +291,11 @@ jobs:
 
   build:
     name: Package and sign macOS arm64 preview
+    # release-desktop.yml's build job is the signing job and uses the
+    # `signing` environment. This workflow runs on workflow_run from main, so
+    # a deployment branch policy of `main` and `v*` tags still admits it.
+    # The vouch gate above is unchanged: the environment does not decide
+    # which pull request may be signed.
     needs: resolve
     if: needs.resolve.outputs.eligible == 'true'
     concurrency:
