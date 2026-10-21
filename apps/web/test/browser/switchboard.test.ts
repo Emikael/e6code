@@ -1139,6 +1139,16 @@ NodeTest.test(
           (key) => `${environmentId}:${project.id}-${key}`,
         ),
       );
+
+      // A project's own view needs no project prefix; All projects labels each lane with it.
+      const projectPrefix = `${project.title} /`;
+      NodeAssert.equal(await sidebar.getByText(projectPrefix, { exact: true }).count(), 0);
+      await page.goto(`${currentUrl}/`);
+      await page.getByRole("heading", { name: "All projects" }).waitFor();
+      await sidebar
+        .locator(`[data-sb-branch-lane$=":${project.id}:br:feature/alpha"]`)
+        .getByText(projectPrefix, { exact: true })
+        .waitFor();
     } finally {
       if (page) {
         for (const binding of installedBindings) {

@@ -5,6 +5,8 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import {
   groupSidebarThreadsByProject,
   groupSidebarBranchLanes,
+  sidebarRenderedActiveThreads,
+  sidebarVisualThreadOrder,
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   archiveSelectedThreadEntries,
@@ -102,14 +104,15 @@ describe("groupSidebarBranchLanes", () => {
       thread("remote", { environmentId: EnvironmentId.make("remote"), branch: "main" }),
     ];
     const lanes = groupSidebarBranchLanes(threads);
+    // Equal activity falls back to the lane key.
     expect(lanes.map((lane) => lane.key)).toEqual([
-      "environment-local:project-1:wt:/work/a",
+      "environment-local:other:br:main",
       "environment-local:project-1:br:main",
       "environment-local:project-1:none",
-      "environment-local:other:br:main",
+      "environment-local:project-1:wt:/work/a",
       "remote:project-1:br:main",
     ]);
-    expect(lanes[0]).toEqual({
+    expect(lanes.find((lane) => lane.worktreePath !== null)).toEqual({
       key: "environment-local:project-1:wt:/work/a",
       environmentId: localEnvironmentId,
       projectId: ProjectId.make("project-1"),
@@ -118,6 +121,57 @@ describe("groupSidebarBranchLanes", () => {
       threads: threads.slice(0, 2),
     });
     expect(groupSidebarBranchLanes([])).toEqual([]);
+  });
+
+  it("orders lanes without parseable activity by key, whatever the input order", () => {
+    const unparseable = { updatedAt: "not a date", createdAt: "not a date" };
+    const threads = [
+      thread("b", { branch: "beta", ...unparseable }),
+      thread("a", { branch: "alpha", ...unparseable }),
+    ];
+    const keys = (input: SidebarThreadSummary[]) =>
+      groupSidebarBranchLanes(input).map((lane) => lane.branch);
+    expect(keys(threads)).toEqual(["alpha", "beta"]);
+    expect(keys(threads.toReversed())).toEqual(["alpha", "beta"]);
+  });
+
+  it("feeds next/previous the lane order, not the global active order", () => {
+    // Global active order interleaves the branches: a1, b1, a2.
+    const a1 = thread("a1", { branch: "alpha", updatedAt: "2026-03-09T10:00:00.000Z" });
+    const b1 = thread("b1", { branch: "beta", updatedAt: "2026-03-09T12:00:00.000Z" });
+    const a2 = thread("a2", { branch: "alpha", updatedAt: "2026-03-09T09:00:00.000Z" });
+    const active = [a1, b1, a2];
+    const ordered = sidebarVisualThreadOrder({
+      pinned: [thread("pinned")],
+      active: sidebarRenderedActiveThreads({
+        branchLanes: groupSidebarBranchLanes(active),
+        projectGroups: null,
+        active,
+      }),
+      snoozed: [thread("snoozed")],
+      settled: [thread("settled")],
+    }).map((row) => row.id);
+    expect(ordered).toEqual(["pinned", "b1", "a1", "a2", "snoozed", "settled"]);
+    const step = (from: string, direction: "next" | "previous") =>
+      resolveAdjacentThreadId({ threadIds: ordered, currentThreadId: from, direction });
+    expect(step("b1", "next")).toBe("a1");
+    expect(step("a1", "previous")).toBe("b1");
+    expect(step("a2", "next")).toBe("snoozed");
+  });
+
+  it("keeps project groups, then the plain order, outside branch mode", () => {
+    const [x, y, z] = [thread("x"), thread("y"), thread("z")];
+    expect(
+      sidebarRenderedActiveThreads({
+        branchLanes: null,
+        projectGroups: [{ rendered: [z] }, { rendered: [x, y] }],
+        active: [x, y, z],
+      }),
+    ).toEqual([z, x, y]);
+    const active = [x, y, z];
+    expect(sidebarRenderedActiveThreads({ branchLanes: null, projectGroups: null, active })).toBe(
+      active,
+    );
   });
 
   it("puts live lanes first, uses newest activity, and preserves row order within each lane", () => {
@@ -2130,7 +2184,9 @@ describe("formatWorkingDurationLabel", () => {
   it.each([
     [5_000, "00:05"],
     [65_000, "01:05"],
-    [3_600_000, "60:00"],
+    [3_599_000, "59:59"],
+    [3_600_000, "1:00:00"],
+    [(125 * 60 + 3) * 1000, "2:05:03"],
     [-5_000, "00:00"],
     [Number.NaN, "00:00"],
     [Number.POSITIVE_INFINITY, "00:00"],

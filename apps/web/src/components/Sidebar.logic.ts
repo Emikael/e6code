@@ -167,9 +167,39 @@ export function groupSidebarBranchLanes(activeThreads: readonly SidebarThreadSum
     entry.live ||= status === "working" || status === "monitoring";
     entry.timestamp = Math.max(entry.timestamp, getThreadSortTimestamp(thread, "updated_at"));
   }
-  return [...lanes.values()]
-    .sort((a, b) => Number(b.live) - Number(a.live) || b.timestamp - a.timestamp)
-    .map(({ lane }) => lane);
+  return (
+    [...lanes.values()]
+      // Equal or unparseable activity (−∞ − −∞ is NaN) falls back to the lane key.
+      .sort(
+        (a, b) =>
+          Number(b.live) - Number(a.live) ||
+          b.timestamp - a.timestamp ||
+          a.lane.key.localeCompare(b.lane.key),
+      )
+      .map(({ lane }) => lane)
+  );
+}
+
+/** Active rows as drawn: lane by lane in branch mode, by project group when
+ * grouped, otherwise in their sorted order. */
+export function sidebarRenderedActiveThreads<T>(input: {
+  readonly branchLanes: readonly { readonly threads: readonly T[] }[] | null;
+  readonly projectGroups: readonly { readonly rendered: readonly T[] }[] | null;
+  readonly active: readonly T[];
+}): readonly T[] {
+  if (input.branchLanes) return input.branchLanes.flatMap((lane) => lane.threads);
+  return input.projectGroups?.flatMap((group) => group.rendered) ?? input.active;
+}
+
+/** Every rendered row in drawing order. Next/previous, the ⌘1–9 numbering and
+ * Shift-click range select all read this order. */
+export function sidebarVisualThreadOrder<T>(input: {
+  readonly pinned: readonly T[];
+  readonly active: readonly T[];
+  readonly snoozed: readonly T[];
+  readonly settled: readonly T[];
+}): T[] {
+  return [...input.pinned, ...input.active, ...input.snoozed, ...input.settled];
 }
 
 const SIDEBAR_BRANCH_LANE_PREFIX = "sidebar-branch-lane-";
@@ -1198,8 +1228,13 @@ export function resolveWorkingStartedAt(
 
 export function formatWorkingDurationLabel(elapsedMs: number, clock = false): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
-  if (clock)
-    return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  if (clock) {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const minutes = Math.floor(seconds / 60);
+    return minutes < 60
+      ? `${pad(minutes)}:${pad(seconds % 60)}`
+      : `${Math.floor(minutes / 60)}:${pad(minutes % 60)}:${pad(seconds % 60)}`;
+  }
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;

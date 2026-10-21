@@ -187,6 +187,8 @@ import {
   resolveSidebarBranchDropTarget,
   sidebarBranchLaneId,
   sidebarBranchLaneKey,
+  sidebarRenderedActiveThreads,
+  sidebarVisualThreadOrder,
   groupSidebarThreadsByProject,
   type SidebarProjectThreadGroup,
   searchSidebarThreads,
@@ -3421,18 +3423,21 @@ export default function Sidebar() {
   // selection follow what is on screen, like the collapsed shelves.
   const renderedActiveThreads = useMemo(
     () =>
-      branchMode
-        ? branchLanes.flatMap((lane) => lane.threads)
-        : (activeProjectGroups?.flatMap((group) => group.rendered) ?? activeThreads),
+      sidebarRenderedActiveThreads({
+        branchLanes: branchMode ? branchLanes : null,
+        projectGroups: activeProjectGroups,
+        active: activeThreads,
+      }),
     [activeProjectGroups, activeThreads, branchLanes, branchMode],
   );
   const orderedThreads = useMemo(
-    () => [
-      ...pinnedThreads,
-      ...renderedActiveThreads,
-      ...visibleSnoozedThreads,
-      ...renderedSettledThreads,
-    ],
+    () =>
+      sidebarVisualThreadOrder({
+        pinned: pinnedThreads,
+        active: renderedActiveThreads,
+        snoozed: visibleSnoozedThreads,
+        settled: renderedSettledThreads,
+      }),
     [pinnedThreads, renderedActiveThreads, visibleSnoozedThreads, renderedSettledThreads],
   );
   const orderedThreadKeys = useMemo(
