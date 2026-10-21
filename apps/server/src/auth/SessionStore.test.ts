@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId } from "@e6tools/contracts";
 import { expect, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -580,6 +581,33 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(afterReconnect[0]?.lastConnectedAt).not.toBeNull();
       expect(afterReconnect[0]?.lastConnectedAt?.toString()).not.toBe(firstConnectedAt?.toString());
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+
+  it.effect("issues a short-lived websocket ticket that can be used once", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "websocket-ticket",
+        method: "bearer-access-token",
+      });
+      const before = yield* DateTime.now;
+      const websocket = yield* sessions.issueWebSocketToken(issued.sessionId);
+      const lifetimeMs = websocket.expiresAt.epochMilliseconds - before.epochMilliseconds;
+
+      expect(lifetimeMs).toBeLessThanOrEqual(Duration.toMillis(Duration.minutes(5)));
+      expect(lifetimeMs).toBeGreaterThan(Duration.toMillis(Duration.minutes(4)));
+      expect((yield* sessions.verifyWebSocketToken(websocket.token)).sessionId).toBe(
+        issued.sessionId,
+      );
+      expect((yield* Effect.flip(sessions.verifyWebSocketToken(websocket.token)))._tag).toBe(
+        "WebSocketTokenConsumedError",
+      );
+      const issuedAtTheSameInstant = yield* sessions.issueWebSocketToken(issued.sessionId);
+      expect(issuedAtTheSameInstant.token).not.toBe(websocket.token);
+      expect((yield* sessions.verifyWebSocketToken(issuedAtTheSameInstant.token)).sessionId).toBe(
+        issued.sessionId,
+      );
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
   );
 
   it.effect("keeps connected relay sessions visible through expiry and HTTP renewal", () =>

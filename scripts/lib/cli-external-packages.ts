@@ -27,6 +27,7 @@
  */
 export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "node-pty",
+  "@napi-rs/keyring",
   "ffi-rs",
   "@yuuang/",
   "@ff-labs/",

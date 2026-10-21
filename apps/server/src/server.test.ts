@@ -1,3 +1,4 @@
+import { redactSensitiveRequestUrl } from "./auth/requestUrlRedaction.ts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -766,6 +767,7 @@ const buildAppUnderTest = (options?: {
       {
         disableListenLog: true,
         disableLogger: true,
+        middleware: redactSensitiveRequestUrl,
         routerConfig: HTTP_ROUTER_CONFIG,
       },
     ).pipe(

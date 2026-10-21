@@ -1,3 +1,5 @@
+import * as NodeCrypto from "node:crypto";
+
 import {
   AuthSessionId,
   AuthAdministrativeScopes,
@@ -225,6 +227,15 @@ export class WebSocketSessionRevokedError extends Schema.TaggedError<WebSocketSe
   }
 }
 
+export class WebSocketTokenConsumedError extends Schema.TaggedError<WebSocketTokenConsumedError>()(
+  "WebSocketTokenConsumedError",
+  {},
+) {
+  override get message(): string {
+    return "Websocket ticket was already used.";
+  }
+}
+
 export const SessionCredentialInvalidError = Schema.Union([
   MalformedSessionTokenError,
   InvalidSessionTokenSignatureError,
@@ -240,6 +251,7 @@ export const SessionCredentialInvalidError = Schema.Union([
   UnknownWebSocketSessionError,
   WebSocketSessionExpiredError,
   WebSocketSessionRevokedError,
+  WebSocketTokenConsumedError,
 ]);
 export type SessionCredentialInvalidError = typeof SessionCredentialInvalidError.Type;
 export const isSessionCredentialInvalidError = Schema.is(SessionCredentialInvalidError);
@@ -439,6 +451,9 @@ const WebSocketClaims = Schema.Struct({
   v: Schema.Literal(1),
   kind: Schema.Literal("websocket"),
   sid: AuthSessionId,
+  // Distinguishes tickets issued in the same millisecond. Without it they hash
+  // identically and the second is already consumed.
+  jti: Schema.String,
   iat: Schema.Number,
   exp: Schema.Number,
 });
@@ -486,6 +501,7 @@ export const make = Effect.gen(function* () {
   const authSessions = yield* AuthSessions.AuthSessionRepository;
   const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
   const connectedSessionsRef = yield* Ref.make(new Map<AuthSessionId, number>());
+  const consumedWebSocketTokensRef = yield* Ref.make(new Map<string, number>());
   const changesPubSub = yield* PubSub.unbounded<SessionCredentialChange>();
   const cookieInput = {
     mode: serverConfig.mode,
@@ -851,10 +867,14 @@ export const make = Effect.gen(function* () {
     const expiresAt = DateTime.add(issuedAt, {
       milliseconds: Duration.toMillis(input?.ttl ?? DEFAULT_WEBSOCKET_TOKEN_TTL),
     });
+    const jti = yield* crypto.randomUUIDv4.pipe(
+      Effect.mapError((cause) => new WebSocketTokenIssueError({ sessionId, cause })),
+    );
     const claims: WebSocketClaims = {
       v: 1,
       kind: "websocket",
       sid: sessionId,
+      jti,
       iat: issuedAt.epochMilliseconds,
       exp: expiresAt.epochMilliseconds,
     };
@@ -937,6 +957,25 @@ export const make = Effect.gen(function* () {
         sessionId: claims.sid,
         revokedAt: row.value.revokedAt,
       });
+    }
+
+    // Expiry is checked above, so a later call on an expired ticket still reports expiry.
+    const tokenHash = NodeCrypto.createHash("sha256").update(token).digest("base64url");
+    const alreadyUsed = yield* Ref.modify(consumedWebSocketTokensRef, (entries) => {
+      const next = new Map<string, number>();
+      for (const [hash, expiresAtMs] of entries) {
+        if (expiresAtMs > observedAt.epochMilliseconds) {
+          next.set(hash, expiresAtMs);
+        }
+      }
+      if (next.has(tokenHash)) {
+        return [true, next] as const;
+      }
+      next.set(tokenHash, claims.exp);
+      return [false, next] as const;
+    });
+    if (alreadyUsed) {
+      return yield* new WebSocketTokenConsumedError({});
     }
 
     return {

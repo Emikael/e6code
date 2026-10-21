@@ -19,6 +19,7 @@ import {
   DpopFailureReason,
   type DpopFailureReason as DpopFailureReasonType,
 } from "@e6tools/contracts";
+import { redactSensitiveUrl } from "@e6tools/shared/httpObservability";
 import { HostProcessPlatform } from "@e6tools/shared/hostProcess";
 import { encodeOAuthScope } from "@e6tools/shared/oauthScope";
 import { readTailscaleStatus } from "@e6tools/tailscale";
@@ -712,6 +713,7 @@ export const make = Effect.gen(function* () {
             secFetchSite,
             host,
             method: request.method,
+            url: redactSensitiveUrl(request.originalUrl ?? request.url),
           }),
         );
       }

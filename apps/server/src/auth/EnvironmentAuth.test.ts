@@ -684,11 +684,13 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
           url: `/ws?wsTicket=${encodeURIComponent(ticket.ticket)}`,
         }),
       );
+      // A ticket is single-use, so the no-origin upgrade needs its own ticket.
+      const ticketForMissingOrigin = yield* serverAuth.issueWebSocketTicket(cookieSession);
       const ticketWithoutOrigin = yield* serverAuth.authenticateWebSocketUpgrade(
         makePresentedRequest({
           method: "GET",
           upgrade: "websocket",
-          url: `/ws?wsTicket=${encodeURIComponent(ticket.ticket)}`,
+          url: `/ws?wsTicket=${encodeURIComponent(ticketForMissingOrigin.ticket)}`,
         }),
       );
       expect(desktop.sessionId).toBe(cookieSession.sessionId);

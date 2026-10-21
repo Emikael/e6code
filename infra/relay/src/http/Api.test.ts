@@ -585,6 +585,50 @@ describe("relay request tracing", () => {
       }),
   );
 
+  it.effect("redacts a websocket ticket from traced request urls", () =>
+    Effect.gen(function* () {
+      const ticket = "relay-ws-ticket-secret";
+      const spans: Array<Tracer.NativeSpan> = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      const request = HttpServerRequest.fromWeb(
+        new Request(`https://relay.test/ws?wsTicket=${ticket}&keep=1`, { method: "GET" }),
+      );
+      let handlerUrl = "";
+      yield* traceRelayHttpRequestWith(
+        Effect.gen(function* () {
+          const current = yield* HttpServerRequest.HttpServerRequest;
+          handlerUrl = current.url;
+          return HttpServerResponse.empty({ status: 204 });
+        }),
+        Layer.succeed(Tracer.Tracer, tracer),
+      ).pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+        Effect.provideService(
+          Tracer.ParentSpan,
+          Tracer.externalSpan({
+            traceId: "00000000000000000000000000000002",
+            spanId: "0000000000000002",
+            sampled: true,
+          }),
+        ),
+      );
+
+      expect(handlerUrl).toContain(ticket);
+      const full = String(spans[0]?.attributes.get("url.full"));
+      const query = String(spans[0]?.attributes.get("url.query"));
+      expect(full).not.toContain(ticket);
+      expect(query).not.toContain(ticket);
+      expect(query).toContain("wsTicket=[redacted]");
+      expect(query).toContain("keep=1");
+    }),
+  );
+
   it.effect("fails hung requests with a 504 before the client's 10s abort", () =>
     Effect.gen(function* () {
       const spans: Array<Tracer.NativeSpan> = [];

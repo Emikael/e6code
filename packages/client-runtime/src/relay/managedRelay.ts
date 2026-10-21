@@ -29,6 +29,7 @@ import {
   type RelayProtectedError as RelayProtectedErrorType,
   RelayUnregisterDeviceEndpoint,
 } from "@e6tools/contracts/relay";
+import { redactSensitiveUrl } from "@e6tools/shared/httpObservability";
 import { encodeOAuthScope, oauthScopeSetEquals } from "@e6tools/shared/oauthScope";
 import { decodeRelayJwt } from "@e6tools/shared/relayJwt";
 import { withRelayClientTracing } from "@e6tools/shared/relayTracing";
@@ -617,7 +618,7 @@ export const make = Effect.fn("ManagedRelayClient.make")(function* (
       "relay.client_id": options.clientId,
       "relay.scopes": input.scopes.join(" "),
       "http.request.method": input.target.method,
-      "url.full": input.target.url,
+      "url.full": redactSensitiveUrl(input.target.url),
     });
     const thumbprint = yield* signer.thumbprint;
     const token = yield* obtainAccessToken({
