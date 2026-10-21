@@ -260,6 +260,9 @@ NodeTest.before(
       backend.once("exit", (code, signal) =>
         recordBackendLog(`[exit] code=${code} signal=${signal}`),
       );
+      // If the runner exits before teardown finishes, the backend goes with it.
+      const spawned = backend;
+      process.once("exit", () => spawned.kill("SIGKILL"));
       await new Promise<void>((ready, reject) => {
         let log = "";
         const timeout = setTimeout(
@@ -284,18 +287,7 @@ NodeTest.before(
           reject(new Error(`Test server exited ${code}: ${log}`));
         });
       });
-      const dispatch = async (command: object) => {
-        const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(command),
-        });
-        NodeAssert.equal(response.status, 200, await response.text());
-      };
-      await dispatch({
+      await dispatchFixture({
         type: "project.create",
         commandId: "qa-project-create",
         projectId: "qa-project",
@@ -303,7 +295,7 @@ NodeTest.before(
         workspaceRoot: workspace,
         createdAt: fixedTime,
       });
-      await dispatch({
+      await dispatchFixture({
         type: "thread.create",
         commandId: "qa-thread-create",
         threadId: "qa-thread",
@@ -321,10 +313,7 @@ NodeTest.before(
       await browser?.close().catch(() => {});
       await Promise.all(frontends.map((server) => server.close().catch(() => {})));
       frontends.length = 0;
-      if (backend && backend.exitCode === null) {
-        backend.kill("SIGKILL");
-      }
-      backend = undefined;
+      await stopBackend();
       if (sandbox) await NodeFSP.rm(sandbox, { recursive: true, force: true }).catch(() => {});
       throw error;
     }
@@ -332,16 +321,31 @@ NodeTest.before(
   { timeout: 180_000 },
 );
 
+/** Stops the backend this suite spawned, by its handle, without ever waiting on it forever. */
+async function stopBackend() {
+  const child = backend;
+  backend = undefined;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((done) => child.once("exit", () => done()));
+  child.kill("SIGTERM");
+  const escalate = setTimeout(() => child.kill("SIGKILL"), 10_000);
+  await exited;
+  clearTimeout(escalate);
+}
+
 NodeTest.after(async () => {
-  await browser?.close();
-  await Promise.all(frontends.map((server) => server.close()));
-  if (backend && backend.exitCode === null) {
-    const exited = new Promise<void>((done) => backend!.once("exit", () => done()));
-    backend.kill("SIGTERM");
-    await exited;
-  }
+  // Every step runs even when an earlier one fails, so a broken browser or
+  // dev server can't leave the backend running and the suite waiting on it.
+  const results = await Promise.allSettled([
+    browser?.close(),
+    ...frontends.map((server) => server.close()),
+    stopBackend(),
+  ]);
   await backendLogWrite;
   if (sandbox) await NodeFSP.rm(sandbox, { recursive: true, force: true });
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
 });
 
 NodeTest.test(
@@ -683,19 +687,38 @@ NodeTest.test(
   },
 );
 
+/** Calls the test backend: a GET, or a JSON POST when given a body. */
+async function backendRequest(path: string, body?: object): Promise<Response> {
+  const send = () =>
+    fetch(
+      `http://127.0.0.1:${backendPort}${path}`,
+      body === undefined
+        ? { headers: { Authorization: `Bearer ${token}` } }
+        : {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+    );
+  try {
+    return await send();
+  } catch (error) {
+    // A pooled socket the server already closed fails before the request
+    // lands; one retry on a fresh socket covers it. Anything else is real.
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code = cause instanceof Error && "code" in cause ? cause.code : undefined;
+    if (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET") throw error;
+    return send();
+  }
+}
+
 async function dispatchFixture(command: object) {
-  const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(command),
-  });
+  const response = await backendRequest("/api/orchestration/dispatch", command);
   NodeAssert.equal(response.status, 200, await response.text());
 }
 
 async function readShell(): Promise<OrchestrationShellSnapshot> {
-  const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/shell`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await backendRequest("/api/orchestration/shell");
   NodeAssert.equal(response.status, 200);
   return response.json();
 }
@@ -1685,22 +1708,11 @@ NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000
     ["strip-4", "Strip Four"],
     ["strip-5", "Strip Five"],
   ] as const;
-  const dispatch = async (command: object) => {
-    const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(command),
-    });
-    NodeAssert.equal(response.status, 200, await response.text());
-  };
   for (const [id, title] of stripProjects) {
     const root = NodePath.join(sandbox, id);
     await NodeFSP.mkdir(root, { recursive: true });
     await exec("git", ["init", "--quiet", root]);
-    await dispatch({
+    await dispatchFixture({
       type: "project.create",
       commandId: `qa-${id}-create`,
       projectId: id,
