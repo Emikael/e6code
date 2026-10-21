@@ -25,14 +25,14 @@ afterwards, that directory is not on your `PATH` yet; the installer prints the
 line to add. Set `E6CODE_CHANNEL=nightly` to install the nightly train, or
 `E6CODE_VERSION` to pin an exact version.
 
-The installer checks the archive against `SHA256SUMS`, then checks that file's
-Sigstore signature. Install [Cosign v3](https://docs.sigstore.dev/cosign/installation/)
-or the [GitHub CLI](https://cli.github.com/) first. Cosign v3 reads the bundle
-this release workflow publishes. `cosign` verifies
-`SHA256SUMS.bundle` and does not need `gh auth`. Without either tool, the
-official GitHub release stops unless you set `E6CODE_SKIP_SIGNATURE_VERIFY=1`,
-which prints a warning and trusts the checksum file alone. A custom
-`E6CODE_RELEASE_BASE_URL` cannot skip the check.
+The installer checks the archive against `SHA256SUMS`. When
+[Cosign v3](https://docs.sigstore.dev/cosign/installation/) or the
+[GitHub CLI](https://cli.github.com/) is installed, it then checks the
+signature and stops if that check fails. Cosign v3 reads `SHA256SUMS.bundle`
+and does not need `gh auth`. With neither tool, an official GitHub release
+prints a warning and continues after the checksum. Set
+`E6CODE_REQUIRE_SIGNATURE=1` to refuse that install. A custom
+`E6CODE_RELEASE_BASE_URL` cannot continue without a successful verification.
 
 To verify a download yourself, replace the version and archive name
 (`e6-<version>-linux-x64.tar.gz`, `e6-<version>-darwin-arm64.tar.gz`, or
@@ -63,9 +63,11 @@ gh attestation verify "${archive}" --repo Emikael/e6code \
 ```
 
 The signature is from `.github/workflows/release.yml` on a tag or on `main`.
-Releases cut before this check was added have no bundle; use the skip variable
-above for those official releases only. Preview builds dispatched from a branch
-other than `main` are not signed by an identity the installer accepts.
+Releases cut before signing have no bundle and no attestation. On the official
+GitHub host the installer warns and continues after `SHA256SUMS` matches;
+`E6CODE_REQUIRE_SIGNATURE=1` stops instead. Preview builds dispatched from a
+branch other than `main` are not signed by an identity the installer accepts,
+and that failed check stops the install when cosign or `gh` is available.
 
 | Task                                             | Command                                                   |
 | ------------------------------------------------ | --------------------------------------------------------- |

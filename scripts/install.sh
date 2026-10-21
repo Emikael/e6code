@@ -13,11 +13,9 @@
 #   E6CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub).
 #                            Signature verification cannot be skipped for a
 #                            non-default host.
-#   E6CODE_SKIP_SIGNATURE_VERIFY
-#                            Set to 1 to install an official GitHub release when
-#                            neither cosign nor gh is installed. Prints a warning.
-#                            Ignored when a verifier is installed, and rejected
-#                            when E6CODE_RELEASE_BASE_URL is not the official host.
+#   E6CODE_REQUIRE_SIGNATURE Set to 1 to refuse an official GitHub release when
+#                            cosign and gh are both missing, or when the release
+#                            has no SHA256SUMS.bundle and no attestation.
 #
 # The archive is unpacked into $E6CODE_HOME/runtime/versions/<version>, the
 # same layout `e6 service install` uses, so the service reuses this download
@@ -37,6 +35,7 @@ fi
 # Preview builds dispatched from any other branch do not match.
 release_identity_regexp='^https://github\.com/Emikael/e6code/\.github/workflows/release\.yml@refs/(tags/.+|heads/main)$'
 release_oidc_issuer="https://token.actions.githubusercontent.com"
+manual_verify_url="https://github.com/Emikael/e6code/blob/main/docs/user/install.md#command-line"
 if [ -n "${E6CODE_HOME:-}" ]; then
   e6_home="$E6CODE_HOME"
 else
@@ -172,50 +171,79 @@ else
   fail "sha256sum or shasum is required"
 fi
 
-# Checksum file first (cosign verify-blob of SHA256SUMS.bundle). That works
-# without gh auth. If cosign is absent, gh attestation verify checks the
-# archive's build provenance. A present verifier always runs; the skip env
-# only covers a missing tool on the official GitHub host.
+# A verifier that is installed always runs. A bad signature aborts. A missing
+# bundle or attestation on the official host warns and continues, because
+# releases cut before signing have neither. E6CODE_REQUIRE_SIGNATURE=1 makes
+# that a failure. A non-default release host cannot continue without a
+# successful verification.
+warn_signature_not_verified() {
+  printf '%s\n' \
+    "e6 install: WARNING: signature not verified. This install only checked SHA256SUMS." \
+    "  $1" \
+    "  Install Cosign v3: https://docs.sigstore.dev/cosign/installation/" \
+    "  Or install the GitHub CLI: https://cli.github.com/" \
+    "  Manual verification: ${manual_verify_url}" \
+    "  Set E6CODE_REQUIRE_SIGNATURE=1 to refuse an install that cannot be verified." >&2
+}
+continue_without_signature() {
+  if [ "$official_release" != true ]; then
+    fail "$2"
+  fi
+  if [ "${E6CODE_REQUIRE_SIGNATURE:-}" = "1" ]; then
+    fail "$1"
+  fi
+  warn_signature_not_verified "$3"
+}
 verify_signature() {
   if command -v cosign >/dev/null 2>&1; then
     step "Verifying the release signature..."
     bundle_status=0
     fetch "${base_url}/v${version}/SHA256SUMS.bundle" "${staging}/SHA256SUMS.bundle" || bundle_status=$?
-    if [ "$bundle_status" -ne 0 ]; then
+    if [ "$bundle_status" -eq 44 ]; then
+      rm -f "${staging}/SHA256SUMS.bundle"
+    elif [ "$bundle_status" -ne 0 ]; then
       fail "could not download the release signature bundle (SHA256SUMS.bundle)"
-    fi
-    if ! cosign verify-blob \
+    elif ! cosign verify-blob \
       --new-bundle-format \
       --certificate-identity-regexp "$release_identity_regexp" \
       --certificate-oidc-issuer "$release_oidc_issuer" \
       --bundle "${staging}/SHA256SUMS.bundle" \
       "${staging}/SHA256SUMS"; then
       fail "signature verification failed for SHA256SUMS"
+    else
+      return 0
     fi
-    return 0
   fi
   if command -v gh >/dev/null 2>&1; then
     step "Verifying the release attestation..."
-    if ! gh attestation verify "${staging}/${archive}" \
+    attestation_log="${staging}/attestation.log"
+    if gh attestation verify "${staging}/${archive}" \
       --repo "$repo" \
       --signer-workflow "${repo}/.github/workflows/release.yml" \
       --cert-identity-regex "$release_identity_regexp" \
-      --cert-oidc-issuer "$release_oidc_issuer"; then
+      --cert-oidc-issuer "$release_oidc_issuer" >"$attestation_log" 2>&1; then
+      rm -f "$attestation_log"
+      return 0
+    fi
+    if grep -i -q 'no attestations found' "$attestation_log"; then
+      rm -f "$attestation_log"
+    else
+      cat "$attestation_log" >&2
+      rm -f "$attestation_log"
       fail "attestation verification failed for ${archive}"
     fi
+  fi
+  if command -v cosign >/dev/null 2>&1 || command -v gh >/dev/null 2>&1; then
+    continue_without_signature \
+      "this release has no SHA256SUMS.bundle or GitHub attestation, and E6CODE_REQUIRE_SIGNATURE=1 is set." \
+      "this release has no SHA256SUMS.bundle or GitHub attestation. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped." \
+      "This release has no SHA256SUMS.bundle and no GitHub attestation. Releases cut before signing still match SHA256SUMS only."
     return 0
   fi
-  if [ "$official_release" = true ] && [ "${E6CODE_SKIP_SIGNATURE_VERIFY:-}" = "1" ]; then
-    printf '%s\n' \
-      "e6 install: WARNING: signature verification skipped because E6CODE_SKIP_SIGNATURE_VERIFY=1." \
-      "  SHA256SUMS was downloaded from the same host as the archive and was not authenticated." \
-      "  Install cosign (https://docs.sigstore.dev/cosign/installation/) or the GitHub CLI to verify releases." >&2
-    return 0
-  fi
-  if [ "$official_release" = true ]; then
-    fail "no signature verifier found. Install cosign or the GitHub CLI (gh), then re-run. To install the official GitHub release without verifying its signature, set E6CODE_SKIP_SIGNATURE_VERIFY=1."
-  fi
-  fail "no signature verifier found. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped. Install cosign or the GitHub CLI (gh)."
+  continue_without_signature \
+    "E6CODE_REQUIRE_SIGNATURE=1 is set and neither cosign nor gh is installed. Install Cosign v3 (https://docs.sigstore.dev/cosign/installation/) or the GitHub CLI (https://cli.github.com/). Manual verification: ${manual_verify_url}" \
+    "no signature verifier found. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped. Install cosign or the GitHub CLI (gh)." \
+    "Neither cosign nor the GitHub CLI (gh) is installed."
 }
 
 channel="${E6CODE_CHANNEL:-${E6CODE_CHANNEL:-stable}}"

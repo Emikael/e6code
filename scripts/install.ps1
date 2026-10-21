@@ -12,11 +12,9 @@
 #   E6CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub).
 #                            Signature verification cannot be skipped for a
 #                            non-default host.
-#   E6CODE_SKIP_SIGNATURE_VERIFY
-#                            Set to 1 to install an official GitHub release when
-#                            neither cosign nor gh is installed. Prints a warning.
-#                            Ignored when a verifier is installed, and rejected
-#                            when E6CODE_RELEASE_BASE_URL is not the official host.
+#   E6CODE_REQUIRE_SIGNATURE Set to 1 to refuse an official GitHub release when
+#                            cosign and gh are both missing, or when the release
+#                            has no SHA256SUMS.bundle and no attestation.
 #
 # The archive is unpacked into $E6CODE_HOME\runtime\versions\<version>, the
 # same layout `e6 service install` uses, so the service reuses this download.
@@ -36,6 +34,7 @@ $officialRelease = $baseUrl -eq $officialBase
 # workflow_dispatch (how nightlies and most stables are cut) are refs/heads/main.
 $releaseIdentityRegexp = '^https://github\.com/Emikael/e6code/\.github/workflows/release\.yml@refs/(tags/.+|heads/main)$'
 $releaseOidcIssuer = "https://token.actions.githubusercontent.com"
+$manualVerifyUrl = "https://github.com/Emikael/e6code/blob/main/docs/user/install.md#command-line"
 
 function Assert-Https([string] $uri) {
   $parsed = $uri -as [Uri]
@@ -65,49 +64,99 @@ function Invoke-SignatureTool([string] $tool, [string[]] $toolArgs, [string] $fa
   if ($LASTEXITCODE -ne 0) { Fail $failure }
 }
 
-# Checksum file first (cosign verify-blob of SHA256SUMS.bundle). That works
-# without gh auth. If cosign is absent, gh attestation verify checks the
-# archive. A present verifier always runs; the skip env only covers a missing
-# tool on the official GitHub host.
+# A verifier that is installed always runs. A bad signature aborts. A missing
+# bundle or attestation on the official host warns and continues, because
+# releases cut before signing have neither. E6CODE_REQUIRE_SIGNATURE=1 makes
+# that a failure. A non-default release host cannot continue without a
+# successful verification.
+function Test-MissingReleaseAsset([string] $uri, [string] $destination) {
+  try {
+    Fetch $uri $destination
+    return $false
+  } catch {
+    $status = 0
+    $response = $_.Exception.Response
+    if ($null -ne $response -and $null -ne $response.StatusCode) {
+      $status = [int]$response.StatusCode
+    }
+    if ($status -eq 404 -or $_.Exception.Message -match '\b404\b') {
+      if (Test-Path $destination) { Remove-Item $destination -Force -ErrorAction SilentlyContinue }
+      return $true
+    }
+    throw
+  }
+}
+function Write-SignatureNotVerified([string] $detail) {
+  Write-Warning ((
+    "e6 install: signature not verified. This install only checked SHA256SUMS.",
+    "  $detail",
+    "  Install Cosign v3: https://docs.sigstore.dev/cosign/installation/",
+    "  Or install the GitHub CLI: https://cli.github.com/",
+    "  Manual verification: $manualVerifyUrl",
+    "  Set E6CODE_REQUIRE_SIGNATURE=1 to refuse an install that cannot be verified."
+  ) -join "`n")
+}
+function Continue-WithoutSignature([string] $requireMessage, [string] $customHostMessage, [string] $detail) {
+  if (-not $officialRelease) { Fail $customHostMessage }
+  if ($env:E6CODE_REQUIRE_SIGNATURE -eq "1") { Fail $requireMessage }
+  Write-SignatureNotVerified $detail
+}
+function Test-GhAttestation([string] $tool, [string] $archivePath) {
+  if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+  }
+  $log = & $tool attestation verify $archivePath `
+    --repo $repo `
+    --signer-workflow "$repo/.github/workflows/release.yml" `
+    --cert-identity-regex $releaseIdentityRegexp `
+    --cert-oidc-issuer $releaseOidcIssuer 2>&1 | Out-String
+  if ($LASTEXITCODE -eq 0) { return "ok" }
+  if ($log -match 'no attestations found') { return "missing" }
+  Write-Host $log
+  return "failed"
+}
 function Confirm-ReleaseSignature([string] $staging, [string] $archive) {
   $cosign = Get-Command cosign -ErrorAction SilentlyContinue
+  $gh = Get-Command gh -ErrorAction SilentlyContinue
   if ($cosign) {
     Step "Verifying the release signature..."
+    $bundle = Join-Path $staging "SHA256SUMS.bundle"
+    $bundleMissing = $false
     try {
-      Fetch "$baseUrl/v$version/SHA256SUMS.bundle" (Join-Path $staging "SHA256SUMS.bundle")
+      $bundleMissing = Test-MissingReleaseAsset "$baseUrl/v$version/SHA256SUMS.bundle" $bundle
     } catch {
       Fail "could not download the release signature bundle (SHA256SUMS.bundle)"
     }
-    Invoke-SignatureTool $cosign.Source @(
-      "verify-blob",
-      "--new-bundle-format",
-      "--certificate-identity-regexp", $releaseIdentityRegexp,
-      "--certificate-oidc-issuer", $releaseOidcIssuer,
-      "--bundle", (Join-Path $staging "SHA256SUMS.bundle"),
-      (Join-Path $staging "SHA256SUMS")
-    ) "signature verification failed for SHA256SUMS"
-    return
+    if (-not $bundleMissing) {
+      Invoke-SignatureTool $cosign.Source @(
+        "verify-blob",
+        "--new-bundle-format",
+        "--certificate-identity-regexp", $releaseIdentityRegexp,
+        "--certificate-oidc-issuer", $releaseOidcIssuer,
+        "--bundle", $bundle,
+        (Join-Path $staging "SHA256SUMS")
+      ) "signature verification failed for SHA256SUMS"
+      return
+    }
   }
-  $gh = Get-Command gh -ErrorAction SilentlyContinue
   if ($gh) {
     Step "Verifying the release attestation..."
-    Invoke-SignatureTool $gh.Source @(
-      "attestation", "verify", (Join-Path $staging $archive),
-      "--repo", $repo,
-      "--signer-workflow", "$repo/.github/workflows/release.yml",
-      "--cert-identity-regex", $releaseIdentityRegexp,
-      "--cert-oidc-issuer", $releaseOidcIssuer
-    ) "attestation verification failed for $archive"
+    switch (Test-GhAttestation $gh.Source (Join-Path $staging $archive)) {
+      "ok" { return }
+      "failed" { Fail "attestation verification failed for $archive" }
+    }
+  }
+  if ($cosign -or $gh) {
+    Continue-WithoutSignature `
+      "this release has no SHA256SUMS.bundle or GitHub attestation, and E6CODE_REQUIRE_SIGNATURE=1 is set." `
+      "this release has no SHA256SUMS.bundle or GitHub attestation. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped." `
+      "This release has no SHA256SUMS.bundle and no GitHub attestation. Releases cut before signing still match SHA256SUMS only."
     return
   }
-  if ($officialRelease -and $env:E6CODE_SKIP_SIGNATURE_VERIFY -eq "1") {
-    Write-Warning "e6 install: signature verification skipped because E6CODE_SKIP_SIGNATURE_VERIFY=1. SHA256SUMS was downloaded from the same host as the archive and was not authenticated. Install cosign (https://docs.sigstore.dev/cosign/installation/) or the GitHub CLI to verify releases."
-    return
-  }
-  if ($officialRelease) {
-    Fail "no signature verifier found. Install cosign or the GitHub CLI (gh), then re-run. To install the official GitHub release without verifying its signature, set E6CODE_SKIP_SIGNATURE_VERIFY=1."
-  }
-  Fail "no signature verifier found. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped. Install cosign or the GitHub CLI (gh)."
+  Continue-WithoutSignature `
+    "E6CODE_REQUIRE_SIGNATURE=1 is set and neither cosign nor gh is installed. Install Cosign v3 (https://docs.sigstore.dev/cosign/installation/) or the GitHub CLI (https://cli.github.com/). Manual verification: $manualVerifyUrl" `
+    "no signature verifier found. E6CODE_RELEASE_BASE_URL is not the official GitHub release host, so signature verification cannot be skipped. Install cosign or the GitHub CLI (gh)." `
+    "Neither cosign nor the GitHub CLI (gh) is installed."
 }
 
 $terminal = -not [Console]::IsErrorRedirected -and $env:TERM -ne "dumb"
