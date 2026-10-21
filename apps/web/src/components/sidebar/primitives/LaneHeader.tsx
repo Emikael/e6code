@@ -48,7 +48,8 @@ export function LaneHeader({
           <BranchLabel branch={branch} worktree={worktree} lane={!onToggle} />
         </>
       )}
-      <CountBadge count={count} label="threads" />
+      {/* The lane group or toggle label already states the count. */}
+      <CountBadge count={count} label="threads" decorative />
     </>
   );
   return (

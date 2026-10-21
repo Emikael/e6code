@@ -36,6 +36,8 @@ export interface SidebarThreadHeaderProps {
    * existing header controls so a caller that omits the prop is unchanged.
    */
   showProjectControls?: boolean;
+  /** Switchboard names the palette button by its content (visible key + hidden text). */
+  switchboard?: boolean;
   /** The project scope combobox, rendered as the first icon of the group. */
   projectScope: ReactNode;
   onNewProject: () => void;
@@ -63,6 +65,7 @@ export function SidebarThreadHeader({
   searchFieldRef,
   hasProjects,
   showProjectControls = true,
+  switchboard = false,
   projectScope,
   onNewProject,
   onNewThread,
@@ -138,12 +141,17 @@ export function SidebarThreadHeader({
               render={
                 <button
                   type="button"
-                  aria-label={`Open command palette (${commandPaletteShortcutLabel})`}
+                  aria-label={
+                    switchboard
+                      ? undefined
+                      : `Open command palette (${commandPaletteShortcutLabel})`
+                  }
                   onClick={onOpenCommandPalette}
                   className="shrink-0 cursor-pointer rounded outline-hidden ring-ring focus-visible:ring-2 pointer-coarse:hidden"
                 />
               }
             >
+              {switchboard && <span className="sr-only">Open command palette </span>}
               <Kbd className="bg-sidebar-control-surface text-sidebar-muted-foreground tabular-nums">
                 {commandPaletteShortcutLabel}
               </Kbd>

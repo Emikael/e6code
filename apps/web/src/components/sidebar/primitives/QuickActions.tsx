@@ -19,9 +19,12 @@ type QuickActionVariant = "default" | "row";
 export function QuickActionButton({
   action: { label, icon: Icon, onClick, disabled, pressed },
   variant = "default",
+  tabIndex,
 }: {
   action: QuickAction;
   variant?: QuickActionVariant;
+  /** -1 inside a row option, which may not hold tab stops. */
+  tabIndex?: number;
 }) {
   return (
     <Tooltip>
@@ -34,6 +37,7 @@ export function QuickActionButton({
         )}
         aria-label={label}
         aria-pressed={pressed}
+        tabIndex={tabIndex}
         onClick={onClick}
       >
         <Icon

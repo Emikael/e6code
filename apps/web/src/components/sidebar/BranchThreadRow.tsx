@@ -42,9 +42,6 @@ export function BranchThreadRow({
           className="pointer-events-none absolute top-[3px] bottom-[3px] -left-[10px] w-0.5 rounded-full bg-sb-accent"
         />
       )}
-      <span className="absolute top-[7px] -left-[17px] flex size-4 items-center justify-center bg-sb-surface">
-        <StatusGlyph status={status} />
-      </span>
       <div className="flex h-[18px] min-w-0 items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center truncate text-(length:--sb-text-body) leading-[18px] font-medium">
           {title}
@@ -84,6 +81,10 @@ export function BranchThreadRow({
           className="mt-0.5 h-4 leading-4"
         />
       ) : null}
+      {/* Last in the DOM so the row's name starts with its title; placed on the lane line. */}
+      <span className="absolute top-[7px] -left-[17px] flex size-4 items-center justify-center bg-sb-surface">
+        <StatusGlyph status={status} />
+      </span>
     </div>
   );
 }

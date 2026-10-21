@@ -18,6 +18,7 @@ import {
   type Locator,
   type Page,
 } from "playwright-core";
+import type { AxeResults } from "axe-core";
 import { createServer, type ViteDevServer } from "vite-plus";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -562,6 +563,8 @@ NodeTest.test(
       await projectTile.evaluate((button) => {
         const badge = document.createElement("span");
         badge.setAttribute("data-badge-specimen", "");
+        // Like the production badge: the tile's name comes from its hidden label.
+        badge.setAttribute("aria-hidden", "true");
         badge.textContent = "1";
         badge.className =
           "absolute -right-0.5 -bottom-0.5 h-4 min-w-4 rounded-full px-1 text-center font-mono text-(length:--sb-text-meta) leading-4 font-semibold tabular-nums ring-2 ring-sb-rail-bg";
@@ -797,6 +800,11 @@ function dropIndicatorOn(row: Locator) {
   return row.locator("xpath=..").locator(":scope > [data-sb-drop-indicator]");
 }
 
+/** Rows are named by their content, which starts with the title. */
+function optionName(title: string) {
+  return new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+}
+
 async function moveDragTo(page: Page, target: Locator, fraction = 0.5, followScroll = false) {
   // Sortable rows shift to preview the drop, so only re-aim at targets that
   // move because the list auto-scrolled near its edge.
@@ -944,6 +952,61 @@ async function openBranchProject(
   return page.locator('[data-switchboard="sidebar"]').first();
 }
 
+/** Critical and serious axe violations inside `selector`, as readable lines. */
+async function seriousAxeViolations(page: Page, selector: string): Promise<string[]> {
+  await page.addScriptTag({
+    path: NodeURL.fileURLToPath(import.meta.resolve("axe-core/axe.min.js")),
+  });
+  const violations = await page.evaluate(async (scope) => {
+    const { axe } = window as unknown as {
+      axe: { run: (context: Element, options: object) => Promise<AxeResults> };
+    };
+    const root = document.querySelector(scope);
+    if (!root) throw new Error(`No axe scope ${scope}`);
+    const result = await axe.run(root, { resultTypes: ["violations"] });
+    return result.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      nodes: violation.nodes.map((node) => {
+        const related = [...node.any, ...node.all, ...node.none]
+          .flatMap((check) => check.relatedNodes ?? [])
+          .slice(0, 3)
+          .map((relatedNode) => relatedNode.html.slice(0, 160));
+        return `${node.html.slice(0, 160)} ${node.failureSummary ?? ""} Related: ${related.join(" | ")}`.replace(
+          /\s+/g,
+          " ",
+        );
+      }),
+    }));
+  }, selector);
+  return violations
+    .filter(({ impact }) => impact === "critical" || impact === "serious")
+    .flatMap(({ id, impact, nodes }) => nodes.map((node) => `${impact} ${id} ${node}`));
+}
+
+NodeTest.test(
+  "branch lanes have no critical or serious axe violations",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-branch-a11y");
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+      await sidebar.getByText("Settled thread", { exact: true }).waitFor();
+      // Audit the resting sidebar: hovering a row reveals its actions (tab stops are C10).
+      await page.mouse.move(1000, 450);
+      const scope = '[data-switchboard="sidebar"]';
+      NodeAssert.deepEqual(await seriousAxeViolations(page, scope), []);
+    } finally {
+      await context.close();
+    }
+  },
+);
+
 NodeTest.test(
   "branch lanes keep worktrees distinct and navigation follows visual order",
   { timeout: 180_000 },
@@ -961,9 +1024,9 @@ NodeTest.test(
       page = await context.newPage();
       const sidebar = await openBranchProject(page, project);
       await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
-      await sidebar.getByRole("group", { name: "feature/beta, 1 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "feature/beta, 1 thread", exact: true }).waitFor();
       await sidebar.getByRole("group", { name: "feature/alpha, 2 threads", exact: true }).waitFor();
-      await sidebar.getByRole("group", { name: "No branch, 1 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "No branch, 1 thread", exact: true }).waitFor();
       const lanes = sidebar.locator("[data-sb-branch-lane]");
       const keys = await lanes.evaluateAll((nodes) =>
         nodes.map((node) => node.getAttribute("data-sb-branch-lane")),
@@ -983,7 +1046,7 @@ NodeTest.test(
       const worktreeLane = sidebar.locator(
         `[data-sb-branch-lane="${environmentId}:${project.id}:wt:${project.worktree}"]`,
       );
-      NodeAssert.equal(await worktreeLane.getAttribute("aria-label"), "feature/alpha, 1 threads");
+      NodeAssert.equal(await worktreeLane.getAttribute("aria-label"), "feature/alpha, 1 thread");
       await worktreeLane.getByText("worktree", { exact: true }).waitFor();
       const alphaLane = sidebar.getByRole("group", {
         name: "feature/alpha, 2 threads",
@@ -992,8 +1055,10 @@ NodeTest.test(
       NodeAssert.deepEqual(
         await alphaLane
           .getByRole("option")
-          .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label"))),
-        ["Alpha first", "Alpha second"],
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        (["alphaFirst", "alphaSecond"] as const).map(
+          (key) => `${environmentId}:${project.threadId(key)}`,
+        ),
       );
 
       await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
@@ -1095,7 +1160,7 @@ NodeTest.test(
         exact: true,
       });
       await alphaLane.waitFor();
-      const firstRow = alphaLane.getByRole("option", { name: "Alpha first", exact: true });
+      const firstRow = alphaLane.getByRole("option", { name: optionName("Alpha first") });
       const scopedKey = await firstRow.getAttribute("data-sb-thread-row");
       NodeAssert.ok(scopedKey);
       NodeAssert.ok(scopedKey?.endsWith(`:${project.threadId("alphaFirst")}`));
@@ -1134,8 +1199,10 @@ NodeTest.test(
       NodeAssert.deepEqual(
         await alphaLane
           .getByRole("option")
-          .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label"))),
-        ["Alpha second", "Alpha first"],
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        (["alphaSecond", "alphaFirst"] as const).map(
+          (key) => `${environmentId}:${project.threadId(key)}`,
+        ),
       );
       const afterReorder = await readShell();
       NodeAssert.deepEqual(withoutActiveOrder(afterReorder), withoutActiveOrder(beforeReorder));
@@ -1191,8 +1258,8 @@ NodeTest.test(
       await page.mouse.up();
       await pinned;
       await sidebar
-        .getByRole("group", { name: "Pinned, 1 threads", exact: true })
-        .getByRole("option", { name: "Alpha first", exact: true })
+        .getByRole("group", { name: "Pinned, 1 thread", exact: true })
+        .getByRole("option", { name: optionName("Alpha first") })
         .waitFor();
       NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
       const pinnedThread = fixtureThreads(await readShell()).find(
@@ -1241,8 +1308,13 @@ NodeTest.test(
       const pinOrder = await sidebar
         .getByRole("group", { name: "Pinned, 2 threads", exact: true })
         .getByRole("option")
-        .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label")));
-      NodeAssert.deepEqual(pinOrder, ["Alpha first", "Alpha second"]);
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row")));
+      NodeAssert.deepEqual(
+        pinOrder,
+        (["alphaFirst", "alphaSecond"] as const).map(
+          (key) => `${environmentId}:${project.threadId(key)}`,
+        ),
+      );
 
       await openThread("alphaSecond");
       const keyboardSettle = writes.next("thread.settle");
@@ -1292,7 +1364,7 @@ NodeTest.test(
       await wakePinned;
       await sidebar
         .getByRole("group", { name: "Pinned, 3 threads", exact: true })
-        .getByRole("option", { name: "Snoozed thread", exact: true })
+        .getByRole("option", { name: optionName("Snoozed thread") })
         .waitFor();
       const wokenThread = fixtureThreads(await readShell()).find(
         (thread) => thread.id === project.threadId("snoozed"),
@@ -1305,13 +1377,13 @@ NodeTest.test(
       const pinnedOrder = () =>
         pinnedLane
           .getByRole("option")
-          .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label")));
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row")));
       const [firstPin, secondPin, thirdPin] = await pinnedOrder();
       NodeAssert.ok(firstPin && secondPin && thirdPin);
       const middleReordered = writes.next("thread.pin.reorder");
       await overlay.waitFor({ state: "detached" });
-      await startRowDrag(page, pinnedLane.getByRole("option", { name: thirdPin, exact: true }));
-      const middlePin = pinnedLane.getByRole("option", { name: secondPin, exact: true });
+      await startRowDrag(page, pinnedLane.locator(`[data-sb-thread-row="${thirdPin}"]`));
+      const middlePin = pinnedLane.locator(`[data-sb-thread-row="${secondPin}"]`);
       await moveDragTo(page, middlePin);
       await dropIndicatorOn(middlePin).waitFor();
       await page.mouse.up();
