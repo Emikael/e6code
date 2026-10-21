@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId } from "@e6tools/contracts";
 import { expect, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -581,6 +582,119 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(afterReconnect[0]?.lastConnectedAt?.toString()).not.toBe(firstConnectedAt?.toString());
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
   );
+
+  it.effect("issues a short-lived websocket ticket that can be used once", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "websocket-ticket",
+        method: "bearer-access-token",
+      });
+      const before = yield* DateTime.now;
+      const websocket = yield* sessions.issueWebSocketToken(issued.sessionId);
+      const lifetimeMs = websocket.expiresAt.epochMilliseconds - before.epochMilliseconds;
+
+      expect(lifetimeMs).toBeLessThanOrEqual(Duration.toMillis(Duration.minutes(5)));
+      expect(lifetimeMs).toBeGreaterThan(Duration.toMillis(Duration.minutes(4)));
+      expect((yield* sessions.verifyWebSocketToken(websocket.token)).sessionId).toBe(
+        issued.sessionId,
+      );
+      expect((yield* Effect.flip(sessions.verifyWebSocketToken(websocket.token)))._tag).toBe(
+        "WebSocketTokenConsumedError",
+      );
+      const issuedAtTheSameInstant = yield* sessions.issueWebSocketToken(issued.sessionId);
+      expect(issuedAtTheSameInstant.token).not.toBe(websocket.token);
+      expect((yield* sessions.verifyWebSocketToken(issuedAtTheSameInstant.token)).sessionId).toBe(
+        issued.sessionId,
+      );
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+
+  it.effect("accepts a fresh websocket ticket after a drop and rejects the consumed ticket", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "websocket-reconnect",
+        method: "bearer-access-token",
+      });
+      const first = yield* sessions.issueWebSocketToken(issued.sessionId);
+      expect((yield* sessions.verifyWebSocketToken(first.token)).sessionId).toBe(issued.sessionId);
+      const replacement = yield* sessions.issueWebSocketToken(issued.sessionId);
+      expect((yield* sessions.verifyWebSocketToken(replacement.token)).sessionId).toBe(
+        issued.sessionId,
+      );
+      expect((yield* Effect.flip(sessions.verifyWebSocketToken(first.token)))._tag).toBe(
+        "WebSocketTokenConsumedError",
+      );
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+
+  it.effect("shares one device-hub ticket until an orchestration upgrade consumes it", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "device-hub-ticket",
+        method: "bearer-access-token",
+      });
+      const ticket = yield* sessions.issueWebSocketToken(issued.sessionId);
+      expect(
+        (yield* sessions.verifyWebSocketToken(ticket.token, { consume: false })).sessionId,
+      ).toBe(issued.sessionId);
+      expect(
+        (yield* sessions.verifyWebSocketToken(ticket.token, { consume: false })).sessionId,
+      ).toBe(issued.sessionId);
+      expect((yield* sessions.verifyWebSocketToken(ticket.token)).sessionId).toBe(issued.sessionId);
+      expect(
+        (yield* Effect.flip(sessions.verifyWebSocketToken(ticket.token, { consume: false })))._tag,
+      ).toBe("WebSocketTokenConsumedError");
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+
+  it("evicts expired websocket tickets and bounds the consumed set", () => {
+    const now = 1_000_000;
+    const entries = new Map<string, number>([
+      ["expired", now - 1],
+      ["soon", now + 10],
+      ["later", now + 50],
+    ]);
+    const [decision, next] = SessionStore.retainConsumedWebSocketTokens(
+      entries,
+      now,
+      "fresh",
+      now + 100,
+      true,
+      2,
+    );
+    expect(decision.alreadyUsed).toBe(false);
+    expect(next.size).toBe(2);
+    expect(next.has("expired")).toBe(false);
+    expect(next.has("soon")).toBe(false);
+    expect(next.get("later")).toBe(now + 50);
+    expect(next.get("fresh")).toBe(now + 100);
+
+    const [replay, afterReplay] = SessionStore.retainConsumedWebSocketTokens(
+      next,
+      now,
+      "fresh",
+      now + 100,
+      true,
+      2,
+    );
+    expect(replay.alreadyUsed).toBe(true);
+    expect(afterReplay.size).toBe(2);
+
+    const [shared, afterShared] = SessionStore.retainConsumedWebSocketTokens(
+      new Map([["fresh", now + 100]]),
+      now,
+      "other",
+      now + 80,
+      false,
+      1,
+    );
+    expect(shared.alreadyUsed).toBe(false);
+    expect(afterShared.size).toBe(1);
+    expect(afterShared.has("other")).toBe(false);
+  });
 
   it.effect("keeps connected relay sessions visible through expiry and HTTP renewal", () =>
     Effect.gen(function* () {

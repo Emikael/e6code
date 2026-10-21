@@ -7,9 +7,10 @@
  * short-lived WebSocket ticket and pass it as `wsTicket`, the same way the
  * app's own `/ws` upgrade authenticates. Cookie sessions send the cookie.
  *
- * A ticket lives five minutes server-side and is bound to the session, not
- * to one request, so one ticket covers everything a panel opens at once.
- * Callers fetch a fresh one each time they (re)connect a stream.
+ * A ticket lives five minutes server-side and is bound to the session.
+ * Orchestration `/ws` tickets are single-use. Device-hub tickets are shared
+ * across the panel's parallel media requests for that same lifetime and are
+ * not consumed. Callers fetch a fresh one each time they (re)connect a stream.
  */
 import * as Effect from "effect/Effect";
 import type { HttpClient } from "effect/unstable/http";

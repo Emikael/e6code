@@ -27,6 +27,7 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import { buildConnectAuthorizeRequestUrl } from "@e6tools/shared/connectAuth";
 
+import { redactSensitiveRequestUrl } from "../auth/requestUrlRedaction.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ExternalLauncher from "../process/externalLauncher.ts";
 import {
@@ -480,6 +481,7 @@ export const make = Effect.gen(function* () {
     yield* HttpRouter.serve(callbackRoute, {
       disableListenLog: true,
       disableLogger: true,
+      middleware: redactSensitiveRequestUrl,
     }).pipe(
       Layer.provide(
         NodeHttpServer.layer(NodeHttp.createServer, {

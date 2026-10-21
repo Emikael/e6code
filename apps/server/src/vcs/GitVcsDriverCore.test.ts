@@ -567,7 +567,11 @@ it.effect("invalidates a ref snapshot when a mutation fails after changing Git",
           if (!ChildProcess.isStandardCommand(command)) {
             return yield* Effect.die("expected a standard Git command");
           }
-          if (command.args[0] === "branch" && command.args[1] === "feature/partial-failure") {
+          if (
+            command.args[0] === "branch" &&
+            command.args[1] === "--" &&
+            command.args[2] === "feature/partial-failure"
+          ) {
             const handle = yield* delegate.spawn(command);
             yield* handle.exitCode;
             return makeNonRepositoryHandle();
@@ -899,7 +903,7 @@ for (const scenario of [
           if (!ChildProcess.isStandardCommand(command))
             return yield* Effect.die("expected Git command");
           if (command.args[0] !== "fetch") return makeNonRepositoryHandle();
-          assert.deepEqual(command.args, ["fetch", "--quiet", "origin"]);
+          assert.deepEqual(command.args, ["fetch", "--quiet", "--end-of-options", "origin"]);
           assert.equal(command.options.env?.LC_ALL, "C");
           assert.equal(command.options.env?.GIT_TERMINAL_PROMPT, "0");
           yield* Ref.update(attempts, (count) => count + 1);
@@ -1084,7 +1088,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           _tag: "GitCommandError",
           operation: "GitVcsDriver.removeWorktree",
           command: "git",
-          argumentCount: 3,
+          argumentCount: 4,
           cwd,
         });
         assert.notProperty(error, "cause");
