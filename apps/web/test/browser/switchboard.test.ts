@@ -701,7 +701,8 @@ async function browserRpc(page: Page, method: string, payload: object): Promise<
         const url = new URL("/ws", location.href);
         url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
         const socket = new WebSocket(url);
-        const id = crypto.randomUUID();
+        // Each call sends one request on its own socket.
+        const id = "1";
         socket.addEventListener("open", () =>
           socket.send(
             JSON.stringify({
