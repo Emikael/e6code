@@ -503,6 +503,7 @@ function SnoozePopoverButton(props: {
   switchboard?: boolean;
 }) {
   const { open, onOpenChange, onSnooze, timestampFormat } = props;
+  const triggerRef = useRef<HTMLButtonElement>(null);
   // Presets resolve at open time so "In 1 hour" is relative to the click,
   // not to when the row mounted.
   const presets = useMemo(
@@ -517,6 +518,7 @@ function SnoozePopoverButton(props: {
             <PopoverTrigger
               render={
                 <button
+                  ref={triggerRef}
                   type="button"
                   aria-label="Snooze thread"
                   // Beside a switchboard row option it is reachable by pointer only (C10).
@@ -537,7 +539,21 @@ function SnoozePopoverButton(props: {
         </TooltipTrigger>
         <TooltipPopup>Snooze thread</TooltipPopup>
       </Tooltip>
-      <PopoverPopup side="bottom" align="end" className="w-56" viewportClassName="p-1">
+      <PopoverPopup
+        side="bottom"
+        align="end"
+        className="w-56"
+        viewportClassName="p-1"
+        // A switchboard row hides this trigger from assistive tech, so closing
+        // returns focus to the row option rather than into the hidden actions.
+        finalFocus={
+          props.switchboard
+            ? () =>
+                triggerRef.current?.closest("li")?.querySelector<HTMLElement>('[role="option"]') ??
+                true
+            : undefined
+        }
+      >
         {presets.map((preset) => (
           <button
             key={preset.id}
@@ -1941,7 +1957,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               }
               planProgress={branchStatus.status === "working" ? thread.planProgress : null}
               lastError={branchStatus.status === "error" ? thread.session?.lastError : null}
-              hasActions
+              actionCount={
+                1 +
+                Number(props.pinningSupported) +
+                Number(showSnoozeButton) +
+                Number(props.settlementSupported)
+              }
               actionsVisible={snoozeMenuOpen}
               meta={
                 isFileDragOver ? (

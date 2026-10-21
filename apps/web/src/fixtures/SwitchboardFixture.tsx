@@ -19,7 +19,7 @@ import { KbdHint } from "~/components/sidebar/primitives/KbdHint";
 import { LaneHeader } from "~/components/sidebar/primitives/LaneHeader";
 import { PlanProgress } from "~/components/sidebar/primitives/PlanProgress";
 import { ProviderMark } from "~/components/sidebar/primitives/ProviderMark";
-import { QuickActions } from "~/components/sidebar/primitives/QuickActions";
+import { QuickActions, type QuickAction } from "~/components/sidebar/primitives/QuickActions";
 import { StatusGlyph } from "~/components/sidebar/primitives/StatusGlyph";
 import { StatusPill } from "~/components/sidebar/primitives/StatusPill";
 import { SWITCHBOARD_STATUS, type SwitchboardStatus } from "~/components/sidebar/primitives/status";
@@ -81,7 +81,10 @@ function Sample({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
-function FixtureBranchRow({ actions, ...props }: BranchThreadRowProps & { actions?: ReactNode }) {
+function FixtureBranchRow({
+  actions,
+  ...props
+}: BranchThreadRowProps & { actions?: readonly QuickAction[] }) {
   return (
     <li role="presentation" className="group/sidebar-row relative">
       <div
@@ -90,11 +93,11 @@ function FixtureBranchRow({ actions, ...props }: BranchThreadRowProps & { action
         tabIndex={0}
         className="rounded-lg"
       >
-        <BranchThreadRow {...props} hasActions={actions !== undefined} />
+        <BranchThreadRow {...props} actionCount={actions?.length ?? 0} />
       </div>
       {actions && (
         <BranchThreadRowActions visible={props.actionsVisible ?? false}>
-          {actions}
+          <QuickActions actions={actions} variant="row" />
         </BranchThreadRowActions>
       )}
     </li>
@@ -163,7 +166,6 @@ export function SwitchboardFixture() {
       </span>
     </>
   );
-  const rowActions = <QuickActions actions={actions} variant="row" />;
   return (
     <TooltipProvider>
       <main className="min-h-screen bg-background p-4 font-sans text-[13px] text-foreground">
@@ -326,7 +328,7 @@ export function SwitchboardFixture() {
                           <Pin role="img" aria-label="Pinned" className="size-3 shrink-0" />
                         </>
                       }
-                      actions={rowActions}
+                      actions={actions}
                     />
                   </BranchLane>
                   <BranchLane
@@ -341,7 +343,7 @@ export function SwitchboardFixture() {
                       status="working"
                       age="11:40"
                       meta={branchMeta}
-                      actions={rowActions}
+                      actions={actions}
                       planProgress={{
                         step: "Extract requireSession() helper",
                         completedSteps: 3,
@@ -354,14 +356,14 @@ export function SwitchboardFixture() {
                       age="42m"
                       meta={branchMeta}
                       selected
-                      actions={rowActions}
+                      actions={actions}
                     />
                     <FixtureBranchRow
                       title="Status derivation unit tests"
                       status="ready"
                       age="20m"
                       meta={branchMeta}
-                      actions={rowActions}
+                      actions={actions}
                       actionsVisible
                     />
                   </BranchLane>
@@ -376,7 +378,7 @@ export function SwitchboardFixture() {
                           {branchMeta}
                         </>
                       }
-                      actions={rowActions}
+                      actions={actions}
                     />
                     <FixtureBranchRow
                       title="Resume after sleep crashes session"
@@ -389,7 +391,7 @@ export function SwitchboardFixture() {
                         </>
                       }
                       lastError="Provider exited with code 1: ECONNRESET while resuming"
-                      actions={rowActions}
+                      actions={actions}
                     />
                     <FixtureBranchRow
                       title="Retry flaky e2e on CI"
@@ -402,7 +404,7 @@ export function SwitchboardFixture() {
                         </>
                       }
                       lastError={null}
-                      actions={rowActions}
+                      actions={actions}
                     />
                   </BranchLane>
                   <BranchLane laneKey="fixture:none" branch={null} count={1} dragOver>
@@ -416,7 +418,7 @@ export function SwitchboardFixture() {
                           {branchMeta}
                         </>
                       }
-                      actions={rowActions}
+                      actions={actions}
                     />
                   </BranchLane>
                 </ul>

@@ -1016,6 +1016,10 @@ NodeTest.test(
       const context = await newContext({ switchboard: true, colorScheme });
       try {
         const page = await context.newPage();
+        const blockedAriaHidden: string[] = [];
+        page.on("console", (message) => {
+          if (message.text().includes("aria-hidden")) blockedAriaHidden.push(message.text());
+        });
         const sidebar = await openBranchProject(page, project);
         NodeAssert.equal(
           await page.evaluate(() => document.documentElement.classList.contains("dark")),
@@ -1066,6 +1070,23 @@ NodeTest.test(
           await audit(`${kind} selected`);
           await away();
         }
+        // The hidden row actions are pointer shortcuts; using one must not
+        // leave focus inside them, or Chrome stops honouring aria-hidden.
+        await option.hover();
+        const snooze = option.locator("xpath=..").locator('button[aria-label="Snooze thread"]');
+        await snooze.click();
+        const snoozeMenu = page.getByRole("dialog");
+        await snoozeMenu.waitFor();
+        await page.keyboard.press("Escape");
+        await snoozeMenu.waitFor({ state: "detached" });
+        // Closing hands focus back to the row option, not the hidden trigger.
+        await page.waitForFunction(
+          (row) => row === document.activeElement,
+          await option.elementHandle(),
+        );
+        await away();
+        await audit("option after its snooze menu");
+        NodeAssert.deepEqual(blockedAriaHidden, []);
         await startRowDrag(
           page,
           sidebar.getByRole("option", { name: "Alpha second", exact: true }),

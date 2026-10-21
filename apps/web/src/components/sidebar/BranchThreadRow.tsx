@@ -9,8 +9,9 @@ export interface BranchThreadRowProps {
   status: SwitchboardStatus;
   age: ReactNode;
   meta: ReactNode;
-  /** Row actions render beside the option in `BranchThreadRowActions`; the age yields to them. */
-  hasActions?: boolean;
+  /** How many 24px actions `BranchThreadRowActions` shows beside the option.
+   * The age yields to them, and the title line keeps their width free. */
+  actionCount?: number;
   actionsVisible?: boolean;
   selected?: boolean;
   planProgress?: { step: string; completedSteps: number; totalSteps: number } | null | undefined;
@@ -24,7 +25,7 @@ export function BranchThreadRow({
   status,
   age,
   meta,
-  hasActions = false,
+  actionCount = 0,
   actionsVisible = false,
   selected = false,
   planProgress,
@@ -53,13 +54,26 @@ export function BranchThreadRow({
           aria-hidden="true"
           className={cn(
             "shrink-0 font-mono text-(length:--sb-text-meta) text-sb-muted tabular-nums",
-            hasActions && "group-focus-within/sidebar-row:hidden group-hover/sidebar-row:hidden",
-            hasActions && actionsVisible && "hidden",
+            actionCount > 0 &&
+              "group-focus-within/sidebar-row:hidden group-hover/sidebar-row:hidden",
+            actionCount > 0 && actionsVisible && "hidden",
             "[[data-sb-dragging]_&]:inline",
           )}
         >
           {age}
         </span>
+        {actionCount > 0 && (
+          // The actions overlap the row's 5px right padding, as they did in flow.
+          <span
+            aria-hidden="true"
+            style={{ width: actionCount * 24 - 5 }}
+            className={cn(
+              "shrink-0 group-focus-within/sidebar-row:block group-hover/sidebar-row:block",
+              actionsVisible ? "block" : "hidden",
+              "[[data-sb-dragging]_&]:hidden",
+            )}
+          />
+        )}
       </div>
       <div className="flex h-4 min-w-0 items-center gap-1.5 text-(length:--sb-text-meta) leading-4 text-sb-muted @max-[280px]/sidebar-column:[&_[data-sb-model]]:sr-only @max-[360px]/sidebar-column:[&_[data-sb-environment-label]]:sr-only">
         {meta}
@@ -96,8 +110,8 @@ export function BranchThreadRow({
  * option may not hold interactive content. Render inside the row's
  * `group/sidebar-row` item, which reveals them on hover or focus over the age.
  * A listbox also counts everything in its groups as its own children, so the
- * shortcuts stay out of the accessibility tree and keyboard users reach the
- * same actions through the context menu (tab stops are C10). */
+ * shortcuts stay out of the accessibility tree, never take focus, and keyboard
+ * users reach the same actions through the context menu (tab stops are C10). */
 export function BranchThreadRowActions({
   visible = false,
   children,
@@ -108,6 +122,8 @@ export function BranchThreadRowActions({
   return (
     <div
       aria-hidden="true"
+      // A pointer press must not move focus into the hidden actions.
+      onMouseDown={(event) => event.preventDefault()}
       className={cn(
         "sb-row-actions absolute top-[3px] right-[3px] items-center group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex",
         visible ? "inline-flex" : "hidden",
