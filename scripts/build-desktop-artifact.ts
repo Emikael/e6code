@@ -1363,11 +1363,15 @@ export function resolveMergedStageDependencies(input: {
   readonly arch: typeof BuildArch.Type;
   readonly fffNodeVersion: string;
 }) {
-  return {
-    ...selectCliRuntimeExternalDependencies(input.serverDependencies),
-    ...input.desktopDependencies,
-    ...resolveFffNativeDependencies(input.platform, input.arch, input.fffNodeVersion),
-  };
+  return withKeyringNativeDependencies(
+    {
+      ...selectCliRuntimeExternalDependencies(input.serverDependencies),
+      ...input.desktopDependencies,
+      ...resolveFffNativeDependencies(input.platform, input.arch, input.fffNodeVersion),
+    },
+    input.platform,
+    input.arch,
+  );
 }
 
 export interface ClerkPasskeyNativeArtifact {
@@ -1422,6 +1426,40 @@ export function resolveKeyringNativeArtifacts(
     packageName: `@napi-rs/keyring-linux-${architecture}-gnu`,
     binaryFileName: `keyring.linux-${architecture}-gnu.node`,
   }));
+}
+
+/**
+ * Direct dependency on the prebuild for this release target. Optional deps of
+ * `@napi-rs/keyring` also publish musl builds; a glibc archive cannot dlopen
+ * those, so musl stays out of the staged install and a load failure falls
+ * back to the file store.
+ */
+export function resolveKeyringNativeDependencies(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+  version: string,
+): Record<string, string> {
+  return Object.fromEntries(
+    resolveKeyringNativeArtifacts(platform, arch).map((artifact) => [
+      artifact.packageName,
+      version,
+    ]),
+  );
+}
+
+export function withKeyringNativeDependencies(
+  dependencies: Record<string, string>,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): Record<string, string> {
+  const version = dependencies["@napi-rs/keyring"];
+  if (version === undefined) {
+    return dependencies;
+  }
+  return {
+    ...dependencies,
+    ...resolveKeyringNativeDependencies(platform, arch, version),
+  };
 }
 
 /**
@@ -2919,10 +2957,14 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   yield* fs.makeDirectory(path.join(serverStageDir, "apps/server"), { recursive: true });
   yield* fs.copy(input.serverDistDir, path.join(serverStageDir, "apps/server/dist"));
 
-  const sidecarDependencies = {
-    ...input.runtimeExternalDependencies,
-    ...resolveFffNativeDependencies("win", input.arch, input.fffNodeVersion),
-  };
+  const sidecarDependencies = withKeyringNativeDependencies(
+    {
+      ...input.runtimeExternalDependencies,
+      ...resolveFffNativeDependencies("win", input.arch, input.fffNodeVersion),
+    },
+    "win",
+    input.arch,
+  );
   const sidecarPatchedDependencies = createStagePatchedDependencies(
     input.patchedDependencies,
     sidecarDependencies,
@@ -3653,7 +3695,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // Linux merge both sets into one app.asar.
   const stageDependencies =
     options.platform === "win"
-      ? { ...resolvedDesktopRuntimeDependencies }
+      ? withKeyringNativeDependencies(
+          { ...resolvedDesktopRuntimeDependencies },
+          "win",
+          options.arch,
+        )
       : resolveMergedStageDependencies({
           platform: options.platform,
           serverDependencies: resolvedServerDependencies,

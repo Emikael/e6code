@@ -193,6 +193,41 @@ export const make = Effect.gen(function* () {
 
   const resolveSecretPath = (storageName: string) =>
     path.join(serverConfig.secretsDir, `${storageName}.bin`);
+  const keychainMarkerPath = (storageName: string) =>
+    path.join(serverConfig.secretsDir, `${storageName}.keychain`);
+  const preferFileMarkerPath = (storageName: string) =>
+    path.join(serverConfig.secretsDir, `${storageName}.prefer-file`);
+
+  const keychainOnlyError = () =>
+    new SecretStoreReadError({
+      resource: "provider secret from the OS keychain",
+      cause: new Error(
+        "The OS keychain is unavailable, so this provider cannot start. The secret value was not read.",
+      ),
+    });
+
+  const markerExists = (markerPath: string) =>
+    fileSystem.exists(markerPath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SecretStoreReadError({
+            resource: "secret marker",
+            cause,
+          }),
+      ),
+    );
+
+  const writeEmptyMarker = (markerPath: string) =>
+    fileSystem.writeFile(markerPath, new Uint8Array()).pipe(
+      Effect.flatMap(() => fileSystem.chmod(markerPath, 0o600)),
+      Effect.catch(() =>
+        Effect.logWarning(
+          "A secret marker could not be written. Provider startup depends on that marker when the OS keychain is down.",
+        ),
+      ),
+    );
+
+  const removeIfExists = (targetPath: string) => fileSystem.remove(targetPath).pipe(Effect.ignore);
 
   const requireStorageName = (name: string): Effect.Effect<string, SecretStorePersistError> => {
     const storageName = OsKeychain.secretStorageName(name);
@@ -266,72 +301,150 @@ export const make = Effect.gen(function* () {
     );
   };
 
-  const readKeychain = (storageName: string) =>
+  type KeychainRead =
+    | { readonly _tag: "Ok"; readonly value: Option.Option<Uint8Array> }
+    | { readonly _tag: "Unavailable" };
+
+  const readKeychain = (storageName: string): Effect.Effect<KeychainRead, SecretStoreReadError> =>
     keychain.get(storageName).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SecretStoreReadError({
-            resource: `secret ${storageName}`,
-            cause,
-          }),
+      Effect.map((value): KeychainRead => ({ _tag: "Ok", value })),
+      Effect.catchTag(
+        "KeychainError",
+        (cause): Effect.Effect<KeychainRead, SecretStoreReadError> => {
+          if (OsKeychain.isKeychainUnavailable(cause)) {
+            return Effect.succeed({ _tag: "Unavailable" });
+          }
+          return Effect.fail(
+            new SecretStoreReadError({
+              resource: `secret ${storageName}`,
+              cause,
+            }),
+          );
+        },
       ),
     );
 
   const writeKeychainVerified = (storageName: string, value: Uint8Array) =>
     Effect.gen(function* () {
       const wrote = yield* keychain.set(storageName, value).pipe(
-        Effect.as(true),
-        Effect.catch(() => Effect.succeed(false)),
+        Effect.as("ok" as const),
+        Effect.catchTag("KeychainError", (cause): Effect.Effect<"ok" | "unavailable" | "failed"> =>
+          Effect.succeed(OsKeychain.isKeychainUnavailable(cause) ? "unavailable" : "failed"),
+        ),
       );
-      if (!wrote) {
+      if (wrote === "unavailable") {
+        return "unavailable" as const;
+      }
+      if (wrote === "failed") {
         yield* Effect.logWarning(
           "Failed to write a secret to the OS keychain. The plaintext file was left in place.",
         );
-        return false;
+        return "failed" as const;
       }
       const readBack = yield* keychain
         .get(storageName)
-        .pipe(Effect.catch(() => Effect.succeed(Option.none<Uint8Array>())));
+        .pipe(
+          Effect.catchTag(
+            "KeychainError",
+            (cause): Effect.Effect<"unavailable" | Option.Option<Uint8Array>> =>
+              Effect.succeed(
+                OsKeychain.isKeychainUnavailable(cause) ? "unavailable" : Option.none<Uint8Array>(),
+              ),
+          ),
+        );
+      if (readBack === "unavailable") {
+        return "unavailable" as const;
+      }
       if (Option.isNone(readBack) || !bytesEqual(readBack.value, value)) {
         yield* keychain.delete(storageName).pipe(Effect.ignore);
         yield* Effect.logWarning(
           "OS keychain read-back did not match the secret. The plaintext file was left in place.",
         );
-        return false;
+        return "failed" as const;
       }
-      return true;
+      return "verified" as const;
+    });
+
+  const readFileOrKeychainOnly = (storageName: string) =>
+    Effect.gen(function* () {
+      const fileBytes = yield* readFileOption(storageName);
+      if (Option.isSome(fileBytes)) {
+        return fileBytes;
+      }
+      if (yield* markerExists(keychainMarkerPath(storageName))) {
+        return yield* keychainOnlyError();
+      }
+      return Option.none<Uint8Array>();
+    });
+
+  const rememberFileIsNewer = (storageName: string) =>
+    Effect.gen(function* () {
+      yield* removeIfExists(keychainMarkerPath(storageName));
+      yield* writeEmptyMarker(preferFileMarkerPath(storageName));
+    });
+
+  const rememberKeychainHoldsSecret = (storageName: string) =>
+    Effect.gen(function* () {
+      yield* writeEmptyMarker(keychainMarkerPath(storageName));
+      yield* removeIfExists(preferFileMarkerPath(storageName));
+      const removed = yield* removePlaintext(storageName);
+      if (!removed) {
+        yield* Effect.logWarning(
+          "OS keychain holds the secret, but the plaintext file could not be removed.",
+        );
+      }
+    });
+
+  const adoptPreferredFile = (storageName: string) =>
+    Effect.gen(function* () {
+      if (!(yield* markerExists(preferFileMarkerPath(storageName)))) {
+        return Option.none<Uint8Array>();
+      }
+      const fileBytes = yield* readFileOption(storageName);
+      if (Option.isNone(fileBytes)) {
+        return Option.none<Uint8Array>();
+      }
+      const migrated = yield* writeKeychainVerified(storageName, fileBytes.value);
+      if (migrated !== "verified") {
+        return fileBytes;
+      }
+      yield* rememberKeychainHoldsSecret(storageName);
+      return fileBytes;
     });
 
   const get: ServerSecretStore["Service"]["get"] = (name) =>
     Effect.gen(function* () {
       const storageName = yield* requireStorageName(name);
       if (keychain.kind === "file") {
-        return yield* readFileOption(storageName);
+        return yield* readFileOrKeychainOnly(storageName);
+      }
+      const preferred = yield* adoptPreferredFile(storageName);
+      if (Option.isSome(preferred)) {
+        return preferred;
       }
       const stored = yield* readKeychain(storageName);
-      if (Option.isSome(stored)) {
-        const removed = yield* removePlaintext(storageName);
-        if (!removed) {
-          yield* Effect.logWarning(
-            "OS keychain holds the secret, but the plaintext file could not be removed.",
-          );
-        }
-        return stored;
+      if (stored._tag === "Unavailable") {
+        return yield* readFileOrKeychainOnly(storageName);
+      }
+      if (Option.isSome(stored.value)) {
+        yield* rememberKeychainHoldsSecret(storageName);
+        return stored.value;
       }
       const fileBytes = yield* readFileOption(storageName);
       if (Option.isNone(fileBytes)) {
+        if (yield* markerExists(keychainMarkerPath(storageName))) {
+          return yield* keychainOnlyError();
+        }
         return Option.none();
       }
       const migrated = yield* writeKeychainVerified(storageName, fileBytes.value);
-      if (!migrated) {
+      if (migrated === "unavailable") {
         return fileBytes;
       }
-      const removed = yield* removePlaintext(storageName);
-      if (!removed) {
-        yield* Effect.logWarning(
-          "OS keychain holds the migrated secret, but the plaintext file could not be removed.",
-        );
+      if (migrated === "failed") {
+        return fileBytes;
       }
+      yield* rememberKeychainHoldsSecret(storageName);
       return fileBytes;
     }).pipe(Effect.withSpan("ServerSecretStore.get"));
 
@@ -339,21 +452,25 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const storageName = yield* requireStorageName(name);
       if (keychain.kind === "file") {
-        return yield* writeFileSecret(storageName, value);
+        yield* writeFileSecret(storageName, value);
+        if (keychain.fallback) {
+          yield* rememberFileIsNewer(storageName);
+        }
+        return;
       }
       const migrated = yield* writeKeychainVerified(storageName, value);
-      if (!migrated) {
+      if (migrated === "unavailable") {
+        yield* writeFileSecret(storageName, value);
+        yield* rememberFileIsNewer(storageName);
+        return;
+      }
+      if (migrated === "failed") {
         return yield* new SecretStorePersistError({
           resource: `secret ${storageName}`,
           cause: new Error("OS keychain write was not verified."),
         });
       }
-      const removed = yield* removePlaintext(storageName);
-      if (!removed) {
-        yield* Effect.logWarning(
-          "OS keychain holds the secret, but the plaintext file could not be removed.",
-        );
-      }
+      yield* rememberKeychainHoldsSecret(storageName);
     }).pipe(Effect.withSpan("ServerSecretStore.set"));
 
   const createFile = (storageName: string, value: Uint8Array) => {
@@ -390,24 +507,53 @@ export const make = Effect.gen(function* () {
       );
     }
     if (keychain.kind === "file") {
-      return createFile(storageName, value);
+      return Effect.gen(function* () {
+        if (yield* markerExists(keychainMarkerPath(storageName))) {
+          return yield* keychainOnlyError();
+        }
+        yield* createFile(storageName, value);
+        if (keychain.fallback) {
+          yield* rememberFileIsNewer(storageName);
+        }
+      });
     }
     return Effect.gen(function* () {
       const existing = yield* readKeychain(storageName);
-      if (Option.isSome(existing)) {
+      if (existing._tag === "Unavailable") {
+        if (yield* markerExists(keychainMarkerPath(storageName))) {
+          return yield* keychainOnlyError();
+        }
+        const fileBytes = yield* readFileOption(storageName);
+        if (Option.isSome(fileBytes)) {
+          return yield* secretAlreadyExists(storageName);
+        }
+        yield* createFile(storageName, value);
+        yield* rememberFileIsNewer(storageName);
+        return;
+      }
+      if (Option.isSome(existing.value)) {
         return yield* secretAlreadyExists(storageName);
       }
       const fileBytes = yield* readFileOption(storageName);
       if (Option.isSome(fileBytes)) {
         return yield* secretAlreadyExists(storageName);
       }
+      if (yield* markerExists(keychainMarkerPath(storageName))) {
+        return yield* secretAlreadyExists(storageName);
+      }
       const migrated = yield* writeKeychainVerified(storageName, value);
-      if (!migrated) {
+      if (migrated === "unavailable") {
+        yield* createFile(storageName, value);
+        yield* rememberFileIsNewer(storageName);
+        return;
+      }
+      if (migrated !== "verified") {
         return yield* new SecretStorePersistError({
           resource: `secret ${storageName}`,
           cause: new Error("OS keychain write was not verified."),
         });
       }
+      yield* rememberKeychainHoldsSecret(storageName);
     });
   };
 
@@ -465,15 +611,31 @@ export const make = Effect.gen(function* () {
         ),
       );
       if (keychain.kind === "keychain") {
-        yield* keychain.delete(storageName).pipe(
-          Effect.mapError(
-            (cause) =>
-              new SecretStoreRemoveError({
-                resource: `secret ${storageName}`,
-                cause,
-              }),
+        const deleted = yield* keychain.delete(storageName).pipe(
+          Effect.as("ok" as const),
+          Effect.catchTag(
+            "KeychainError",
+            (cause): Effect.Effect<"ok" | "unavailable", SecretStoreRemoveError> => {
+              if (OsKeychain.isKeychainUnavailable(cause)) {
+                return Effect.succeed("unavailable");
+              }
+              return Effect.fail(
+                new SecretStoreRemoveError({
+                  resource: `secret ${storageName}`,
+                  cause,
+                }),
+              );
+            },
           ),
         );
+        if (deleted === "unavailable") {
+          return yield* new SecretStoreRemoveError({
+            resource: "provider secret from the OS keychain",
+            cause: new Error(
+              "The OS keychain is unavailable, so this secret could not be removed.",
+            ),
+          });
+        }
       }
       yield* fileSystem.remove(resolveSecretPath(storageName)).pipe(
         Effect.catch((cause) =>
@@ -487,6 +649,8 @@ export const make = Effect.gen(function* () {
               ),
         ),
       );
+      yield* removeIfExists(keychainMarkerPath(storageName));
+      yield* removeIfExists(preferFileMarkerPath(storageName));
     }).pipe(Effect.withSpan("ServerSecretStore.remove"));
 
   return ServerSecretStore.of({

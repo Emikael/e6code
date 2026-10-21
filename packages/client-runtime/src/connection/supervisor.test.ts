@@ -757,6 +757,45 @@ describe("EnvironmentSupervisor", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  it.effect("reconnects with a fresh websocket ticket after the session drops", () =>
+    Effect.gen(function* () {
+      const tickets: Array<string> = [];
+      const harness = yield* makeHarness({
+        prepare: (attempt) => {
+          const ticket = `ticket-${attempt}`;
+          tickets.push(ticket);
+          return Effect.succeed({
+            ...PREPARED_CONNECTION,
+            socketUrl: `wss://environment.example.test/ws?wsTicket=${ticket}`,
+          });
+        },
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.closeLatestSession();
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 1,
+      );
+      yield* TestClock.adjust("3 seconds");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+
+      const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+      expect(Option.isSome(prepared)).toBe(true);
+      if (Option.isSome(prepared)) {
+        expect(prepared.value.socketUrl).toContain("wsTicket=ticket-2");
+        expect(prepared.value.socketUrl.includes("ticket-1")).toBe(false);
+      }
+      expect(tickets).toEqual(["ticket-1", "ticket-2"]);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("keeps escalating backoff when a newly opened session flaps", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

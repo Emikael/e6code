@@ -39,6 +39,7 @@ import {
   createStageWorkspaceConfig,
   resolveFffNativeDependencies,
   STAGE_INSTALL_ARGS,
+  withKeyringNativeDependencies,
 } from "./build-desktop-artifact.ts";
 import { selectCliRuntimeExternalDependencies } from "./lib/cli-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
@@ -172,10 +173,14 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
       hint: "The archive stages fff's platform binary from this version.",
     });
   }
-  const dependencies = {
-    ...selectCliRuntimeExternalDependencies(serverDependencies),
-    ...resolveFffNativeDependencies(input.platform, input.arch, fffNodeVersion),
-  };
+  const dependencies = withKeyringNativeDependencies(
+    {
+      ...selectCliRuntimeExternalDependencies(serverDependencies),
+      ...resolveFffNativeDependencies(input.platform, input.arch, fffNodeVersion),
+    },
+    input.platform,
+    input.arch,
+  );
   const patchedDependencies = createStagePatchedDependencies(
     workspace.patchedDependencies ?? {},
     dependencies,

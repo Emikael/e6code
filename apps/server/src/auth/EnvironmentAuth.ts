@@ -528,6 +528,8 @@ type BootstrapExchangeResult = {
 const AUTHORIZATION_PREFIX = "Bearer ";
 const DPOP_AUTHORIZATION_PREFIX = "DPoP ";
 const WEBSOCKET_TICKET_QUERY_PARAM = "wsTicket";
+// Literal on purpose. Importing the device service from here cycles through settings.
+const DEVICE_HUB_PATH_PREFIX = "/api/device-hub";
 
 const bySessionPriority = (left: AuthClientSession, right: AuthClientSession) => {
   const leftCanManage = left.scopes.includes(AuthAccessWriteScope);
@@ -1198,7 +1200,13 @@ export const make = Effect.gen(function* () {
       if (Option.isSome(requestUrl)) {
         const websocketTicket = requestUrl.value.searchParams.get(WEBSOCKET_TICKET_QUERY_PARAM);
         if (websocketTicket && websocketTicket.trim().length > 0) {
-          return yield* sessions.verifyWebSocketToken(websocketTicket).pipe(
+          const pathname = requestUrl.value.pathname;
+          // The device panel opens several media requests with one ticket.
+          // `/ws` still consumes the ticket so a captured URL cannot be replayed.
+          const consume =
+            pathname !== DEVICE_HUB_PATH_PREFIX &&
+            !pathname.startsWith(`${DEVICE_HUB_PATH_PREFIX}/`);
+          return yield* sessions.verifyWebSocketToken(websocketTicket, { consume }).pipe(
             Effect.map((session) => ({
               sessionId: session.sessionId,
               subject: session.subject,
