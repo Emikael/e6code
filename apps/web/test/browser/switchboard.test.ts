@@ -755,10 +755,25 @@ function observeThreadWrites(page: Page) {
   });
   return {
     commands,
+    // The deadline only names a write that never comes; passing never waits on it.
     next: (type: string) =>
       new Promise<void>((resolve, reject) => {
         NodeAssert.equal(waiters.has(type), false);
-        waiters.set(type, { resolve, reject });
+        const deadline = setTimeout(() => {
+          waiters.delete(type);
+          const sent = commands.map((command) => command.type).join(", ");
+          reject(new Error(`No ${type} write completed within 45s; sent: ${sent}`));
+        }, 45_000);
+        waiters.set(type, {
+          resolve: () => {
+            clearTimeout(deadline);
+            resolve();
+          },
+          reject: (error) => {
+            clearTimeout(deadline);
+            reject(error);
+          },
+        });
       }),
   };
 }
