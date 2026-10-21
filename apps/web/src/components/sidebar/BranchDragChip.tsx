@@ -31,11 +31,11 @@ export function BranchDragChip({
   const rejected = verb === "Can't move here";
   const VerbIcon = verb ? VERB_ICONS[verb] : null;
   return (
-    <div className="pointer-events-none relative inline-flex">
+    <div className="pointer-events-none relative inline-flex w-max">
       <div
         data-sb-drag-overlay
         className={cn(
-          "inline-flex h-8 items-center gap-2 rounded-lg bg-popover px-2.5 text-popover-foreground shadow-lg",
+          "inline-flex h-8 w-max items-center gap-2 rounded-lg bg-popover px-2.5 text-popover-foreground shadow-lg",
           rejected && "cursor-not-allowed",
         )}
       >

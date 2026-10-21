@@ -152,7 +152,13 @@ export function SidebarThreadHeader({
               }
             >
               {switchboard && <span className="sr-only">Open command palette </span>}
-              <Kbd className="bg-sidebar-control-surface text-sidebar-muted-foreground tabular-nums">
+              <Kbd
+                className={cn(
+                  "bg-sidebar-control-surface tabular-nums",
+                  // sb-muted keeps the key at AA on the light switchboard surface.
+                  switchboard ? "text-sb-muted" : "text-sidebar-muted-foreground",
+                )}
+              >
                 {commandPaletteShortcutLabel}
               </Kbd>
             </TooltipTrigger>
