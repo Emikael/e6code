@@ -3260,4 +3260,11 @@ describe("joinSidebarRowDescription", () => {
       "Ready. Last turn: +? −?",
     );
   });
+
+  it("drops a trailing exclamation or question mark the joiner would double", () => {
+    expect(joinSidebarRowDescription(["Error", "Turn failed!"])).toBe("Error. Turn failed");
+    expect(joinSidebarRowDescription(["Waiting", "Approve this?"])).toBe("Waiting. Approve this");
+    expect(joinSidebarRowDescription(["Alert", "Done?!"])).toBe("Alert. Done");
+    expect(joinSidebarRowDescription(["Alert", "Done!?"])).toBe("Alert. Done");
+  });
 });

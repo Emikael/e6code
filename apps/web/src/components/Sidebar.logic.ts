@@ -1402,9 +1402,13 @@ export function joinSidebarRowDescription(
   return parts
     .flatMap((part) => {
       if (!part) return [];
+      // "!"/"?" only count as a trailing stop to drop after a letter or
+      // digit: "Turn failed!" ends a sentence, but the "?" in "+? −?"
+      // (an unknown diff count) sits after a symbol and stands for a value.
       const line = (part.trim().split(/\r?\n/u)[0] ?? "")
         .slice(0, SIDEBAR_ROW_DESCRIPTION_PART_LENGTH)
-        .replace(/[\s.,;:…]+$/u, "");
+        .replace(/[\s.,;:…]+$/u, "")
+        .replace(/(?<=[\p{L}\p{N}])[!?]+$/u, "");
       return line ? [line] : [];
     })
     .join(". ");

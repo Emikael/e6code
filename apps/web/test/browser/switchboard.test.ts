@@ -704,10 +704,12 @@ async function backendRequest(path: string, body?: object): Promise<Response> {
     return await send();
   } catch (error) {
     // A pooled socket the server already closed fails before the request
-    // lands; one retry on a fresh socket covers it. Anything else is real.
+    // lands; one retry on a fresh socket covers it. Anything else is real,
+    // and a POST must never be resent: a non-idempotent request that did
+    // reach the server before the socket dropped would double-apply.
     const cause = error instanceof Error ? error.cause : undefined;
     const code = cause instanceof Error && "code" in cause ? cause.code : undefined;
-    if (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET") throw error;
+    if (body !== undefined || (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET")) throw error;
     return send();
   }
 }
@@ -1108,12 +1110,57 @@ NodeTest.test(
           await audit(`${kind} selected`);
           await away();
         }
+        // WCAG 2.4.7: [content-visibility:auto] on the shelf <li> clips an
+        // outset ring at the row's own box, so the ring must paint inset.
+        for (const [label, row] of [
+          ["settled", settledRow],
+          ["snoozed", snoozedRow],
+        ] as const) {
+          // Chromium's focus-visible heuristic tracks keyboard-vs-pointer input
+          // modality for the whole page, not per element; a real keyboard event
+          // (discarded here) puts it back in "keyboard" mode before this focus.
+          await page.keyboard.press("Tab");
+          await row.focus();
+          const li = row.locator("xpath=..");
+          const focusState = await row.evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              focusVisible: node.matches(":focus-visible"),
+              outlineOffset: style.outlineOffset,
+              outlineStyle: style.outlineStyle,
+              outlineWidth: style.outlineWidth,
+            };
+          });
+          NodeAssert.deepEqual(focusState, {
+            focusVisible: true,
+            outlineOffset: "-2px",
+            outlineStyle: "solid",
+            outlineWidth: "2px",
+          });
+          const [rowBox, liBox] = await Promise.all([row.boundingBox(), li.boundingBox()]);
+          NodeAssert.ok(rowBox && liBox);
+          NodeAssert.ok(
+            rowBox.x >= liBox.x &&
+              rowBox.y >= liBox.y &&
+              rowBox.x + rowBox.width <= liBox.x + liBox.width &&
+              rowBox.y + rowBox.height <= liBox.y + liBox.height,
+            `${label} row escapes its <li>, so an inset focus ring would be clipped: ${JSON.stringify({ rowBox, liBox })}`,
+          );
+          await li.screenshot({
+            path: NodePath.join(artifacts, `shelf-focus-${label}-${colorScheme}.png`),
+            animations: "disabled",
+          });
+          await away();
+        }
         // The hidden row actions are pointer shortcuts; using one must not
         // leave focus inside them, or Chrome stops honouring aria-hidden.
         await option.hover();
         const snooze = option.locator("xpath=..").locator('button[aria-label="Snooze thread"]');
         await snooze.click();
-        const snoozeMenu = page.getByRole("dialog");
+        // A generic role=dialog lookup also matches an unrelated toast (e.g. a
+        // provider update advisory) that can appear once the backend has been
+        // up long enough; the popover primitive's own slot stays unambiguous.
+        const snoozeMenu = page.locator('[data-slot="popover-popup"]');
         await snoozeMenu.waitFor();
         await page.keyboard.press("Escape");
         await snoozeMenu.waitFor({ state: "detached" });
@@ -1142,12 +1189,62 @@ NodeTest.test(
         const composer = page.getByTestId("composer-editor");
         await composer.click();
         await snoozeMenu.waitFor({ state: "detached" });
+        // A late focus-restore (e.g. an unmount effect firing after the menu
+        // has already detached) would otherwise land outside this window.
+        await page.waitForTimeout(500);
         NodeAssert.ok(
           await composer.evaluate((editor) => editor.contains(document.activeElement)),
           "focus left the composer after the snooze menu closed",
         );
         await page.keyboard.type("Typed after closing");
         NodeAssert.match(await composer.innerText(), /Typed after closing/);
+      } finally {
+        await context.close();
+      }
+    }
+    // A mouse Un-settle/Wake moves the row into the active lane, remounting
+    // it elsewhere in the list; focus must follow to that new element.
+    {
+      const context = await newContext({ switchboard: true });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project);
+        await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+        await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+
+        // The shelf row shares its key with the card it becomes, so focus
+        // counts only once it sits on the card in the active lane, and holds.
+        const focusFollowsTo = async (key: string | null) => {
+          const onMovedCard = (k: string | null) => {
+            const active = document.activeElement;
+            return (
+              active?.getAttribute("data-sb-thread-row") === k &&
+              active.getAttribute("role") === "option"
+            );
+          };
+          await page.waitForFunction(onMovedCard, key, { timeout: 5_000 });
+          await page.waitForTimeout(300);
+          NodeAssert.ok(await page.evaluate(onMovedCard, key), `focus left the moved row ${key}`);
+        };
+        const settledRow = sidebar.getByRole("button", { name: "Settled thread", exact: true });
+        await settledRow.waitFor();
+        const settledRowKey = await settledRow.getAttribute("data-sb-thread-row");
+        await settledRow.hover();
+        await settledRow
+          .locator("xpath=..")
+          .getByRole("button", { name: "Un-settle thread" })
+          .click();
+        await focusFollowsTo(settledRowKey);
+
+        const snoozedRow = sidebar.getByRole("button", { name: "Snoozed thread", exact: true });
+        await snoozedRow.waitFor();
+        const snoozedRowKey = await snoozedRow.getAttribute("data-sb-thread-row");
+        await snoozedRow.hover();
+        await snoozedRow
+          .locator("xpath=..")
+          .getByRole("button", { name: "Wake thread now" })
+          .click();
+        await focusFollowsTo(snoozedRowKey);
       } finally {
         await context.close();
       }

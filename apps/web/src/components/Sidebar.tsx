@@ -1213,6 +1213,30 @@ function SidebarDraggedThreadChip(props: {
   );
 }
 
+// Un-settle/Wake move a shelf row into the active lane, which remounts it
+// (slim -> card) at a new DOM position. The update is optimistic, so a few
+// frames cover the remount; the old slim row is skipped because it shares the
+// key until it unmounts. Giving up silently is fine: the click already moved it.
+const SIDEBAR_ROW_REFOCUS_RETRY_FRAMES = 5;
+
+function focusMovedSwitchboardRow(trigger: HTMLElement, threadKey: string): void {
+  const switchboardRoot = trigger.closest<HTMLElement>("[data-switchboard]");
+  if (!switchboardRoot) return;
+  const selector = `[data-sb-thread-row="${globalThis.CSS.escape(threadKey)}"]`;
+  const previousRow = trigger.closest("li")?.querySelector(selector) ?? null;
+  const attempt = (framesLeft: number) => {
+    requestAnimationFrame(() => {
+      const row = switchboardRoot.querySelector<HTMLElement>(selector);
+      if (row && row !== previousRow && row.isConnected) {
+        row.focus();
+      } else if (framesLeft > 1) {
+        attempt(framesLeft - 1);
+      }
+    });
+  };
+  attempt(SIDEBAR_ROW_REFOCUS_RETRY_FRAMES);
+}
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1598,17 +1622,23 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     (event: ReactMouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
+      // Read before the click moves the row out from under this button.
+      const trigger = props.branchMode ? (event.currentTarget as HTMLElement) : null;
       onUnsettle(threadRef);
+      if (trigger) focusMovedSwitchboardRow(trigger, threadKey);
     },
-    [onUnsettle, threadRef],
+    [onUnsettle, props.branchMode, threadKey, threadRef],
   );
   const handleUnsnoozeClick = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
+      // Read before the click moves the row out from under this button.
+      const trigger = props.branchMode ? (event.currentTarget as HTMLElement) : null;
       onUnsnooze(threadRef);
+      if (trigger) focusMovedSwitchboardRow(trigger, threadKey);
     },
-    [onUnsnooze, threadRef],
+    [onUnsnooze, props.branchMode, threadKey, threadRef],
   );
   const handleUnpinClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -2327,7 +2357,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
                     // Snoozed rows show when they come BACK, not when they were
                     // last touched — the return ticket is the row's whole story.
-                    <span className="text-xs text-blue-600 tabular-nums dark:text-blue-400">
+                    <span className="text-xs text-sb-muted tabular-nums">
                       {props.snoozeWakeLabelText}
                     </span>
                   ) : isWoke ? (
