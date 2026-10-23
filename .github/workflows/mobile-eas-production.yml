@@ -116,7 +116,7 @@ jobs:
       - id: version_app_token
         name: Mint release app token for version override
         if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'build' && inputs.version != ''
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -124,7 +124,7 @@ jobs:
 
       - name: Checkout
         if: steps.expo-token.outputs.present == 'true'
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ steps.version_app_token.outputs.token || github.token }}
@@ -135,7 +135,7 @@ jobs:
 
       - name: Setup Vite+
         if: steps.expo-token.outputs.present == 'true'
-        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
+        uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version-file: package.json
           cache: true
@@ -157,13 +157,15 @@ jobs:
         if: steps.expo-token.outputs.present == 'true'
         run: |
           pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
-          vp_pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin"
+          # Vite+ may use the split XDG layout rather than ~/.vite-plus; ask vp where its data dir is.
+          vp_data_dir="$(VP_DUMP_DIRS=1 vp | awk -F '\t' '$1 == "data" { print $2 }')"
+          vp_pnpm_bin="$vp_data_dir/package_manager/pnpm/$pnpm_version/pnpm/bin"
           echo "$vp_pnpm_bin" >> "$GITHUB_PATH"
           "$vp_pnpm_bin/pnpm" --version
 
       - name: Setup EAS
         if: steps.expo-token.outputs.present == 'true'
-        uses: expo/expo-github-action@c7b66a9c327a43a8fa7c0158e7f30d6040d2481e # 8.2.1
+        uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}

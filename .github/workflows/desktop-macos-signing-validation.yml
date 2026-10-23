@@ -110,7 +110,7 @@ jobs:
             --output-format json > "$RUNNER_TEMP/apple-signing-validation/history.json"
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version-file: package.json
           cache: true
@@ -120,7 +120,7 @@ jobs:
         run: vp install --frozen-lockfile --filter=e6... --filter=@e6tools/web... --filter=@e6tools/desktop... --filter=@e6tools/scripts...
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
           targets: ${{ inputs.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
@@ -187,7 +187,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload validated installer
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos-signing-validation-${{ inputs.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
