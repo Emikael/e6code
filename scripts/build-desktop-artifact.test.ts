@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Tests use Node's glob matcher to verify electron-builder exclusions.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -49,7 +50,7 @@ import {
   resolveOptionalMacPasskeySigningConfiguration,
   resolveDesktopRuntimeDependencies,
   resolveMergedStageDependencies,
-  resolveMacFileExclusions,
+  resolveKeyringNativeDependencies,
   resolveFffNativeDependencies,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
@@ -750,6 +751,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "@napi-rs/keyring": "1.3.0",
         "playwright-core": "1.60.0",
         "@ff-labs/fff-bin-darwin-arm64": "0.9.4",
+        "@napi-rs/keyring-darwin-arm64": "1.3.0",
       },
     );
 
@@ -769,6 +771,68 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "@ff-labs/fff-bin-linux-x64-musl": "0.9.4",
       },
     );
+
+    assert.deepStrictEqual(
+      resolveMergedStageDependencies({
+        platform: "linux",
+        serverDependencies: {
+          "@ff-labs/fff-node": "0.9.4",
+          "@napi-rs/keyring": "1.3.0",
+          "node-pty": "1.1.0",
+        },
+        desktopDependencies: {},
+        arch: "x64",
+        fffNodeVersion: "0.9.4",
+      }),
+      {
+        "@ff-labs/fff-node": "0.9.4",
+        "node-pty": "1.1.0",
+        "@napi-rs/keyring": "1.3.0",
+        "@ff-labs/fff-bin-linux-x64-gnu": "0.9.4",
+        "@ff-labs/fff-bin-linux-x64-musl": "0.9.4",
+        "@napi-rs/keyring-linux-x64-gnu": "1.3.0",
+      },
+    );
+  });
+
+  it("ships a keyring prebuild for every release target, including musl", () => {
+    const packageJson = JSON.parse(
+      NodeFS.readFileSync(
+        NodePath.resolve(
+          import.meta.dirname,
+          "../apps/server/node_modules/@napi-rs/keyring/package.json",
+        ),
+        "utf8",
+      ),
+    ) as { readonly optionalDependencies?: Record<string, string> };
+    const optionalDependencies = packageJson.optionalDependencies ?? {};
+    for (const packageName of [
+      "@napi-rs/keyring-darwin-arm64",
+      "@napi-rs/keyring-darwin-x64",
+      "@napi-rs/keyring-win32-x64-msvc",
+      "@napi-rs/keyring-win32-arm64-msvc",
+      "@napi-rs/keyring-linux-x64-gnu",
+      "@napi-rs/keyring-linux-arm64-gnu",
+      "@napi-rs/keyring-linux-x64-musl",
+      "@napi-rs/keyring-linux-arm64-musl",
+    ]) {
+      assert.equal(optionalDependencies[packageName], "1.3.0");
+    }
+
+    // CLI archives are glibc (or the platform libc). Musl prebuilds stay on
+    // npm for source installs; the staged archive does not dlopen them.
+    const linux = resolveKeyringNativeDependencies("linux", "x64", "1.3.0");
+    assert.deepStrictEqual(linux, { "@napi-rs/keyring-linux-x64-gnu": "1.3.0" });
+    assert.deepStrictEqual(resolveKeyringNativeDependencies("linux", "arm64", "1.3.0"), {
+      "@napi-rs/keyring-linux-arm64-gnu": "1.3.0",
+    });
+    assert.deepStrictEqual(resolveKeyringNativeDependencies("mac", "universal", "1.3.0"), {
+      "@napi-rs/keyring-darwin-arm64": "1.3.0",
+      "@napi-rs/keyring-darwin-x64": "1.3.0",
+    });
+    assert.deepStrictEqual(resolveKeyringNativeDependencies("win", "arm64", "1.3.0"), {
+      "@napi-rs/keyring-win32-arm64-msvc": "1.3.0",
+    });
   });
 
   it("excludes node-pty binaries for the other Windows architecture", () => {

@@ -14,9 +14,15 @@ set -euo pipefail
 export VP_BIN_DIR="$HOME/.local/share/vite-plus/bin"
 export VP_DATA_DIR="$HOME/.local/share/vite-plus"
 export VP_CACHE_DIR="$HOME/.cache/vite-plus"
+# vite.plus redirects to this script. Pin the bytes and the CLI version
+# (the catalog's vite-plus, which CI's setup-vp installs). Update the
+# sha256 when the installer script itself changes.
+VP_VERSION=0.3.0
+installer_sha256=6eaf139e16d45849bebc4a7de0dbc2992fd3b3a86a3f37bf7922b685f3a60d9e
 installer=$(mktemp)
-curl -fsSL https://vite.plus -o "$installer"
-VP_NODE_MANAGER=no bash "$installer"
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL https://viteplus.dev/install.sh -o "$installer"
+echo "${installer_sha256}  ${installer}" | sha256sum -c -
+VP_NODE_MANAGER=no VP_VERSION="$VP_VERSION" bash "$installer"
 rm -f "$installer"
 
 # Non-login lifecycle shells never source the profile the installer edits,

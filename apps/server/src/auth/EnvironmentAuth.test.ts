@@ -684,17 +684,65 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
           url: `/ws?wsTicket=${encodeURIComponent(ticket.ticket)}`,
         }),
       );
+      // A ticket is single-use, so the no-origin upgrade needs its own ticket.
+      const ticketForMissingOrigin = yield* serverAuth.issueWebSocketTicket(cookieSession);
       const ticketWithoutOrigin = yield* serverAuth.authenticateWebSocketUpgrade(
         makePresentedRequest({
           method: "GET",
           upgrade: "websocket",
-          url: `/ws?wsTicket=${encodeURIComponent(ticket.ticket)}`,
+          url: `/ws?wsTicket=${encodeURIComponent(ticketForMissingOrigin.ticket)}`,
         }),
       );
       expect(desktop.sessionId).toBe(cookieSession.sessionId);
       expect(ticketUpgrade.sessionId).toBe(cookieSession.sessionId);
       expect(ticketWithoutOrigin.sessionId).toBe(cookieSession.sessionId);
     }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
+  );
+
+  it.effect(
+    "reuses one device-hub ticket across media requests and rejects a consumed /ws ticket",
+    () =>
+      Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const pairing = yield* serverAuth.issuePairingCredential();
+        const exchanged = yield* serverAuth.createBrowserSession(
+          pairing.credential,
+          requestMetadata,
+        );
+        const cookieSession = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, exchanged.sessionToken),
+        );
+        const hubTicket = yield* serverAuth.issueWebSocketTicket(cookieSession);
+        const hubUrl = `/api/device-hub/stream?wsTicket=${encodeURIComponent(hubTicket.ticket)}`;
+        const firstHub = yield* serverAuth.authenticateWebSocketUpgrade(
+          makePresentedRequest({ method: "GET", url: hubUrl }),
+        );
+        const secondHub = yield* serverAuth.authenticateWebSocketUpgrade(
+          makePresentedRequest({ method: "GET", url: `${hubUrl}&track=video` }),
+        );
+        const wsTicket = yield* serverAuth.issueWebSocketTicket(cookieSession);
+        const wsUpgrade = yield* serverAuth.authenticateWebSocketUpgrade(
+          makePresentedRequest({
+            method: "GET",
+            upgrade: "websocket",
+            url: `/ws?wsTicket=${encodeURIComponent(wsTicket.ticket)}`,
+          }),
+        );
+        const replayed = yield* Effect.flip(
+          serverAuth.authenticateWebSocketUpgrade(
+            makePresentedRequest({
+              method: "GET",
+              url: `/api/device-hub/stream?wsTicket=${encodeURIComponent(wsTicket.ticket)}`,
+            }),
+          ),
+        );
+
+        expect(firstHub.sessionId).toBe(cookieSession.sessionId);
+        expect(secondHub.sessionId).toBe(cookieSession.sessionId);
+        expect(wsUpgrade.sessionId).toBe(cookieSession.sessionId);
+        expect(replayed._tag).toBe("ServerAuthInvalidCredentialError");
+      }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
   );
 
   it.effect("rejects a cookie upgrade or state-changing request with no origin", () =>

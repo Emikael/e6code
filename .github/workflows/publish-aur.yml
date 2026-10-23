@@ -64,4 +64,14 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           PKGREL: ${{ inputs.pkgrel || '1' }}
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-        run: packaging/aur/scripts/release.sh
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "::error::release_tag is not a vX.Y.Z release tag" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$PKGREL" | grep -Eq '^[0-9]+$'; then
+            echo "::error::pkgrel must be an integer" >&2
+            exit 1
+          fi
+          packaging/aur/scripts/release.sh

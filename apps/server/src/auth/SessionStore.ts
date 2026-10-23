@@ -1,3 +1,5 @@
+import * as NodeCrypto from "node:crypto";
+
 import {
   AuthSessionId,
   AuthAdministrativeScopes,
@@ -225,6 +227,15 @@ export class WebSocketSessionRevokedError extends Schema.TaggedError<WebSocketSe
   }
 }
 
+export class WebSocketTokenConsumedError extends Schema.TaggedError<WebSocketTokenConsumedError>()(
+  "WebSocketTokenConsumedError",
+  {},
+) {
+  override get message(): string {
+    return "Websocket ticket was already used.";
+  }
+}
+
 export const SessionCredentialInvalidError = Schema.Union([
   MalformedSessionTokenError,
   InvalidSessionTokenSignatureError,
@@ -240,6 +251,7 @@ export const SessionCredentialInvalidError = Schema.Union([
   UnknownWebSocketSessionError,
   WebSocketSessionExpiredError,
   WebSocketSessionRevokedError,
+  WebSocketTokenConsumedError,
 ]);
 export type SessionCredentialInvalidError = typeof SessionCredentialInvalidError.Type;
 export const isSessionCredentialInvalidError = Schema.is(SessionCredentialInvalidError);
@@ -395,6 +407,10 @@ export class SessionStore extends Context.Service<
     >;
     readonly verifyWebSocketToken: (
       token: string,
+      options?: {
+        /** False shares one ticket across parallel requests. Default consumes it. */
+        readonly consume?: boolean;
+      },
     ) => Effect.Effect<VerifiedSession, SessionCredentialError>;
     readonly listActive: () => Effect.Effect<
       ReadonlyArray<AuthClientSession>,
@@ -422,6 +438,60 @@ export class SessionStore extends Context.Service<
 const SIGNING_SECRET_NAME = "server-signing-key";
 const DEFAULT_SESSION_TTL = Duration.days(30);
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
+/** Caps the in-memory replay set. A flood of upgrades cannot grow it past this. */
+const MAX_CONSUMED_WEBSOCKET_TOKENS = 4096;
+
+export interface ConsumedWebSocketTokenDecision {
+  readonly alreadyUsed: boolean;
+}
+
+/**
+ * Drops expired hashes, records whether `tokenHash` was already consumed, and
+ * when `consume` is set inserts it. Past `maxSize`, the soonest-expiring other
+ * hash is dropped. The hash just inserted stays, so the caller still rejects a
+ * replay of that ticket. An evicted unexpired hash can be presented again
+ * until its own expiry.
+ */
+export function retainConsumedWebSocketTokens(
+  entries: ReadonlyMap<string, number>,
+  nowMs: number,
+  tokenHash: string,
+  expiresAtMs: number,
+  consume: boolean,
+  maxSize = MAX_CONSUMED_WEBSOCKET_TOKENS,
+): readonly [ConsumedWebSocketTokenDecision, Map<string, number>] {
+  const next = new Map<string, number>();
+  for (const [hash, exp] of entries) {
+    if (exp > nowMs) {
+      next.set(hash, exp);
+    }
+  }
+  if (next.has(tokenHash)) {
+    return [{ alreadyUsed: true }, next];
+  }
+  if (!consume) {
+    return [{ alreadyUsed: false }, next];
+  }
+  next.set(tokenHash, expiresAtMs);
+  if (next.size > maxSize) {
+    let oldestHash: string | undefined;
+    let oldestExp = Number.POSITIVE_INFINITY;
+    for (const [hash, exp] of next) {
+      if (hash === tokenHash) {
+        continue;
+      }
+      if (exp < oldestExp) {
+        oldestExp = exp;
+        oldestHash = hash;
+      }
+    }
+    if (oldestHash !== undefined) {
+      next.delete(oldestHash);
+    }
+  }
+  return [{ alreadyUsed: false }, next];
+}
+
 const SessionClaims = Schema.Struct({
   v: Schema.Literal(1),
   kind: Schema.Literal("session"),
@@ -439,6 +509,9 @@ const WebSocketClaims = Schema.Struct({
   v: Schema.Literal(1),
   kind: Schema.Literal("websocket"),
   sid: AuthSessionId,
+  // Distinguishes tickets issued in the same millisecond. Without it they hash
+  // identically and the second is already consumed.
+  jti: Schema.String,
   iat: Schema.Number,
   exp: Schema.Number,
 });
@@ -486,6 +559,7 @@ export const make = Effect.gen(function* () {
   const authSessions = yield* AuthSessions.AuthSessionRepository;
   const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
   const connectedSessionsRef = yield* Ref.make(new Map<AuthSessionId, number>());
+  const consumedWebSocketTokensRef = yield* Ref.make(new Map<string, number>());
   const changesPubSub = yield* PubSub.unbounded<SessionCredentialChange>();
   const cookieInput = {
     mode: serverConfig.mode,
@@ -851,10 +925,14 @@ export const make = Effect.gen(function* () {
     const expiresAt = DateTime.add(issuedAt, {
       milliseconds: Duration.toMillis(input?.ttl ?? DEFAULT_WEBSOCKET_TOKEN_TTL),
     });
+    const jti = yield* crypto.randomUUIDv4.pipe(
+      Effect.mapError((cause) => new WebSocketTokenIssueError({ sessionId, cause })),
+    );
     const claims: WebSocketClaims = {
       v: 1,
       kind: "websocket",
       sid: sessionId,
+      jti,
       iat: issuedAt.epochMilliseconds,
       exp: expiresAt.epochMilliseconds,
     };
@@ -881,7 +959,8 @@ export const make = Effect.gen(function* () {
 
   const verifyWebSocketToken: SessionStore["Service"]["verifyWebSocketToken"] = Effect.fn(
     "SessionStore.verifyWebSocketToken",
-  )(function* (token) {
+  )(function* (token, options) {
+    const consume = options?.consume !== false;
     const [encodedPayload, signature] = token.split(".");
     if (!encodedPayload || !signature) {
       return yield* new MalformedWebSocketTokenError({});
@@ -937,6 +1016,21 @@ export const make = Effect.gen(function* () {
         sessionId: claims.sid,
         revokedAt: row.value.revokedAt,
       });
+    }
+
+    // Expiry is checked above, so a later call on an expired ticket still reports expiry.
+    const tokenHash = NodeCrypto.createHash("sha256").update(token).digest("base64url");
+    const decision = yield* Ref.modify(consumedWebSocketTokensRef, (entries) =>
+      retainConsumedWebSocketTokens(
+        entries,
+        observedAt.epochMilliseconds,
+        tokenHash,
+        claims.exp,
+        consume,
+      ),
+    );
+    if (decision.alreadyUsed) {
+      return yield* new WebSocketTokenConsumedError({});
     }
 
     return {

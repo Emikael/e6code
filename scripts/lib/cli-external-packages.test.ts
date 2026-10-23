@@ -50,6 +50,8 @@ describe("shouldBundleCliDependency", () => {
   it("leaves native addons and their dlopen wrappers external", () => {
     for (const id of [
       "node-pty",
+      "@napi-rs/keyring",
+      "@napi-rs/keyring-linux-x64-gnu",
       "ffi-rs",
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
@@ -86,7 +88,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@ff-labs/fff-node", "node-pty"],
+      ["@ff-labs/fff-node", "@napi-rs/keyring", "node-pty"],
     );
   });
 });
@@ -195,9 +197,9 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
         if (!manifest) continue;
 
         const declared = {
-          ...(manifest.dependencies ?? {}),
-          ...(manifest.optionalDependencies ?? {}),
-          ...(manifest.peerDependencies ?? {}),
+          ...manifest.dependencies,
+          ...manifest.optionalDependencies,
+          ...manifest.peerDependencies,
         };
         for (const dependency of Object.keys(declared)) {
           if (!isRuntimeExternal(dependency)) {

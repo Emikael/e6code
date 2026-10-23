@@ -3,6 +3,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import { SourceControlProviderError } from "@e6tools/contracts";
+import { isUnsafeGitOperand } from "../vcs/gitRefSafety.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as ForgejoCli from "./ForgejoCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
@@ -355,8 +356,8 @@ export const make = Effect.gen(function* () {
             cwd: input.cwd,
             args:
               existing.exitCode === 0
-                ? ["checkout", branch]
-                : ["checkout", "-b", branch, "FETCH_HEAD"],
+                ? ["checkout", branch, "--"]
+                : ["checkout", "-b", branch, "FETCH_HEAD", "--"],
           });
         } else
           yield* cli.execute({
@@ -373,8 +374,18 @@ export const make = Effect.gen(function* () {
             ],
           });
         if (input.force) {
+          if (isUnsafeGitOperand(pull.head.sha)) {
+            return yield* new SourceControlProviderError({
+              provider: "forgejo",
+              operation: "checkoutChangeRequest",
+              cwd: input.cwd,
+              detail: "Refusing to reset to an unsafe revision.",
+            });
+          }
           // tea leaves an existing PR branch at its old tip. Keep dirty files safe
           // while bringing the selected branch to the PR revision we fetched.
+          // `git reset` on this Git does not accept `--end-of-options`; the sha is
+          // checked above so it cannot be parsed as an option.
           yield* process.run({
             operation: "ForgejoSourceControlProvider.checkoutChangeRequest",
             command: "git",
