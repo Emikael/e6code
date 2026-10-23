@@ -20,7 +20,7 @@ import * as HttpTraceContext from "effect/unstable/http/HttpTraceContext";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as HttpApiError from "effect/unstable/httpapi/HttpApiError";
 import { encodeOAuthScope } from "@e6tools/shared/oauthScope";
-import { httpHeaderRedactionLayer } from "@e6tools/shared/httpObservability";
+import { httpHeaderRedactionLayer, redactSensitiveUrl } from "@e6tools/shared/httpObservability";
 
 import {
   RelayApi,
@@ -189,7 +189,7 @@ const relayRequestDeadline = <E, R>(
             const request = yield* HttpServerRequest.HttpServerRequest;
             yield* Effect.logError("relay request exceeded deadline", {
               "http.method": request.method,
-              "http.url": request.url,
+              "http.url": redactSensitiveUrl(request.url),
               "relay.request.deadline_ms": RELAY_REQUEST_DEADLINE_MS,
             });
             yield* Effect.annotateCurrentSpan({
@@ -205,6 +205,16 @@ const relayRequestDeadline = <E, R>(
     ),
   );
 
+const redactRelayRequestUrl = Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
+  Effect.sync(() => {
+    try {
+      (request as { url: string }).url = redactSensitiveUrl(request.url);
+    } catch {
+      // Some request implementations expose `url` as a getter.
+    }
+  }),
+);
+
 export const traceRelayHttpRequest = <E, R>(
   httpEffect: Effect.Effect<
     HttpServerResponse.HttpServerResponse,
@@ -213,9 +223,10 @@ export const traceRelayHttpRequest = <E, R>(
   >,
 ) =>
   // HttpMiddleware finalizes its span on the dispatcher; do not close a request-scoped exporter first.
+  // Redact the query before yieldNow so the scheduled span attributes never keep the ticket.
   HttpMiddleware.tracer(
     appendRelayTraceContextResponseHeader.pipe(Effect.andThen(relayRequestDeadline(httpEffect))),
-  ).pipe(Effect.ensuring(Effect.yieldNow));
+  ).pipe(Effect.ensuring(redactRelayRequestUrl), Effect.ensuring(Effect.yieldNow));
 
 export const traceRelayHttpRequestWith = <E, R, LayerError, LayerRequirements>(
   httpEffect: Effect.Effect<

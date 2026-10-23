@@ -9,6 +9,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Tracer from "effect/Tracer";
 import { OtlpResource, OtlpTracer, OtlpSerialization } from "effect/unstable/observability";
 
+import { redactSensitiveTraceValue } from "./httpObservability.ts";
 import { RotatingFileSink } from "./logging.ts";
 
 export const OtlpProtocol = Schema.Literals(["http/json", "http/protobuf"]);
@@ -512,12 +513,18 @@ class LocalFileSpan implements Tracer.Span {
   }
 
   attribute(key: string, value: unknown): void {
-    this.attributes.set(key, value);
-    this.delegate.attribute(key, value);
+    const redacted = redactSensitiveTraceValue(value);
+    this.attributes.set(key, redacted);
+    this.delegate.attribute(key, redacted);
   }
 
   event(name: string, startTime: bigint, attributes?: Record<string, unknown>): void {
-    const nextAttributes = attributes ?? {};
+    const nextAttributes = Object.fromEntries(
+      Object.entries(attributes ?? {}).map(([key, value]) => [
+        key,
+        redactSensitiveTraceValue(value),
+      ]),
+    );
     this.events.push([name, startTime, nextAttributes]);
     this.delegate.event(name, startTime, nextAttributes);
   }
