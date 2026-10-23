@@ -6,7 +6,7 @@ import {
   sortThreads,
 } from "@e6tools/client-runtime/state/thread-sort";
 import { formatHourShort, formatRelativeHourShort } from "@e6tools/shared/usageFormat";
-import { bench, describe } from "vite-plus/test";
+import { describe, test } from "vite-plus/test";
 
 import { deriveActivePlanState } from "./session-logic";
 
@@ -40,23 +40,29 @@ const hours = Array.from({ length: 24 }, (_, index) =>
 );
 const referenceTime = "2026-08-12T00:00:00.000Z";
 
+// Vitest's `bench` fixture only exists inside a test, so each case registers as its own test.
+const benchmark = (name: string, fn: () => void) =>
+  test(name, async ({ bench }) => {
+    await bench(name, fn).run();
+  });
+
 describe("client performance", () => {
-  bench("sort 1000 threads by recent activity", () => {
+  benchmark("sort 1000 threads by recent activity", () => {
     sortThreads(threads, "updated_at");
   });
-  bench("sort 1000 active threads", () => {
+  benchmark("sort 1000 active threads", () => {
     sortActiveThreadsByOrderKey(threads);
   });
-  bench("sort 1000 keyless pinned threads", () => {
+  benchmark("sort 1000 keyless pinned threads", () => {
     sortPinnedThreadsByOrderKey(threads);
   });
-  bench("select latest project thread from 1000 threads", () => {
+  benchmark("select latest project thread from 1000 threads", () => {
     getLatestThreadForProject(threads, projectId, "updated_at");
   });
-  bench("derive plan from 500 activities with 5 plan updates", () => {
+  benchmark("derive plan from 500 activities with 5 plan updates", () => {
     deriveActivePlanState(activities, turnId);
   });
-  bench("format 24 hourly usage labels and tooltips", () => {
+  benchmark("format 24 hourly usage labels and tooltips", () => {
     hours.map((hour) => [
       formatHourShort(hour, "America/New_York"),
       formatRelativeHourShort(hour, referenceTime, "America/New_York"),

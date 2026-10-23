@@ -98,7 +98,7 @@ function makeMemorySecretStore() {
   };
 }
 
-describe.sequential("signRelayAgentActivityPublishProof", () => {
+describe("signRelayAgentActivityPublishProof", { concurrent: false }, () => {
   it("distinguishes pending link credentials from disabled publication", () => {
     expect(
       AgentAwarenessRelay.resolveAgentActivityPublishingStartupState({
