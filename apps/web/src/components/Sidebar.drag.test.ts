@@ -2,12 +2,21 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { closestCenter, type CollisionDetection } from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
+  createSidebarBranchCollisionDetection,
+  createSidebarBranchDragGate,
   createSidebarCollisionDetection,
+  createSidebarBranchSortingStrategy,
   createSidebarSortingStrategy,
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import {
   resolveSidebarDropTarget,
+  resolveSidebarBranchDragAnnouncement,
+  resolveSidebarBranchDragFeedback,
+  resolveSidebarBranchDragVerb,
+  resolveSidebarBranchDropTarget,
+  planSidebarThreadDrop,
+  sidebarBranchLaneId,
   sidebarListItemId,
   sidebarMarkerId,
   type SidebarListItem,
@@ -25,6 +34,198 @@ const pinnedHeader = marker("pinned-header");
 const divider = marker("pinned-divider");
 const settledHeader = marker("settled-header");
 const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
+
+describe("branch lane drops", () => {
+  const activeOrder = ["a", "x", "b", "y", "c"];
+  const laneKeyByThreadKey = new Map([
+    ["a", "branch-a"],
+    ["b", "branch-a"],
+    ["c", "branch-a"],
+    ["p", "branch-a"],
+    ["s", "branch-a"],
+    ["z", "branch-a"],
+    ["x", "branch-x"],
+    ["y", "branch-x"],
+    ["foreign-pin", "branch-x"],
+  ]);
+  const items = [
+    pinnedHeader,
+    thread("p", "pinned"),
+    thread("foreign-pin", "pinned"),
+    divider,
+    ...["a", "b", "c", "x", "y"].map((key) => thread(key, "active")),
+    marker("snoozed-header"),
+    thread("z", "snoozed"),
+    settledHeader,
+    thread("s", "settled"),
+  ];
+  const target = (activeKey: string, overId: string) =>
+    resolveSidebarBranchDropTarget({
+      items,
+      activeKey,
+      overId,
+      laneKeyByThreadKey,
+      activeOrder,
+    });
+  const plan = (
+    activeKey: string,
+    overId: string,
+    overrides: Partial<Parameters<typeof planSidebarThreadDrop>[0]> = {},
+  ) => {
+    const destination = target(activeKey, overId);
+    if (!destination) return { kind: "none" } as const;
+    const source = items.find((item) => item.kind === "thread" && item.key === activeKey);
+    if (source?.kind !== "thread") throw new Error("Missing test source");
+    return planSidebarThreadDrop({
+      activeKey,
+      activeSection: source.section,
+      target: destination,
+      pinnedOrder: ["p", "foreign-pin"],
+      pinnedKeysById: new Map([
+        ["p", "f"],
+        ["foreign-pin", "m"],
+      ]),
+      activeOrder,
+      activeKeysById: new Map(
+        activeOrder.map((key, index) => [key, ["a", "f", "m", "t", "z"][index]!]),
+      ),
+      ...overrides,
+    });
+  };
+
+  it.each([
+    ["a", "b", ["x", "b", "a", "y", "c"]],
+    ["c", "b", ["a", "x", "c", "b", "y"]],
+    ["a", "c", ["x", "b", "y", "c", "a"]],
+    ["c", "header", ["c", "a", "x", "b", "y"]],
+  ])("inserts %s between its lane neighbours in global order over %s", (key, over, order) => {
+    const overId = over === "header" ? sidebarBranchLaneId("branch-a") : over;
+    expect(target(key, overId)?.activeOrder).toEqual(order);
+    expect(plan(key, overId)).toMatchObject({
+      kind: "move-active",
+      order,
+      unpin: false,
+      unsettle: false,
+      unsnooze: false,
+    });
+  });
+
+  it("writes only the moved active order assignment when there is room", () => {
+    expect(plan("a", "b")).toEqual({
+      kind: "move-active",
+      order: ["x", "b", "a", "y", "c"],
+      assignments: [{ id: "a", orderKey: "q" }],
+      unpin: false,
+      unsettle: false,
+      unsnooze: false,
+    });
+  });
+
+  it.each(["x", "header"])("rejects a foreign branch target %s", (over) => {
+    const overId = over === "header" ? sidebarBranchLaneId("branch-x") : over;
+    for (const source of ["a", "p", "s", "z"])
+      expect(plan(source, overId)).toEqual({ kind: "none" });
+    expect(plan("foreign-pin", "a")).toEqual({ kind: "none" });
+  });
+
+  it("preserves pin, settle, unpin, unsettle and wake actions", () => {
+    expect(plan("a", sidebarMarkerId("pinned-header"))).toMatchObject({ kind: "pin" });
+    expect(plan("a", sidebarMarkerId("settled-header"))).toEqual({ kind: "settle" });
+    expect(plan("p", sidebarBranchLaneId("branch-a"))).toMatchObject({
+      kind: "move-active",
+      unpin: true,
+    });
+    expect(plan("s", "a")).toMatchObject({ kind: "move-active", unsettle: true });
+    expect(plan("z", "a")).toMatchObject({ kind: "move-active", unsnooze: true });
+  });
+
+  it("rejects snoozed destinations, unknown lanes, and missing source keys", () => {
+    for (const over of ["z", sidebarMarkerId("snoozed-header"), sidebarBranchLaneId("missing")]) {
+      expect(target("a", over)).toBeNull();
+    }
+    expect(target("missing", "a")).toBeNull();
+  });
+
+  it("keeps scoped thread ids with the lane-header prefix draggable", () => {
+    const key = "sidebar-branch-lane-env:a";
+    expect(
+      resolveSidebarBranchDropTarget({
+        items: [pinnedHeader, divider, thread(key, "active"), thread("b", "active")],
+        activeKey: "b",
+        overId: key,
+        laneKeyByThreadKey: new Map([
+          [key, "branch-a"],
+          ["b", "branch-a"],
+        ]),
+        activeOrder: [key, "b"],
+      })?.activeOrder,
+    ).toEqual(["b", key]);
+  });
+
+  it("keeps global order unchanged for a self drop or an unchanged first lane position", () => {
+    expect(target("b", "b")?.activeOrder).toEqual(activeOrder);
+    expect(plan("b", "b")).toEqual({ kind: "none" });
+    expect(plan("a", sidebarBranchLaneId("branch-a"))).toEqual({ kind: "none" });
+  });
+
+  it("preserves active, pinned and settlement capability gates", () => {
+    expect(plan("a", "b", { activeReorderableKeys: new Set(["b", "c", "x", "y"]) })).toEqual({
+      kind: "none",
+    });
+    expect(
+      plan("a", sidebarMarkerId("pinned-header"), {
+        reorderableKeys: new Set(["p", "foreign-pin"]),
+      }),
+    ).toEqual({ kind: "none" });
+    expect(plan("a", sidebarMarkerId("settled-header"), { supportsSettlement: false })).toEqual({
+      kind: "none",
+    });
+    expect(plan("s", "a", { supportsSettlement: false })).toEqual({ kind: "none" });
+  });
+});
+
+describe("branch lane sorting projection", () => {
+  const items = [
+    pinnedHeader,
+    thread("p1", "pinned"),
+    thread("p2", "pinned"),
+    divider,
+    thread("a1", "active"),
+    thread("a2", "active"),
+    thread("b", "active"),
+    settledHeader,
+    thread("s", "settled"),
+  ];
+  const strategy = () =>
+    createSidebarBranchSortingStrategy({
+      items,
+      laneKeyByThreadKey: new Map([
+        ["a1", "a"],
+        ["a2", "a"],
+        ["b", "b"],
+      ]),
+    });
+
+  it.each([
+    ["a1", "a2"],
+    ["p1", "p2"],
+  ])("uses vertical sorting within a lane from %s to %s", (active, over) => {
+    const args = layout(items, active, over);
+    expect(strategy()({ ...args, index: args.overIndex })).toEqual(
+      verticalListSortingStrategy({ ...args, index: args.overIndex }),
+    );
+  });
+
+  it.each([
+    ["a1", "b"],
+    ["a1", "p1"],
+    ["p1", "a1"],
+    ["a1", "s"],
+  ])("does not shift rows across lanes from %s to %s", (active, over) => {
+    const args = layout(items, active, over);
+    expect(strategy()({ ...args, index: args.overIndex })).toBeNull();
+  });
+});
 
 function layout(
   items: readonly SidebarListItem[],
@@ -833,5 +1034,240 @@ describe("lifted card clearance", () => {
   it("follows the list when it scrolls and includes content preceding Pins", () => {
     expect(511 + apply(511, 36, -500, 96).y).toBe(128);
     expect(511 + apply(511, 36, -500, 136, 114).y).toBe(250);
+  });
+});
+
+describe("branch collision detection", () => {
+  const pinnedLane = sidebarMarkerId("pinned-header");
+  const laneA = sidebarBranchLaneId("a");
+  const laneB = sidebarBranchLaneId("b");
+  const box = (top: number, height: number) => ({
+    top,
+    bottom: top + height,
+    left: 0,
+    right: 300,
+    width: 300,
+    height,
+  });
+  const rects: Record<string, ReturnType<typeof box>> = {
+    [pinnedLane]: box(0, 130),
+    p1: box(28, 48),
+    p2: box(78, 48),
+    [laneA]: box(140, 130),
+    a1: box(168, 48),
+    a2: box(218, 48),
+    [laneB]: box(280, 80),
+    b1: box(308, 48),
+  };
+  const laneRows = new Map([
+    [pinnedLane, ["p1", "p2"]],
+    [laneA, ["a1", "a2"]],
+    [laneB, ["b1"]],
+  ]);
+  const argsAt = (y: number, layout = rects) =>
+    ({
+      active: {
+        id: "a2",
+        data: { current: {} },
+        rect: { current: { initial: layout.a2!, translated: layout.a2! } },
+      },
+      collisionRect: layout.a2!,
+      droppableRects: new Map(Object.entries(layout)),
+      droppableContainers: Object.entries(layout).map(([id, rect]) => ({
+        id,
+        key: id,
+        disabled: false,
+        data: { current: {} },
+        node: { current: null },
+        rect: { current: rect },
+      })),
+      pointerCoordinates: { x: 100, y },
+    }) satisfies Parameters<CollisionDetection>[0];
+  const detector = (
+    options: {
+      isValidTarget?: (id: string) => boolean;
+      laneRows?: ReadonlyMap<string, readonly string[]>;
+    } = {},
+  ) => {
+    const gate = createSidebarBranchDragGate();
+    const detect = createSidebarBranchCollisionDetection({
+      laneRows: options.laneRows ?? laneRows,
+      gate,
+      isValidTarget: options.isValidTarget ?? (() => true),
+    });
+    return (y: number, layout = rects) => detect(argsAt(y, layout)).map(({ id }) => id);
+  };
+  // The first call anchors the gate far below every lane.
+  const released = (options?: Parameters<typeof detector>[0]) => {
+    const at = detector(options);
+    at(1_000);
+    return at;
+  };
+
+  it("keeps the picked-up row as its target until the pointer moves", () => {
+    const at = detector();
+    // Pickup mounted Drop to pin above every lane, so p2 slid under the pointer.
+    expect(at(100)).toEqual(["a2"]);
+    expect(at(104)).toEqual(["a2"]);
+    expect(at(190)).toEqual(["a1"]);
+    expect(at(100)).toEqual(["p2"]);
+  });
+
+  it("picks pinned rows over the Pinned lane around them", () => {
+    const at = released();
+    expect(at(50)).toEqual(["p1"]);
+    expect(at(100)).toEqual(["p2"]);
+  });
+
+  it("maps a lane header, row gap or gutter to that lane's nearest row", () => {
+    const at = released();
+    expect(at(150)).toEqual(["a1"]);
+    expect(at(268)).toEqual(["a2"]);
+    expect(at(290)).toEqual(["b1"]);
+  });
+
+  it("targets an empty lane itself", () => {
+    const { p1: _p1, p2: _p2, ...withoutPins } = rects;
+    const at = released({ laneRows: new Map([...laneRows, [pinnedLane, []]]) });
+    expect(at(50, withoutPins)).toEqual([pinnedLane]);
+  });
+
+  it("falls back to the dragged row for targets the server would refuse", () => {
+    const at = released({ isValidTarget: (id) => id !== "b1" });
+    expect(at(330)).toEqual(["a2"]);
+    expect(at(190)).toEqual(["a1"]);
+  });
+
+  it("returns nothing outside every lane", () => {
+    expect(released()(375)).toEqual([]);
+  });
+});
+
+describe("branch drag feedback", () => {
+  const laneKeyByThreadKey = new Map([
+    ["a", "branch-a"],
+    ["b", "branch-a"],
+    ["p", "branch-a"],
+    ["z", "branch-a"],
+    ["x", "branch-x"],
+    ["s", "branch-x"],
+  ]);
+  const items = [
+    pinnedHeader,
+    thread("p", "pinned"),
+    divider,
+    ...["a", "b", "x"].map((key) => thread(key, "active")),
+    marker("snoozed-header"),
+    thread("z", "snoozed"),
+    settledHeader,
+    thread("s", "settled"),
+  ];
+  const feedback = (activeKey: string, overId: string | null) => {
+    const { target, overLaneKey, rejectedLaneKey } = resolveSidebarBranchDragFeedback({
+      items,
+      activeKey,
+      overId,
+      laneKeyByThreadKey,
+      activeOrder: ["a", "b", "x"],
+    });
+    return { section: target?.section ?? null, overLaneKey, rejectedLaneKey };
+  };
+
+  it("highlights the source lane for an in-lane move", () => {
+    expect(feedback("a", "b")).toEqual({
+      section: "active",
+      overLaneKey: "branch-a",
+      rejectedLaneKey: null,
+    });
+  });
+
+  it("rejects another branch lane, by row or by lane wrapper", () => {
+    const rejected = { section: null, overLaneKey: "branch-x", rejectedLaneKey: "branch-x" };
+    expect(feedback("a", "x")).toEqual(rejected);
+    expect(feedback("a", sidebarBranchLaneId("branch-x"))).toEqual(rejected);
+  });
+
+  it("never names a branch lane for pinned, snoozed or settled rows", () => {
+    expect(feedback("p", "p")).toEqual({
+      section: "pinned",
+      overLaneKey: null,
+      rejectedLaneKey: null,
+    });
+    expect(feedback("x", "z")).toEqual({ section: null, overLaneKey: null, rejectedLaneKey: null });
+    expect(feedback("a", "s").overLaneKey).toBeNull();
+    expect(feedback("a", null)).toEqual({
+      section: null,
+      overLaneKey: null,
+      rejectedLaneKey: null,
+    });
+  });
+
+  it.each([
+    [{ sourceSection: "active", targetSection: "active", rejected: true }, "Can't move here"],
+    [{ sourceSection: "active", targetSection: null, rejected: false }, null],
+    [{ sourceSection: "active", targetSection: "pinned", rejected: false }, "Pin"],
+    [{ sourceSection: "pinned", targetSection: "pinned", rejected: false }, "Move"],
+    [{ sourceSection: "active", targetSection: "settled", rejected: false }, "Settle"],
+    [{ sourceSection: "settled", targetSection: "settled", rejected: false }, "Move"],
+    [{ sourceSection: "snoozed", targetSection: "active", rejected: false }, "Wake"],
+    [{ sourceSection: "settled", targetSection: "active", rejected: false }, "Move"],
+  ] as const)("labels the chip for %j as %s", (input, verb) => {
+    expect(resolveSidebarBranchDragVerb({ ...input, overSelf: false })).toBe(verb);
+  });
+
+  it("shows no verb over the row's own slot, where refused targets also land", () => {
+    for (const sourceSection of ["active", "pinned", "snoozed"] as const) {
+      expect(
+        resolveSidebarBranchDragVerb({
+          sourceSection,
+          targetSection: sourceSection === "snoozed" ? null : sourceSection,
+          rejected: false,
+          overSelf: true,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  const announce = (
+    input: Partial<Parameters<typeof resolveSidebarBranchDragAnnouncement>[0]>,
+  ): string | undefined =>
+    resolveSidebarBranchDragAnnouncement({
+      phase: "over",
+      verb: null,
+      hasTarget: true,
+      overSelf: false,
+      leftOwnSlot: true,
+      rejectedBranch: null,
+      ...input,
+    });
+
+  it("stays quiet over the row's own slot until the drag has been somewhere else", () => {
+    expect(announce({ overSelf: true, leftOwnSlot: false })).toBeUndefined();
+    expect(announce({ overSelf: true, leftOwnSlot: true })).toBe("Thread is back in its place");
+    expect(announce({ hasTarget: false, leftOwnSlot: false })).toBe("No drop target");
+  });
+
+  it("announces what a drop would do, and why a rejected one cannot happen", () => {
+    expect(announce({ verb: "Pin" })).toBe("Pin thread: drop to pin");
+    expect(announce({ verb: "Wake" })).toBe("Wake thread");
+    expect(announce({ verb: "Move" })).toBe("Move thread");
+    expect(announce({ verb: "Can't move here", rejectedBranch: "feature/beta" })).toBe(
+      "Can't move to feature/beta. Branch comes from the thread's worktree.",
+    );
+    expect(announce({ verb: "Can't move here" })).toBe(
+      "Can't move to No branch. Branch comes from the thread's worktree.",
+    );
+    expect(announce({ verb: null })).toBe("Cannot drop here");
+  });
+
+  it.each([
+    ["Move", "Moved thread"],
+    ["Pin", "Pinned thread"],
+    ["Settle", "Settled thread"],
+    ["Wake", "Woke thread"],
+    ["Can't move here", "Can't move here. Thread returned."],
+    [null, "Thread returned"],
+  ] as const)("reports a %s drop as %j", (verb, message) => {
+    expect(announce({ phase: "end", verb })).toBe(message);
   });
 });

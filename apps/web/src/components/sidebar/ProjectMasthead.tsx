@@ -426,11 +426,8 @@ export function ProjectMasthead({
                 key={stat.id}
                 type="button"
                 aria-pressed={activeStat === stat.id}
-                aria-label={
-                  stat.id === "need-you"
-                    ? `${value} threads need you, filter`
-                    : `${value} ${stat.label}, filter`
-                }
+                // The name repeats the visible text so it always contains it.
+                aria-label={`${value} ${stat.label}, filter`}
                 onClick={() => onStatSelect(stat.id)}
                 className={cn(
                   "sb-action h-auto min-h-8 flex-col items-start gap-0 px-1.5 py-1",
@@ -451,7 +448,7 @@ export function ProjectMasthead({
                   }
                 >
                   {value}
-                </span>
+                </span>{" "}
                 <span className="text-(length:--sb-text-meta) whitespace-nowrap text-sb-muted">
                   {stat.label}
                 </span>

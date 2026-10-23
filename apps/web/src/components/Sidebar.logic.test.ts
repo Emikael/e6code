@@ -4,6 +4,9 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
   groupSidebarThreadsByProject,
+  groupSidebarBranchLanes,
+  sidebarRenderedActiveThreads,
+  sidebarVisualThreadOrder,
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   archiveSelectedThreadEntries,
@@ -22,10 +25,12 @@ import {
   isContextMenuPointerDown,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
+  joinSidebarRowDescription,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
   resolveThreadRowClassName,
   resolveSidebarThreadStatus,
+  resolveSidebarBranchStatus,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   searchSidebarThreads,
@@ -40,6 +45,7 @@ import {
   sortSettledThreadsForSidebar,
   threadMatchesSwitchboardStatFilter,
   resolveSidebarDropTarget,
+  resolveSidebarBranchDropTarget,
   pinOrderKeyBetween,
   planPinnedReorder,
   planSidebarThreadDrop,
@@ -75,6 +81,176 @@ import {
 } from "../types";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("groupSidebarBranchLanes", () => {
+  const thread = (
+    id: string,
+    overrides: Partial<SidebarThreadSummary> = {},
+  ): SidebarThreadSummary => ({
+    ...makeThread({ id: ThreadId.make(id) }),
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
+    ...overrides,
+  });
+
+  it("scopes identities by environment and project, preferring worktree over branch", () => {
+    const threads = [
+      thread("worktree-a", { worktreePath: "/work/a", branch: "main" }),
+      thread("worktree-b", { worktreePath: "/work/a", branch: "renamed" }),
+      thread("branch", { branch: "main" }),
+      thread("none"),
+      thread("project", { projectId: ProjectId.make("other"), branch: "main" }),
+      thread("remote", { environmentId: EnvironmentId.make("remote"), branch: "main" }),
+    ];
+    const lanes = groupSidebarBranchLanes(threads);
+    // Equal activity falls back to the lane key.
+    expect(lanes.map((lane) => lane.key)).toEqual([
+      "environment-local:other:br:main",
+      "environment-local:project-1:br:main",
+      "environment-local:project-1:none",
+      "environment-local:project-1:wt:/work/a",
+      "remote:project-1:br:main",
+    ]);
+    expect(lanes.find((lane) => lane.worktreePath !== null)).toEqual({
+      key: "environment-local:project-1:wt:/work/a",
+      environmentId: localEnvironmentId,
+      projectId: ProjectId.make("project-1"),
+      branch: "main",
+      worktreePath: "/work/a",
+      threads: threads.slice(0, 2),
+    });
+    expect(groupSidebarBranchLanes([])).toEqual([]);
+  });
+
+  it("orders lanes without parseable activity by key, whatever the input order", () => {
+    const unparseable = { updatedAt: "not a date", createdAt: "not a date" };
+    const threads = [
+      thread("b", { branch: "beta", ...unparseable }),
+      thread("a", { branch: "alpha", ...unparseable }),
+    ];
+    const keys = (input: SidebarThreadSummary[]) =>
+      groupSidebarBranchLanes(input).map((lane) => lane.branch);
+    expect(keys(threads)).toEqual(["alpha", "beta"]);
+    expect(keys(threads.toReversed())).toEqual(["alpha", "beta"]);
+  });
+
+  it("feeds next/previous the lane order, not the global active order", () => {
+    // Global active order interleaves the branches: a1, b1, a2.
+    const a1 = thread("a1", { branch: "alpha", updatedAt: "2026-03-09T10:00:00.000Z" });
+    const b1 = thread("b1", { branch: "beta", updatedAt: "2026-03-09T12:00:00.000Z" });
+    const a2 = thread("a2", { branch: "alpha", updatedAt: "2026-03-09T09:00:00.000Z" });
+    const active = [a1, b1, a2];
+    const ordered = sidebarVisualThreadOrder({
+      pinned: [thread("pinned")],
+      active: sidebarRenderedActiveThreads({
+        branchLanes: groupSidebarBranchLanes(active),
+        projectGroups: null,
+        active,
+      }),
+      snoozed: [thread("snoozed")],
+      settled: [thread("settled")],
+    }).map((row) => row.id);
+    expect(ordered).toEqual(["pinned", "b1", "a1", "a2", "snoozed", "settled"]);
+    const step = (from: string, direction: "next" | "previous") =>
+      resolveAdjacentThreadId({ threadIds: ordered, currentThreadId: from, direction });
+    expect(step("b1", "next")).toBe("a1");
+    expect(step("a1", "previous")).toBe("b1");
+    expect(step("a2", "next")).toBe("snoozed");
+  });
+
+  it("keeps project groups, then the plain order, outside branch mode", () => {
+    const [x, y, z] = [thread("x"), thread("y"), thread("z")];
+    expect(
+      sidebarRenderedActiveThreads({
+        branchLanes: null,
+        projectGroups: [{ rendered: [z] }, { rendered: [x, y] }],
+        active: [x, y, z],
+      }),
+    ).toEqual([z, x, y]);
+    const active = [x, y, z];
+    expect(sidebarRenderedActiveThreads({ branchLanes: null, projectGroups: null, active })).toBe(
+      active,
+    );
+  });
+
+  it("puts live lanes first, uses newest activity, and preserves row order within each lane", () => {
+    const session = {
+      threadId: ThreadId.make("live"),
+      status: "running" as const,
+      providerName: "Codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      runtimeMode: DEFAULT_RUNTIME_MODE,
+      activeTurnId: null,
+      lastError: null,
+      updatedAt: "2026-03-09T10:00:00.000Z",
+    };
+    const threads = [
+      thread("old-row", { branch: "recent", updatedAt: "2026-03-09T11:00:00.000Z" }),
+      thread("running", { branch: "running", session }),
+      thread("new-row", { branch: "recent", latestUserMessageAt: "2026-03-09T12:00:00.000Z" }),
+      thread("monitor", {
+        branch: "monitor",
+        backgroundLiveness: "monitoring",
+        updatedAt: "2026-03-09T11:00:00.000Z",
+      }),
+      thread("starting", {
+        branch: "connecting",
+        session: { ...session, status: "starting" },
+        updatedAt: "2026-03-09T10:30:00.000Z",
+      }),
+      thread("old", { branch: "old", updatedAt: "2026-03-09T09:00:00.000Z" }),
+    ];
+    const lanes = groupSidebarBranchLanes(threads);
+    expect(lanes.map((lane) => lane.branch)).toEqual([
+      "monitor",
+      "connecting",
+      "running",
+      "recent",
+      "old",
+    ]);
+    expect(lanes.flatMap((lane) => lane.threads.map((row) => row.id))).toEqual([
+      "monitor",
+      "starting",
+      "running",
+      "old-row",
+      "new-row",
+      "old",
+    ]);
+    expect(threads.map((row) => row.id)).toEqual([
+      "old-row",
+      "running",
+      "new-row",
+      "monitor",
+      "starting",
+      "old",
+    ]);
+  });
+
+  it("does not count stale background liveness as live work after a failure", () => {
+    const failed = thread("failed", {
+      branch: "failed",
+      backgroundLiveness: "monitoring",
+      updatedAt: "2026-03-09T12:00:00.000Z",
+      session: {
+        threadId: ThreadId.make("failed"),
+        status: "error",
+        providerName: "Codex",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        activeTurnId: null,
+        lastError: "Failed",
+        updatedAt: "2026-03-09T12:00:00.000Z",
+      },
+    });
+    const live = thread("live", { branch: "live", backgroundLiveness: "working" });
+    expect(groupSidebarBranchLanes([failed, live]).map((lane) => lane.branch)).toEqual([
+      "live",
+      "failed",
+    ]);
+  });
+});
 
 describe("animateSidebarLayoutChanges", () => {
   const baseArgs: Parameters<AnimateLayoutChanges>[0] = {
@@ -1241,6 +1417,63 @@ describe("resolveSidebarDropTarget", () => {
   });
 });
 
+describe("branch active-placeholder drops", () => {
+  it.each(["pinned", "snoozed"] as const)(
+    "returns a %s source to its original lane without active peers",
+    (section) => {
+      const source: SidebarListItem = { kind: "thread", key: "source", section };
+      const items: SidebarListItem[] = [
+        { kind: "marker", marker: "pinned-header" },
+        ...(section === "pinned" ? [source] : []),
+        { kind: "marker", marker: "pinned-divider" },
+        { kind: "marker", marker: "active-placeholder" },
+        { kind: "thread", key: "other-a", section: "active" },
+        { kind: "thread", key: "other-b", section: "active" },
+        { kind: "marker", marker: "snoozed-header" },
+        ...(section === "snoozed" ? [source] : []),
+        { kind: "marker", marker: "settled-header" },
+      ];
+      const activeOrder = ["other-a", "other-b"];
+      const target = resolveSidebarBranchDropTarget({
+        items,
+        activeKey: "source",
+        overId: sidebarMarkerId("active-placeholder"),
+        activeOrder,
+        laneKeyByThreadKey: new Map([
+          ["source", "original-lane"],
+          ["other-a", "other-lane"],
+          ["other-b", "other-lane"],
+        ]),
+      });
+      expect(target).toEqual({
+        section: "active",
+        pinnedOrder: [],
+        activeOrder: ["other-a", "other-b", "source"],
+      });
+      if (!target) throw new Error("Missing placeholder target");
+      expect(
+        planSidebarThreadDrop({
+          activeKey: "source",
+          activeSection: section,
+          target,
+          activeOrder,
+          pinnedOrder: section === "pinned" ? ["source"] : [],
+          pinnedKeysById: new Map([["source", "m"]]),
+          activeKeysById: new Map([
+            ["other-a", "f"],
+            ["other-b", "m"],
+          ]),
+        }),
+      ).toMatchObject({
+        kind: "move-active",
+        unpin: section === "pinned",
+        unsettle: false,
+        unsnooze: section === "snoozed",
+      });
+    },
+  );
+});
+
 describe("planSidebarThreadDrop", () => {
   const pinnedKeysById = new Map<string, string | null>([
     ["p1", "f"],
@@ -1949,6 +2182,18 @@ describe("resolveWorkingStartedAt", () => {
 });
 
 describe("formatWorkingDurationLabel", () => {
+  it.each([
+    [5_000, "00:05"],
+    [65_000, "01:05"],
+    [3_599_000, "59:59"],
+    [3_600_000, "1:00:00"],
+    [(125 * 60 + 3) * 1000, "2:05:03"],
+    [-5_000, "00:00"],
+    [Number.NaN, "00:00"],
+    [Number.POSITIVE_INFINITY, "00:00"],
+  ])("formats %s as a branch-row clock", (elapsedMs, expected) => {
+    expect(formatWorkingDurationLabel(elapsedMs, true)).toBe(expected);
+  });
   it("formats seconds, minutes, and hours", () => {
     expect(formatWorkingDurationLabel(0)).toBe("0s");
     expect(formatWorkingDurationLabel(42_000)).toBe("42s");
@@ -1982,6 +2227,86 @@ describe("resolveThreadStatusPill", () => {
     },
   };
 
+  describe("resolveSidebarBranchStatus", () => {
+    const idle = { ...baseThread, session: null, interactionMode: "default" as const };
+    const plan = {
+      ...baseThread,
+      hasActionableProposedPlan: true,
+      latestTurn: makeLatestTurn(),
+      session: { ...baseThread.session, status: "ready" as const, activeTurnId: null },
+    };
+
+    it.each(["working", "monitoring"] as const)(
+      "keeps Plan Ready glyph, label and tone above background %s",
+      (backgroundLiveness) => {
+        expect(resolveSidebarBranchStatus({ thread: { ...plan, backgroundLiveness } })).toEqual({
+          status: "plan",
+          label: "Plan Ready",
+        });
+      },
+    );
+
+    it("uses the authoritative pill status and label for every branch-row state", () => {
+      const cases = [
+        {
+          thread: { ...idle, hasPendingApprovals: true },
+          status: "approval",
+          label: "Pending Approval",
+        },
+        {
+          thread: { ...idle, hasPendingUserInput: true },
+          status: "input",
+          label: "Awaiting Input",
+        },
+        { thread: baseThread, status: "working", label: "Working" },
+        {
+          thread: {
+            ...baseThread,
+            session: { ...baseThread.session, status: "starting" as const },
+          },
+          status: "connecting",
+          label: "Connecting",
+        },
+        {
+          thread: { ...baseThread, session: { ...baseThread.session, status: "error" as const } },
+          status: "error",
+          label: "Error",
+        },
+        { thread: plan, status: "plan", label: "Plan Ready" },
+        {
+          thread: { ...idle, backgroundLiveness: "monitoring" as const },
+          status: "monitoring",
+          label: "Monitoring",
+        },
+      ];
+      for (const { thread, status, label } of cases) {
+        expect(resolveSidebarBranchStatus({ thread })).toEqual({ status, label });
+        expect(resolveSidebarBranchStatus({ thread, isWoke: true })).toEqual({ status, label });
+      }
+    });
+
+    it("shows Woke only over ready or completed rows", () => {
+      const completed = {
+        ...idle,
+        latestTurn: makeLatestTurn(),
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      };
+      expect(resolveSidebarBranchStatus({ thread: idle })).toEqual({
+        status: "ready",
+        label: null,
+      });
+      expect(resolveSidebarBranchStatus({ thread: completed })).toEqual({
+        status: "completed",
+        label: "Completed",
+      });
+      for (const thread of [idle, completed])
+        expect(resolveSidebarBranchStatus({ thread, isWoke: true })).toEqual({
+          status: "woke",
+          label: "Woke",
+        });
+    });
+  });
+
   it("shows pending approval before all other statuses", () => {
     expect(
       resolveThreadStatusPill({
@@ -2011,6 +2336,33 @@ describe("resolveThreadStatusPill", () => {
         thread: baseThread,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("keeps the shared pill free of Error so only branch rows show it", () => {
+    const failed = { ...baseThread, session: { ...baseThread.session, status: "error" as const } };
+    expect(resolveThreadStatusPill({ thread: failed })).toBeNull();
+    expect(resolveSidebarBranchStatus({ thread: failed })).toEqual({
+      status: "error",
+      label: "Error",
+    });
+    expect(
+      resolveSidebarBranchStatus({ thread: { ...failed, hasPendingApprovals: true } }).label,
+    ).toBe("Pending Approval");
+    expect(
+      resolveSidebarBranchStatus({ thread: { ...failed, hasPendingUserInput: true } }).label,
+    ).toBe("Awaiting Input");
+    expect(resolveSidebarBranchStatus({ thread: baseThread }).label).toBe("Working");
+    for (const backgroundLiveness of ["working", "monitoring"] as const) {
+      expect(resolveSidebarBranchStatus({ thread: { ...failed, backgroundLiveness } }).label).toBe(
+        "Error",
+      );
+    }
+    expect(
+      resolveSidebarBranchStatus({
+        thread: { ...failed, hasActionableProposedPlan: true, latestTurn: makeLatestTurn() },
+      }).label,
+    ).toBe("Error");
+    expect(resolveSidebarBranchStatus({ thread: failed, isWoke: true }).status).toBe("error");
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -2885,5 +3237,41 @@ describe("groupSidebarThreadsByProject", () => {
     );
     expect(web).toMatchObject({ expanded: false, threadCount: 3, attentionCount: 2 });
     expect(web!.rendered.map((t) => t.id)).toEqual(["w2"]);
+  });
+});
+
+describe("joinSidebarRowDescription", () => {
+  it("reads one sentence per part without doubled stops", () => {
+    expect(joinSidebarRowDescription(["Error", "Turn failed.", null, false, "Codex: GPT-5"])).toBe(
+      "Error. Turn failed. Codex: GPT-5",
+    );
+    expect(joinSidebarRowDescription(["Working", "Reading files…"])).toBe("Working. Reading files");
+  });
+
+  it("keeps the first line of an error, capped", () => {
+    expect(joinSidebarRowDescription(["Error", "\nProvider exited.\n    at run (cli.js:1)"])).toBe(
+      "Error. Provider exited",
+    );
+    expect(joinSidebarRowDescription(["Error", "x".repeat(200)])).toBe(`Error. ${"x".repeat(120)}`);
+  });
+
+  it("keeps question marks that stand for unknown values", () => {
+    expect(joinSidebarRowDescription(["Ready", "Last turn: +? −?"])).toBe(
+      "Ready. Last turn: +? −?",
+    );
+  });
+
+  it("drops a trailing exclamation or question mark the joiner would double", () => {
+    expect(joinSidebarRowDescription(["Error", "Turn failed!"])).toBe("Error. Turn failed");
+    expect(joinSidebarRowDescription(["Waiting", "Approve this?"])).toBe("Waiting. Approve this");
+    expect(joinSidebarRowDescription(["Alert", "Done?!"])).toBe("Alert. Done");
+    expect(joinSidebarRowDescription(["Alert", "Done!?"])).toBe("Alert. Done");
+  });
+
+  it("drops an exclamation or question mark after a closing stop or parenthesis", () => {
+    expect(joinSidebarRowDescription(["Alert", "Done.!", "Codex"])).toBe("Alert. Done. Codex");
+    expect(joinSidebarRowDescription(["Alert", "Done.?"])).toBe("Alert. Done");
+    expect(joinSidebarRowDescription(["Alert", "(x)!", "Codex"])).toBe("Alert. (x). Codex");
+    expect(joinSidebarRowDescription(["Alert", "(x)?"])).toBe("Alert. (x)");
   });
 });
