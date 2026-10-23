@@ -3267,4 +3267,11 @@ describe("joinSidebarRowDescription", () => {
     expect(joinSidebarRowDescription(["Alert", "Done?!"])).toBe("Alert. Done");
     expect(joinSidebarRowDescription(["Alert", "Done!?"])).toBe("Alert. Done");
   });
+
+  it("drops an exclamation or question mark after a closing stop or parenthesis", () => {
+    expect(joinSidebarRowDescription(["Alert", "Done.!", "Codex"])).toBe("Alert. Done. Codex");
+    expect(joinSidebarRowDescription(["Alert", "Done.?"])).toBe("Alert. Done");
+    expect(joinSidebarRowDescription(["Alert", "(x)!", "Codex"])).toBe("Alert. (x). Codex");
+    expect(joinSidebarRowDescription(["Alert", "(x)?"])).toBe("Alert. (x)");
+  });
 });

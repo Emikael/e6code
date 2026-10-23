@@ -2357,7 +2357,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
                     // Snoozed rows show when they come BACK, not when they were
                     // last touched — the return ticket is the row's whole story.
-                    <span className="text-xs text-sb-muted tabular-nums">
+                    <span
+                      className={cn(
+                        "text-xs tabular-nums",
+                        props.branchMode ? "text-sb-muted" : "text-blue-600 dark:text-blue-400",
+                      )}
+                    >
                       {props.snoozeWakeLabelText}
                     </span>
                   ) : isWoke ? (

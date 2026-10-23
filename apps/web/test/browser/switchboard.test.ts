@@ -127,6 +127,7 @@ async function frontend(root: string, name: string, backendPort: number) {
 async function newContext(options?: {
   readonly switchboard?: boolean;
   readonly colorScheme?: "light" | "dark";
+  readonly snoozedShelfExpanded?: boolean;
 }): Promise<BrowserContext> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -147,7 +148,7 @@ async function newContext(options?: {
     },
   ]);
   await context.addInitScript(
-    ({ time, switchboard }) => {
+    ({ time, switchboard, snoozedShelfExpanded }) => {
       localStorage.setItem(
         "e6code:client-settings:v1",
         JSON.stringify({ onboardingCompletedAt: time }),
@@ -160,8 +161,13 @@ async function newContext(options?: {
           projectExpandedById: { "qa-project": true },
         }),
       );
+      if (snoozedShelfExpanded) localStorage.setItem("e6code:sidebar:snoozed-expanded", "true");
     },
-    { time: fixedTime, switchboard: options?.switchboard === true },
+    {
+      time: fixedTime,
+      switchboard: options?.switchboard === true,
+      snoozedShelfExpanded: options?.snoozedShelfExpanded === true,
+    },
   );
   return context;
 }
@@ -307,6 +313,26 @@ NodeTest.before(
         branch: null,
         worktreePath: null,
         createdAt: fixedTime,
+      });
+      // Flags-off parity also covers a snoozed row and its wake countdown.
+      await dispatchFixture({
+        type: "thread.create",
+        commandId: "qa-snoozed-thread-create",
+        threadId: "qa-snoozed-thread",
+        projectId: "qa-project",
+        title: "Flags-off snoozed",
+        modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt: fixedTime,
+      });
+      await dispatchFixture({
+        type: "thread.snooze",
+        commandId: "qa-snoozed-thread-snooze",
+        threadId: "qa-snoozed-thread",
+        snoozedUntil: "2099-01-01T00:00:00.000Z",
       });
       browser = await chromium.launch({ headless: true });
     } catch (error) {
@@ -493,6 +519,13 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
       })
       .first()
       .waitFor({ state: "visible", timeout: 60_000 });
+    if (surface === "sidebar") {
+      // The snoozed shelf is expanded, so its row and wake countdown are captured too.
+      await page.getByText("Flags-off snoozed", { exact: true }).waitFor({
+        state: "visible",
+        timeout: 60_000,
+      });
+    }
     if (surface === "settings") {
       // The header is static. These rows appear only after server settings hydrate
       // and they change the page height, so both builds must reach them first.
@@ -1710,20 +1743,28 @@ async function rootCustomProperties(context: BrowserContext, url: string) {
 
 NodeTest.test(
   "flags-off sidebar and settings snapshots are pixel-identical to PR base",
-  { timeout: 180_000 },
+  { timeout: 300_000 },
   async () => {
+    for (const colorScheme of ["dark", "light"] as const) {
+      const schemeContext = await newContext({ colorScheme, snoozedShelfExpanded: true });
+      try {
+        for (const surface of ["sidebar", "settings"] as const) {
+          const expected = await snapshot(schemeContext, mainUrl, surface);
+          const actual = await snapshot(schemeContext, currentUrl, surface);
+          const name = `${surface}-${colorScheme}`;
+          await NodeFSP.writeFile(NodePath.join(artifacts, `${name}-main.png`), expected);
+          await NodeFSP.writeFile(NodePath.join(artifacts, `${name}-current.png`), actual);
+          NodeAssert.ok(
+            actual.equals(expected),
+            `${name} flags-off screenshot differs from the PR base; inspect ${artifacts}`,
+          );
+        }
+      } finally {
+        await schemeContext.close();
+      }
+    }
     const context = await newContext();
     try {
-      for (const surface of ["sidebar", "settings"] as const) {
-        const expected = await snapshot(context, mainUrl, surface);
-        const actual = await snapshot(context, currentUrl, surface);
-        await NodeFSP.writeFile(NodePath.join(artifacts, `${surface}-main.png`), expected);
-        await NodeFSP.writeFile(NodePath.join(artifacts, `${surface}-current.png`), actual);
-        NodeAssert.ok(
-          actual.equals(expected),
-          `${surface} flags-off screenshot differs from the PR base; inspect ${artifacts}`,
-        );
-      }
       const [baseVars, currentVars] = await Promise.all([
         rootCustomProperties(context, mainUrl),
         rootCustomProperties(context, currentUrl),

@@ -1391,6 +1391,7 @@ export function resolveSidebarBranchStatus(input: {
 }
 
 const SIDEBAR_ROW_DESCRIPTION_PART_LENGTH = 120;
+const SIDEBAR_ROW_DESCRIPTION_TRAILING_STOPS = /[\s.,;:…]+$/u;
 
 /**
  * Joins what a switchboard row shows into the sentence its `aria-describedby`
@@ -1402,13 +1403,15 @@ export function joinSidebarRowDescription(
   return parts
     .flatMap((part) => {
       if (!part) return [];
-      // "!"/"?" only count as a trailing stop to drop after a letter or
-      // digit: "Turn failed!" ends a sentence, but the "?" in "+? −?"
-      // (an unknown diff count) sits after a symbol and stands for a value.
+      // "!"/"?" only count as a trailing stop to drop after a letter, digit,
+      // "." or ")": "Turn failed!" and "(x)!" end a sentence, but the "?" in
+      // "+? −?" (an unknown diff count) sits after a symbol and stands for a
+      // value. Stops are stripped again so "Done.!" doesn't leave "Done.".
       const line = (part.trim().split(/\r?\n/u)[0] ?? "")
         .slice(0, SIDEBAR_ROW_DESCRIPTION_PART_LENGTH)
-        .replace(/[\s.,;:…]+$/u, "")
-        .replace(/(?<=[\p{L}\p{N}])[!?]+$/u, "");
+        .replace(SIDEBAR_ROW_DESCRIPTION_TRAILING_STOPS, "")
+        .replace(/(?<=[\p{L}\p{N}.)])[!?]+$/u, "")
+        .replace(SIDEBAR_ROW_DESCRIPTION_TRAILING_STOPS, "");
       return line ? [line] : [];
     })
     .join(". ");
