@@ -49,7 +49,9 @@ catalog:
   lightningcss: 1.33.0
   tailwindcss: 4.3.3
   typescript: 7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
+  # The `vite` override pins every Vite consumer to this core release, so it must move
+  # with `vite-plus`. Dependabot only bumps the latter; update both together.
+  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
   vite-plus: 1.1.0
   wrangler: 4.151.2
   yaml: ^2.9.0
