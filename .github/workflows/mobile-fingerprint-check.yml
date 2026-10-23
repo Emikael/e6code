@@ -71,7 +71,9 @@ jobs:
         if: steps.changes.outputs.relevant == 'true'
         run: |
           pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
-          vp_pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin"
+          # Vite+ may use the split XDG layout rather than ~/.vite-plus; ask vp where its data dir is.
+          vp_data_dir="$(VP_DUMP_DIRS=1 vp | awk -F '\t' '$1 == "data" { print $2 }')"
+          vp_pnpm_bin="$vp_data_dir/package_manager/pnpm/$pnpm_version/pnpm/bin"
           echo "$vp_pnpm_bin" >> "$GITHUB_PATH"
           "$vp_pnpm_bin/pnpm" --version
 
