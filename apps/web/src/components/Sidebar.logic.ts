@@ -23,6 +23,7 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
+import type { SwitchboardStatus } from "./sidebar/primitives/status";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 
@@ -116,6 +117,105 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
 
 export type SidebarSection = "pinned" | "active" | "snoozed" | "settled";
 
+export function sidebarBranchLaneKey(
+  thread: Pick<SidebarThreadSummary, "environmentId" | "projectId" | "branch" | "worktreePath">,
+): string {
+  const identity = thread.worktreePath
+    ? `wt:${thread.worktreePath}`
+    : thread.branch
+      ? `br:${thread.branch}`
+      : "none";
+  return `${thread.environmentId}:${thread.projectId}:${identity}`;
+}
+
+export function groupSidebarBranchLanes(activeThreads: readonly SidebarThreadSummary[]) {
+  const lanes = new Map<
+    string,
+    {
+      lane: {
+        key: string;
+        environmentId: EnvironmentId;
+        projectId: SidebarThreadSummary["projectId"];
+        branch: string | null;
+        worktreePath: string | null;
+        threads: SidebarThreadSummary[];
+      };
+      live: boolean;
+      timestamp: number;
+    }
+  >();
+  for (const thread of activeThreads) {
+    const key = sidebarBranchLaneKey(thread);
+    let entry = lanes.get(key);
+    if (!entry) {
+      entry = {
+        lane: {
+          key,
+          environmentId: thread.environmentId,
+          projectId: thread.projectId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          threads: [],
+        },
+        live: false,
+        timestamp: Number.NEGATIVE_INFINITY,
+      };
+      lanes.set(key, entry);
+    }
+    entry.lane.threads.push(thread);
+    const status = resolveSidebarThreadStatus(thread);
+    entry.live ||= status === "working" || status === "monitoring";
+    entry.timestamp = Math.max(entry.timestamp, getThreadSortTimestamp(thread, "updated_at"));
+  }
+  return (
+    [...lanes.values()]
+      // Equal or unparseable activity (−∞ − −∞ is NaN) falls back to the lane key.
+      .sort(
+        (a, b) =>
+          Number(b.live) - Number(a.live) ||
+          b.timestamp - a.timestamp ||
+          a.lane.key.localeCompare(b.lane.key),
+      )
+      .map(({ lane }) => lane)
+  );
+}
+
+/** Active rows as drawn: lane by lane in branch mode, by project group when
+ * grouped, otherwise in their sorted order. */
+export function sidebarRenderedActiveThreads<T>(input: {
+  readonly branchLanes: readonly { readonly threads: readonly T[] }[] | null;
+  readonly projectGroups: readonly { readonly rendered: readonly T[] }[] | null;
+  readonly active: readonly T[];
+}): readonly T[] {
+  if (input.branchLanes) return input.branchLanes.flatMap((lane) => lane.threads);
+  return input.projectGroups?.flatMap((group) => group.rendered) ?? input.active;
+}
+
+/** Every rendered row in drawing order. Next/previous, the ⌘1–9 numbering and
+ * Shift-click range select all read this order. */
+export function sidebarVisualThreadOrder<T>(input: {
+  readonly pinned: readonly T[];
+  readonly active: readonly T[];
+  readonly snoozed: readonly T[];
+  readonly settled: readonly T[];
+}): T[] {
+  return [...input.pinned, ...input.active, ...input.snoozed, ...input.settled];
+}
+
+const SIDEBAR_BRANCH_LANE_PREFIX = "sidebar-branch-lane-";
+
+export function sidebarBranchLaneId(key: string): string {
+  return `${SIDEBAR_BRANCH_LANE_PREFIX}${key}`;
+}
+
+/** The lane a wrapper droppable id names. List items win: a scoped thread key
+    may itself start with the lane prefix. */
+function sidebarBranchLaneKeyOfId(items: readonly SidebarListItem[], id: string): string | null {
+  if (!id.startsWith(SIDEBAR_BRANCH_LANE_PREFIX)) return null;
+  if (items.some((item) => sidebarListItemId(item) === id)) return null;
+  return id.slice(SIDEBAR_BRANCH_LANE_PREFIX.length);
+}
+
 /** Sortable ids: thread rows use their scoped key; structural items use a
     colon-free prefix: scoped thread keys always contain a colon. */
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
@@ -190,6 +290,169 @@ export function resolveSidebarDropTarget(
     else activeOrder.push(item.key);
   }
   return { section, pinnedOrder, activeOrder };
+}
+
+/** Branch rows keep their lane, while manual keys still describe the global active order. */
+export function resolveSidebarBranchDropTarget(input: {
+  readonly items: readonly SidebarListItem[];
+  readonly activeKey: string;
+  readonly overId: string;
+  readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
+  readonly activeOrder: readonly string[];
+}): SidebarDropTarget | null {
+  const { items, activeKey, overId, laneKeyByThreadKey, activeOrder } = input;
+  const source = items.find((item) => item.kind === "thread" && item.key === activeKey);
+  if (source?.kind !== "thread") return null;
+  const sourceLane = laneKeyByThreadKey.get(activeKey);
+  const over = items.find((item) => sidebarListItemId(item) === overId);
+  const headerLane = over ? null : sidebarBranchLaneKeyOfId(items, overId);
+  if (
+    (over?.kind === "thread" && over.section === "snoozed") ||
+    overId === sidebarMarkerId("snoozed-header")
+  )
+    return null;
+  const laneRows = items.flatMap((item) =>
+    item.kind === "thread" && item.section === "active" ? [item] : [],
+  );
+  let target: SidebarDropTarget | null;
+  if (headerLane !== null) {
+    const firstIndex = laneRows.findIndex(
+      (item) => laneKeyByThreadKey.get(item.key) === headerLane,
+    );
+    if (firstIndex < 0 || sourceLane !== headerLane) return null;
+    const order = laneRows.map((item) => item.key).filter((key) => key !== activeKey);
+    order.splice(firstIndex, 0, activeKey);
+    target = {
+      section: "active",
+      pinnedOrder: items.flatMap((item) =>
+        item.kind === "thread" && item.section === "pinned" && item.key !== activeKey
+          ? [item.key]
+          : [],
+      ),
+      activeOrder: order,
+    };
+  } else {
+    target = resolveSidebarDropTarget(items, activeKey, overId);
+  }
+  if (!target) return null;
+  if (target.section !== "active") {
+    return { ...target, activeOrder: activeOrder.filter((key) => key !== activeKey) };
+  }
+  const destinationLane =
+    headerLane ?? (over?.kind === "thread" ? laneKeyByThreadKey.get(over.key) : sourceLane);
+  if (!sourceLane || sourceLane !== destinationLane) return null;
+  const laneOrder = target.activeOrder.filter((key) => laneKeyByThreadKey.get(key) === sourceLane);
+  const originalLaneOrder = activeOrder.filter((key) => laneKeyByThreadKey.get(key) === sourceLane);
+  if (
+    laneOrder.length === originalLaneOrder.length &&
+    laneOrder.every((key, index) => key === originalLaneOrder[index])
+  ) {
+    return { ...target, activeOrder };
+  }
+  const index = laneOrder.indexOf(activeKey);
+  if (index < 0) return null;
+  const order = activeOrder.filter((key) => key !== activeKey);
+  const previousKey = laneOrder[index - 1];
+  const nextKey = laneOrder[index + 1];
+  const previousIndex = originalLaneOrder.indexOf(activeKey);
+  const movingDown = previousIndex >= 0 && index > previousIndex;
+  const insertionIndex =
+    movingDown && previousKey !== undefined
+      ? order.indexOf(previousKey) + 1
+      : nextKey !== undefined
+        ? order.indexOf(nextKey)
+        : previousKey !== undefined
+          ? order.indexOf(previousKey) + 1
+          : order.length;
+  order.splice(insertionIndex, 0, activeKey);
+  return { ...target, activeOrder: order };
+}
+
+export interface SidebarBranchDragFeedback {
+  readonly target: SidebarDropTarget | null;
+  /** The active lane under the pointer. Pinned, snoozed and settled rows
+      belong to their shelf, not to their branch lane. */
+  readonly overLaneKey: string | null;
+  /** Set when that lane refuses the drop because it is another branch. */
+  readonly rejectedLaneKey: string | null;
+}
+
+export function resolveSidebarBranchDragFeedback(input: {
+  readonly items: readonly SidebarListItem[];
+  readonly activeKey: string;
+  readonly overId: string | null;
+  readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
+  readonly activeOrder: readonly string[];
+}): SidebarBranchDragFeedback {
+  const { items, activeKey, overId, laneKeyByThreadKey } = input;
+  if (overId === null) return { target: null, overLaneKey: null, rejectedLaneKey: null };
+  const target = resolveSidebarBranchDropTarget({ ...input, overId });
+  const over = items.find((item) => sidebarListItemId(item) === overId);
+  const overLaneKey =
+    over === undefined
+      ? sidebarBranchLaneKeyOfId(items, overId)
+      : over.kind === "thread" && over.section === "active"
+        ? (laneKeyByThreadKey.get(over.key) ?? null)
+        : null;
+  const rejectedLaneKey =
+    target === null && overLaneKey !== null && overLaneKey !== laneKeyByThreadKey.get(activeKey)
+      ? overLaneKey
+      : null;
+  return { target, overLaneKey, rejectedLaneKey };
+}
+
+export type SidebarBranchDragVerb = "Move" | "Pin" | "Settle" | "Wake" | "Can't move here";
+
+/** The drag chip's badge; null over no drop target and over the row's own
+ * slot, which is also where targets the server refuses fall back to. */
+export function resolveSidebarBranchDragVerb(input: {
+  readonly sourceSection: SidebarSection;
+  readonly targetSection: SidebarSection | null;
+  readonly rejected: boolean;
+  readonly overSelf: boolean;
+}): SidebarBranchDragVerb | null {
+  if (input.rejected) return "Can't move here";
+  if (input.overSelf || input.targetSection === null) return null;
+  if (input.sourceSection === "snoozed" && input.targetSection === "active") return "Wake";
+  if (input.targetSection === "pinned" && input.sourceSection !== "pinned") return "Pin";
+  if (input.targetSection === "settled" && input.sourceSection !== "settled") return "Settle";
+  return "Move";
+}
+
+const SIDEBAR_BRANCH_DROP_RESULTS = {
+  Move: "Moved thread",
+  Pin: "Pinned thread",
+  Settle: "Settled thread",
+  Wake: "Woke thread",
+} as const;
+
+/** What the drag live region says while a branch-mode drag is `over` a target
+ * and when it `end`s, given the chip's verb. Undefined keeps it quiet: a row
+ * that has not left its own slot since pick-up has nothing to report. */
+export function resolveSidebarBranchDragAnnouncement(input: {
+  readonly phase: "over" | "end";
+  readonly verb: SidebarBranchDragVerb | null;
+  /** False while the pointer is over no drop target at all. */
+  readonly hasTarget: boolean;
+  readonly overSelf: boolean;
+  /** Whether the drag has been over another target since it started. */
+  readonly leftOwnSlot: boolean;
+  /** The lane a rejected drop was aimed at; null is the "No branch" lane. */
+  readonly rejectedBranch: string | null;
+}): string | undefined {
+  const { verb } = input;
+  if (input.phase === "end") {
+    if (verb === "Can't move here") return "Can't move here. Thread returned.";
+    return verb === null ? "Thread returned" : SIDEBAR_BRANCH_DROP_RESULTS[verb];
+  }
+  if (!input.hasTarget) return "No drop target";
+  if (verb === "Can't move here") {
+    return `Can't move to ${input.rejectedBranch ?? "No branch"}. Branch comes from the thread's worktree.`;
+  }
+  if (verb === "Pin") return "Pin thread: drop to pin";
+  if (verb !== null) return `${verb} thread`;
+  if (!input.overSelf) return "Cannot drop here";
+  return input.leftOwnSlot ? "Thread is back in its place" : undefined;
 }
 
 export type SidebarThreadDropPlan =
@@ -999,8 +1262,15 @@ export function resolveWorkingStartedAt(
   return firstValidTimestamp(thread.session?.updatedAt);
 }
 
-export function formatWorkingDurationLabel(elapsedMs: number): string {
+export function formatWorkingDurationLabel(elapsedMs: number, clock = false): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
+  if (clock) {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const minutes = Math.floor(seconds / 60);
+    return minutes < 60
+      ? `${pad(minutes)}:${pad(seconds % 60)}`
+      : `${Math.floor(minutes / 60)}:${pad(minutes % 60)}:${pad(seconds % 60)}`;
+  }
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -1096,6 +1366,55 @@ export function resolveThreadStatusPill(input: {
   }
 
   return null;
+}
+
+export function resolveSidebarBranchStatus(input: {
+  thread: ThreadStatusInput;
+  isWoke?: boolean;
+}): { status: SwitchboardStatus; label: string | null } {
+  const { thread } = input;
+  // Only branch rows show Error. A failed session cannot also be running or
+  // starting, so approval and input are the only states that outrank it.
+  if (
+    thread.session?.status === "error" &&
+    !thread.hasPendingApprovals &&
+    !thread.hasPendingUserInput
+  ) {
+    return { status: "error", label: "Error" };
+  }
+  const pill = resolveThreadStatusPill({ thread });
+  if (input.isWoke && (!pill || pill.label === "Completed")) {
+    return { status: "woke", label: "Woke" };
+  }
+  if (!pill) return { status: "ready", label: null };
+  return { status: PILL_STATUS_KIND[pill.label], label: pill.label };
+}
+
+const SIDEBAR_ROW_DESCRIPTION_PART_LENGTH = 120;
+const SIDEBAR_ROW_DESCRIPTION_TRAILING_STOPS = /[\s.,;:…]+$/u;
+
+/**
+ * Joins what a switchboard row shows into the sentence its `aria-describedby`
+ * reads: one line per part, capped, without trailing stops the joiner would double.
+ */
+export function joinSidebarRowDescription(
+  parts: ReadonlyArray<string | false | null | undefined>,
+): string {
+  return parts
+    .flatMap((part) => {
+      if (!part) return [];
+      // "!"/"?" only count as a trailing stop to drop after a letter, digit,
+      // "." or ")": "Turn failed!" and "(x)!" end a sentence, but the "?" in
+      // "+? −?" (an unknown diff count) sits after a symbol and stands for a
+      // value. Stops are stripped again so "Done.!" doesn't leave "Done.".
+      const line = (part.trim().split(/\r?\n/u)[0] ?? "")
+        .slice(0, SIDEBAR_ROW_DESCRIPTION_PART_LENGTH)
+        .replace(SIDEBAR_ROW_DESCRIPTION_TRAILING_STOPS, "")
+        .replace(/(?<=[\p{L}\p{N}.)])[!?]+$/u, "")
+        .replace(SIDEBAR_ROW_DESCRIPTION_TRAILING_STOPS, "");
+      return line ? [line] : [];
+    })
+    .join(". ");
 }
 
 export function resolveProjectStatusIndicator(

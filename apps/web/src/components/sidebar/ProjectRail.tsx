@@ -660,7 +660,6 @@ function ProjectRailTile({
             ref={dragRef}
             data-rail-item=""
             data-rail-id={project.projectKey}
-            aria-label={label}
             aria-current={active ? "page" : undefined}
             onFocus={onFocus}
             onClick={onSelect}
@@ -678,7 +677,11 @@ function ProjectRailTile({
         }
       >
         {active ? <ActiveBar horizontal={horizontal} /> : null}
-        <ProjectFavicon project={project} className="size-5" monogramTone="solid" />
+        {/* Named by the hidden label: the monogram is not the project's name. */}
+        <span className="sr-only">{label}</span>
+        <span aria-hidden="true" className="inline-flex">
+          <ProjectFavicon project={project} className="size-5" monogramTone="solid" />
+        </span>
         {counts.badge ? (
           <span
             aria-hidden

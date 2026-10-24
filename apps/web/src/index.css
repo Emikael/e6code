@@ -97,6 +97,12 @@
   outline-offset: 2px;
 }
 
+/* Shelf rows sit under [content-visibility:auto], which clips an outset
+   ring at the row's own box. Painting it inset keeps it visible (WCAG 2.4.7). */
+[data-switchboard] [data-testid="sidebar-row-slim"]:focus-visible {
+  outline-offset: -2px;
+}
+
 /* Solid monogram tiles. Inlined oklch so these shades never join :root. */
 [data-switchboard] [data-sb-monogram="gray"] {
   background-color: oklch(96.7% 0.003 264.542);

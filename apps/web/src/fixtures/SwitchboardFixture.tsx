@@ -1,9 +1,17 @@
 import { ProviderDriverKind } from "@e6tools/contracts";
 import { BUILT_IN_THEMES } from "@e6tools/shared/themePalettes";
-import { CircleCheck, Clock3, MoreHorizontal, Pin, ShieldQuestion } from "lucide-react";
+import { DndContext } from "@dnd-kit/core";
+import { CircleCheck, Clock3, MoreHorizontal, Pin, Server, ShieldQuestion } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import { TooltipProvider } from "~/components/ui/tooltip";
+import { BranchDragChip } from "~/components/sidebar/BranchDragChip";
+import { BranchLane } from "~/components/sidebar/BranchLane";
+import {
+  BranchThreadRow,
+  BranchThreadRowActions,
+  type BranchThreadRowProps,
+} from "~/components/sidebar/BranchThreadRow";
 import { BranchLabel } from "~/components/sidebar/primitives/BranchLabel";
 import { CountBadge } from "~/components/sidebar/primitives/CountBadge";
 import { DiffStat } from "~/components/sidebar/primitives/DiffStat";
@@ -11,7 +19,7 @@ import { KbdHint } from "~/components/sidebar/primitives/KbdHint";
 import { LaneHeader } from "~/components/sidebar/primitives/LaneHeader";
 import { PlanProgress } from "~/components/sidebar/primitives/PlanProgress";
 import { ProviderMark } from "~/components/sidebar/primitives/ProviderMark";
-import { QuickActions } from "~/components/sidebar/primitives/QuickActions";
+import { QuickActions, type QuickAction } from "~/components/sidebar/primitives/QuickActions";
 import { StatusGlyph } from "~/components/sidebar/primitives/StatusGlyph";
 import { StatusPill } from "~/components/sidebar/primitives/StatusPill";
 import { SWITCHBOARD_STATUS, type SwitchboardStatus } from "~/components/sidebar/primitives/status";
@@ -73,6 +81,29 @@ function Sample({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
+function FixtureBranchRow({
+  actions,
+  ...props
+}: BranchThreadRowProps & { actions?: readonly QuickAction[] }) {
+  return (
+    <li role="presentation" className="group/sidebar-row relative">
+      <div
+        role="option"
+        aria-selected={props.selected ?? false}
+        tabIndex={0}
+        className="rounded-lg"
+      >
+        <BranchThreadRow {...props} actionCount={actions?.length ?? 0} />
+      </div>
+      {actions && (
+        <BranchThreadRowActions visible={props.actionsVisible ?? false}>
+          <QuickActions actions={actions} variant="row" />
+        </BranchThreadRowActions>
+      )}
+    </li>
+  );
+}
+
 export function SwitchboardFixture() {
   const themes = getFixtureThemes(useCustomThemes());
   const [theme, selectTheme] = useState("default");
@@ -122,6 +153,19 @@ export function SwitchboardFixture() {
       onClick: () => setMessage("More actions requested"),
     },
   ];
+  const branchMeta = (
+    <>
+      <ProviderMark provider={ProviderDriverKind.make("codex")} label="Codex · GPT-5" />
+      <span data-sb-model className="min-w-0 truncate">
+        GPT-5
+      </span>
+      <DiffStat additions={84} deletions={12} />
+      <span className="inline-flex shrink-0 items-center gap-1">
+        <Server aria-hidden="true" className="size-3" />
+        <span data-sb-environment-label>Mac mini</span>
+      </span>
+    </>
+  );
   return (
     <TooltipProvider>
       <main className="min-h-screen bg-background p-4 font-sans text-[13px] text-foreground">
@@ -167,7 +211,7 @@ export function SwitchboardFixture() {
           <div
             data-switchboard="sidebar"
             data-contrast-fixture
-            className="overflow-hidden rounded-xl border border-sb-border bg-sb-surface text-sb-foreground"
+            className="@container/sidebar-column overflow-hidden rounded-xl border border-sb-border bg-sb-surface text-sb-foreground"
           >
             <Sample name="StatusGlyph · StatusPill · CountBadge">
               {(Object.keys(SWITCHBOARD_STATUS) as SwitchboardStatus[]).map((status, index) => (
@@ -268,6 +312,133 @@ export function SwitchboardFixture() {
                   <option value="compact">Compact</option>
                 </select>
               </label>
+            </Sample>
+            <Sample name="Branch lanes · Comfortable rows">
+              <DndContext>
+                <ul role="listbox" aria-label="Fixture threads" aria-multiselectable>
+                  <BranchLane laneKey="fixture:pinned" branch={null} count={1} pinned>
+                    <FixtureBranchRow
+                      title="Design review notes: Switchboard"
+                      status="ready"
+                      age="2d"
+                      meta={
+                        <>
+                          <BranchLabel branch="main" className="shrink-[50]" />
+                          {branchMeta}
+                          <Pin role="img" aria-label="Pinned" className="size-3 shrink-0" />
+                        </>
+                      }
+                      actions={actions}
+                    />
+                  </BranchLane>
+                  <BranchLane
+                    laneKey="fixture:working"
+                    branch="feature/auth-gate"
+                    worktree
+                    count={3}
+                    projectName="e6code"
+                  >
+                    <FixtureBranchRow
+                      title="Apply auth middleware to /api/agents"
+                      status="working"
+                      age="11:40"
+                      meta={branchMeta}
+                      actions={actions}
+                      planProgress={{
+                        step: "Extract requireSession() helper",
+                        completedSteps: 3,
+                        totalSteps: 7,
+                      }}
+                    />
+                    <FixtureBranchRow
+                      title="Neutral theme tokens + AA pass"
+                      status="ready"
+                      age="42m"
+                      meta={branchMeta}
+                      selected
+                      actions={actions}
+                    />
+                    <FixtureBranchRow
+                      title="Status derivation unit tests"
+                      status="ready"
+                      age="20m"
+                      meta={branchMeta}
+                      actions={actions}
+                      actionsVisible
+                    />
+                  </BranchLane>
+                  <BranchLane laneKey="fixture:errors" branch="fix/await-shell" count={3} rejected>
+                    <FixtureBranchRow
+                      title="Watch CI for PR #418"
+                      status="monitoring"
+                      age="27m"
+                      meta={
+                        <>
+                          <StatusPill status="monitoring" />
+                          {branchMeta}
+                        </>
+                      }
+                      actions={actions}
+                    />
+                    <FixtureBranchRow
+                      title="Resume after sleep crashes session"
+                      status="error"
+                      age="2h"
+                      meta={
+                        <>
+                          <StatusPill status="error" />
+                          {branchMeta}
+                        </>
+                      }
+                      lastError="Provider exited with code 1: ECONNRESET while resuming"
+                      actions={actions}
+                    />
+                    <FixtureBranchRow
+                      title="Retry flaky e2e on CI"
+                      status="error"
+                      age="3h"
+                      meta={
+                        <>
+                          <StatusPill status="error" />
+                          {branchMeta}
+                        </>
+                      }
+                      lastError={null}
+                      actions={actions}
+                    />
+                  </BranchLane>
+                  <BranchLane laneKey="fixture:none" branch={null} count={1} dragOver>
+                    <FixtureBranchRow
+                      title="Release checklist 0.9.4"
+                      status="completed"
+                      age="31m"
+                      meta={
+                        <>
+                          <StatusPill status="completed" />
+                          {branchMeta}
+                        </>
+                      }
+                      actions={actions}
+                    />
+                  </BranchLane>
+                </ul>
+              </DndContext>
+              {/* Separate context: the empty Pinned lane reuses the pinned droppable id. */}
+              <DndContext>
+                <ul aria-label="Fixture drop to pin">
+                  <BranchLane laneKey="fixture:drop-to-pin" branch={null} count={0} pinned />
+                </ul>
+              </DndContext>
+              <div className="flex flex-col items-start gap-2">
+                {(["Move", "Pin", "Settle", "Can't move here"] as const).map((verb) => (
+                  <BranchDragChip
+                    key={verb}
+                    status="ready"
+                    title="Session cookie rotation"
+                    verb={verb}
+                  />
+                ))}
+              </div>
             </Sample>
           </div>
           <div

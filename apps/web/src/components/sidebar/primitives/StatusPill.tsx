@@ -4,12 +4,18 @@ import { SWITCHBOARD_STATUS, type SwitchboardStatus } from "./status";
 export function StatusPill({
   status,
   className,
+  label,
+  decorative = false,
 }: {
   status: SwitchboardStatus;
   className?: string;
+  label?: string;
+  /** Hide from assistive tech when the surrounding row describes it instead. */
+  decorative?: boolean;
 }) {
   return (
     <span
+      aria-hidden={decorative || undefined}
       className={cn(
         "inline-flex rounded-[5px] px-1.5 py-0.5 text-(length:--sb-text-meta) leading-none",
         className,
@@ -19,7 +25,7 @@ export function StatusPill({
         backgroundColor: `color-mix(in srgb, var(--state-${status}) 10%, var(--sb-surface))`,
       }}
     >
-      {SWITCHBOARD_STATUS[status].label}
+      {label ?? SWITCHBOARD_STATUS[status].label}
     </span>
   );
 }

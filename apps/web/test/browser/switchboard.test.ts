@@ -9,6 +9,8 @@ import * as NodePath from "node:path";
 import * as NodeTest from "node:test";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
+import { DEFAULT_MODEL } from "@e6tools/contracts";
+import type { OrchestrationShellSnapshot } from "@e6tools/contracts";
 import {
   chromium,
   type Browser,
@@ -16,6 +18,7 @@ import {
   type Locator,
   type Page,
 } from "playwright-core";
+import type { AxeResults } from "axe-core";
 import { createServer, type ViteDevServer } from "vite-plus";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -35,7 +38,17 @@ let mainUrl: string;
 let browser: Browser;
 let backendPort = 0;
 let backend: ReturnType<typeof NodeChildProcess.spawn> | undefined;
+let backendLogWrite = Promise.resolve();
 const token = NodeCrypto.randomBytes(32).toString("hex");
+
+function recordBackendLog(message: string) {
+  backendLogWrite = backendLogWrite.then(() =>
+    NodeFSP.appendFile(
+      NodePath.join(artifacts, "backend.log"),
+      `${message.replace(/#token=\S+/g, "#token=[redacted]")}\n`,
+    ),
+  );
+}
 
 async function freePort() {
   const server = NodeNet.createServer();
@@ -111,10 +124,14 @@ async function frontend(root: string, name: string, backendPort: number) {
   return `http://localhost:${address.port}`;
 }
 
-async function newContext(options?: { readonly switchboard?: boolean }): Promise<BrowserContext> {
+async function newContext(options?: {
+  readonly switchboard?: boolean;
+  readonly colorScheme?: "light" | "dark";
+  readonly snoozedShelfExpanded?: boolean;
+}): Promise<BrowserContext> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    colorScheme: "dark",
+    colorScheme: options?.colorScheme ?? "dark",
     reducedMotion: "reduce",
     timezoneId: "UTC",
     locale: "en-US",
@@ -131,7 +148,7 @@ async function newContext(options?: { readonly switchboard?: boolean }): Promise
     },
   ]);
   await context.addInitScript(
-    ({ time, switchboard }) => {
+    ({ time, switchboard, snoozedShelfExpanded }) => {
       localStorage.setItem(
         "e6code:client-settings:v1",
         JSON.stringify({ onboardingCompletedAt: time }),
@@ -144,8 +161,13 @@ async function newContext(options?: { readonly switchboard?: boolean }): Promise
           projectExpandedById: { "qa-project": true },
         }),
       );
+      if (snoozedShelfExpanded) localStorage.setItem("e6code:sidebar:snoozed-expanded", "true");
     },
-    { time: fixedTime, switchboard: options?.switchboard === true },
+    {
+      time: fixedTime,
+      switchboard: options?.switchboard === true,
+      snoozedShelfExpanded: options?.snoozedShelfExpanded === true,
+    },
   );
   return context;
 }
@@ -198,6 +220,7 @@ NodeTest.before(
       backendPort = await freePort();
       currentUrl = await frontend(repo, "current", backendPort);
       mainUrl = await frontend(baseline, "main", backendPort);
+      await NodeFSP.writeFile(NodePath.join(artifacts, "backend.log"), "");
       backend = NodeChildProcess.spawn(
         process.execPath,
         [
@@ -226,6 +249,26 @@ NodeTest.before(
           stdio: ["ignore", "pipe", "pipe"],
         },
       );
+      for (const [name, stream] of [
+        ["stdout", backend.stdout!],
+        ["stderr", backend.stderr!],
+      ] as const) {
+        let pending = "";
+        stream.on("data", (data: Buffer) => {
+          const lines = (pending + data.toString()).split("\n");
+          pending = lines.pop() ?? "";
+          for (const line of lines) recordBackendLog(`[${name}] ${line}`);
+        });
+        stream.on("end", () => {
+          if (pending) recordBackendLog(`[${name}] ${pending}`);
+        });
+      }
+      backend.once("exit", (code, signal) =>
+        recordBackendLog(`[exit] code=${code} signal=${signal}`),
+      );
+      // If the runner exits before teardown finishes, the backend goes with it.
+      const spawned = backend;
+      process.once("exit", () => spawned.kill("SIGKILL"));
       await new Promise<void>((ready, reject) => {
         let log = "";
         const timeout = setTimeout(
@@ -250,18 +293,7 @@ NodeTest.before(
           reject(new Error(`Test server exited ${code}: ${log}`));
         });
       });
-      const dispatch = async (command: object) => {
-        const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(command),
-        });
-        NodeAssert.equal(response.status, 200, await response.text());
-      };
-      await dispatch({
+      await dispatchFixture({
         type: "project.create",
         commandId: "qa-project-create",
         projectId: "qa-project",
@@ -269,7 +301,7 @@ NodeTest.before(
         workspaceRoot: workspace,
         createdAt: fixedTime,
       });
-      await dispatch({
+      await dispatchFixture({
         type: "thread.create",
         commandId: "qa-thread-create",
         threadId: "qa-thread",
@@ -282,15 +314,32 @@ NodeTest.before(
         worktreePath: null,
         createdAt: fixedTime,
       });
+      // Flags-off parity also covers a snoozed row and its wake countdown.
+      await dispatchFixture({
+        type: "thread.create",
+        commandId: "qa-snoozed-thread-create",
+        threadId: "qa-snoozed-thread",
+        projectId: "qa-project",
+        title: "Flags-off snoozed",
+        modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt: fixedTime,
+      });
+      await dispatchFixture({
+        type: "thread.snooze",
+        commandId: "qa-snoozed-thread-snooze",
+        threadId: "qa-snoozed-thread",
+        snoozedUntil: "2099-01-01T00:00:00.000Z",
+      });
       browser = await chromium.launch({ headless: true });
     } catch (error) {
       await browser?.close().catch(() => {});
       await Promise.all(frontends.map((server) => server.close().catch(() => {})));
       frontends.length = 0;
-      if (backend && backend.exitCode === null) {
-        backend.kill("SIGKILL");
-      }
-      backend = undefined;
+      await stopBackend();
       if (sandbox) await NodeFSP.rm(sandbox, { recursive: true, force: true }).catch(() => {});
       throw error;
     }
@@ -298,15 +347,31 @@ NodeTest.before(
   { timeout: 180_000 },
 );
 
+/** Stops the backend this suite spawned, by its handle, without ever waiting on it forever. */
+async function stopBackend() {
+  const child = backend;
+  backend = undefined;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((done) => child.once("exit", () => done()));
+  child.kill("SIGTERM");
+  const escalate = setTimeout(() => child.kill("SIGKILL"), 10_000);
+  await exited;
+  clearTimeout(escalate);
+}
+
 NodeTest.after(async () => {
-  await browser?.close();
-  await Promise.all(frontends.map((server) => server.close()));
-  if (backend && backend.exitCode === null) {
-    const exited = new Promise<void>((done) => backend!.once("exit", () => done()));
-    backend.kill("SIGTERM");
-    await exited;
-  }
+  // Every step runs even when an earlier one fails, so a broken browser or
+  // dev server can't leave the backend running and the suite waiting on it.
+  const results = await Promise.allSettled([
+    browser?.close(),
+    ...frontends.map((server) => server.close()),
+    stopBackend(),
+  ]);
+  await backendLogWrite;
   if (sandbox) await NodeFSP.rm(sandbox, { recursive: true, force: true });
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
 });
 
 NodeTest.test(
@@ -454,6 +519,13 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
       })
       .first()
       .waitFor({ state: "visible", timeout: 60_000 });
+    if (surface === "sidebar") {
+      // The snoozed shelf is expanded, so its row and wake countdown are captured too.
+      await page.getByText("Flags-off snoozed", { exact: true }).waitFor({
+        state: "visible",
+        timeout: 60_000,
+      });
+    }
     if (surface === "settings") {
       // The header is static. These rows appear only after server settings hydrate
       // and they change the page height, so both builds must reach them first.
@@ -531,6 +603,8 @@ NodeTest.test(
       await projectTile.evaluate((button) => {
         const badge = document.createElement("span");
         badge.setAttribute("data-badge-specimen", "");
+        // Like the production badge: the tile's name comes from its hidden label.
+        badge.setAttribute("aria-hidden", "true");
         badge.textContent = "1";
         badge.className =
           "absolute -right-0.5 -bottom-0.5 h-4 min-w-4 rounded-full px-1 text-center font-mono text-(length:--sb-text-meta) leading-4 font-semibold tabular-nums ring-2 ring-sb-rail-bg";
@@ -646,6 +720,1004 @@ NodeTest.test(
   },
 );
 
+/** Calls the test backend: a GET, or a JSON POST when given a body. */
+async function backendRequest(path: string, body?: object): Promise<Response> {
+  const send = () =>
+    fetch(
+      `http://127.0.0.1:${backendPort}${path}`,
+      body === undefined
+        ? { headers: { Authorization: `Bearer ${token}` } }
+        : {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+    );
+  try {
+    return await send();
+  } catch (error) {
+    // A pooled socket the server already closed fails before the request
+    // lands; one retry on a fresh socket covers it. Anything else is real,
+    // and a POST must never be resent: a non-idempotent request that did
+    // reach the server before the socket dropped would double-apply.
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code = cause instanceof Error && "code" in cause ? cause.code : undefined;
+    if (body !== undefined || (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET")) throw error;
+    return send();
+  }
+}
+
+async function dispatchFixture(command: object) {
+  const response = await backendRequest("/api/orchestration/dispatch", command);
+  NodeAssert.equal(response.status, 200, await response.text());
+}
+
+async function readShell(): Promise<OrchestrationShellSnapshot> {
+  const response = await backendRequest("/api/orchestration/shell");
+  NodeAssert.equal(response.status, 200);
+  return response.json();
+}
+
+async function browserRpc(page: Page, method: string, payload: object): Promise<unknown> {
+  return page.evaluate(
+    ({ method, payload }) =>
+      new Promise((resolve, reject) => {
+        const url = new URL("/ws", location.href);
+        url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(url);
+        // Each call sends one request on its own socket.
+        const id = "1";
+        socket.addEventListener("open", () =>
+          socket.send(
+            JSON.stringify({
+              _tag: "Request",
+              id,
+              tag: method,
+              payload,
+              headers: [],
+            }),
+          ),
+        );
+        socket.addEventListener("error", () => reject(new Error(`RPC ${method} disconnected`)));
+        socket.addEventListener("close", () =>
+          reject(new Error(`RPC ${method} closed before its receipt`)),
+        );
+        socket.addEventListener("message", ({ data }) => {
+          const message = JSON.parse(String(data));
+          if (message._tag !== "Exit" || message.requestId !== id) return;
+          socket.close();
+          if (message.exit._tag === "Success") resolve(message.exit.value);
+          else reject(new Error(`RPC ${method} failed: ${JSON.stringify(message.exit)}`));
+        });
+      }),
+    { method, payload },
+  );
+}
+
+function observeThreadWrites(page: Page) {
+  const commands: Array<Record<string, unknown>> = [];
+  const waiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  page.on("websocket", (socket) => {
+    const pending = new Map<string, Record<string, unknown>>();
+    socket.on("framesent", ({ payload }) => {
+      const message = JSON.parse(String(payload));
+      if (message._tag !== "Request" || message.tag !== "orchestration.dispatchCommand") return;
+      commands.push(message.payload);
+      pending.set(String(message.id), message.payload);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      const message = JSON.parse(String(payload));
+      if (message._tag !== "Exit") return;
+      const command = pending.get(String(message.requestId));
+      if (!command) return;
+      pending.delete(String(message.requestId));
+      const waiter = waiters.get(String(command.type));
+      if (!waiter) return;
+      waiters.delete(String(command.type));
+      if (message.exit._tag === "Success") waiter.resolve();
+      else waiter.reject(new Error(`Thread command failed: ${JSON.stringify(message.exit)}`));
+    });
+  });
+  return {
+    commands,
+    // The deadline only names a write that never comes; passing never waits on it.
+    next: (type: string) =>
+      new Promise<void>((resolve, reject) => {
+        NodeAssert.equal(waiters.has(type), false);
+        const deadline = setTimeout(() => {
+          waiters.delete(type);
+          const sent = commands.map((command) => command.type).join(", ");
+          reject(new Error(`No ${type} write completed within 45s; sent: ${sent}`));
+        }, 45_000);
+        waiters.set(type, {
+          resolve: () => {
+            clearTimeout(deadline);
+            resolve();
+          },
+          reject: (error) => {
+            clearTimeout(deadline);
+            reject(error);
+          },
+        });
+      }),
+  };
+}
+
+async function startRowDrag(page: Page, source: Locator) {
+  await source.scrollIntoViewIfNeeded();
+  const box = await source.boundingBox();
+  NodeAssert.ok(box);
+  const x = box.x + Math.min(60, box.width / 2);
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 12, y + 2, { steps: 3 });
+  await page.locator("[data-sb-drag-overlay]").waitFor();
+  return { x: x + 12, y: y + 2 };
+}
+
+/** dnd-kit's live region, while it announces `text`. */
+function dndAnnouncement(page: Page, text: string | RegExp) {
+  return page.locator('[id^="DndLiveRegion"]').filter({ hasText: text });
+}
+
+/** The drop indicator sits beside the row element, inside the row's list item. */
+function dropIndicatorOn(row: Locator) {
+  return row.locator("xpath=..").locator(":scope > [data-sb-drop-indicator]");
+}
+
+async function moveDragTo(page: Page, target: Locator, fraction = 0.5, followScroll = false) {
+  // Sortable rows shift to preview the drop, so only re-aim at targets that
+  // move because the list auto-scrolled near its edge.
+  let point = { x: 0, y: 0 };
+  for (let attempt = 0; attempt < (followScroll ? 5 : 1); attempt += 1) {
+    const box = await target.boundingBox();
+    NodeAssert.ok(box);
+    const inside =
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height;
+    if (attempt > 0 && inside) return point;
+    point = { x: box.x + box.width / 2, y: box.y + box.height * fraction };
+    await page.mouse.move(point.x, point.y, { steps: 12 });
+  }
+  return point;
+}
+
+async function seedBranchProject(id: string, pinned = true) {
+  const root = NodePath.join(sandbox, id);
+  const worktree = NodePath.join(sandbox, `${id}-worktree`);
+  await NodeFSP.mkdir(root);
+  await exec("git", ["init", "--quiet", root]);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=Switchboard QA",
+      "-c",
+      "user.email=qa@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "Browser fixture",
+    ],
+    { cwd: root },
+  );
+  await exec("git", ["branch", "feature/alpha"], { cwd: root });
+  await exec("git", ["branch", "feature/beta"], { cwd: root });
+  await exec("git", ["worktree", "add", "--quiet", worktree, "feature/alpha"], { cwd: root });
+  const title = `Branch QA ${id}`;
+  await dispatchFixture({
+    type: "project.create",
+    commandId: `${id}-project-create`,
+    projectId: id,
+    title,
+    workspaceRoot: root,
+    createdAt: fixedTime,
+  });
+  const rows = {
+    pinFirst: { title: "Pinned first", branch: "feature/alpha", minute: 1 },
+    pinSecond: { title: "Pinned second", branch: "feature/beta", minute: 2 },
+    alphaFirst: { title: "Alpha first", branch: "feature/alpha", minute: 3 },
+    alphaSecond: { title: "Alpha second", branch: "feature/alpha", minute: 4 },
+    beta: { title: "Beta thread", branch: "feature/beta", minute: 5 },
+    worktree: { title: "Alpha worktree", branch: "feature/alpha", minute: 6 },
+    noBranch: { title: "No branch thread", branch: null, minute: 0 },
+    snoozed: { title: "Snoozed thread", branch: "feature/beta", minute: 7 },
+    settled: { title: "Settled thread", branch: "feature/beta", minute: 8 },
+  } as const;
+  const threadId = (key: keyof typeof rows) => `${id}-${key}`;
+  // The server stamps createdAt itself, so dispatch order is what sets lane recency.
+  const byMinute = Object.entries(rows).toSorted(([, a], [, b]) => a.minute - b.minute);
+  for (const [key, row] of byMinute) {
+    if (!pinned && (key === "pinFirst" || key === "pinSecond")) continue;
+    await dispatchFixture({
+      type: "thread.create",
+      commandId: `${id}-${key}-create`,
+      threadId: `${id}-${key}`,
+      projectId: id,
+      title: row.title,
+      modelSelection: { instanceId: "codex", model: DEFAULT_MODEL },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: row.branch,
+      worktreePath: key === "worktree" ? worktree : null,
+      createdAt: new Date(Date.parse(fixedTime) + row.minute * 60_000).toISOString(),
+    });
+  }
+  // Interleaving branches makes visual lane order differ from the global order.
+  for (const [key, orderKey] of [
+    ["noBranch", "b"],
+    ["alphaFirst", "f"],
+    ["beta", "m"],
+    ["alphaSecond", "t"],
+    ["worktree", "z"],
+  ] as const) {
+    await dispatchFixture({
+      type: "thread.active.reorder",
+      commandId: `${id}-${key}-order`,
+      threadId: threadId(key),
+      orderKey,
+    });
+  }
+  if (pinned) {
+    for (const [key, orderKey] of [
+      ["pinFirst", "t"],
+      ["pinSecond", "f"],
+    ] as const) {
+      await dispatchFixture({
+        type: "thread.pin",
+        commandId: `${id}-${key}-pin`,
+        threadId: threadId(key),
+        orderKey,
+      });
+    }
+  }
+  await dispatchFixture({
+    type: "thread.snooze",
+    commandId: `${id}-snooze`,
+    threadId: threadId("snoozed"),
+    snoozedUntil: "2099-01-01T00:00:00.000Z",
+  });
+  await dispatchFixture({
+    type: "thread.settle",
+    commandId: `${id}-settle`,
+    threadId: threadId("settled"),
+  });
+  return { id, title, worktree, rows, threadId };
+}
+
+async function openBranchProject(
+  page: Page,
+  project: Awaited<ReturnType<typeof seedBranchProject>>,
+) {
+  await page.clock.setFixedTime(new Date(fixedTime));
+  await page.goto(`${currentUrl}/`);
+  try {
+    await page
+      .getByRole("navigation", { name: "Projects" })
+      .getByRole("button", { name: project.title, exact: true })
+      .click();
+  } catch (cause) {
+    await page.screenshot({ path: NodePath.join(artifacts, `${project.id}-failure.png`) });
+    throw new Error(
+      `Project navigation unavailable at ${page.url()}: ${await page.locator("body").innerText()}`,
+      { cause },
+    );
+  }
+  await page.getByRole("heading", { name: project.title, exact: true }).waitFor();
+  return page.locator('[data-switchboard="sidebar"]').first();
+}
+
+/** Critical and serious axe violations inside every `selector` match, as readable lines. */
+async function seriousAxeViolations(page: Page, selector: string): Promise<string[]> {
+  await page.addScriptTag({
+    path: NodeURL.fileURLToPath(import.meta.resolve("axe-core/axe.min.js")),
+  });
+  const violations = await page.evaluate(async (scope) => {
+    const { axe } = window as unknown as {
+      axe: { run: (context: object, options: object) => Promise<AxeResults> };
+    };
+    if (!document.querySelector(scope)) throw new Error(`No axe scope ${scope}`);
+    const result = await axe.run({ include: [[scope]] }, { resultTypes: ["violations"] });
+    return result.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      nodes: violation.nodes.map((node) => {
+        const related = [...node.any, ...node.all, ...node.none]
+          .flatMap((check) => check.relatedNodes ?? [])
+          .slice(0, 3)
+          .map((relatedNode) => relatedNode.html.slice(0, 160));
+        return `${node.html.slice(0, 160)} ${node.failureSummary ?? ""} Related: ${related.join(" | ")}`.replace(
+          /\s+/g,
+          " ",
+        );
+      }),
+    }));
+  }, selector);
+  return violations
+    .filter(({ impact }) => impact === "critical" || impact === "serious")
+    .flatMap(({ id, impact, nodes }) => nodes.map((node) => `${impact} ${id} ${node}`));
+}
+
+/** The accessible name and description Chromium computes for the first `selector` match. */
+async function accessibleText(page: Page, selector: string) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { root } = await cdp.send("DOM.getDocument", { depth: 0 });
+    const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+    const { nodes } = await cdp.send("Accessibility.getPartialAXTree", {
+      nodeId,
+      fetchRelatives: false,
+    });
+    return {
+      name: String(nodes[0]?.name?.value ?? ""),
+      description: String(nodes[0]?.description?.value ?? ""),
+    };
+  } finally {
+    await cdp.detach();
+  }
+}
+
+NodeTest.test(
+  "branch lanes have no critical or serious axe violations at rest, on hover, focus and selection, or mid-drag",
+  { timeout: 300_000 },
+  async () => {
+    const project = await seedBranchProject("qa-branch-a11y");
+    const scope = '[data-switchboard="sidebar"]';
+    const violations: string[] = [];
+    for (const colorScheme of ["dark", "light"] as const) {
+      const context = await newContext({ switchboard: true, colorScheme });
+      try {
+        const page = await context.newPage();
+        const blockedAriaHidden: string[] = [];
+        page.on("console", (message) => {
+          if (message.text().includes("aria-hidden")) blockedAriaHidden.push(message.text());
+        });
+        const sidebar = await openBranchProject(page, project);
+        NodeAssert.equal(
+          await page.evaluate(() => document.documentElement.classList.contains("dark")),
+          colorScheme === "dark",
+        );
+        await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+        await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+        await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+        // Rows are named by their title; status and details are the description.
+        const option = sidebar.getByRole("option", { name: "Alpha first", exact: true });
+        const snoozedRow = sidebar.getByRole("button", { name: "Snoozed thread", exact: true });
+        const settledRow = sidebar.getByRole("button", { name: "Settled thread", exact: true });
+        await settledRow.waitFor();
+        const rowSelector = async (row: Locator) =>
+          `[data-sb-thread-row="${await row.getAttribute("data-sb-thread-row")}"]`;
+        const optionText = await accessibleText(page, await rowSelector(option));
+        NodeAssert.equal(optionText.name, "Alpha first");
+        NodeAssert.match(optionText.description, /^Ready\. Codex: \S/);
+        NodeAssert.deepEqual(await accessibleText(page, await rowSelector(snoozedRow)), {
+          name: "Snoozed thread",
+          description: `Ready. Wakes in ${Math.ceil((Date.parse("2099-01-01T00:00:00.000Z") - Date.parse(fixedTime)) / 86_400_000)}d`,
+        });
+        NodeAssert.deepEqual(await accessibleText(page, await rowSelector(settledRow)), {
+          name: "Settled thread",
+          description: "Ready",
+        });
+
+        const audit = async (state: string) => {
+          for (const violation of await seriousAxeViolations(page, scope)) {
+            violations.push(`${colorScheme} ${state}: ${violation}`);
+          }
+        };
+        const away = () => page.mouse.move(1000, 450);
+        await away();
+        await audit("rest");
+        for (const [kind, row] of [
+          ["option", option],
+          ["shelf row", settledRow],
+        ] as const) {
+          await row.hover();
+          await row.locator("xpath=..").locator("button[tabindex='-1']").first().waitFor();
+          await audit(`${kind} hover`);
+          await away();
+          await row.focus();
+          if (kind === "shelf row") {
+            // Keyboard focus shows the shelf action over the age, as hover does.
+            await page.waitForFunction(
+              ([action, age]) =>
+                getComputedStyle(action!).opacity === "1" && getComputedStyle(age!).opacity === "0",
+              [
+                await row
+                  .locator("xpath=..")
+                  .getByRole("button", { name: "Un-settle thread" })
+                  .elementHandle(),
+                await row.locator("span.tabular-nums.text-secondary-label").first().elementHandle(),
+              ],
+              { timeout: 5_000 },
+            );
+          }
+          await audit(`${kind} focus`);
+          await row.click();
+          await row.and(sidebar.locator('[aria-current="page"]')).waitFor();
+          await audit(`${kind} selected`);
+          await away();
+        }
+        // WCAG 2.4.7: [content-visibility:auto] on the shelf <li> clips an
+        // outset ring at the row's own box, so the ring must paint inset.
+        for (const [label, row] of [
+          ["settled", settledRow],
+          ["snoozed", snoozedRow],
+        ] as const) {
+          // Chromium's focus-visible heuristic tracks keyboard-vs-pointer input
+          // modality for the whole page, not per element; a real keyboard event
+          // (discarded here) puts it back in "keyboard" mode before this focus.
+          await page.keyboard.press("Tab");
+          await row.focus();
+          const li = row.locator("xpath=..");
+          const focusState = await row.evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              focusVisible: node.matches(":focus-visible"),
+              outlineOffset: style.outlineOffset,
+              outlineStyle: style.outlineStyle,
+              outlineWidth: style.outlineWidth,
+            };
+          });
+          NodeAssert.deepEqual(focusState, {
+            focusVisible: true,
+            outlineOffset: "-2px",
+            outlineStyle: "solid",
+            outlineWidth: "2px",
+          });
+          const [rowBox, liBox] = await Promise.all([row.boundingBox(), li.boundingBox()]);
+          NodeAssert.ok(rowBox && liBox);
+          NodeAssert.ok(
+            rowBox.x >= liBox.x &&
+              rowBox.y >= liBox.y &&
+              rowBox.x + rowBox.width <= liBox.x + liBox.width &&
+              rowBox.y + rowBox.height <= liBox.y + liBox.height,
+            `${label} row escapes its <li>, so an inset focus ring would be clipped: ${JSON.stringify({ rowBox, liBox })}`,
+          );
+          await li.screenshot({
+            path: NodePath.join(artifacts, `shelf-focus-${label}-${colorScheme}.png`),
+            animations: "disabled",
+          });
+          await away();
+        }
+        // The hidden row actions are pointer shortcuts; using one must not
+        // leave focus inside them, or Chrome stops honouring aria-hidden.
+        await option.hover();
+        const snooze = option.locator("xpath=..").locator('button[aria-label="Snooze thread"]');
+        await snooze.click();
+        // A generic role=dialog lookup also matches an unrelated toast (e.g. a
+        // provider update advisory) that can appear once the backend has been
+        // up long enough; the popover primitive's own slot stays unambiguous.
+        const snoozeMenu = page.locator('[data-slot="popover-popup"]');
+        await snoozeMenu.waitFor();
+        await page.keyboard.press("Escape");
+        await snoozeMenu.waitFor({ state: "detached" });
+        // Closing hands focus back to the row option, not the hidden trigger.
+        await page.waitForFunction(
+          (row) => row === document.activeElement,
+          await option.elementHandle(),
+        );
+        await away();
+        await audit("option after its snooze menu");
+        NodeAssert.deepEqual(blockedAriaHidden, []);
+        await startRowDrag(
+          page,
+          sidebar.getByRole("option", { name: "Alpha second", exact: true }),
+        );
+        await moveDragTo(page, sidebar.getByRole("option", { name: "Beta thread", exact: true }));
+        await sidebar.locator("[data-sb-drop-rejected]").waitFor();
+        await page.locator('[data-sb-drag-verb="Can\'t move here"]').waitFor();
+        await audit("drag reject");
+        await page.mouse.up();
+        // A pointer dismiss leaves focus where the pointer put it: clicking the
+        // composer to close the menu must not pull focus back to the row.
+        await option.hover();
+        await snooze.click();
+        await snoozeMenu.waitFor();
+        const composer = page.getByTestId("composer-editor");
+        await composer.click();
+        await snoozeMenu.waitFor({ state: "detached" });
+        // A late focus-restore (e.g. an unmount effect firing after the menu
+        // has already detached) would otherwise land outside this window.
+        await page.waitForTimeout(500);
+        NodeAssert.ok(
+          await composer.evaluate((editor) => editor.contains(document.activeElement)),
+          "focus left the composer after the snooze menu closed",
+        );
+        await page.keyboard.type("Typed after closing");
+        NodeAssert.match(await composer.innerText(), /Typed after closing/);
+      } finally {
+        await context.close();
+      }
+    }
+    // A mouse Un-settle/Wake moves the row into the active lane, remounting
+    // it elsewhere in the list; focus must follow to that new element.
+    {
+      const context = await newContext({ switchboard: true });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project);
+        await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+        await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+
+        // The shelf row shares its key with the card it becomes, so focus
+        // counts only once it sits on the card in the active lane, and holds.
+        const focusFollowsTo = async (key: string | null) => {
+          const onMovedCard = (k: string | null) => {
+            const active = document.activeElement;
+            return (
+              active?.getAttribute("data-sb-thread-row") === k &&
+              active.getAttribute("role") === "option"
+            );
+          };
+          await page.waitForFunction(onMovedCard, key, { timeout: 5_000 });
+          await page.waitForTimeout(300);
+          NodeAssert.ok(await page.evaluate(onMovedCard, key), `focus left the moved row ${key}`);
+        };
+        const settledRow = sidebar.getByRole("button", { name: "Settled thread", exact: true });
+        await settledRow.waitFor();
+        const settledRowKey = await settledRow.getAttribute("data-sb-thread-row");
+        await settledRow.hover();
+        await settledRow
+          .locator("xpath=..")
+          .getByRole("button", { name: "Un-settle thread" })
+          .click();
+        await focusFollowsTo(settledRowKey);
+
+        const snoozedRow = sidebar.getByRole("button", { name: "Snoozed thread", exact: true });
+        await snoozedRow.waitFor();
+        const snoozedRowKey = await snoozedRow.getAttribute("data-sb-thread-row");
+        await snoozedRow.hover();
+        await snoozedRow
+          .locator("xpath=..")
+          .getByRole("button", { name: "Wake thread now" })
+          .click();
+        await focusFollowsTo(snoozedRowKey);
+      } finally {
+        await context.close();
+      }
+    }
+    NodeAssert.deepEqual(violations, []);
+  },
+);
+
+NodeTest.test(
+  "branch lanes keep worktrees distinct and navigation follows visual order",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-branch-navigation");
+    const context = await newContext({ switchboard: true });
+    let page: Page | undefined;
+    const jumpBindings = Array.from({ length: 9 }, (_, index) => ({
+      key: `mod+${index + 1}`,
+      command: `thread.jump.${index + 1}`,
+      when: "isWeb",
+    }));
+    const installedBindings: typeof jumpBindings = [];
+    try {
+      page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "feature/beta, 1 thread", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "feature/alpha, 2 threads", exact: true }).waitFor();
+      await sidebar.getByRole("group", { name: "No branch, 1 thread", exact: true }).waitFor();
+      const lanes = sidebar.locator("[data-sb-branch-lane]");
+      const keys = await lanes.evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-sb-branch-lane")),
+      );
+      const localAlphaKey = keys.find((key) => key?.endsWith(`${project.id}:br:feature/alpha`));
+      NodeAssert.ok(localAlphaKey, `Missing local alpha lane: ${JSON.stringify(keys)}`);
+      const environmentId = localAlphaKey.slice(0, -`${project.id}:br:feature/alpha`.length - 1);
+      NodeAssert.deepEqual(
+        keys.filter((key) => key !== null && key.includes(`:${project.id}:`)),
+        [
+          `${environmentId}:${project.id}:wt:${project.worktree}`,
+          `${environmentId}:${project.id}:br:feature/beta`,
+          localAlphaKey,
+          `${environmentId}:${project.id}:none`,
+        ],
+      );
+      const worktreeLane = sidebar.locator(
+        `[data-sb-branch-lane="${environmentId}:${project.id}:wt:${project.worktree}"]`,
+      );
+      NodeAssert.equal(await worktreeLane.getAttribute("aria-label"), "feature/alpha, 1 thread");
+      await worktreeLane.getByText("worktree", { exact: true }).waitFor();
+      const alphaLane = sidebar.getByRole("group", {
+        name: "feature/alpha, 2 threads",
+        exact: true,
+      });
+      NodeAssert.deepEqual(
+        await alphaLane
+          .getByRole("option")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        (["alphaFirst", "alphaSecond"] as const).map(
+          (key) => `${environmentId}:${project.threadId(key)}`,
+        ),
+      );
+
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+      const order = [
+        "pinSecond",
+        "pinFirst",
+        "worktree",
+        "beta",
+        "alphaFirst",
+        "alphaSecond",
+        "noBranch",
+        "snoozed",
+        "settled",
+      ] as const;
+      const row = (key: keyof typeof project.rows) =>
+        sidebar.locator(`[data-sb-thread-row="${environmentId}:${project.threadId(key)}"]`);
+      await row("settled").waitFor();
+      NodeAssert.deepEqual(
+        await sidebar
+          .locator("[data-sb-thread-row]")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        order.map((key) => `${environmentId}:${project.threadId(key)}`),
+      );
+      // The URL changes before the route resolves; traversal starts from the
+      // resolved route, which the row exposes as aria-current.
+      const waitForCurrent = async (key: keyof typeof project.rows) => {
+        await page!.waitForURL((url) => url.pathname.endsWith(`/${project.threadId(key)}`));
+        await sidebar
+          .locator(
+            `[data-sb-thread-row="${environmentId}:${project.threadId(key)}"][aria-current="page"]`,
+          )
+          .waitFor();
+      };
+      const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
+      await row(order[0]).click();
+      await waitForCurrent(order[0]);
+      for (const key of order.slice(1)) {
+        await page.keyboard.press(`${mod}+Shift+BracketRight`);
+        await waitForCurrent(key);
+      }
+      for (const key of order.slice(0, -1).toReversed()) {
+        await page.keyboard.press(`${mod}+Shift+BracketLeft`);
+        await waitForCurrent(key);
+      }
+      // The browser reserves mod+1–9 by default; explicit user bindings exercise
+      // the shared jump behavior without pretending to be an Electron client.
+      for (const binding of jumpBindings) {
+        await browserRpc(page, "server.upsertKeybinding", binding);
+        installedBindings.push(binding);
+      }
+      await openBranchProject(page, project);
+      await row("settled").waitFor();
+      await page.keyboard.down(mod);
+      try {
+        for (const [index, key] of order.entries()) {
+          await row(key)
+            .getByText(new RegExp(`${index + 1}$`))
+            .waitFor();
+          await page.keyboard.press(`Digit${index + 1}`);
+          await waitForCurrent(key);
+        }
+      } finally {
+        await page.keyboard.up(mod);
+      }
+      await row("worktree").click();
+      await row("alphaSecond").click({ modifiers: ["Shift"] });
+      NodeAssert.deepEqual(
+        await sidebar
+          .locator('[data-sb-thread-row][aria-selected="true"]')
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        ["worktree", "beta", "alphaFirst", "alphaSecond"].map(
+          (key) => `${environmentId}:${project.id}-${key}`,
+        ),
+      );
+
+      // A project's own view needs no project prefix; All projects labels each lane with it.
+      const projectPrefix = `${project.title} /`;
+      NodeAssert.equal(await sidebar.getByText(projectPrefix, { exact: true }).count(), 0);
+      await page.goto(`${currentUrl}/`);
+      await page.getByRole("heading", { name: "All projects" }).waitFor();
+      await sidebar
+        .locator(`[data-sb-branch-lane$=":${project.id}:br:feature/alpha"]`)
+        .getByText(projectPrefix, { exact: true })
+        .waitFor();
+    } finally {
+      if (page) {
+        for (const binding of installedBindings) {
+          await browserRpc(page, "server.removeKeybinding", binding);
+        }
+      }
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
+  "branch drag reorders only its lane, rejects foreign branches, and keeps pin and settle actions",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-branch-drag", false);
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const writes = observeThreadWrites(page);
+      const sidebar = await openBranchProject(page, project);
+      const alphaLane = sidebar.getByRole("group", {
+        name: "feature/alpha, 2 threads",
+        exact: true,
+      });
+      await alphaLane.waitFor();
+      const firstRow = alphaLane.getByRole("option", { name: "Alpha first", exact: true });
+      const scopedKey = await firstRow.getAttribute("data-sb-thread-row");
+      NodeAssert.ok(scopedKey);
+      NodeAssert.ok(scopedKey?.endsWith(`:${project.threadId("alphaFirst")}`));
+      const environmentId = scopedKey.slice(0, -project.threadId("alphaFirst").length - 1);
+      const row = (key: keyof typeof project.rows) =>
+        sidebar.locator(`[data-sb-thread-row="${environmentId}:${project.threadId(key)}"]`);
+      const fixtureThreads = (shell: OrchestrationShellSnapshot) =>
+        shell.threads.filter((thread) => thread.projectId === project.id);
+      const withoutActiveOrder = (shell: OrchestrationShellSnapshot) =>
+        fixtureThreads(shell).map(({ activeOrderKey: _activeOrderKey, ...thread }) => thread);
+      NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
+
+      // Pickup mounts Drop to pin above every lane. Releasing without a
+      // deliberate move must not pin or reorder whatever slid under the pointer.
+      const beforePickup = await readShell();
+      for (const key of ["worktree", "alphaSecond"] as const) {
+        const held = await startRowDrag(page, row(key));
+        await dndAnnouncement(page, `Picked up ${project.rows[key].title}`).waitFor({
+          state: "attached",
+        });
+        await sidebar.getByText("Drop to pin", { exact: true }).waitFor();
+        await page.mouse.move(held.x, held.y + 3);
+        await page.mouse.up();
+        await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+        await dndAnnouncement(page, /^Thread returned$/).waitFor({ state: "attached" });
+      }
+      NodeAssert.deepEqual(await readShell(), beforePickup, "A held pickup must persist no event");
+      NodeAssert.equal(writes.commands.length, 0, "A held pickup must send no command");
+
+      const beforeReorder = await readShell();
+      const reordered = writes.next("thread.active.reorder");
+      await startRowDrag(page, row("alphaSecond"));
+      // Over its own slot the chip names no verb.
+      NodeAssert.equal(await page.locator("[data-sb-drag-overlay] [data-sb-drag-verb]").count(), 0);
+      await moveDragTo(page, row("alphaFirst"), 0.2);
+      // Release only once the drop targets the row, not the pickup slot.
+      await dropIndicatorOn(row("alphaFirst")).waitFor();
+      await page.locator("[data-sb-drag-overlay]").getByText("Move", { exact: true }).waitFor();
+      await page.mouse.up();
+      await reordered;
+      await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      await dndAnnouncement(page, "Moved thread").waitFor({ state: "attached" });
+      NodeAssert.deepEqual(
+        await alphaLane
+          .getByRole("option")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        (["alphaSecond", "alphaFirst"] as const).map(
+          (key) => `${environmentId}:${project.threadId(key)}`,
+        ),
+      );
+      const afterReorder = await readShell();
+      NodeAssert.deepEqual(withoutActiveOrder(afterReorder), withoutActiveOrder(beforeReorder));
+      NodeAssert.ok(
+        fixtureThreads(afterReorder).some(
+          (thread) =>
+            thread.activeOrderKey !==
+            fixtureThreads(beforeReorder).find((before) => before.id === thread.id)?.activeOrderKey,
+        ),
+      );
+      NodeAssert.deepEqual(
+        writes.commands.map((command) => command.type),
+        ["thread.active.reorder"],
+      );
+
+      const beforeReject = await readShell();
+      const writeCount = writes.commands.length;
+      await startRowDrag(page, row("alphaSecond"));
+      const pointer = await moveDragTo(page, row("beta"));
+      await sidebar.locator("[data-sb-drop-rejected]").waitFor();
+      await page
+        .getByRole("tooltip", { name: "Branch comes from the thread's worktree", exact: true })
+        .waitFor();
+      // A drag hides the hovered row's quick actions, which sit beside the option.
+      const betaActions = row("beta").locator("xpath=..").locator(":scope > .sb-row-actions");
+      NodeAssert.equal(await betaActions.count(), 1);
+      NodeAssert.equal(await betaActions.isVisible(), false);
+      NodeAssert.equal(
+        await page.evaluate(({ x, y }) => {
+          const target = document.elementFromPoint(x, y);
+          return target ? getComputedStyle(target).cursor : null;
+        }, pointer),
+        "not-allowed",
+      );
+      await page.mouse.up();
+      await page.locator("[data-sb-drag-overlay]").waitFor({ state: "detached" });
+      await dndAnnouncement(page, "Can't move here. Thread returned.").waitFor({
+        state: "attached",
+      });
+      NodeAssert.deepEqual(
+        await readShell(),
+        beforeReject,
+        "A cross-lane drop must persist no event",
+      );
+      NodeAssert.equal(
+        writes.commands.length,
+        writeCount,
+        "A cross-lane drop must send no command",
+      );
+
+      const pinned = writes.next("thread.pin");
+      await startRowDrag(page, row("alphaFirst"));
+      const pinTarget = sidebar.getByText("Drop to pin", { exact: true });
+      await pinTarget.waitFor();
+      await moveDragTo(page, pinTarget);
+      const overlay = page.locator("[data-sb-drag-overlay]");
+      await overlay.getByText("Pin", { exact: true }).waitFor();
+      await dndAnnouncement(page, "Pin thread: drop to pin").waitFor({ state: "attached" });
+      const overlayBox = await overlay.boundingBox();
+      NodeAssert.ok(overlayBox && overlayBox.height <= 40, "Drag overlay must stay a compact chip");
+      await page.mouse.up();
+      await pinned;
+      await dndAnnouncement(page, "Pinned thread").waitFor({ state: "attached" });
+      await sidebar
+        .getByRole("group", { name: "Pinned, 1 thread", exact: true })
+        .getByRole("option", { name: "Alpha first", exact: true })
+        .waitFor();
+      NodeAssert.equal(await sidebar.getByText("Drop to pin", { exact: true }).count(), 0);
+      const pinnedThread = fixtureThreads(await readShell()).find(
+        (thread) => thread.id === project.threadId("alphaFirst"),
+      );
+      NodeAssert.ok(pinnedThread?.pinnedAt);
+      NodeAssert.equal(pinnedThread.branch, "feature/alpha");
+
+      // A snoozed row over its own lane wakes; the chip and the live region say so.
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await row("snoozed").waitFor();
+      const writesBeforeWake = writes.commands.length;
+      await startRowDrag(page, row("snoozed"));
+      await moveDragTo(page, row("beta"));
+      await overlay.getByText("Wake", { exact: true }).waitFor();
+      await dndAnnouncement(page, "Wake thread").waitFor({ state: "attached" });
+      // Back over its own slot: no verb, and releasing there writes nothing.
+      await moveDragTo(page, row("snoozed"));
+      await overlay.locator("[data-sb-drag-verb]").waitFor({ state: "detached" });
+      await page.mouse.up();
+      await overlay.waitFor({ state: "detached" });
+      NodeAssert.equal(writes.commands.length, writesBeforeWake);
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await row("snoozed").waitFor({ state: "detached" });
+
+      const settled = writes.next("thread.settle");
+      await startRowDrag(page, row("beta"));
+      await moveDragTo(page, sidebar.getByTestId("sidebar-settled-header"), 0.5, true);
+      await overlay.getByText("Settle", { exact: true }).waitFor();
+      await page.mouse.up();
+      await settled;
+      await sidebar.getByTestId("sidebar-settled-shelf-toggle").click();
+      await row("beta").waitFor();
+      NodeAssert.equal(
+        fixtureThreads(await readShell()).find((thread) => thread.id === project.threadId("beta"))
+          ?.settledOverride,
+        "settled",
+      );
+
+      // Existing keyboard lifecycle actions still operate on the selected row.
+      // They act on the open thread, so wait for its view before pressing.
+      const openThread = async (key: keyof typeof project.rows) => {
+        await row(key).click();
+        await sidebar
+          .locator(
+            `[data-sb-thread-row="${environmentId}:${project.threadId(key)}"][aria-current="page"]`,
+          )
+          .waitFor();
+        await page.getByRole("heading", { name: project.rows[key].title, exact: true }).waitFor();
+      };
+      const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
+      await openThread("alphaSecond");
+      const keyboardPin = writes.next("thread.pin");
+      await page.keyboard.press(`${mod}+Shift+KeyP`);
+      await keyboardPin;
+      await sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }).waitFor();
+      const pinReordered = writes.next("thread.pin.reorder");
+      await startRowDrag(page, row("alphaSecond"));
+      await moveDragTo(page, row("alphaFirst"), 0.8);
+      await dropIndicatorOn(row("alphaFirst")).waitFor();
+      await page.mouse.up();
+      await pinReordered;
+      const pinOrder = await sidebar
+        .getByRole("group", { name: "Pinned, 2 threads", exact: true })
+        .getByRole("option")
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row")));
+      NodeAssert.deepEqual(
+        pinOrder,
+        (["alphaFirst", "alphaSecond"] as const).map(
+          (key) => `${environmentId}:${project.threadId(key)}`,
+        ),
+      );
+
+      await openThread("alphaSecond");
+      const keyboardSettle = writes.next("thread.settle");
+      await page.keyboard.press(`${mod}+Shift+KeyS`);
+      await keyboardSettle;
+      NodeAssert.equal(
+        fixtureThreads(await readShell()).find(
+          (thread) => thread.id === project.threadId("alphaSecond"),
+        )?.settledOverride,
+        "settled",
+      );
+      const undoSettle = writes.next("thread.unsettle");
+      const undoPin = writes.next("thread.pin");
+      await page.keyboard.press(`${mod}+KeyZ`);
+      await Promise.all([undoSettle, undoPin]);
+      await row("alphaSecond").waitFor();
+      NodeAssert.equal(
+        fixtureThreads(await readShell()).find(
+          (thread) => thread.id === project.threadId("alphaSecond"),
+        )?.settledOverride,
+        "active",
+      );
+
+      await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
+      await row("snoozed").waitFor();
+      // The Snoozed shelf is never a target, and never reads as another branch.
+      const writesBeforeShelfHover = writes.commands.length;
+      await startRowDrag(page, row("worktree"));
+      await moveDragTo(page, row("snoozed"), 0.5, true);
+      // The live region confirms a non-target; a misread lane would announce "Can't move to …".
+      await dndAnnouncement(page, "Cannot drop here").waitFor({ state: "attached" });
+      NodeAssert.equal(await overlay.locator("[data-sb-drag-verb]").count(), 0);
+      NodeAssert.equal(await sidebar.locator("[data-sb-drop-rejected]").count(), 0);
+      await page.mouse.up();
+      await overlay.waitFor({ state: "detached" });
+      NodeAssert.equal(writes.commands.length, writesBeforeShelfHover);
+
+      const wakePinned = writes.next("thread.pin");
+      await startRowDrag(page, row("snoozed"));
+      await moveDragTo(
+        page,
+        sidebar.getByRole("group", { name: "Pinned, 2 threads", exact: true }),
+        0.15,
+      );
+      await overlay.getByText("Pin", { exact: true }).waitFor();
+      await page.mouse.up();
+      await wakePinned;
+      await sidebar
+        .getByRole("group", { name: "Pinned, 3 threads", exact: true })
+        .getByRole("option", { name: "Snoozed thread", exact: true })
+        .waitFor();
+      const wokenThread = fixtureThreads(await readShell()).find(
+        (thread) => thread.id === project.threadId("snoozed"),
+      );
+      NodeAssert.equal(wokenThread?.snoozedUntil, null);
+      NodeAssert.ok(wokenThread?.pinnedAt);
+
+      // With three pins, the Pinned lane itself must not outbid its middle row.
+      const pinnedLane = sidebar.getByRole("group", { name: "Pinned, 3 threads", exact: true });
+      const pinnedOrder = () =>
+        pinnedLane
+          .getByRole("option")
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row")));
+      const [firstPin, secondPin, thirdPin] = await pinnedOrder();
+      NodeAssert.ok(firstPin && secondPin && thirdPin);
+      const middleReordered = writes.next("thread.pin.reorder");
+      await overlay.waitFor({ state: "detached" });
+      await startRowDrag(page, pinnedLane.locator(`[data-sb-thread-row="${thirdPin}"]`));
+      const middlePin = pinnedLane.locator(`[data-sb-thread-row="${secondPin}"]`);
+      await moveDragTo(page, middlePin);
+      await dropIndicatorOn(middlePin).waitFor();
+      await page.mouse.up();
+      await middleReordered;
+      await overlay.waitFor({ state: "detached" });
+      NodeAssert.deepEqual(await pinnedOrder(), [firstPin, thirdPin, secondPin]);
+    } finally {
+      await context.close();
+    }
+  },
+);
+
 async function rootCustomProperties(context: BrowserContext, url: string) {
   const page = await context.newPage();
   try {
@@ -671,20 +1743,28 @@ async function rootCustomProperties(context: BrowserContext, url: string) {
 
 NodeTest.test(
   "flags-off sidebar and settings snapshots are pixel-identical to PR base",
-  { timeout: 180_000 },
+  { timeout: 300_000 },
   async () => {
+    for (const colorScheme of ["dark", "light"] as const) {
+      const schemeContext = await newContext({ colorScheme, snoozedShelfExpanded: true });
+      try {
+        for (const surface of ["sidebar", "settings"] as const) {
+          const expected = await snapshot(schemeContext, mainUrl, surface);
+          const actual = await snapshot(schemeContext, currentUrl, surface);
+          const name = `${surface}-${colorScheme}`;
+          await NodeFSP.writeFile(NodePath.join(artifacts, `${name}-main.png`), expected);
+          await NodeFSP.writeFile(NodePath.join(artifacts, `${name}-current.png`), actual);
+          NodeAssert.ok(
+            actual.equals(expected),
+            `${name} flags-off screenshot differs from the PR base; inspect ${artifacts}`,
+          );
+        }
+      } finally {
+        await schemeContext.close();
+      }
+    }
     const context = await newContext();
     try {
-      for (const surface of ["sidebar", "settings"] as const) {
-        const expected = await snapshot(context, mainUrl, surface);
-        const actual = await snapshot(context, currentUrl, surface);
-        await NodeFSP.writeFile(NodePath.join(artifacts, `${surface}-main.png`), expected);
-        await NodeFSP.writeFile(NodePath.join(artifacts, `${surface}-current.png`), actual);
-        NodeAssert.ok(
-          actual.equals(expected),
-          `${surface} flags-off screenshot differs from the PR base; inspect ${artifacts}`,
-        );
-      }
       const [baseVars, currentVars] = await Promise.all([
         rootCustomProperties(context, mainUrl),
         rootCustomProperties(context, currentUrl),
@@ -766,22 +1846,11 @@ NodeTest.test("mobile project strip scrolls inside the page", { timeout: 180_000
     ["strip-4", "Strip Four"],
     ["strip-5", "Strip Five"],
   ] as const;
-  const dispatch = async (command: object) => {
-    const response = await fetch(`http://127.0.0.1:${backendPort}/api/orchestration/dispatch`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(command),
-    });
-    NodeAssert.equal(response.status, 200, await response.text());
-  };
   for (const [id, title] of stripProjects) {
     const root = NodePath.join(sandbox, id);
     await NodeFSP.mkdir(root, { recursive: true });
     await exec("git", ["init", "--quiet", root]);
-    await dispatch({
+    await dispatchFixture({
       type: "project.create",
       commandId: `qa-${id}-create`,
       projectId: id,
