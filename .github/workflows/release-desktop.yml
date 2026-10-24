@@ -246,7 +246,10 @@ jobs:
           echo "::add-mask::$tracing_token"
           cat "$config_path" >> "$GITHUB_ENV"
 
+      # bash, not the runner default: on Windows that is pwsh, where
+      # "$BUILD_VERSION" is an unset PowerShell variable, not the env var.
       - name: Align package versions to release version
+        shell: bash
         run: node scripts/update-release-package-versions.ts "$BUILD_VERSION"
 
       # The artifact root is `apps/` (upload-artifact keeps the least common

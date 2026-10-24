@@ -46,6 +46,20 @@ export class ReleaseGitHubOutputWriteError extends Schema.TaggedError<ReleaseGit
   }
 }
 
+export class ReleaseVersionError extends Schema.TaggedError<ReleaseVersionError>()(
+  "ReleaseVersionError",
+  { version: Schema.String },
+) {
+  override get message(): string {
+    return `'${this.version}' is not a release version (expected <major>.<minor>.<patch>[-<suffix>]).`;
+  }
+}
+
+// Same pattern release-desktop.yml validates its version input against. An
+// empty or malformed version must fail here, before it is written into every
+// manifest and only surfaces later as a broken `--version` in the binaries.
+const RELEASE_VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$/;
+
 export const releasePackageFiles = [
   "apps/server/package.json",
   "apps/desktop/package.json",
@@ -66,6 +80,9 @@ export const updateReleasePackageVersions = Effect.fn("updateReleasePackageVersi
   version: string,
   options: UpdateReleasePackageVersionsOptions = {},
 ) {
+  if (!RELEASE_VERSION_PATTERN.test(version)) {
+    return yield* new ReleaseVersionError({ version });
+  }
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const rootDir = path.resolve(options.rootDir ?? process.cwd());
