@@ -521,10 +521,12 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
       .waitFor({ state: "visible", timeout: 60_000 });
     if (surface === "sidebar") {
       // The snoozed shelf is expanded, so its row and wake countdown are captured too.
-      await page.getByText("Flags-off snoozed", { exact: true }).waitFor({
-        state: "visible",
-        timeout: 60_000,
-      });
+      // Shelf rows use content-visibility:auto, so a row below the fold may not be
+      // painted yet. Both builds scroll it into view before the capture.
+      const snoozedRow = page.getByText("Flags-off snoozed", { exact: true });
+      await snoozedRow.waitFor({ state: "attached", timeout: 60_000 });
+      await snoozedRow.scrollIntoViewIfNeeded({ timeout: 60_000 });
+      await snoozedRow.waitFor({ state: "visible", timeout: 60_000 });
     }
     if (surface === "settings") {
       // The header is static. These rows appear only after server settings hydrate

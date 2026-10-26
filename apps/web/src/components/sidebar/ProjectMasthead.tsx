@@ -311,9 +311,11 @@ export function ProjectMasthead({
             data-environment-identification={channel}
             className={cn(
               "relative z-10 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[18rem]/masthead-row:inline-flex",
+              // State tokens hold AA on every theme; the brand inks miss it
+              // on the light themes.
               channel === "nightly"
-                ? "bg-(--brand-orange)/14 text-(--brand-orange-ink)"
-                : "bg-(--brand-cyan)/14 text-(--brand-cyan-ink)",
+                ? "bg-(--state-approval)/12 text-(--state-approval)"
+                : "bg-(--state-working)/12 text-(--state-working)",
             )}
           >
             {channelLabel}

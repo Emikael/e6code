@@ -757,26 +757,37 @@ function SidebarSectionHeader(props: {
   toggle: { expanded: boolean; onToggle: () => void };
   // Shelf-wide actions; opened from the ⋯ button or a right-click on the header.
   onMenu?: ((position: { x: number; y: number }) => void) | undefined;
+  // Switchboard tokens: the legacy tints miss AA on several themes.
+  switchboard?: boolean;
 }) {
   const snoozed = props.marker === "snoozed-header";
   const onMenu = props.onMenu;
-  const className = cn(
-    "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
-    snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
-    props.dragging && "text-sidebar-foreground/80",
-    props.isDropTarget && "text-primary",
-  );
+  const className = props.switchboard
+    ? cn(
+        "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium text-sb-muted",
+        (props.dragging || props.isDropTarget) && "text-sb-foreground",
+      )
+    : cn(
+        "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
+        snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
+        props.dragging && "text-sidebar-foreground/80",
+        props.isDropTarget && "text-primary",
+      );
   const content = (
     <>
       <span className="shrink-0">{props.label}</span>
       <span
         aria-hidden
-        className={cn(
-          "h-px min-w-2 flex-1",
-          snoozed ? "bg-blue-500/20 dark:bg-blue-400/15" : "bg-sidebar-border/60",
-          props.dragging && "bg-sidebar-foreground/25",
-          props.isDropTarget && "bg-primary/50",
-        )}
+        className={
+          props.switchboard
+            ? cn("h-px min-w-2 flex-1 bg-sb-border", props.isDropTarget && "bg-sb-accent")
+            : cn(
+                "h-px min-w-2 flex-1",
+                snoozed ? "bg-blue-500/20 dark:bg-blue-400/15" : "bg-sidebar-border/60",
+                props.dragging && "bg-sidebar-foreground/25",
+                props.isDropTarget && "bg-primary/50",
+              )
+        }
       />
       <ChevronDownIcon
         aria-hidden
@@ -791,7 +802,13 @@ function SidebarSectionHeader(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("group/shelf mx-0.5 flex h-8 items-center", props.className)}
+      className={cn(
+        "group/shelf mx-0.5 flex h-8 items-center",
+        props.switchboard &&
+          props.isDropTarget &&
+          "rounded-md bg-sb-selection shadow-[inset_0_0_0_1px_var(--sb-accent)]",
+        props.className,
+      )}
     >
       <button
         type="button"
@@ -928,6 +945,7 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   onDiscard: (draftId: DraftId) => void;
 }) {
   const { composer, draftId, onDiscard, onNavigate, session } = props;
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const promptPreview =
     replaceComposerContextReferences(composer.prompt, (occurrence) => occurrence.label)
       .trim()
@@ -983,7 +1001,11 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
           <div className="flex h-5 min-w-0 items-center gap-1.5">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
             {props.project ? (
-              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+              <ProjectFavicon
+                project={props.project}
+                className="size-4 shrink-0"
+                monogramTone={switchboard ? "solid" : undefined}
+              />
             ) : null}
             <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
               {props.projectDisplayName}
@@ -2305,11 +2327,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               aria-hidden={props.branchMode || undefined}
               className={cn(
                 "shrink-0 transition-opacity",
-                (!props.isActive || variantAction === "unsettle") &&
-                  "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
+                // A switchboard snoozed row keeps its favicon dimmed: the
+                // countdown, not the project, is what the row is about.
+                props.branchMode && variantAction === "unsnooze"
+                  ? "opacity-40 grayscale"
+                  : (!props.isActive || variantAction === "unsettle") &&
+                      "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
               )}
             >
-              {props.project ? <ProjectFavicon project={props.project} className="size-4" /> : null}
+              {props.project ? (
+                <ProjectFavicon
+                  project={props.project}
+                  className="size-4"
+                  monogramTone={props.branchMode ? "solid" : undefined}
+                />
+              ) : null}
             </span>
             {draftIndicator}
             {title}
@@ -2467,7 +2499,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
               {!nested && props.project ? (
-                <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+                <ProjectFavicon
+                  project={props.project}
+                  className="size-3.5 shrink-0"
+                  monogramTone={props.branchMode ? "solid" : undefined}
+                />
               ) : null}
               {titleWithStatus}
               {pinIndicator}
@@ -2700,6 +2736,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
   const { thread } = props;
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
     [thread.environmentId, thread.id],
@@ -2796,7 +2833,11 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           }
         >
           {props.project ? (
-            <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+            <ProjectFavicon
+              project={props.project}
+              className="size-4 shrink-0"
+              monogramTone={switchboard ? "solid" : undefined}
+            />
           ) : null}
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex min-w-0 items-center gap-2.5">
@@ -6127,6 +6168,7 @@ export default function Sidebar() {
                             <SidebarSectionHeader
                               key="snoozed-shelf-header"
                               marker="snoozed-header"
+                              switchboard={switchboard}
                               className="mt-auto"
                               label={
                                 snoozedShelfExpanded
@@ -6145,6 +6187,7 @@ export default function Sidebar() {
                             <SidebarSectionHeader
                               key="settled-shelf-header"
                               marker="settled-header"
+                              switchboard={switchboard}
                               className={cn(snoozedThreads.length === 0 && "mt-auto")}
                               label={
                                 settledShelfExpanded

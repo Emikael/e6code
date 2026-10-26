@@ -103,6 +103,11 @@
   outline-offset: -2px;
 }
 
+/* Text fields draw their own focus ring on the field wrapper. */
+[data-switchboard] input:focus-visible {
+  outline: none;
+}
+
 /* Solid monogram tiles. Inlined oklch so these shades never join :root. */
 [data-switchboard] [data-sb-monogram="gray"] {
   background-color: oklch(96.7% 0.003 264.542);
