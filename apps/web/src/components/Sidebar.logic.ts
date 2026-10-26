@@ -1782,6 +1782,67 @@ export function threadMatchesSwitchboardStatFilter(
   return filter === "need-you" ? NEED_YOU_LABELS.has(pill.label) : LIVE_LABELS.has(pill.label);
 }
 
+export type SidebarGroupBy = "branch" | "status" | "project";
+
+/** The mode the switchboard list renders. A stat filter overrides the saved
+ * mode for as long as it is active, and Project needs the All projects scope;
+ * neither override is ever written back to the saved mode. */
+export function resolveSidebarGroupBy(input: {
+  readonly saved: SidebarGroupBy;
+  readonly statFilter: SwitchboardStatFilter | null;
+  readonly allProjects: boolean;
+}): SidebarGroupBy {
+  if (input.statFilter === "need-you") return "status";
+  if (input.statFilter === "worktrees") return "branch";
+  if (input.saved === "project" && !input.allProjects) return "branch";
+  return input.saved;
+}
+
+export type SidebarStatusSectionKey = "needs-you" | "error" | "running" | "idle";
+
+export const SIDEBAR_STATUS_SECTION_LABELS: Record<SidebarStatusSectionKey, string> = {
+  "needs-you": "Needs you",
+  error: "Error",
+  running: "Running",
+  idle: "Idle",
+};
+
+const SIDEBAR_STATUS_SECTION_ORDER: readonly SidebarStatusSectionKey[] = [
+  "needs-you",
+  "error",
+  "running",
+  "idle",
+];
+
+/** The Status-mode section a thread falls in, first match wins. Needs you and
+ * Running are exactly the masthead's need-you and live stats; Idle takes the
+ * rest, so every thread has a section. Pinned, snoozed and settled threads
+ * never reach this: they keep their own lane and shelves. */
+export function sidebarStatusSectionOf(thread: ProjectCountThread): SidebarStatusSectionKey {
+  if (threadMatchesSwitchboardStatFilter(thread, "need-you")) return "needs-you";
+  if (resolveSidebarThreadStatus(thread) === "failed") return "error";
+  if (threadMatchesSwitchboardStatFilter(thread, "live")) return "running";
+  return "idle";
+}
+
+/** Status-mode sections in display order, empty ones left out. Rows keep the
+ * order they arrive in. */
+export function groupSidebarThreadsByStatus<T extends ProjectCountThread>(
+  activeThreads: readonly T[],
+): { readonly key: SidebarStatusSectionKey; readonly threads: readonly T[] }[] {
+  const buckets = new Map<SidebarStatusSectionKey, T[]>();
+  for (const thread of activeThreads) {
+    const key = sidebarStatusSectionOf(thread);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(thread);
+    else buckets.set(key, [thread]);
+  }
+  return SIDEBAR_STATUS_SECTION_ORDER.flatMap((key) => {
+    const threads = buckets.get(key);
+    return threads ? [{ key, threads }] : [];
+  });
+}
+
 export function selectSwitchboardRailProjects<
   TProject extends LogicalSidebarProject,
   TThread extends ScopedSidebarThread,

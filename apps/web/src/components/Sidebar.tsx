@@ -185,6 +185,7 @@ import {
   resolveSidebarThreadStatus,
   resolveSidebarBranchStatus,
   groupSidebarBranchLanes,
+  resolveSidebarGroupBy,
   resolveSidebarBranchDragAnnouncement,
   resolveSidebarBranchDragFeedback,
   resolveSidebarBranchDragVerb,
@@ -1262,7 +1263,8 @@ function focusMovedSwitchboardRow(trigger: HTMLElement, threadKey: string): void
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
-  branchMode?: boolean;
+  /** Switchboard row anatomy, in every group-by mode. */
+  switchboard?: boolean;
   /** Branch mode only: a drag is in progress, so hover details stay closed. */
   dragActive?: boolean;
   dropIndicator?: "before" | "after" | undefined;
@@ -1539,7 +1541,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
-      showLastError={props.branchMode === true}
+      showLastError={props.switchboard === true}
     />
   );
 
@@ -1645,22 +1647,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       event.preventDefault();
       event.stopPropagation();
       // Read before the click moves the row out from under this button.
-      const trigger = props.branchMode ? (event.currentTarget as HTMLElement) : null;
+      const trigger = props.switchboard ? (event.currentTarget as HTMLElement) : null;
       onUnsettle(threadRef);
       if (trigger) focusMovedSwitchboardRow(trigger, threadKey);
     },
-    [onUnsettle, props.branchMode, threadKey, threadRef],
+    [onUnsettle, props.switchboard, threadKey, threadRef],
   );
   const handleUnsnoozeClick = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
       // Read before the click moves the row out from under this button.
-      const trigger = props.branchMode ? (event.currentTarget as HTMLElement) : null;
+      const trigger = props.switchboard ? (event.currentTarget as HTMLElement) : null;
       onUnsnooze(threadRef);
       if (trigger) focusMovedSwitchboardRow(trigger, threadKey);
     },
-    [onUnsnooze, props.branchMode, threadKey, threadRef],
+    [onUnsnooze, props.switchboard, threadKey, threadRef],
   );
   const handleUnpinClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -1728,7 +1730,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     // item, not the row, carries the hover and focus state. Their receded text
     // keeps AA contrast in both appearances.
     variantAction === "unsettle" &&
-      (props.branchMode
+      (props.switchboard
         ? "[li:not(:hover):not(:focus-within)>&_*]:text-sb-muted"
         : "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70"),
     props.isActive
@@ -1740,12 +1742,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           : shouldRecede
             ? cn(
                 "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                props.branchMode &&
+                props.switchboard &&
                   "group-hover/sidebar-row:bg-sidebar-row-hover group-hover/sidebar-row:text-sidebar-foreground",
               )
             : cn(
                 "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
-                props.branchMode && "group-hover/sidebar-row:bg-sidebar-row-hover",
+                props.switchboard && "group-hover/sidebar-row:bg-sidebar-row-hover",
               ),
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     // The hover tint must not clobber an active/selected row's own surface.
@@ -1798,7 +1800,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       className={
-        props.branchMode
+        props.switchboard
           ? "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground"
           : "min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
       }
@@ -1807,9 +1809,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     <span
       className={cn(
         "min-w-0 flex-1 transition-opacity motion-reduce:transition-none",
-        props.branchMode ? "text-[13px] leading-[18px] text-sb-foreground" : "text-sm",
+        props.switchboard ? "text-[13px] leading-[18px] text-sb-foreground" : "text-sm",
         shouldRecede ? "font-normal" : "font-medium",
-        props.branchMode
+        props.switchboard
           ? "truncate"
           : variant === "card"
             ? cn(
@@ -1917,7 +1919,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     )
   ) : null;
 
-  const branchStatus = props.branchMode
+  const branchStatus = props.switchboard
     ? resolveSidebarBranchStatus({ thread: { ...thread, lastVisitedAt }, isWoke })
     : null;
   if (branchStatus && variant === "card") {
@@ -2224,7 +2226,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     // Branch shelves render the row action beside the row button, which may not
     // hold focusable controls, and keep it out of the tree at rest (tab stops are C10).
     // Focusing the row shows it as hovering does.
-    const branchShelfActionClassName = props.branchMode
+    const branchShelfActionClassName = props.switchboard
       ? "hidden group-focus-within/sidebar-row:inline-flex group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:inline-flex"
       : undefined;
     const shelfAction =
@@ -2232,12 +2234,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         !props.snoozeSupported ? null : (
           <button
             type="button"
-            tabIndex={props.branchMode ? -1 : undefined}
+            tabIndex={props.switchboard ? -1 : undefined}
             aria-label="Wake thread now"
             onClick={handleUnsnoozeClick}
             className={cn(
               "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-              isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+              isWoke && !props.switchboard && "group-hover/sidebar-row:static",
               branchShelfActionClassName,
             )}
           >
@@ -2250,12 +2252,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             render={
               <button
                 type="button"
-                tabIndex={props.branchMode ? -1 : undefined}
+                tabIndex={props.switchboard ? -1 : undefined}
                 aria-label="Un-settle thread"
                 onClick={handleUnsettleClick}
                 className={cn(
                   "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-                  isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+                  isWoke && !props.switchboard && "group-hover/sidebar-row:static",
                   branchShelfActionClassName,
                 )}
               />
@@ -2268,12 +2270,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       ) : (
         <button
           type="button"
-          tabIndex={props.branchMode ? -1 : undefined}
+          tabIndex={props.switchboard ? -1 : undefined}
           aria-label="Settle thread"
           onClick={handleSettleClick}
           className={cn(
             "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-            isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+            isWoke && !props.switchboard && "group-hover/sidebar-row:static",
             branchShelfActionClassName,
           )}
         >
@@ -2298,7 +2300,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
-          props.branchMode && "group/sidebar-row relative",
+          props.switchboard && "group/sidebar-row relative",
         )}
       >
         <Tooltip disabled={sortable?.isDragging || props.dragActive}>
@@ -2307,8 +2309,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               <div
                 ref={rowRef}
                 role="button"
-                aria-current={props.branchMode && props.isActive ? "page" : undefined}
-                data-sb-thread-row={props.branchMode ? threadKey : undefined}
+                aria-current={props.switchboard && props.isActive ? "page" : undefined}
+                data-sb-thread-row={props.switchboard ? threadKey : undefined}
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
@@ -2324,12 +2326,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {/* Settled history recedes: dimmed favicon at rest, restored on
               hover so the tail stays scannable when you're hunting. */}
             <span
-              aria-hidden={props.branchMode || undefined}
+              aria-hidden={props.switchboard || undefined}
               className={cn(
                 "shrink-0 transition-opacity",
                 // A switchboard snoozed row keeps its favicon dimmed: the
                 // countdown, not the project, is what the row is about.
-                props.branchMode && variantAction === "unsnooze"
+                props.switchboard && variantAction === "unsnooze"
                   ? "opacity-40 grayscale"
                   : (!props.isActive || variantAction === "unsettle") &&
                       "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
@@ -2339,7 +2341,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <ProjectFavicon
                   project={props.project}
                   className="size-4"
-                  monogramTone={props.branchMode ? "solid" : undefined}
+                  monogramTone={props.switchboard ? "solid" : undefined}
                 />
               ) : null}
             </span>
@@ -2369,18 +2371,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 className={cn(
                   "relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end",
                   // Leaves room for the sibling action beside the Woke button.
-                  props.branchMode &&
+                  props.switchboard &&
                     isWoke &&
                     shelfAction &&
                     "group-focus-within/sidebar-row:mr-7 group-hover/sidebar-row:mr-7",
                 )}
               >
                 <span
-                  aria-hidden={(props.branchMode && !isWoke) || undefined}
+                  aria-hidden={(props.switchboard && !isWoke) || undefined}
                   className={cn(
                     "inline-flex justify-end tabular-nums text-secondary-label transition-opacity",
                     !isWoke && "group-hover/sidebar-row:opacity-0",
-                    props.branchMode &&
+                    props.switchboard &&
                       !isWoke &&
                       shelfAction &&
                       "group-focus-within/sidebar-row:opacity-0",
@@ -2392,7 +2394,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     <span
                       className={cn(
                         "text-xs tabular-nums",
-                        props.branchMode ? "text-sb-muted" : "text-blue-600 dark:text-blue-400",
+                        props.switchboard ? "text-sb-muted" : "text-blue-600 dark:text-blue-400",
                       )}
                     >
                       {props.snoozeWakeLabelText}
@@ -2424,14 +2426,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     </span>
                   )}
                 </span>
-                {!props.branchMode && shelfAction}
+                {!props.switchboard && shelfAction}
               </span>
             )}
             {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
-        {props.branchMode &&
+        {props.switchboard &&
           shelfAction &&
           !sortable?.isDragging && (
             // Positioned like the in-row slot above, but beside the row button.
@@ -2502,7 +2504,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <ProjectFavicon
                   project={props.project}
                   className="size-3.5 shrink-0"
-                  monogramTone={props.branchMode ? "solid" : undefined}
+                  monogramTone={props.switchboard ? "solid" : undefined}
                 />
               ) : null}
               {titleWithStatus}
@@ -3191,14 +3193,17 @@ export default function Sidebar() {
   const handleStatSelect = useCallback((stat: SwitchboardStatFilter) => {
     setStatFilter((current) => (current === stat ? null : stat));
   }, []);
-  // The filter is a view override. It must not write the saved group-by.
-  const effectiveGroupBy =
-    activeStatFilter === "need-you"
-      ? "status"
-      : activeStatFilter === "worktrees"
-        ? "branch"
-        : savedGroupBy;
-  const branchMode = switchboard && effectiveGroupBy === "branch";
+  // Stat filters and single-project scope override the rendered mode; neither
+  // writes the saved group-by.
+  const effectiveGroupBy = resolveSidebarGroupBy({
+    saved: savedGroupBy,
+    statFilter: activeStatFilter,
+    allProjects: scopedProjectGroup === null,
+  });
+  // With switchboard on, the saved group-by alone picks the layout; the legacy
+  // thread-organization setting only applies with it off.
+  const layout = switchboard ? effectiveGroupBy : null;
+  const branchMode = layout === "branch";
   const statFilterLabel =
     activeStatFilter === "need-you"
       ? "need you"
@@ -3581,8 +3586,9 @@ export default function Sidebar() {
 
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const projectGrouped = layout === "project" || (layout === null && groupByProject);
   const activeProjectGroups = useMemo(() => {
-    if (branchMode || !groupByProject) return null;
+    if (!projectGrouped) return null;
     return groupSidebarThreadsByProject({
       threads: activeThreads,
       projects: projectGroups,
@@ -3594,14 +3600,7 @@ export default function Sidebar() {
       isRouteThread: (thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
     });
-  }, [
-    activeThreads,
-    branchMode,
-    groupByProject,
-    projectExpandedById,
-    projectGroups,
-    routeThreadKey,
-  ]);
+  }, [activeThreads, projectGrouped, projectExpandedById, projectGroups, routeThreadKey]);
   const branchLanes = useMemo(
     () => (branchMode ? groupSidebarBranchLanes(activeThreads) : []),
     [activeThreads, branchMode],
@@ -4390,7 +4389,7 @@ export default function Sidebar() {
   const handleThreadDragOver = useCallback(
     (event: DragOverEvent) => {
       const overId = event.over ? String(event.over.id) : null;
-      const feedback = branchMode
+      const feedback = switchboard
         ? resolveSidebarBranchDragFeedback({
             items: sidebarListItems,
             activeKey: String(event.active.id),
@@ -4416,7 +4415,7 @@ export default function Sidebar() {
             },
       );
     },
-    [activeKeys, branchMode, laneKeyByThreadKey, sidebarListItems],
+    [activeKeys, switchboard, laneKeyByThreadKey, sidebarListItems],
   );
   const sortableIds = useMemo(() => sidebarListItems.map(sidebarListItemId), [sidebarListItems]);
   const draggedSettledOrder = useMemo(() => {
@@ -4431,7 +4430,7 @@ export default function Sidebar() {
   }, [dragState, settledThreads, threadByKey]);
   const sidebarSortingStrategy = useMemo(
     () =>
-      branchMode
+      switchboard
         ? createSidebarBranchSortingStrategy({ items: sidebarListItems, laneKeyByThreadKey })
         : createSidebarSortingStrategy({
             items: sidebarListItems,
@@ -4444,7 +4443,7 @@ export default function Sidebar() {
           }),
     [
       draggedSettledOrder,
-      branchMode,
+      switchboard,
       laneKeyByThreadKey,
       routeThreadKey,
       settledShelfExpanded,
@@ -4479,16 +4478,16 @@ export default function Sidebar() {
   // registers as the pinned-header marker.
   const branchLaneRows = useMemo(() => {
     const rows = new Map<string, readonly string[]>();
-    if (!branchMode) return rows;
+    if (!switchboard) return rows;
     const keysOf = (list: readonly EnvironmentThreadShell[]) =>
       list.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
     rows.set(sidebarMarkerId("pinned-header"), keysOf(pinnedThreads));
     for (const lane of branchLanes) rows.set(sidebarBranchLaneId(lane.key), keysOf(lane.threads));
     return rows;
-  }, [branchLanes, branchMode, pinnedThreads]);
+  }, [branchLanes, pinnedThreads, switchboard]);
   const dndCollisionDetection = useMemo(() => {
     if (draggedThreadKey === undefined || draggedFromSection === undefined) {
-      return branchMode
+      return switchboard
         ? createSidebarBranchCollisionDetection({
             laneRows: branchLaneRows,
             gate: branchDragGate,
@@ -4515,7 +4514,7 @@ export default function Sidebar() {
         activeKeysById,
         activeReorderableKeys: activeReorderableThreadKeys,
       }).kind !== "none";
-    if (branchMode) {
+    if (switchboard) {
       return createSidebarBranchCollisionDetection({
         laneRows: branchLaneRows,
         gate: branchDragGate,
@@ -4544,7 +4543,7 @@ export default function Sidebar() {
       },
     );
   }, [
-    branchMode,
+    switchboard,
     branchLaneRows,
     activeKeysById,
     pinnedKeysById,
@@ -4568,7 +4567,7 @@ export default function Sidebar() {
       const target =
         event.over === null
           ? null
-          : branchMode
+          : switchboard
             ? resolveSidebarBranchDropTarget({
                 items: sidebarListItems,
                 activeKey,
@@ -4710,7 +4709,7 @@ export default function Sidebar() {
       })();
     },
     [
-      branchMode,
+      switchboard,
       laneKeyByThreadKey,
       activeKeysById,
       pinnedKeysById,
@@ -5840,11 +5839,11 @@ export default function Sidebar() {
                 sensors={dndSensors}
                 collisionDetection={dndCollisionDetection}
                 modifiers={
-                  branchMode
+                  switchboard
                     ? [restrictToVerticalAxis, restrictToFirstScrollableAncestor]
                     : [restrictToVerticalAxis, restrictBelowPins, restrictToFirstScrollableAncestor]
                 }
-                {...(branchMode
+                {...(switchboard
                   ? { accessibility: { announcements: branchDragAnnouncements } }
                   : {})}
                 onDragStart={handleThreadDragStart}
@@ -5875,10 +5874,10 @@ export default function Sidebar() {
                           key={`${threadKey}:${rowVariant}`}
                           thread={thread}
                           variant={rowVariant}
-                          branchMode={branchMode}
-                          dragActive={branchMode && dragState !== null}
+                          switchboard={switchboard}
+                          dragActive={switchboard && dragState !== null}
                           dropIndicator={
-                            branchMode &&
+                            switchboard &&
                             dragState?.overId === threadKey &&
                             dragTargetSection === section &&
                             rejectedLaneKey === null &&
@@ -5995,7 +5994,7 @@ export default function Sidebar() {
                             // markers, so grouped view drops drag; pin/settle stay
                             // in menus. Teach Sidebar.drag.ts project headers to
                             // bring it back.
-                            (!branchMode && groupByProject) ||
+                            projectGrouped ||
                             !draggableThreadKeys.has(threadKey) ||
                             optimisticDrop !== null
                           }
@@ -6017,11 +6016,11 @@ export default function Sidebar() {
                     );
                     // Branch mode splits the list: the listbox may only own
                     // options and groups, so shelves get their own list.
-                    const items: ReactNode[] = branchMode ? [] : [draftBlock];
-                    const shelves: ReactNode[] = branchMode ? [] : items;
+                    const items: ReactNode[] = switchboard ? [] : [draftBlock];
+                    const shelves: ReactNode[] = switchboard ? [] : items;
                     for (const item of sidebarListItems) {
                       if (item.kind === "thread") {
-                        if (branchMode && (item.section === "active" || item.section === "pinned"))
+                        if (switchboard && (item.section === "active" || item.section === "pinned"))
                           continue;
                         // Grouped active rows render under their headers below.
                         if (activeProjectGroups !== null && item.section === "active") continue;
@@ -6030,7 +6029,7 @@ export default function Sidebar() {
                       }
                       switch (item.marker) {
                         case "pinned-header":
-                          if (branchMode) {
+                          if (switchboard) {
                             // Drop to pin is only offered when the dragged thread's server can pin.
                             const canPinDragged =
                               draggedThread !== undefined &&
@@ -6063,7 +6062,7 @@ export default function Sidebar() {
                           );
                           break;
                         case "pinned-divider":
-                          if (branchMode) break;
+                          if (switchboard) break;
                           items.push(
                             <SidebarDragBoundary
                               key="pinned-divider"
@@ -6120,6 +6119,37 @@ export default function Sidebar() {
                                   {lane.threads.map((thread) => renderThreadRow(thread, "active"))}
                                 </BranchLane>,
                               );
+                            break;
+                          }
+                          if (layout === "status") {
+                            for (const thread of renderedActiveThreads)
+                              items.push(renderThreadRow(thread, "active"));
+                            break;
+                          }
+                          if (layout === "project") {
+                            for (const group of activeProjectGroups ?? []) {
+                              const project = projectByGroupKey.get(group.projectKey) ?? null;
+                              items.push(
+                                <SidebarProjectGroupHeader
+                                  key={`project-group:${group.projectKey}`}
+                                  group={group}
+                                  project={project}
+                                  onToggle={() =>
+                                    setProjectExpanded(group.projectKey, !group.expanded)
+                                  }
+                                  onNewThread={
+                                    project
+                                      ? () =>
+                                          void handleNewThreadRef.current(
+                                            scopeProjectRef(project.environmentId, project.id),
+                                          )
+                                      : null
+                                  }
+                                />,
+                              );
+                              for (const thread of group.rendered)
+                                items.push(renderThreadRow(thread, "active"));
+                            }
                             break;
                           }
                           items.push(
@@ -6214,7 +6244,7 @@ export default function Sidebar() {
                               label="Settled"
                               // Branch mode drops on the shelf header; this hint has no hit area there.
                               showHint={
-                                !branchMode &&
+                                !switchboard &&
                                 from !== null &&
                                 (renderedSettledThreads.length === 0 ||
                                   (from === "settled" &&
@@ -6241,7 +6271,7 @@ export default function Sidebar() {
                           </button>
                         </li>
                       ) : null;
-                    if (!branchMode) {
+                    if (!switchboard) {
                       return (
                         <ul
                           ref={attachListMotionRef}
@@ -6292,7 +6322,7 @@ export default function Sidebar() {
                     );
                   })()}
                 </SortableContext>
-                {branchMode &&
+                {switchboard &&
                   createPortal(
                     <div data-switchboard="sidebar">
                       <DragOverlay

@@ -5,6 +5,8 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import {
   groupSidebarThreadsByProject,
   groupSidebarBranchLanes,
+  groupSidebarThreadsByStatus,
+  resolveSidebarGroupBy,
   sidebarRenderedActiveThreads,
   sidebarVisualThreadOrder,
   animateSidebarLayoutChanges,
@@ -3000,6 +3002,125 @@ describe("countProjectSidebarThreads", () => {
     expect(threadMatchesSwitchboardStatFilter(threads[7]!, "threads")).toBe(false);
     expect(threadMatchesSwitchboardStatFilter(threads[7]!, "worktrees")).toBe(true);
     expect(threadMatchesSwitchboardStatFilter(threads[8]!, "need-you")).toBe(false);
+  });
+});
+
+describe("resolveSidebarGroupBy", () => {
+  it("lets a stat filter override the saved mode without replacing it", () => {
+    expect(
+      resolveSidebarGroupBy({ saved: "project", statFilter: "need-you", allProjects: true }),
+    ).toBe("status");
+    expect(
+      resolveSidebarGroupBy({ saved: "status", statFilter: "worktrees", allProjects: true }),
+    ).toBe("branch");
+    expect(resolveSidebarGroupBy({ saved: "status", statFilter: "live", allProjects: true })).toBe(
+      "status",
+    );
+    // Clearing the filter is the same call with no filter: the saved mode returns.
+    expect(resolveSidebarGroupBy({ saved: "project", statFilter: null, allProjects: true })).toBe(
+      "project",
+    );
+  });
+
+  it("renders Branch for a saved Project mode while one project is scoped", () => {
+    expect(resolveSidebarGroupBy({ saved: "project", statFilter: null, allProjects: false })).toBe(
+      "branch",
+    );
+    expect(resolveSidebarGroupBy({ saved: "status", statFilter: null, allProjects: false })).toBe(
+      "status",
+    );
+  });
+});
+
+describe("groupSidebarThreadsByStatus", () => {
+  const projectId = ProjectId.make("alpha");
+  function statusThread(
+    id: string,
+    overrides: Partial<ProjectCountThread> = {},
+  ): ProjectCountThread & { id: string } {
+    return {
+      id,
+      environmentId: localEnvironmentId,
+      projectId,
+      archivedAt: null,
+      settledOverride: null,
+      worktreePath: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+      interactionMode: "default",
+      session: null,
+      latestTurn: null,
+      ...overrides,
+    };
+  }
+  const settledTurn = makeLatestTurn();
+  const threads = [
+    statusThread("idle-ready"),
+    statusThread("running", { session: { status: "running", activeTurnId: "turn" } as never }),
+    // Qualifies for Needs you and Running at once: the first match wins.
+    statusThread("approval-and-running", {
+      hasPendingApprovals: true,
+      session: { status: "running", activeTurnId: "turn" } as never,
+    }),
+    // A failed session with lingering background work is an error, not running.
+    statusThread("failed-live", {
+      backgroundLiveness: "working",
+      session: { status: "error", activeTurnId: null } as never,
+    }),
+    statusThread("plan", {
+      hasActionableProposedPlan: true,
+      interactionMode: "plan",
+      latestTurn: settledTurn,
+      session: { status: "ready", activeTurnId: null } as never,
+    }),
+    statusThread("connecting", { session: { status: "starting", activeTurnId: null } as never }),
+    statusThread("monitoring", {
+      backgroundLiveness: "monitoring",
+      session: { status: "ready", activeTurnId: null } as never,
+    }),
+    statusThread("completed", {
+      latestTurn: settledTurn,
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      session: { status: "ready", activeTurnId: null } as never,
+    }),
+  ];
+
+  it("orders sections and places each thread once, first match wins", () => {
+    const sections = groupSidebarThreadsByStatus(threads);
+    expect(
+      sections.map((section) => [section.key, section.threads.map((thread) => thread.id)]),
+    ).toEqual([
+      ["needs-you", ["approval-and-running", "plan"]],
+      ["error", ["failed-live"]],
+      ["running", ["running", "connecting", "monitoring"]],
+      ["idle", ["idle-ready", "completed"]],
+    ]);
+    const placed = sections.flatMap((section) => section.threads);
+    expect(placed).toHaveLength(threads.length);
+    expect(new Set(placed).size).toBe(threads.length);
+  });
+
+  it("matches the masthead counts once Error is taken out of the live count", () => {
+    const counts = countProjectSidebarThreads(threads);
+    const sections = new Map(
+      groupSidebarThreadsByStatus(threads).map((section) => [section.key, section.threads]),
+    );
+    expect(sections.get("needs-you")).toHaveLength(counts.needYou);
+    const liveOutsideOtherSections = threads.filter(
+      (thread) =>
+        threadMatchesSwitchboardStatFilter(thread, "live") &&
+        !sections.get("needs-you")!.includes(thread) &&
+        !sections.get("error")!.includes(thread),
+    );
+    expect(sections.get("running")).toEqual(liveOutsideOtherSections);
+  });
+
+  it("omits empty sections", () => {
+    expect(groupSidebarThreadsByStatus([statusThread("only-idle")]).map((s) => s.key)).toEqual([
+      "idle",
+    ]);
+    expect(groupSidebarThreadsByStatus([])).toEqual([]);
   });
 });
 
