@@ -90,7 +90,8 @@ function isOpen(link: ThreadPullRequestLink): boolean {
   return link.snapshot === null || link.snapshot.state === "open";
 }
 
-function latestUpdatedAt(link: ThreadPullRequestLink): number {
+/** When a link last changed: its synced update time, else when it was linked. */
+export function threadPullRequestUpdatedAt(link: ThreadPullRequestLink): number {
   const value = link.snapshot?.updatedAt ?? link.linkedAt;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? 0 : ms;
@@ -136,7 +137,7 @@ export function resolveThreadCurrentPullRequest(
     return { kind: "single", link: chains[0]!.layers.at(-1)! };
   }
   const terminal = [...visible].sort(
-    (left, right) => latestUpdatedAt(right) - latestUpdatedAt(left),
+    (left, right) => threadPullRequestUpdatedAt(right) - threadPullRequestUpdatedAt(left),
   );
   return { kind: "single", link: terminal[0]! };
 }

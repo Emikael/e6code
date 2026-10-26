@@ -136,6 +136,8 @@ export function SidebarGroupByRow({
                 <MenuRadioItem
                   key={option.value}
                   value={option.value}
+                  // One choice per open: picking a mode closes the menu.
+                  closeOnClick
                   className="min-h-0 gap-0 rounded-md px-2 py-1.5"
                 >
                   <span className="flex min-w-0 items-start gap-2">

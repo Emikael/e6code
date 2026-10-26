@@ -6,6 +6,7 @@ import {
   groupSidebarThreadsByProject,
   groupSidebarBranchLanes,
   groupSidebarThreadsByStatus,
+  pickLanePullRequest,
   resolveSidebarGroupBy,
   sidebarRenderedActiveThreads,
   sidebarVisualThreadOrder,
@@ -72,6 +73,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type ThreadPullRequestLink,
 } from "@e6tools/contracts";
 
 import {
@@ -175,6 +177,34 @@ describe("groupSidebarBranchLanes", () => {
     expect(sidebarRenderedActiveThreads({ branchLanes: null, projectGroups: null, active })).toBe(
       active,
     );
+  });
+
+  it("drops collapsed lanes from the order, and ignores stale collapse keys", () => {
+    const a1 = thread("a1", { branch: "alpha", updatedAt: "2026-03-09T10:00:00.000Z" });
+    const b1 = thread("b1", { branch: "beta", updatedAt: "2026-03-09T12:00:00.000Z" });
+    const pinned = thread("pinned");
+    const lanes = groupSidebarBranchLanes([a1, b1]);
+    const betaKey = lanes.find((lane) => lane.branch === "beta")!.key;
+    const order = (collapsedLanes: Record<string, boolean>) =>
+      sidebarVisualThreadOrder({
+        // The Pinned lane collapses under the single "pinned" key.
+        pinned: collapsedLanes.pinned === true ? [] : [pinned],
+        active: sidebarRenderedActiveThreads({
+          branchLanes: lanes,
+          projectGroups: null,
+          active: [a1, b1],
+          collapsedLanes,
+        }),
+        snoozed: [],
+        settled: [],
+      }).map((row) => row.id);
+    expect(order({ [betaKey]: true, pinned: true })).toEqual(["a1"]);
+    expect(order({ [betaKey]: false })).toEqual(["pinned", "b1", "a1"]);
+    expect(order({ "gone-env:gone-project:br:old": true, unknown: true })).toEqual([
+      "pinned",
+      "b1",
+      "a1",
+    ]);
   });
 
   it("puts live lanes first, uses newest activity, and preserves row order within each lane", () => {
@@ -3121,6 +3151,100 @@ describe("groupSidebarThreadsByStatus", () => {
       "idle",
     ]);
     expect(groupSidebarThreadsByStatus([])).toEqual([]);
+  });
+});
+
+describe("pickLanePullRequest", () => {
+  function link(
+    number: number,
+    snapshot: { state: "open" | "closed" | "merged"; isDraft?: boolean; updatedAt: string } | null,
+    source: ThreadPullRequestLink["source"] = "created",
+  ): ThreadPullRequestLink {
+    return {
+      host: "github.com",
+      repository: "acme/app",
+      number,
+      url: `https://github.com/acme/app/pull/${number}`,
+      source,
+      linkedAt: "2026-03-01T00:00:00.000Z",
+      snapshot:
+        snapshot === null
+          ? null
+          : {
+              state: snapshot.state,
+              title: `PR ${number}`,
+              headBranch: "feature",
+              baseBranch: "main",
+              isDraft: snapshot.isDraft ?? false,
+              updatedAt: snapshot.updatedAt,
+              syncedAt: snapshot.updatedAt,
+            },
+      stack: null,
+    } as ThreadPullRequestLink;
+  }
+  const lane = (
+    ...threads: Array<{
+      pullRequests?: ThreadPullRequestLink[];
+      branchPullRequest?: SidebarThreadSummary["branchPullRequest"];
+    }>
+  ) => threads.map((thread) => ({ pullRequests: [], branchPullRequest: null, ...thread }));
+  const branchPr = (number: number) => ({
+    projectId: ProjectId.make("project-1"),
+    repository: "acme/app",
+    number,
+    url: `https://github.com/acme/app/pull/${number}`,
+  });
+
+  it("prefers the branch pull request, with its state from a matching link", () => {
+    expect(
+      pickLanePullRequest(
+        lane(
+          { pullRequests: [link(7, { state: "open", updatedAt: "2026-03-05T00:00:00.000Z" })] },
+          {
+            branchPullRequest: branchPr(3),
+            pullRequests: [link(3, { state: "merged", updatedAt: "2026-03-02T00:00:00.000Z" })],
+          },
+        ),
+      ),
+    ).toEqual({ number: 3, url: "https://github.com/acme/app/pull/3", state: "merged", count: 2 });
+  });
+
+  it("leaves a branch pull request without a snapshot stateless", () => {
+    expect(pickLanePullRequest(lane({ branchPullRequest: branchPr(9) }))).toMatchObject({
+      number: 9,
+      state: null,
+      count: 1,
+    });
+  });
+
+  it("prefers open or draft work, then the most recent, then the higher number", () => {
+    const open = link(10, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    const draft = link(11, { state: "open", isDraft: true, updatedAt: "2026-03-04T00:00:00.000Z" });
+    const merged = link(12, { state: "merged", updatedAt: "2026-03-09T00:00:00.000Z" });
+    expect(
+      pickLanePullRequest(lane({ pullRequests: [open, merged] }, { pullRequests: [draft] })),
+    ).toMatchObject({ number: 11, state: "draft", count: 3 });
+    const closed = link(13, { state: "closed", updatedAt: "2026-03-10T00:00:00.000Z" });
+    expect(pickLanePullRequest(lane({ pullRequests: [merged, closed] }))).toMatchObject({
+      number: 13,
+      state: "closed",
+    });
+    const tieLow = link(20, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    const tieHigh = link(21, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    expect(pickLanePullRequest(lane({ pullRequests: [tieLow, tieHigh] }))?.number).toBe(21);
+  });
+
+  it("counts a pull request linked from two threads once and skips dismissed links", () => {
+    const shared = link(5, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    expect(
+      pickLanePullRequest(
+        lane(
+          { pullRequests: [shared] },
+          { pullRequests: [shared, link(6, null, "stack-dismissed")] },
+        ),
+      ),
+    ).toMatchObject({ number: 5, count: 1 });
+    expect(pickLanePullRequest(lane({}, {}))).toBeNull();
   });
 });
 

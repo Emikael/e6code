@@ -103,6 +103,12 @@
   outline-offset: -2px;
 }
 
+/* Compact rows stack with no gap, so an outset ring would cover their
+   neighbours. */
+[data-switchboard] [data-sb-thread-row][data-sb-density="compact"]:focus-visible {
+  outline-offset: -2px;
+}
+
 /* Text fields draw their own focus ring on the field wrapper. */
 [data-switchboard] input:focus-visible {
   outline: none;

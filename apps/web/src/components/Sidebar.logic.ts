@@ -1,4 +1,10 @@
-import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
+import {
+  legacyThreadPullRequestKey,
+  threadPullRequestKeyOf,
+  threadPullRequestSearchTerms,
+  threadPullRequestUpdatedAt,
+  visibleThreadPullRequests,
+} from "@e6tools/shared/threadPullRequests";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import {
@@ -180,14 +186,20 @@ export function groupSidebarBranchLanes(activeThreads: readonly SidebarThreadSum
   );
 }
 
-/** Active rows as drawn: lane by lane in branch mode, by project group when
- * grouped, otherwise in their sorted order. */
+/** Active rows as drawn: lane by lane (branch lanes or Status sections),
+ * by project group when grouped, otherwise in their sorted order. A collapsed
+ * lane draws no rows; only a key mapped to `true` collapses, so stale keys
+ * from lanes that no longer exist collapse nothing. */
 export function sidebarRenderedActiveThreads<T>(input: {
-  readonly branchLanes: readonly { readonly threads: readonly T[] }[] | null;
+  readonly branchLanes: readonly { readonly key?: string; readonly threads: readonly T[] }[] | null;
   readonly projectGroups: readonly { readonly rendered: readonly T[] }[] | null;
   readonly active: readonly T[];
+  readonly collapsedLanes?: Readonly<Record<string, boolean>>;
 }): readonly T[] {
-  if (input.branchLanes) return input.branchLanes.flatMap((lane) => lane.threads);
+  if (input.branchLanes)
+    return input.branchLanes.flatMap((lane) =>
+      lane.key !== undefined && input.collapsedLanes?.[lane.key] === true ? [] : lane.threads,
+    );
   return input.projectGroups?.flatMap((group) => group.rendered) ?? input.active;
 }
 
@@ -292,13 +304,31 @@ export function resolveSidebarDropTarget(
   return { section, pinnedOrder, activeOrder };
 }
 
-/** Branch rows keep their lane, while manual keys still describe the global active order. */
+/** The lane a drop lands in: a lane wrapper's own key, or the lane of the
+ * active row under the pointer. */
+function sidebarDropLaneKey(
+  items: readonly SidebarListItem[],
+  overId: string,
+  laneKeyByThreadKey: ReadonlyMap<string, string>,
+): string | null {
+  const over = items.find((item) => sidebarListItemId(item) === overId);
+  if (over === undefined) return sidebarBranchLaneKeyOfId(items, overId);
+  return over.kind === "thread" && over.section === "active"
+    ? (laneKeyByThreadKey.get(over.key) ?? null)
+    : null;
+}
+
+/** Branch rows keep their lane, while manual keys still describe the global
+ * active order. Locked lanes (Status sections) take no reorder at all: their
+ * order and membership come from status. A snoozed or settled row may still
+ * leave its shelf into one, since only its lifecycle changes. */
 export function resolveSidebarBranchDropTarget(input: {
   readonly items: readonly SidebarListItem[];
   readonly activeKey: string;
   readonly overId: string;
   readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
   readonly activeOrder: readonly string[];
+  readonly lockedLaneKeys?: ReadonlySet<string>;
 }): SidebarDropTarget | null {
   const { items, activeKey, overId, laneKeyByThreadKey, activeOrder } = input;
   const source = items.find((item) => item.kind === "thread" && item.key === activeKey);
@@ -311,6 +341,17 @@ export function resolveSidebarBranchDropTarget(input: {
     overId === sidebarMarkerId("snoozed-header")
   )
     return null;
+  const dropLane = sidebarDropLaneKey(items, overId, laneKeyByThreadKey);
+  if (dropLane !== null && input.lockedLaneKeys?.has(dropLane)) {
+    if (source.section !== "snoozed" && source.section !== "settled") return null;
+    return {
+      section: "active",
+      pinnedOrder: items.flatMap((item) =>
+        item.kind === "thread" && item.section === "pinned" ? [item.key] : [],
+      ),
+      activeOrder: [activeKey, ...activeOrder.filter((key) => key !== activeKey)],
+    };
+  }
   const laneRows = items.flatMap((item) =>
     item.kind === "thread" && item.section === "active" ? [item] : [],
   );
@@ -383,35 +424,49 @@ export function resolveSidebarBranchDragFeedback(input: {
   readonly overId: string | null;
   readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
   readonly activeOrder: readonly string[];
+  readonly lockedLaneKeys?: ReadonlySet<string>;
 }): SidebarBranchDragFeedback {
   const { items, activeKey, overId, laneKeyByThreadKey } = input;
   if (overId === null) return { target: null, overLaneKey: null, rejectedLaneKey: null };
   const target = resolveSidebarBranchDropTarget({ ...input, overId });
-  const over = items.find((item) => sidebarListItemId(item) === overId);
-  const overLaneKey =
-    over === undefined
-      ? sidebarBranchLaneKeyOfId(items, overId)
-      : over.kind === "thread" && over.section === "active"
-        ? (laneKeyByThreadKey.get(over.key) ?? null)
-        : null;
+  const overLaneKey = sidebarDropLaneKey(items, overId, laneKeyByThreadKey);
+  // A locked lane refuses even the row's own lane, but the row's own slot is
+  // where every refused target falls back to, so it stays quiet.
   const rejectedLaneKey =
-    target === null && overLaneKey !== null && overLaneKey !== laneKeyByThreadKey.get(activeKey)
+    target === null &&
+    overLaneKey !== null &&
+    (input.lockedLaneKeys?.has(overLaneKey)
+      ? overId !== activeKey
+      : overLaneKey !== laneKeyByThreadKey.get(activeKey))
       ? overLaneKey
       : null;
   return { target, overLaneKey, rejectedLaneKey };
 }
 
-export type SidebarBranchDragVerb = "Move" | "Pin" | "Settle" | "Wake" | "Can't move here";
+export type SidebarBranchDragVerb =
+  | "Move"
+  | "Pin"
+  | "Settle"
+  | "Wake"
+  | "Can't move here"
+  | "Sorted by status";
+
+/** Verbs that refuse the drop; the chip renders them as a reject badge. */
+export function isSidebarRejectedDragVerb(verb: SidebarBranchDragVerb | null): boolean {
+  return verb === "Can't move here" || verb === "Sorted by status";
+}
 
 /** The drag chip's badge; null over no drop target and over the row's own
- * slot, which is also where targets the server refuses fall back to. */
+ * slot, which is also where targets the server refuses fall back to. A
+ * refused lane says why: another branch, or a section sorted by status. */
 export function resolveSidebarBranchDragVerb(input: {
   readonly sourceSection: SidebarSection;
   readonly targetSection: SidebarSection | null;
-  readonly rejected: boolean;
+  readonly rejected: false | "branch" | "status";
   readonly overSelf: boolean;
 }): SidebarBranchDragVerb | null {
-  if (input.rejected) return "Can't move here";
+  if (input.rejected === "status") return "Sorted by status";
+  if (input.rejected === "branch") return "Can't move here";
   if (input.overSelf || input.targetSection === null) return null;
   if (input.sourceSection === "snoozed" && input.targetSection === "active") return "Wake";
   if (input.targetSection === "pinned" && input.sourceSection !== "pinned") return "Pin";
@@ -437,17 +492,22 @@ export function resolveSidebarBranchDragAnnouncement(input: {
   readonly overSelf: boolean;
   /** Whether the drag has been over another target since it started. */
   readonly leftOwnSlot: boolean;
-  /** The lane a rejected drop was aimed at; null is the "No branch" lane. */
+  /** The lane a rejected drop was aimed at: its branch (null is the "No
+   * branch" lane), or the Status section's name. */
   readonly rejectedBranch: string | null;
 }): string | undefined {
   const { verb } = input;
   if (input.phase === "end") {
     if (verb === "Can't move here") return "Can't move here. Thread returned.";
+    if (verb === "Sorted by status") return "Sorted by status. Thread returned.";
     return verb === null ? "Thread returned" : SIDEBAR_BRANCH_DROP_RESULTS[verb];
   }
   if (!input.hasTarget) return "No drop target";
   if (verb === "Can't move here") {
     return `Can't move to ${input.rejectedBranch ?? "No branch"}. Branch comes from the thread's worktree.`;
+  }
+  if (verb === "Sorted by status") {
+    return `Can't reorder in ${input.rejectedBranch ?? "this section"}. Sorted by status.`;
   }
   if (verb === "Pin") return "Pin thread: drop to pin";
   if (verb !== null) return `${verb} thread`;
@@ -1600,6 +1660,8 @@ export interface SidebarProjectThreadGroup<T> {
   readonly projectKey: string;
   readonly displayName: string;
   readonly threadCount: number;
+  /** Every thread in the group, rendered or not. */
+  readonly threads: readonly T[];
   /** Rows to render: every thread when expanded, else only the open thread. */
   readonly rendered: readonly T[];
   readonly expanded: boolean;
@@ -1649,6 +1711,7 @@ export function groupSidebarThreadsByProject<
         projectKey: key,
         displayName: name,
         threadCount: threads.length,
+        threads,
         rendered: expanded ? threads : threads.filter(input.isRouteThread),
         expanded,
         attentionCount: threads.filter(input.needsAttention).length,
@@ -1841,6 +1904,76 @@ export function groupSidebarThreadsByStatus<T extends ProjectCountThread>(
     const threads = buckets.get(key);
     return threads ? [{ key, threads }] : [];
   });
+}
+
+export type LanePullRequestState = "open" | "draft" | "merged" | "closed";
+
+export interface LanePullRequestSummary {
+  readonly number: number;
+  readonly url: string;
+  /** Null when only the branch's own pull request is known and no linked
+   * snapshot says what state it is in. */
+  readonly state: LanePullRequestState | null;
+  /** Distinct pull requests across the lane, the chosen one included. */
+  readonly count: number;
+}
+
+const OPEN_LANE_PR_STATES: ReadonlySet<LanePullRequestState> = new Set(["open", "draft"]);
+
+/** The one pull request a lane header shows. The lane's branch pull request
+ * wins; otherwise the most recently updated open or draft link, then the most
+ * recently updated merged or closed one, ties to the higher number. Only the
+ * chosen pull request's own state is reported. */
+export function pickLanePullRequest(
+  threads: readonly Pick<SidebarThreadSummary, "branchPullRequest" | "pullRequests">[],
+): LanePullRequestSummary | null {
+  const links = new Map<
+    string,
+    { number: number; url: string; state: LanePullRequestState | null; updatedAt: number }
+  >();
+  let branch: { key: string; number: number; url: string } | null = null;
+  for (const thread of threads) {
+    for (const link of visibleThreadPullRequests(thread.pullRequests ?? [])) {
+      const key = threadPullRequestKeyOf(link);
+      const updatedAt = threadPullRequestUpdatedAt(link);
+      const existing = links.get(key);
+      if (existing && existing.updatedAt >= updatedAt) continue;
+      links.set(key, {
+        number: link.number,
+        url: link.url,
+        state:
+          link.snapshot === null
+            ? null
+            : link.snapshot.state === "open" && link.snapshot.isDraft
+              ? "draft"
+              : link.snapshot.state,
+        updatedAt,
+      });
+    }
+    if (branch === null && thread.branchPullRequest) {
+      const pr = thread.branchPullRequest;
+      branch = {
+        key: threadPullRequestKeyOf(legacyThreadPullRequestKey(pr)),
+        number: pr.number,
+        url: pr.url,
+      };
+    }
+  }
+  const count = links.size + (branch !== null && !links.has(branch.key) ? 1 : 0);
+  if (branch !== null) {
+    return {
+      number: branch.number,
+      url: branch.url,
+      state: links.get(branch.key)?.state ?? null,
+      count,
+    };
+  }
+  const rank = (state: LanePullRequestState | null) =>
+    state === null ? 0 : OPEN_LANE_PR_STATES.has(state) ? 2 : 1;
+  const chosen = [...links.values()].sort(
+    (a, b) => rank(b.state) - rank(a.state) || b.updatedAt - a.updatedAt || b.number - a.number,
+  )[0];
+  return chosen ? { number: chosen.number, url: chosen.url, state: chosen.state, count } : null;
 }
 
 export function selectSwitchboardRailProjects<

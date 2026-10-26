@@ -1203,7 +1203,8 @@ describe("branch drag feedback", () => {
   });
 
   it.each([
-    [{ sourceSection: "active", targetSection: "active", rejected: true }, "Can't move here"],
+    [{ sourceSection: "active", targetSection: "active", rejected: "branch" }, "Can't move here"],
+    [{ sourceSection: "active", targetSection: null, rejected: "status" }, "Sorted by status"],
     [{ sourceSection: "active", targetSection: null, rejected: false }, null],
     [{ sourceSection: "active", targetSection: "pinned", rejected: false }, "Pin"],
     [{ sourceSection: "pinned", targetSection: "pinned", rejected: false }, "Move"],
@@ -1269,5 +1270,101 @@ describe("branch drag feedback", () => {
     [null, "Thread returned"],
   ] as const)("reports a %s drop as %j", (verb, message) => {
     expect(announce({ phase: "end", verb })).toBe(message);
+  });
+});
+
+describe("status section drops", () => {
+  const activeOrder = ["n1", "n2", "r1", "r2", "i1"];
+  const laneKeyByThreadKey = new Map([
+    ["n1", "status:needs-you"],
+    ["n2", "status:needs-you"],
+    ["r1", "status:running"],
+    ["r2", "status:running"],
+    ["i1", "status:idle"],
+  ]);
+  const lockedLaneKeys = new Set(["status:needs-you", "status:running", "status:idle"]);
+  const items = [
+    pinnedHeader,
+    thread("p", "pinned"),
+    thread("q", "pinned"),
+    divider,
+    ...activeOrder.map((key) => thread(key, "active")),
+    marker("snoozed-header"),
+    thread("z", "snoozed"),
+    settledHeader,
+    thread("s", "settled"),
+  ];
+  const input = { items, laneKeyByThreadKey, activeOrder, lockedLaneKeys };
+  const target = (activeKey: string, overId: string) =>
+    resolveSidebarBranchDropTarget({ ...input, activeKey, overId });
+
+  it.each([
+    ["inside the row's own section", "r1", "r2"],
+    ["between sections", "r1", "i1"],
+    ["onto another section's header", "r1", sidebarBranchLaneId("status:idle")],
+    ["onto its own section's header", "n1", sidebarBranchLaneId("status:needs-you")],
+    ["for a pinned row onto a section", "p", "r1"],
+  ])("refuses a drop %s", (_case, activeKey, overId) => {
+    expect(target(activeKey, overId)).toBeNull();
+  });
+
+  it("keeps Pin, Settle, Wake and Pinned reorder", () => {
+    expect(target("r1", sidebarMarkerId("pinned-header"))?.section).toBe("pinned");
+    expect(target("r1", sidebarMarkerId("settled-header"))?.section).toBe("settled");
+    expect(target("q", "p")).toMatchObject({ section: "pinned", pinnedOrder: ["q", "p"] });
+    // Leaving the snoozed shelf wakes the row; status decides where it shows.
+    expect(target("z", "r1")).toMatchObject({
+      section: "active",
+      activeOrder: ["z", ...activeOrder],
+    });
+  });
+
+  it("marks the section under the pointer, including the row's own", () => {
+    const feedback = (activeKey: string, overId: string) =>
+      resolveSidebarBranchDragFeedback({ ...input, activeKey, overId });
+    expect(feedback("r1", "r2").rejectedLaneKey).toBe("status:running");
+    expect(feedback("r1", "i1").rejectedLaneKey).toBe("status:idle");
+    expect(feedback("p", "n1").rejectedLaneKey).toBe("status:needs-you");
+    // The row's own slot is where refused targets fall back to.
+    expect(feedback("r1", "r1").rejectedLaneKey).toBeNull();
+    expect(feedback("r1", sidebarMarkerId("pinned-header")).rejectedLaneKey).toBeNull();
+  });
+
+  it("previews no reorder inside a locked section", () => {
+    const strategy = createSidebarBranchSortingStrategy({
+      items,
+      laneKeyByThreadKey,
+      lockedLaneKeys,
+    });
+    const indexOf = (key: string) => items.findIndex((item) => sidebarListItemId(item) === key);
+    const args = {
+      rects: items.map(() => ({ top: 0, left: 0, width: 100, height: 40, right: 100, bottom: 40 })),
+      activeNodeRect: null,
+      activeIndex: indexOf("r1"),
+      overIndex: indexOf("r2"),
+      index: indexOf("r2"),
+    };
+    expect(strategy(args)).toBeNull();
+    expect(
+      strategy({
+        ...args,
+        activeIndex: indexOf("q"),
+        overIndex: indexOf("p"),
+        index: indexOf("p"),
+      }),
+    ).not.toBeNull();
+  });
+
+  it("names the section under the pointer in the live region", () => {
+    expect(
+      resolveSidebarBranchDragAnnouncement({
+        phase: "over",
+        verb: "Sorted by status",
+        hasTarget: true,
+        overSelf: false,
+        leftOwnSlot: true,
+        rejectedBranch: "Needs you",
+      }),
+    ).toBe("Can't reorder in Needs you. Sorted by status.");
   });
 });

@@ -1,9 +1,15 @@
 import { useDroppable } from "@dnd-kit/core";
 import { Pin } from "lucide-react";
-import type { ReactNode, Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import { cn } from "~/lib/utils";
-import { sidebarBranchLaneId, sidebarMarkerId } from "../Sidebar.logic";
-import { LaneHeader } from "./primitives/LaneHeader";
+import {
+  SIDEBAR_STATUS_SECTION_LABELS,
+  sidebarBranchLaneId,
+  sidebarMarkerId,
+  type LanePullRequestSummary,
+  type SidebarStatusSectionKey,
+} from "../Sidebar.logic";
+import { LaneHeader, threadCountLabel } from "./primitives/LaneHeader";
 
 export interface BranchLaneProps {
   laneKey: string;
@@ -12,8 +18,22 @@ export interface BranchLaneProps {
   count: number;
   projectName?: string;
   pinned?: boolean;
+  /** A Status-mode section: a heading, never collapsed. */
+  status?: SidebarStatusSectionKey;
   rejected?: boolean;
   dragOver?: boolean;
+  /** Collapse state; without `onToggle` the lane cannot collapse. */
+  expanded?: boolean;
+  onToggle?: () => void;
+  containsOpenThread?: boolean;
+  live?: boolean;
+  pullRequest?: LanePullRequestSummary | null;
+  cleanUp?: boolean;
+  density?: "comfortable" | "compact";
+  /** Replaces the lane header, e.g. a Project-mode group header. */
+  header?: ReactNode;
+  /** Groups that take no drops (Project mode) skip the droppable. */
+  droppable?: boolean;
   /** Receives the row list, e.g. to animate rows within the lane. */
   listRef?: Ref<HTMLUListElement>;
   children?: ReactNode;
@@ -27,13 +47,25 @@ export function BranchLane({
   count,
   projectName,
   pinned = false,
+  status,
   rejected = false,
   dragOver = false,
+  expanded = true,
+  onToggle,
+  containsOpenThread = false,
+  live = false,
+  pullRequest = null,
+  cleanUp = false,
+  density = "comfortable",
+  header,
+  droppable = true,
   listRef,
   children,
 }: BranchLaneProps) {
+  const rowsId = useId();
   const { setNodeRef } = useDroppable({
     id: pinned ? sidebarMarkerId("pinned-header") : sidebarBranchLaneId(laneKey),
+    disabled: !droppable,
   });
   // An empty Pinned lane only exists during a drag. It stays one compact row
   // because mounting it shifts every lane below the pointer.
@@ -57,41 +89,71 @@ export function BranchLane({
       </li>
     );
   }
-  const name = pinned ? "Pinned" : (branch ?? "No branch");
+  const name = status
+    ? SIDEBAR_STATUS_SECTION_LABELS[status]
+    : pinned
+      ? "Pinned"
+      : (branch ?? "No branch");
+  // A collapsed lane takes drops on its header without opening: the rows it
+  // would place against are hidden, so it highlights like a shelf drop.
+  const collapsedDrop = !expanded && dragOver && !rejected;
   return (
     <li role="none" className="mt-1.5 min-w-0 list-none first:mt-0">
       <div
         ref={setNodeRef}
         role="group"
-        aria-label={`${name}, ${count} ${count === 1 ? "thread" : "threads"}`}
+        aria-label={`${name}, ${count} ${threadCountLabel(count)}`}
         data-sb-branch-lane={laneKey}
+        data-sb-status-section={status}
+        data-sb-collapsed={!expanded || undefined}
         data-sb-drop-rejected={rejected || undefined}
         data-thread-selection-safe
         className={cn(
           "min-w-0 rounded-lg",
-          dragOver && !rejected && "bg-sb-hover",
+          dragOver && !rejected && expanded && "bg-sb-hover",
+          collapsedDrop && "bg-sb-selection shadow-[inset_0_0_0_1px_var(--sb-accent)]",
           rejected &&
             "cursor-not-allowed outline outline-(--state-error) -outline-offset-1 **:cursor-not-allowed",
         )}
       >
-        <LaneHeader
-          branch={branch}
-          count={count}
-          worktree={worktree}
-          projectName={projectName}
-          pinned={pinned}
-        />
-        <div className="relative pl-[18px]">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "pointer-events-none absolute top-0 bottom-3 left-[9px] w-px bg-(--sb-lane-line)",
-              dragOver && !rejected && "bg-sb-accent",
-            )}
+        {header ?? (
+          <LaneHeader
+            branch={branch}
+            count={count}
+            worktree={worktree}
+            projectName={projectName}
+            pinned={pinned}
+            {...(status ? { status } : {})}
+            expanded={expanded}
+            {...(onToggle ? { onToggle, controlsId: rowsId } : {})}
+            live={live}
+            pullRequest={pullRequest}
+            cleanUp={cleanUp}
+            containsOpenThread={containsOpenThread}
           />
-          <ul ref={listRef} role="presentation" className="relative flex min-w-0 flex-col gap-0.5">
-            {children}
-          </ul>
+        )}
+        <div id={rowsId} hidden={!expanded} className="relative pl-[18px]">
+          {expanded && (
+            <>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute top-0 bottom-3 left-[9px] w-px bg-(--sb-lane-line)",
+                  dragOver && !rejected && "bg-sb-accent",
+                )}
+              />
+              <ul
+                ref={listRef}
+                role="presentation"
+                className={cn(
+                  "relative flex min-w-0 flex-col",
+                  density === "compact" ? "gap-0" : "gap-0.5",
+                )}
+              >
+                {children}
+              </ul>
+            </>
+          )}
         </div>
       </div>
     </li>
