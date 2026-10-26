@@ -7,6 +7,7 @@ import { Button } from "~/components/ui/button";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { BranchDragChip } from "~/components/sidebar/BranchDragChip";
 import { BranchLane } from "~/components/sidebar/BranchLane";
+import { SidebarGroupByRow, type SidebarDensity } from "~/components/sidebar/SidebarGroupByRow";
 import {
   BranchThreadRow,
   BranchThreadRowActions,
@@ -32,6 +33,7 @@ import { SettingRow } from "~/components/settings/primitives/SettingRow";
 import { UnsavedBar } from "~/components/settings/primitives/UnsavedBar";
 import { useCustomThemes } from "~/hooks/useCustomThemes";
 import { applyThemePalette, getCustomThemes, getEnvironmentThemes } from "~/themePalette";
+import type { SidebarGroupBy } from "~/components/Sidebar.logic";
 import { auditPrimitiveText } from "./contrast";
 import "~/index.css";
 
@@ -96,7 +98,10 @@ function FixtureBranchRow({
         <BranchThreadRow {...props} actionCount={actions?.length ?? 0} />
       </div>
       {actions && (
-        <BranchThreadRowActions visible={props.actionsVisible ?? false}>
+        <BranchThreadRowActions
+          visible={props.actionsVisible ?? false}
+          density={props.density ?? "comfortable"}
+        >
           <QuickActions actions={actions} variant="row" />
         </BranchThreadRowActions>
       )}
@@ -116,6 +121,8 @@ export function SwitchboardFixture() {
   const [groupBy, setGroupBy] = useState("branch");
   const [density, setDensity] = useState("comfortable");
   const [expanded, setExpanded] = useState(true);
+  const [headerGroupBy, setHeaderGroupBy] = useState<SidebarGroupBy>("branch");
+  const [headerDensity, setHeaderDensity] = useState<SidebarDensity>("comfortable");
   useEffect(() => setTheme(theme, dark), [theme, dark]);
   const reset = () => {
     setValue("");
@@ -313,6 +320,106 @@ export function SwitchboardFixture() {
                 </select>
               </label>
             </Sample>
+            <Sample name="Header row · Group by · Density">
+              <SidebarGroupByRow
+                groupBy={headerGroupBy}
+                allProjects
+                onGroupByChange={setHeaderGroupBy}
+                density={headerDensity}
+                onDensityChange={setHeaderDensity}
+              />
+              <SidebarGroupByRow
+                groupBy="branch"
+                allProjects={false}
+                onGroupByChange={() => setMessage("Single-project scope")}
+                density="compact"
+                onDensityChange={() => setMessage("Single-project scope")}
+              />
+            </Sample>
+            <Sample name="Lane headers · meta, collapse, status sections">
+              <div className="flex flex-col gap-1.5">
+                <LaneHeader
+                  branch="feature/live-open"
+                  count={1}
+                  live
+                  pullRequest={{ number: 128, url: "#pr-128", state: "open", count: 2 }}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="feature/draft"
+                  count={2}
+                  pullRequest={{ number: 131, url: "#pr-131", state: "draft", count: 1 }}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="feature/merged"
+                  count={2}
+                  pullRequest={{ number: 120, url: "#pr-120", state: "merged", count: 1 }}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="fix/closed"
+                  count={1}
+                  pullRequest={{ number: 99, url: "#pr-99", state: "closed", count: 1 }}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="feature/unsynced"
+                  count={1}
+                  pullRequest={{ number: 140, url: "#pr-140", state: null, count: 1 }}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="feature/merged-worktree"
+                  worktree
+                  count={1}
+                  pullRequest={{ number: 200, url: "#pr-200", state: "merged", count: 1 }}
+                  cleanUp
+                  cleanUpLink={<a href="#settings-storage" />}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="feature/collapsed"
+                  count={4}
+                  expanded={false}
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch="feature/collapsed-open"
+                  count={3}
+                  expanded={false}
+                  containsOpenThread
+                  onToggle={() => setMessage("Lane toggled")}
+                />
+                <LaneHeader
+                  branch={null}
+                  pinned
+                  count={2}
+                  expanded={false}
+                  onToggle={() => setMessage("Pinned toggled")}
+                />
+                {(["needs-you", "error", "running", "idle"] as const).map((status, index) => (
+                  <LaneHeader key={status} branch={null} status={status} count={index + 1} />
+                ))}
+              </div>
+            </Sample>
+            <Sample name="Shelf headers (switchboard)">
+              {/* Mirrors SidebarSectionHeader's switchboard classes: rest, then drop target. */}
+              {(["Snoozed (2)", "Settled (14)"] as const).map((label) => (
+                <div key={label} className="flex h-8 items-center">
+                  <span className="flex w-full items-center gap-2 px-2 text-xs font-medium text-sb-muted">
+                    <span className="shrink-0">{label}</span>
+                    <span aria-hidden className="h-px min-w-2 flex-1 bg-sb-border" />
+                  </span>
+                </div>
+              ))}
+              <div className="flex h-8 items-center rounded-md bg-sb-selection shadow-[inset_0_0_0_1px_var(--sb-accent)]">
+                <span className="flex w-full items-center gap-2 px-2 text-xs font-medium text-sb-foreground">
+                  <span className="shrink-0">Settled</span>
+                  <span aria-hidden className="h-px min-w-2 flex-1 bg-sb-accent" />
+                </span>
+              </div>
+            </Sample>
             <Sample name="Branch lanes · Comfortable rows">
               <DndContext>
                 <ul role="listbox" aria-label="Fixture threads" aria-multiselectable>
@@ -429,15 +536,61 @@ export function SwitchboardFixture() {
                   <BranchLane laneKey="fixture:drop-to-pin" branch={null} count={0} pinned />
                 </ul>
               </DndContext>
+              <DndContext>
+                <ul role="listbox" aria-label="Fixture compact threads" aria-multiselectable>
+                  <BranchLane
+                    laneKey="fixture:compact"
+                    branch="feature/compact"
+                    count={4}
+                    density="compact"
+                  >
+                    {(
+                      [
+                        { title: "Compact at rest", status: "ready", age: "2h" },
+                        {
+                          title: "Compact selected",
+                          status: "working",
+                          age: "4:12",
+                          selected: true,
+                        },
+                        {
+                          title: "Compact with actions",
+                          status: "input",
+                          age: "9m",
+                          actionsVisible: true,
+                        },
+                        {
+                          title: "Compact error",
+                          status: "error",
+                          age: "1d",
+                          lastError: "Provider exited",
+                        },
+                      ] as const
+                    ).map((row) => (
+                      <FixtureBranchRow
+                        key={row.title}
+                        {...row}
+                        density="compact"
+                        meta={branchMeta}
+                        diffStat={<DiffStat additions={12} deletions={3} decorative />}
+                        actions={actions}
+                      />
+                    ))}
+                  </BranchLane>
+                </ul>
+              </DndContext>
               <div className="flex flex-col items-start gap-2">
-                {(["Move", "Pin", "Settle", "Can't move here"] as const).map((verb) => (
-                  <BranchDragChip
-                    key={verb}
-                    status="ready"
-                    title="Session cookie rotation"
-                    verb={verb}
-                  />
-                ))}
+                {(["Move", "Pin", "Settle", "Can't move here", "Sorted by status"] as const).map(
+                  (verb) => (
+                    <BranchDragChip
+                      key={verb}
+                      status="ready"
+                      title="Session cookie rotation"
+                      verb={verb}
+                      rejected={verb === "Can't move here" || verb === "Sorted by status"}
+                    />
+                  ),
+                )}
               </div>
             </Sample>
           </div>
