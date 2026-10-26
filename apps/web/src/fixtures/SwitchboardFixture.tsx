@@ -403,6 +403,17 @@ export function SwitchboardFixture() {
                 ))}
               </div>
             </Sample>
+            <Sample name="Masthead environment pills">
+              {/* Mirrors ProjectMasthead's pill classes so the audit covers them. */}
+              <div className="flex gap-2">
+                <span className="inline-flex h-[18px] items-center rounded-full bg-(--state-working)/12 px-1.5 text-[10px] leading-none font-semibold tracking-wide text-(--state-working)">
+                  Dev
+                </span>
+                <span className="inline-flex h-[18px] items-center rounded-full bg-(--state-approval)/12 px-1.5 text-[10px] leading-none font-semibold tracking-wide text-(--state-approval)">
+                  Nightly
+                </span>
+              </div>
+            </Sample>
             <Sample name="Shelf headers (switchboard)">
               {/* Mirrors SidebarSectionHeader's switchboard classes: rest, then drop target. */}
               {(["Snoozed (2)", "Settled (14)"] as const).map((label) => (
