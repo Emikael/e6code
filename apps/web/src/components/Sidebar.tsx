@@ -279,6 +279,7 @@ import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { ProjectMasthead } from "./sidebar/ProjectMasthead";
 import { SwitchboardSidebarFooter } from "./sidebar/SidebarFooter";
+import { SidebarGroupByRow } from "./sidebar/SidebarGroupByRow";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -3111,6 +3112,9 @@ export default function Sidebar() {
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const savedGroupBy = useUiStateStore((store) => store.sidebarGroupBy);
+  const setSidebarGroupBy = useUiStateStore((store) => store.setSidebarGroupBy);
+  const sidebarDensity = useUiStateStore((store) => store.sidebarDensity);
+  const setSidebarDensity = useUiStateStore((store) => store.setSidebarDensity);
   const [statFilter, setStatFilter] = useState<SwitchboardStatFilter | null>(null);
   const [statFilterScope, setStatFilterScope] = useState(projectScopeKey);
   if (statFilterScope !== projectScopeKey) {
@@ -5741,6 +5745,15 @@ export default function Sidebar() {
                 onClearSearch={clearThreadSearch}
               />
             </SidebarGroup>
+            {switchboard ? (
+              <SidebarGroupByRow
+                groupBy={effectiveGroupBy}
+                allProjects={scopedProjectGroup === null}
+                onGroupByChange={setSidebarGroupBy}
+                density={sidebarDensity}
+                onDensityChange={setSidebarDensity}
+              />
+            ) : null}
             {switchboard && statFilterLabel ? (
               <div
                 role="status"
