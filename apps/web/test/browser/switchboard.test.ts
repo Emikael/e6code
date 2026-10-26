@@ -1442,6 +1442,8 @@ NodeTest.test(
     console.log(
       `aria-required-children on the Threads listbox: ${listboxFindings.length} (${listboxFindings.join(", ")})`,
     );
+    // One per audited state (0 at the merge-base, before lane toggles); any growth fails.
+    NodeAssert.equal(listboxFindings.length, 18);
     NodeAssert.deepEqual(violations, []);
   },
 );
@@ -1679,6 +1681,8 @@ NodeTest.test(
       await startRowDrag(page, row("alphaSecond"));
       const pointer = await moveDragTo(page, row("beta"));
       await sidebar.locator("[data-sb-drop-rejected]").waitFor();
+      // The chip's reject badge comes from drag state, not from its wording.
+      await page.locator('[data-sb-drag-verb="Can\'t move here"][data-sb-drag-rejected]').waitFor();
       await page
         .getByRole("tooltip", { name: "Branch comes from the thread's worktree", exact: true })
         .waitFor();
@@ -2203,6 +2207,19 @@ NodeTest.test(
       });
       await betaToggle.waitFor();
       await betaLane.getByText("+1", { exact: true }).waitFor();
+      // Parity: the row's PR badge is a pointer shortcut inside the option.
+      // It still opens the pull request and leaves the row's route alone.
+      const routeBefore = page.url();
+      // The host is not reachable from tests; answer for it.
+      await context.route("https://github.com/**", (route) =>
+        route.fulfill({ contentType: "text/html", body: "pull request" }),
+      );
+      const opened = context.waitForEvent("page");
+      await betaLane.locator("[data-pr-badge]").first().click();
+      const popup = await opened;
+      await popup.waitForURL(/github\.com\/acme\/app\/pull\/12[78]$/);
+      await popup.close();
+      NodeAssert.equal(page.url(), routeBefore);
       NodeAssert.equal(
         await betaLane.locator('[data-sb-lane-pr="open"]').getAttribute("aria-hidden"),
         "true",
@@ -2362,6 +2379,8 @@ NodeTest.test(
     console.log(
       `aria-required-children on the Threads listbox: ${listboxFindings.length} (${listboxFindings.join(", ")})`,
     );
+    // One per audited state; any growth fails.
+    NodeAssert.equal(listboxFindings.length, 16);
     NodeAssert.deepEqual(violations, []);
   },
 );

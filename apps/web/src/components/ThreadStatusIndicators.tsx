@@ -239,6 +239,7 @@ export function ThreadPullRequestBadgeControl({
           decorative ? (
             <span
               aria-hidden="true"
+              data-pr-badge
               className={className}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {

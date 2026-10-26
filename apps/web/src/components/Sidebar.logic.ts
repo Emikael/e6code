@@ -451,11 +451,6 @@ export type SidebarBranchDragVerb =
   | "Can't move here"
   | "Sorted by status";
 
-/** Verbs that refuse the drop; the chip renders them as a reject badge. */
-export function isSidebarRejectedDragVerb(verb: SidebarBranchDragVerb | null): boolean {
-  return verb === "Can't move here" || verb === "Sorted by status";
-}
-
 /** The drag chip's badge; null over no drop target and over the row's own
  * slot, which is also where targets the server refuses fall back to. A
  * refused lane says why: another branch, or a section sorted by status. */
@@ -1859,6 +1854,26 @@ export function resolveSidebarGroupBy(input: {
   if (input.statFilter === "worktrees") return "branch";
   if (input.saved === "project" && !input.allProjects) return "branch";
   return input.saved;
+}
+
+/** The lifecycle bucket a visible thread renders in. Snooze outranks
+ * settlement and pinning until the thread wakes, and a shelf outranks the
+ * pin; the pin itself is kept, so waking or un-settling a pinned thread puts
+ * it back under Pinned without a write. Group-by modes only arrange the
+ * `active` bucket. */
+export function sidebarThreadLifecycleSection(
+  thread: Parameters<typeof effectiveSnoozed>[0] &
+    Pick<SidebarThreadSummary, "settledOverride" | "pinnedAt">,
+  options: {
+    readonly now: string;
+    readonly supportsSnooze: boolean;
+    readonly supportsSettlement: boolean;
+  },
+): SidebarSection {
+  if (options.supportsSnooze && effectiveSnoozed(thread, { now: options.now })) return "snoozed";
+  if (options.supportsSettlement && thread.settledOverride === "settled") return "settled";
+  if (thread.pinnedAt != null) return "pinned";
+  return "active";
 }
 
 export type SidebarStatusSectionKey = "needs-you" | "error" | "running" | "idle";

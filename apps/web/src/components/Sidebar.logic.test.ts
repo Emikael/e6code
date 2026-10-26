@@ -6,6 +6,7 @@ import {
   groupSidebarThreadsByProject,
   groupSidebarBranchLanes,
   groupSidebarThreadsByStatus,
+  sidebarThreadLifecycleSection,
   pickLanePullRequest,
   resolveSidebarGroupBy,
   sidebarRenderedActiveThreads,
@@ -3144,6 +3145,48 @@ describe("groupSidebarThreadsByStatus", () => {
         !sections.get("error")!.includes(thread),
     );
     expect(sections.get("running")).toEqual(liveOutsideOtherSections);
+  });
+
+  it("keeps pinned threads under Pinned and shelved pins on their shelf", () => {
+    const now = "2026-03-09T12:00:00.000Z";
+    const options = { now, supportsSnooze: true, supportsSettlement: true };
+    type LifecycleThread = Parameters<typeof sidebarThreadLifecycleSection>[0];
+    const pinned = (id: string, overrides: Partial<ProjectCountThread> & Record<string, unknown>) =>
+      ({
+        ...statusThread(id, overrides),
+        pinnedAt: "2026-03-09T09:00:00.000Z",
+        snoozedUntil: null,
+        snoozedAt: null,
+        ...overrides,
+      }) as unknown as LifecycleThread & ProjectCountThread;
+    // Pinned wins over every status section: Status mode only arranges `active`.
+    const failed = pinned("pinned-failed", {
+      session: { status: "error", activeTurnId: null } as never,
+    });
+    const needYou = pinned("pinned-need-you", { hasPendingApprovals: true });
+    for (const thread of [failed, needYou]) {
+      expect(sidebarThreadLifecycleSection(thread, options)).toBe("pinned");
+    }
+    const active = [failed, needYou].filter(
+      (thread) => sidebarThreadLifecycleSection(thread, options) === "active",
+    );
+    expect(groupSidebarThreadsByStatus(active)).toEqual([]);
+
+    // A shelf outranks the pin, which is kept: waking or un-settling (no pin
+    // write) brings the thread straight back under Pinned.
+    const snoozed = pinned("pinned-snoozed", {
+      snoozedUntil: "2026-03-10T00:00:00.000Z",
+      snoozedAt: "2026-03-09T08:00:00.000Z",
+    });
+    expect(sidebarThreadLifecycleSection(snoozed, options)).toBe("snoozed");
+    expect(
+      sidebarThreadLifecycleSection(snoozed, { ...options, now: "2026-03-10T00:00:01.000Z" }),
+    ).toBe("pinned");
+    const settled = pinned("pinned-settled", { settledOverride: "settled" });
+    expect(sidebarThreadLifecycleSection(settled, options)).toBe("settled");
+    expect(sidebarThreadLifecycleSection({ ...settled, settledOverride: null }, options)).toBe(
+      "pinned",
+    );
   });
 
   it("omits empty sections", () => {

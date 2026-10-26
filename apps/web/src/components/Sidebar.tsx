@@ -187,7 +187,7 @@ import {
   resolveSidebarBranchStatus,
   groupSidebarBranchLanes,
   groupSidebarThreadsByStatus,
-  isSidebarRejectedDragVerb,
+  sidebarThreadLifecycleSection,
   pickLanePullRequest,
   resolveSidebarGroupBy,
   SIDEBAR_STATUS_SECTION_LABELS,
@@ -936,6 +936,9 @@ function SidebarProjectGroupHeader(props: {
   );
 }
 
+/** Set once the thread sidebar has mounted in this page load; see the reveal. */
+let sidebarMountedThisPageLoad = false;
+
 /** Whether a lane's rows include the given thread. */
 function laneHoldsThread(
   threads: readonly EnvironmentThreadShell[],
@@ -1320,6 +1323,8 @@ function SidebarDraggedThreadChip(props: {
   thread: SidebarThreadSummary;
   wokeAt: string | null;
   verb: SidebarBranchDragVerb | null;
+  /** Why the lane under the pointer refuses the drop, if it does. */
+  rejected: "branch" | "status" | null;
 }) {
   const threadKey = scopedThreadKey(scopeThreadRef(props.thread.environmentId, props.thread.id));
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
@@ -1336,8 +1341,8 @@ function SidebarDraggedThreadChip(props: {
       status={status}
       title={props.thread.title}
       verb={props.verb}
-      rejected={isSidebarRejectedDragVerb(props.verb)}
-      {...(props.verb === "Can't move here"
+      rejected={props.rejected !== null}
+      {...(props.rejected === "branch"
         ? { rejectReason: "Branch comes from the thread's worktree" }
         : {})}
     />
@@ -1913,7 +1918,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       onDoubleClick={(event) => event.stopPropagation()}
       className={
         props.switchboard
-          ? "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground"
+          ? // Text fields draw their own ring in the switchboard (index.css).
+            "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground focus-visible:ring-2 focus-visible:ring-ring"
           : "min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
       }
     />
@@ -3524,15 +3530,20 @@ export default function Sidebar() {
             ? projected
             : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
         );
-      } else if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
-        // Snooze outranks settlement and pinning until the thread wakes.
-        snoozed.push(thread);
-      } else if (supportsSettlement && thread.settledOverride === "settled") {
-        settled.push(thread);
-      } else if (thread.pinnedAt != null) {
-        pinned.push(thread);
       } else {
-        active.push(thread);
+        const section = sidebarThreadLifecycleSection(thread, {
+          now: preciseNow,
+          supportsSnooze,
+          supportsSettlement,
+        });
+        (section === "snoozed"
+          ? snoozed
+          : section === "settled"
+            ? settled
+            : section === "pinned"
+              ? pinned
+              : active
+        ).push(thread);
       }
     }
     // One shared rule on every platform (see sortPinnedThreadsByOrderKey):
@@ -3929,7 +3940,13 @@ export default function Sidebar() {
     readonly threadKey: string;
     readonly expanded: boolean;
   } | null>(null);
-  const revealRouteKeyRef = useRef(routeThreadKey);
+  // Only the page load's first mount keeps its route quiet (a reload). The
+  // sidebar also remounts on the way back from Settings, and reaching a
+  // thread that way is a navigation from outside.
+  const revealRouteKeyRef = useRef(sidebarMountedThisPageLoad ? undefined : routeThreadKey);
+  useEffect(() => {
+    sidebarMountedThisPageLoad = true;
+  }, []);
   useEffect(() => {
     if (revealRouteKeyRef.current === routeThreadKey) return;
     revealRouteKeyRef.current = routeThreadKey;
@@ -3948,7 +3965,7 @@ export default function Sidebar() {
       // The lane opened last commit, so the row is in the DOM now.
       document
         .querySelector<HTMLElement>(`[data-sb-thread-row="${globalThis.CSS.escape(threadKey)}"]`)
-        ?.scrollIntoView({ block: "nearest" });
+        ?.scrollIntoView({ block: "nearest", behavior: "instant" });
       setPendingReveal(null);
       return;
     }
@@ -4316,6 +4333,13 @@ export default function Sidebar() {
   const dragTargetSection = dragState?.targetSection ?? null;
   const dragOverLaneKey = dragState?.overLaneKey ?? null;
   const rejectedLaneKey = dragState?.rejectedLaneKey ?? null;
+  // A refused lane is another branch, or a Status section sorted by status.
+  const dragRejection =
+    rejectedLaneKey === null
+      ? null
+      : layout === "status"
+        ? ("status" as const)
+        : ("branch" as const);
   const draggedThread = dragState ? threadByKey.get(dragState.activeKey) : undefined;
   useEffect(() => {
     if (rejectedLaneKey === null) return;
@@ -6686,15 +6710,11 @@ export default function Sidebar() {
                           <SidebarDraggedThreadChip
                             thread={draggedThread}
                             wokeAt={threadWokeAt(draggedThread, { now: snoozeNow })}
+                            rejected={dragRejection}
                             verb={resolveSidebarBranchDragVerb({
                               sourceSection: dragState.activeSection,
                               targetSection: dragTargetSection,
-                              rejected:
-                                rejectedLaneKey === null
-                                  ? false
-                                  : layout === "status"
-                                    ? "status"
-                                    : "branch",
+                              rejected: dragRejection ?? false,
                               // Until the first drag-over, the pointer is over its own slot.
                               overSelf:
                                 (dragState.overId ?? dragState.activeKey) === dragState.activeKey,

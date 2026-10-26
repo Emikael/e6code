@@ -591,17 +591,23 @@ export function SwitchboardFixture() {
                 </ul>
               </DndContext>
               <div className="flex flex-col items-start gap-2">
-                {(["Move", "Pin", "Settle", "Can't move here", "Sorted by status"] as const).map(
-                  (verb) => (
-                    <BranchDragChip
-                      key={verb}
-                      status="ready"
-                      title="Session cookie rotation"
-                      verb={verb}
-                      rejected={verb === "Can't move here" || verb === "Sorted by status"}
-                    />
-                  ),
-                )}
+                {(
+                  [
+                    ["Move", false],
+                    ["Pin", false],
+                    ["Settle", false],
+                    ["Can't move here", true],
+                    ["Sorted by status", true],
+                  ] as const
+                ).map(([verb, rejected]) => (
+                  <BranchDragChip
+                    key={verb}
+                    status="ready"
+                    title="Session cookie rotation"
+                    verb={verb}
+                    rejected={rejected}
+                  />
+                ))}
               </div>
             </Sample>
           </div>
