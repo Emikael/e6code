@@ -109,6 +109,11 @@
   outline-offset: -2px;
 }
 
+/* Menu items fill their popup; an outset ring would run past its edge. */
+[data-switchboard] [role^="menuitem"]:focus-visible {
+  outline-offset: -2px;
+}
+
 /* Text fields draw their own focus ring on the field wrapper. */
 [data-switchboard] input:focus-visible {
   outline: none;

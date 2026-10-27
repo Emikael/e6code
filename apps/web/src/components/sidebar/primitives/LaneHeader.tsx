@@ -134,7 +134,11 @@ export function LaneHeader({
     </span>
   ) : (
     <>
-      {projectName && <span className="max-w-[72px] shrink-[50] truncate">{projectName} /</span>}
+      {/* The prefix gives way first but keeps a few characters: lane meta now
+          shares the row, and a one-letter prefix names nothing. */}
+      {projectName && (
+        <span className="max-w-[72px] min-w-8 shrink-[4] truncate">{projectName} /</span>
+      )}
       <BranchLabel branch={branch} worktree={worktree} lane showWorktreeTag={!cleanUp} />
     </>
   );
