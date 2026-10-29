@@ -349,6 +349,17 @@ async function afterRenders(page: Page) {
   }
 }
 
+/** Opening a thread focuses the composer one animation frame after it renders
+ * (ChatView). Wait for that before focusing anything else, or it steals focus back. */
+async function composerFocused(page: Page) {
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="composer-editor"]')
+        ?.contains(document.activeElement) === true,
+  );
+}
+
 /** An in-app navigation that the sidebar did not start, like a notification's. */
 async function navigateFromOutside(page: Page, pathname: string) {
   await page.evaluate((path) => {
@@ -1261,10 +1272,15 @@ async function openBranchProject(
     /** Playwright's fake clock replaces `performance`, so a page that must
      * tell a reload from a fresh load runs on the real clock. */
     readonly realClock?: boolean;
+    /** The landing draft focuses its composer a frame after it renders. A test
+     * that focuses something itself waits for that first, or the late composer
+     * focus can steal it back. */
+    readonly settleComposerFocus?: boolean;
   },
 ) {
   if (options?.realClock !== true) await page.clock.setFixedTime(new Date(fixedTime));
   await page.goto(`${currentUrl}/`);
+  if (options?.settleComposerFocus === true) await composerFocused(page);
   try {
     await page
       .getByRole("navigation", { name: "Projects" })
@@ -2338,14 +2354,7 @@ NodeTest.test(
           // Opening a thread focuses the composer one animation frame later
           // (ChatView); let that land before the row takes focus, or it steals
           // the focus back mid-check.
-          if (opensThread) {
-            await page.waitForFunction(
-              () =>
-                document
-                  .querySelector('[data-testid="composer-editor"]')
-                  ?.contains(document.activeElement) === true,
-            );
-          }
+          if (opensThread) await composerFocused(page);
           await afterRenders(page);
           await away();
           await check(`${density} selected`, selected);
@@ -2364,13 +2373,13 @@ NodeTest.test(
 
 NodeTest.test(
   "only the search and rename fields drop the switchboard focus outline",
-  { timeout: 120_000 },
+  { timeout: 180_000 },
   async () => {
     const project = await seedBranchProject("qa-field-outline");
     const context = await newContext({ switchboard: true });
     try {
       const page = await context.newPage();
-      const sidebar = await openBranchProject(page, project);
+      const sidebar = await openBranchProject(page, project, { settleComposerFocus: true });
       const outline = (field: Locator) =>
         field.evaluate((node) => ({
           focusVisible: node.matches(":focus-visible"),
@@ -2379,6 +2388,12 @@ NodeTest.test(
       // Both fields draw their own ring, so the outline would double it.
       const search = sidebar.getByRole("combobox", { name: "Search threads" });
       await search.focus();
+      await afterRenders(page);
+      NodeAssert.equal(
+        await search.evaluate((node) => node === document.activeElement),
+        true,
+        "search keeps focus",
+      );
       NodeAssert.deepEqual(await outline(search), { focusVisible: true, outlineStyle: "none" });
       // Open the thread first: the route change remounts the row.
       const row = sidebar.getByRole("option", { name: "Alpha first", exact: true });
