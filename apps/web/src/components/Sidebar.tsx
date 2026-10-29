@@ -49,6 +49,7 @@ import {
   AlarmClockOffIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -70,6 +71,7 @@ import {
 } from "lucide-react";
 import {
   memo,
+  use,
   useCallback,
   useEffect,
   useId,
@@ -185,6 +187,11 @@ import {
   resolveSidebarThreadStatus,
   resolveSidebarBranchStatus,
   groupSidebarBranchLanes,
+  groupSidebarThreadsByStatus,
+  sidebarThreadLifecycleSection,
+  pickLanePullRequest,
+  resolveSidebarGroupBy,
+  SIDEBAR_STATUS_SECTION_LABELS,
   resolveSidebarBranchDragAnnouncement,
   resolveSidebarBranchDragFeedback,
   resolveSidebarBranchDragVerb,
@@ -231,7 +238,7 @@ import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion, playSidebarStatusSettle } from "./Sidebar.motion";
 import { canAnimate, prefersReducedMotion } from "~/lib/motion";
 import { BranchDragChip } from "./sidebar/BranchDragChip";
-import { BranchLane } from "./sidebar/BranchLane";
+import { BranchLane, BranchLaneRowsIdContext } from "./sidebar/BranchLane";
 import { BranchThreadRow, BranchThreadRowActions } from "./sidebar/BranchThreadRow";
 import { SWITCHBOARD_STATUS } from "./sidebar/primitives/status";
 import { BranchLabel } from "./sidebar/primitives/BranchLabel";
@@ -241,6 +248,7 @@ import { QuickActionButton } from "./sidebar/primitives/QuickActions";
 import { StatusPill } from "./sidebar/primitives/StatusPill";
 import {
   ThreadPullRequestBadgeControl,
+  resolveThreadPullRequestBadgePresentation,
   ThreadPullRequestsMiniList,
   ThreadWorktreeIndicator,
   prStatusIndicator,
@@ -278,6 +286,8 @@ import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { ProjectMasthead } from "./sidebar/ProjectMasthead";
 import { SwitchboardSidebarFooter } from "./sidebar/SidebarFooter";
+import { SidebarGroupByRow } from "./sidebar/SidebarGroupByRow";
+import { CountBadge } from "./sidebar/primitives/CountBadge";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -757,26 +767,37 @@ function SidebarSectionHeader(props: {
   toggle: { expanded: boolean; onToggle: () => void };
   // Shelf-wide actions; opened from the ⋯ button or a right-click on the header.
   onMenu?: ((position: { x: number; y: number }) => void) | undefined;
+  // Switchboard tokens: the legacy tints miss AA on several themes.
+  switchboard?: boolean;
 }) {
   const snoozed = props.marker === "snoozed-header";
   const onMenu = props.onMenu;
-  const className = cn(
-    "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
-    snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
-    props.dragging && "text-sidebar-foreground/80",
-    props.isDropTarget && "text-primary",
-  );
+  const className = props.switchboard
+    ? cn(
+        "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium text-sb-muted",
+        (props.dragging || props.isDropTarget) && "text-sb-foreground",
+      )
+    : cn(
+        "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
+        snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
+        props.dragging && "text-sidebar-foreground/80",
+        props.isDropTarget && "text-primary",
+      );
   const content = (
     <>
       <span className="shrink-0">{props.label}</span>
       <span
         aria-hidden
-        className={cn(
-          "h-px min-w-2 flex-1",
-          snoozed ? "bg-blue-500/20 dark:bg-blue-400/15" : "bg-sidebar-border/60",
-          props.dragging && "bg-sidebar-foreground/25",
-          props.isDropTarget && "bg-primary/50",
-        )}
+        className={
+          props.switchboard
+            ? cn("h-px min-w-2 flex-1 bg-sb-border", props.isDropTarget && "bg-sb-accent")
+            : cn(
+                "h-px min-w-2 flex-1",
+                snoozed ? "bg-blue-500/20 dark:bg-blue-400/15" : "bg-sidebar-border/60",
+                props.dragging && "bg-sidebar-foreground/25",
+                props.isDropTarget && "bg-primary/50",
+              )
+        }
       />
       <ChevronDownIcon
         aria-hidden
@@ -791,7 +812,13 @@ function SidebarSectionHeader(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("group/shelf mx-0.5 flex h-8 items-center", props.className)}
+      className={cn(
+        "group/shelf mx-0.5 flex h-8 items-center",
+        props.switchboard &&
+          props.isDropTarget &&
+          "rounded-md bg-sb-selection shadow-[inset_0_0_0_1px_var(--sb-accent)]",
+        props.className,
+      )}
     >
       <button
         type="button"
@@ -910,6 +937,115 @@ function SidebarProjectGroupHeader(props: {
   );
 }
 
+/** Set once the thread sidebar has mounted in this page load; see the reveal. */
+let sidebarMountedThisPageLoad = false;
+
+/** Whether this page load is a reload rather than a fresh visit; see the reveal. */
+function pageLoadIsReload(): boolean {
+  const [entry] = performance.getEntriesByType("navigation");
+  return entry instanceof PerformanceNavigationTiming && entry.type === "reload";
+}
+
+/** Whether a lane's rows include the given thread. */
+function laneHoldsThread(
+  threads: readonly EnvironmentThreadShell[],
+  threadKey: string | null,
+): boolean {
+  return (
+    threadKey !== null &&
+    threads.some(
+      (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === threadKey,
+    )
+  );
+}
+
+// The switchboard Project-mode header: monogram, name and count toggle the
+// group; the attention badge and live dot read like the masthead's stats.
+function SwitchboardProjectGroupHeader(props: {
+  group: SidebarProjectThreadGroup<EnvironmentThreadShell>;
+  project: ProjectFaviconProject | null;
+  onToggle: () => void;
+  onNewThread: (() => void) | null;
+}) {
+  const { group } = props;
+  // The group's rows, which the toggle shows and hides.
+  const rowsId = use(BranchLaneRowsIdContext);
+  const counts = useMemo(() => countProjectSidebarThreads(group.threads), [group.threads]);
+  const Chevron = group.expanded ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <div
+      data-thread-selection-safe
+      data-testid="sidebar-project-group"
+      className="group/project flex h-7 min-w-0 items-center gap-1.5 rounded-md pr-1 pl-0.5 text-(length:--sb-text-meta) text-sb-muted"
+    >
+      <button
+        type="button"
+        onClick={props.onToggle}
+        aria-expanded={group.expanded}
+        aria-controls={rowsId}
+        className="sb-action flex h-7 min-w-0 flex-1 items-center justify-start gap-1.5 pl-0"
+      >
+        <span aria-hidden className="flex w-3.5 shrink-0 items-center justify-center">
+          <Chevron className="size-3" strokeWidth={1.75} />
+        </span>
+        <span aria-hidden className="inline-flex size-[18px] shrink-0 items-center justify-center">
+          {props.project ? (
+            <ProjectFavicon
+              project={props.project}
+              className="size-[18px] shrink-0 rounded-[5px]"
+              monogramTone="solid"
+            />
+          ) : (
+            <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sb-muted" />
+          )}
+        </span>
+        <span className="truncate text-[11.5px] font-semibold text-sb-foreground">
+          {group.displayName}
+        </span>
+        <CountBadge
+          count={group.threadCount}
+          label={group.threadCount === 1 ? "thread" : "threads"}
+        />
+      </button>
+      {counts.badge || counts.liveDot ? (
+        <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+          {counts.badge ? (
+            <CountBadge
+              count={counts.badge.count}
+              label={counts.badge.count === 1 ? "thread needs you" : "threads need you"}
+              status={counts.badge.status}
+            />
+          ) : null}
+          {counts.liveDot ? (
+            <span
+              role="img"
+              aria-label="Live work"
+              className="size-1.5 shrink-0 rounded-full bg-(--state-working)"
+            />
+          ) : null}
+        </span>
+      ) : null}
+      {props.onNewThread ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`New thread in ${group.displayName}`}
+                onClick={props.onNewThread}
+                className="sb-action inline-flex size-6 shrink-0 items-center justify-center opacity-0 group-focus-within/project:opacity-100 group-hover/project:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+              />
+            }
+          >
+            <PlusIcon aria-hidden className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">New thread in {group.displayName}</TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
+}
+
 // One unsent draft session the user has invested content in. Two lines,
 // nothing else: project name, then the typed prompt. All the draft's
 // settings (model, env mode, branch, worktree) still travel with it —
@@ -928,6 +1064,7 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   onDiscard: (draftId: DraftId) => void;
 }) {
   const { composer, draftId, onDiscard, onNavigate, session } = props;
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const promptPreview =
     replaceComposerContextReferences(composer.prompt, (occurrence) => occurrence.label)
       .trim()
@@ -983,7 +1120,11 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
           <div className="flex h-5 min-w-0 items-center gap-1.5">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
             {props.project ? (
-              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+              <ProjectFavicon
+                project={props.project}
+                className="size-4 shrink-0"
+                monogramTone={switchboard ? "solid" : undefined}
+              />
             ) : null}
             <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
               {props.projectDisplayName}
@@ -1192,6 +1333,8 @@ function SidebarDraggedThreadChip(props: {
   thread: SidebarThreadSummary;
   wokeAt: string | null;
   verb: SidebarBranchDragVerb | null;
+  /** Why the lane under the pointer refuses the drop, if it does. */
+  rejected: "branch" | "status" | null;
 }) {
   const threadKey = scopedThreadKey(scopeThreadRef(props.thread.environmentId, props.thread.id));
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
@@ -1208,7 +1351,10 @@ function SidebarDraggedThreadChip(props: {
       status={status}
       title={props.thread.title}
       verb={props.verb}
-      rejectReason="Branch comes from the thread's worktree"
+      rejected={props.rejected !== null}
+      {...(props.rejected === "branch"
+        ? { rejectReason: "Branch comes from the thread's worktree" }
+        : {})}
     />
   );
 }
@@ -1240,7 +1386,12 @@ function focusMovedSwitchboardRow(trigger: HTMLElement, threadKey: string): void
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
-  branchMode?: boolean;
+  /** Switchboard row anatomy, in every group-by mode. */
+  switchboard?: boolean;
+  /** Switchboard card density; shelves keep their slim rows either way. */
+  density?: "comfortable" | "compact";
+  /** Lead the meta with the branch (Status mode, pinned rows). */
+  showBranch?: boolean;
   /** Branch mode only: a drag is in progress, so hover details stay closed. */
   dragActive?: boolean;
   dropIndicator?: "before" | "after" | undefined;
@@ -1517,7 +1668,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
-      showLastError={props.branchMode === true}
+      showLastError={props.switchboard === true}
     />
   );
 
@@ -1623,22 +1774,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       event.preventDefault();
       event.stopPropagation();
       // Read before the click moves the row out from under this button.
-      const trigger = props.branchMode ? (event.currentTarget as HTMLElement) : null;
+      const trigger = props.switchboard ? (event.currentTarget as HTMLElement) : null;
       onUnsettle(threadRef);
       if (trigger) focusMovedSwitchboardRow(trigger, threadKey);
     },
-    [onUnsettle, props.branchMode, threadKey, threadRef],
+    [onUnsettle, props.switchboard, threadKey, threadRef],
   );
   const handleUnsnoozeClick = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
       // Read before the click moves the row out from under this button.
-      const trigger = props.branchMode ? (event.currentTarget as HTMLElement) : null;
+      const trigger = props.switchboard ? (event.currentTarget as HTMLElement) : null;
       onUnsnooze(threadRef);
       if (trigger) focusMovedSwitchboardRow(trigger, threadKey);
     },
-    [onUnsnooze, props.branchMode, threadKey, threadRef],
+    [onUnsnooze, props.switchboard, threadKey, threadRef],
   );
   const handleUnpinClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -1673,7 +1824,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     if (!showSnoozeButton) setSnoozeMenuOpen(false);
   }, [showSnoozeButton]);
   const handlePrClick = useCallback(
-    (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    (event: ReactMouseEvent<HTMLElement>) => {
       const url = pr?.url ?? currentLinkedPr?.url;
       if (!url) return;
       const openedInRightPanel = openPrLink(
@@ -1706,7 +1857,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     // item, not the row, carries the hover and focus state. Their receded text
     // keeps AA contrast in both appearances.
     variantAction === "unsettle" &&
-      (props.branchMode
+      (props.switchboard
         ? "[li:not(:hover):not(:focus-within)>&_*]:text-sb-muted"
         : "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70"),
     props.isActive
@@ -1718,12 +1869,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           : shouldRecede
             ? cn(
                 "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                props.branchMode &&
+                props.switchboard &&
                   "group-hover/sidebar-row:bg-sidebar-row-hover group-hover/sidebar-row:text-sidebar-foreground",
               )
             : cn(
                 "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
-                props.branchMode && "group-hover/sidebar-row:bg-sidebar-row-hover",
+                props.switchboard && "group-hover/sidebar-row:bg-sidebar-row-hover",
               ),
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     // The hover tint must not clobber an active/selected row's own surface.
@@ -1769,6 +1920,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       autoFocus
       value={renamingTitle}
       aria-label="Thread title"
+      data-sb-rename-input={props.switchboard || undefined}
       onChange={(event) => onRenameTitleChange(event.target.value)}
       onFocus={(event) => event.currentTarget.select()}
       onKeyDown={handleRenameKeyDown}
@@ -1776,8 +1928,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       className={
-        props.branchMode
-          ? "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground"
+        props.switchboard
+          ? // Draws its own ring; index.css drops the switchboard outline for it.
+            "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring"
           : "min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
       }
     />
@@ -1785,9 +1938,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     <span
       className={cn(
         "min-w-0 flex-1 transition-opacity motion-reduce:transition-none",
-        props.branchMode ? "text-[13px] leading-[18px] text-sb-foreground" : "text-sm",
+        props.switchboard ? "text-[13px] leading-[18px] text-sb-foreground" : "text-sm",
         shouldRecede ? "font-normal" : "font-medium",
-        props.branchMode
+        props.switchboard
           ? "truncate"
           : variant === "card"
             ? cn(
@@ -1836,8 +1989,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         status={prStatus}
         onOpenStack={handlePrStackClick}
         onOpenPullRequest={handlePrClick}
+        // A switchboard option may not hold focusable content; its description names the PR.
+        decorative={props.switchboard === true}
       />
     ) : null;
+  const prDescription = prBadge
+    ? (resolveThreadPullRequestBadgePresentation({
+        badge: prBadgeShape,
+        number: pr?.number ?? currentLinkedPr?.number,
+        url: pr?.url ?? currentLinkedPr?.url,
+        status: prStatus,
+      })?.label ?? null)
+    : null;
   const terminalStatusIcon = terminalStatus ? (
     <span
       role="img"
@@ -1895,7 +2058,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     )
   ) : null;
 
-  const branchStatus = props.branchMode
+  const branchStatus = props.switchboard
     ? resolveSidebarBranchStatus({ thread: { ...thread, lastVisitedAt }, isWoke })
     : null;
   if (branchStatus && variant === "card") {
@@ -1921,6 +2084,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         `${thread.planProgress.completedSteps} of ${thread.planProgress.totalSteps} plan steps completed, ${thread.planProgress.step}`,
       driverKind ? modelDescription : modelLabel,
       diff && `Last turn: +${diff.insertions ?? "?"} −${diff.deletions ?? "?"}`,
+      prDescription,
       terminalStatus && terminalProcessLabel(terminalProcessCount),
       isRemote && (props.environmentLabel ?? "Remote environment"),
     ]);
@@ -1958,6 +2122,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 aria-busy={isRegeneratingTitle || undefined}
                 aria-describedby={descriptionId}
                 data-sb-thread-row={threadKey}
+                data-sb-density={props.density ?? "comfortable"}
                 className={cn(
                   "relative cursor-pointer rounded-lg outline-none select-none",
                   isFileDragOver && "ring-1 ring-sb-accent",
@@ -2000,6 +2165,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               }
               planProgress={branchStatus.status === "working" ? thread.planProgress : null}
               lastError={branchStatus.status === "error" ? thread.session?.lastError : null}
+              density={props.density ?? "comfortable"}
+              diffStat={
+                diff ? (
+                  <DiffStat
+                    additions={diff.insertions}
+                    deletions={diff.deletions}
+                    decorative
+                    className="shrink-0"
+                  />
+                ) : null
+              }
               actionCount={
                 1 +
                 Number(props.pinningSupported) +
@@ -2012,7 +2188,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   <span className="truncate text-sb-accent-text">Drop files into composer</span>
                 ) : (
                   <>
-                    {props.isPinned && (
+                    {(props.isPinned || props.showBranch) && (
                       <BranchLabel
                         branch={thread.branch}
                         decorative
@@ -2067,9 +2243,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       />
                     )}
                     {prBadge && (
+                      // The badge is a decorative span here (no link or
+                      // button), so it needs its own selector to take the
+                      // row's PR colour instead of its tone class.
                       <span
                         style={{ color: prColor }}
-                        className="shrink-0 [&_a]:text-inherit [&_a]:text-[11px] [&_button]:text-inherit [&_button]:text-[11px]"
+                        className="shrink-0 [&_a]:text-inherit [&_a]:text-[11px] [&_button]:text-inherit [&_button]:text-[11px] [&_[data-pr-badge]]:text-inherit [&_[data-pr-badge]]:text-[11px]"
                       >
                         {prBadge}
                       </span>
@@ -2132,7 +2311,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
-        <BranchThreadRowActions visible={snoozeMenuOpen}>
+        <BranchThreadRowActions visible={snoozeMenuOpen} density={props.density ?? "comfortable"}>
           <span
             role="group"
             aria-label="Thread actions"
@@ -2202,7 +2381,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     // Branch shelves render the row action beside the row button, which may not
     // hold focusable controls, and keep it out of the tree at rest (tab stops are C10).
     // Focusing the row shows it as hovering does.
-    const branchShelfActionClassName = props.branchMode
+    const branchShelfActionClassName = props.switchboard
       ? "hidden group-focus-within/sidebar-row:inline-flex group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:inline-flex"
       : undefined;
     const shelfAction =
@@ -2210,12 +2389,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         !props.snoozeSupported ? null : (
           <button
             type="button"
-            tabIndex={props.branchMode ? -1 : undefined}
+            tabIndex={props.switchboard ? -1 : undefined}
             aria-label="Wake thread now"
             onClick={handleUnsnoozeClick}
             className={cn(
               "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-              isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+              isWoke && !props.switchboard && "group-hover/sidebar-row:static",
               branchShelfActionClassName,
             )}
           >
@@ -2228,12 +2407,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             render={
               <button
                 type="button"
-                tabIndex={props.branchMode ? -1 : undefined}
+                tabIndex={props.switchboard ? -1 : undefined}
                 aria-label="Un-settle thread"
                 onClick={handleUnsettleClick}
                 className={cn(
                   "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-                  isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+                  isWoke && !props.switchboard && "group-hover/sidebar-row:static",
                   branchShelfActionClassName,
                 )}
               />
@@ -2246,12 +2425,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       ) : (
         <button
           type="button"
-          tabIndex={props.branchMode ? -1 : undefined}
+          tabIndex={props.switchboard ? -1 : undefined}
           aria-label="Settle thread"
           onClick={handleSettleClick}
           className={cn(
             "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
-            isWoke && !props.branchMode && "group-hover/sidebar-row:static",
+            isWoke && !props.switchboard && "group-hover/sidebar-row:static",
             branchShelfActionClassName,
           )}
         >
@@ -2276,7 +2455,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
-          props.branchMode && "group/sidebar-row relative",
+          props.switchboard && "group/sidebar-row relative",
         )}
       >
         <Tooltip disabled={sortable?.isDragging || props.dragActive}>
@@ -2285,8 +2464,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               <div
                 ref={rowRef}
                 role="button"
-                aria-current={props.branchMode && props.isActive ? "page" : undefined}
-                data-sb-thread-row={props.branchMode ? threadKey : undefined}
+                aria-current={props.switchboard && props.isActive ? "page" : undefined}
+                data-sb-thread-row={props.switchboard ? threadKey : undefined}
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
@@ -2302,14 +2481,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {/* Settled history recedes: dimmed favicon at rest, restored on
               hover so the tail stays scannable when you're hunting. */}
             <span
-              aria-hidden={props.branchMode || undefined}
+              aria-hidden={props.switchboard || undefined}
               className={cn(
                 "shrink-0 transition-opacity",
-                (!props.isActive || variantAction === "unsettle") &&
-                  "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
+                // A switchboard snoozed row keeps its favicon dimmed: the
+                // countdown, not the project, is what the row is about.
+                props.switchboard && variantAction === "unsnooze"
+                  ? "opacity-40 grayscale"
+                  : (!props.isActive || variantAction === "unsettle") &&
+                      "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
               )}
             >
-              {props.project ? <ProjectFavicon project={props.project} className="size-4" /> : null}
+              {props.project ? (
+                <ProjectFavicon
+                  project={props.project}
+                  className="size-4"
+                  monogramTone={props.switchboard ? "solid" : undefined}
+                />
+              ) : null}
             </span>
             {draftIndicator}
             {title}
@@ -2337,18 +2526,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 className={cn(
                   "relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end",
                   // Leaves room for the sibling action beside the Woke button.
-                  props.branchMode &&
+                  props.switchboard &&
                     isWoke &&
                     shelfAction &&
                     "group-focus-within/sidebar-row:mr-7 group-hover/sidebar-row:mr-7",
                 )}
               >
                 <span
-                  aria-hidden={(props.branchMode && !isWoke) || undefined}
+                  aria-hidden={(props.switchboard && !isWoke) || undefined}
                   className={cn(
                     "inline-flex justify-end tabular-nums text-secondary-label transition-opacity",
                     !isWoke && "group-hover/sidebar-row:opacity-0",
-                    props.branchMode &&
+                    props.switchboard &&
                       !isWoke &&
                       shelfAction &&
                       "group-focus-within/sidebar-row:opacity-0",
@@ -2358,9 +2547,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     // Snoozed rows show when they come BACK, not when they were
                     // last touched — the return ticket is the row's whole story.
                     <span
+                      data-sb-snooze-countdown={props.switchboard || undefined}
                       className={cn(
                         "text-xs tabular-nums",
-                        props.branchMode ? "text-sb-muted" : "text-blue-600 dark:text-blue-400",
+                        props.switchboard ? "text-sb-muted" : "text-blue-600 dark:text-blue-400",
                       )}
                     >
                       {props.snoozeWakeLabelText}
@@ -2392,14 +2582,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     </span>
                   )}
                 </span>
-                {!props.branchMode && shelfAction}
+                {!props.switchboard && shelfAction}
               </span>
             )}
             {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
-        {props.branchMode &&
+        {props.switchboard &&
           shelfAction &&
           !sortable?.isDragging && (
             // Positioned like the in-row slot above, but beside the row button.
@@ -2467,7 +2657,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
               {!nested && props.project ? (
-                <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+                <ProjectFavicon
+                  project={props.project}
+                  className="size-3.5 shrink-0"
+                  monogramTone={props.switchboard ? "solid" : undefined}
+                />
               ) : null}
               {titleWithStatus}
               {pinIndicator}
@@ -2700,6 +2894,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
   const { thread } = props;
+  const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
     [thread.environmentId, thread.id],
@@ -2796,7 +2991,11 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           }
         >
           {props.project ? (
-            <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+            <ProjectFavicon
+              project={props.project}
+              className="size-4 shrink-0"
+              monogramTone={switchboard ? "solid" : undefined}
+            />
           ) : null}
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex min-w-0 items-center gap-2.5">
@@ -3068,6 +3267,9 @@ export default function Sidebar() {
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   const switchboard = useUiStateStore((store) => store.sidebarSwitchboard);
   const savedGroupBy = useUiStateStore((store) => store.sidebarGroupBy);
+  const setSidebarGroupBy = useUiStateStore((store) => store.setSidebarGroupBy);
+  const sidebarDensity = useUiStateStore((store) => store.sidebarDensity);
+  const setSidebarDensity = useUiStateStore((store) => store.setSidebarDensity);
   const [statFilter, setStatFilter] = useState<SwitchboardStatFilter | null>(null);
   const [statFilterScope, setStatFilterScope] = useState(projectScopeKey);
   if (statFilterScope !== projectScopeKey) {
@@ -3150,14 +3352,17 @@ export default function Sidebar() {
   const handleStatSelect = useCallback((stat: SwitchboardStatFilter) => {
     setStatFilter((current) => (current === stat ? null : stat));
   }, []);
-  // The filter is a view override. It must not write the saved group-by.
-  const effectiveGroupBy =
-    activeStatFilter === "need-you"
-      ? "status"
-      : activeStatFilter === "worktrees"
-        ? "branch"
-        : savedGroupBy;
-  const branchMode = switchboard && effectiveGroupBy === "branch";
+  // Stat filters and single-project scope override the rendered mode; neither
+  // writes the saved group-by.
+  const effectiveGroupBy = resolveSidebarGroupBy({
+    saved: savedGroupBy,
+    statFilter: activeStatFilter,
+    allProjects: scopedProjectGroup === null,
+  });
+  // With switchboard on, the saved group-by alone picks the layout; the legacy
+  // thread-organization setting only applies with it off.
+  const layout = switchboard ? effectiveGroupBy : null;
+  const branchMode = layout === "branch";
   const statFilterLabel =
     activeStatFilter === "need-you"
       ? "need you"
@@ -3339,15 +3544,20 @@ export default function Sidebar() {
             ? projected
             : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
         );
-      } else if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
-        // Snooze outranks settlement and pinning until the thread wakes.
-        snoozed.push(thread);
-      } else if (supportsSettlement && thread.settledOverride === "settled") {
-        settled.push(thread);
-      } else if (thread.pinnedAt != null) {
-        pinned.push(thread);
       } else {
-        active.push(thread);
+        const section = sidebarThreadLifecycleSection(thread, {
+          now: preciseNow,
+          supportsSnooze,
+          supportsSettlement,
+        });
+        (section === "snoozed"
+          ? snoozed
+          : section === "settled"
+            ? settled
+            : section === "pinned"
+              ? pinned
+              : active
+        ).push(thread);
       }
     }
     // One shared rule on every platform (see sortPinnedThreadsByOrderKey):
@@ -3540,8 +3750,9 @@ export default function Sidebar() {
 
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const projectGrouped = layout === "project" || (layout === null && groupByProject);
   const activeProjectGroups = useMemo(() => {
-    if (branchMode || !groupByProject) return null;
+    if (!projectGrouped) return null;
     return groupSidebarThreadsByProject({
       threads: activeThreads,
       projects: projectGroups,
@@ -3553,17 +3764,27 @@ export default function Sidebar() {
       isRouteThread: (thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
     });
-  }, [
-    activeThreads,
-    branchMode,
-    groupByProject,
-    projectExpandedById,
-    projectGroups,
-    routeThreadKey,
-  ]);
+  }, [activeThreads, projectGrouped, projectExpandedById, projectGroups, routeThreadKey]);
   const branchLanes = useMemo(
     () => (branchMode ? groupSidebarBranchLanes(activeThreads) : []),
     [activeThreads, branchMode],
+  );
+  // Status mode reuses the lane machinery: each section is a locked lane, so
+  // rows render, number and drag through the same paths as branch lanes.
+  const statusLanes = useMemo(
+    () =>
+      layout === "status"
+        ? groupSidebarThreadsByStatus(activeThreads).map((section) => ({
+            key: `status:${section.key}`,
+            section: section.key,
+            threads: section.threads,
+          }))
+        : [],
+    [activeThreads, layout],
+  );
+  const lockedLaneKeys = useMemo(
+    () => (statusLanes.length > 0 ? new Set(statusLanes.map((lane) => lane.key)) : undefined),
+    [statusLanes],
   );
   const laneKeyByThreadKey = useMemo(
     () =>
@@ -3573,30 +3794,66 @@ export default function Sidebar() {
               scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
               sidebarBranchLaneKey(thread),
             ])
-          : [],
+          : statusLanes.flatMap((lane) =>
+              lane.threads.map(
+                (thread) =>
+                  [
+                    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                    lane.key,
+                  ] as const,
+              ),
+            ),
       ),
-    [branchMode, threads],
+    [branchMode, statusLanes, threads],
+  );
+  const sidebarLaneCollapsed = useUiStateStore((store) => store.sidebarLaneCollapsed);
+  const setSidebarLaneCollapsed = useUiStateStore((store) => store.setSidebarLaneCollapsed);
+  // One Pinned key for every mode: collapsing it in Branch collapses it in Status.
+  const pinnedCollapsed = switchboard && sidebarLaneCollapsed.pinned === true;
+  const renderedPinnedThreads = pinnedCollapsed ? EMPTY_THREADS : pinnedThreads;
+  // Lane meta: live work and the one pull request each header shows.
+  const branchLaneMeta = useMemo(
+    () =>
+      new Map(
+        branchLanes.map((lane) => [
+          lane.key,
+          {
+            live: lane.threads.some((thread) => threadMatchesSwitchboardStatFilter(thread, "live")),
+            pullRequest: pickLanePullRequest(lane.threads),
+          },
+        ]),
+      ),
+    [branchLanes],
   );
   // Collapsed groups drop their rows here, so jump shortcuts and range
   // selection follow what is on screen, like the collapsed shelves.
   const renderedActiveThreads = useMemo(
     () =>
       sidebarRenderedActiveThreads({
-        branchLanes: branchMode ? branchLanes : null,
+        branchLanes: branchMode ? branchLanes : layout === "status" ? statusLanes : null,
         projectGroups: activeProjectGroups,
         active: activeThreads,
+        collapsedLanes: sidebarLaneCollapsed,
       }),
-    [activeProjectGroups, activeThreads, branchLanes, branchMode],
+    [
+      activeProjectGroups,
+      activeThreads,
+      branchLanes,
+      branchMode,
+      layout,
+      sidebarLaneCollapsed,
+      statusLanes,
+    ],
   );
   const orderedThreads = useMemo(
     () =>
       sidebarVisualThreadOrder({
-        pinned: pinnedThreads,
+        pinned: renderedPinnedThreads,
         active: renderedActiveThreads,
         snoozed: visibleSnoozedThreads,
         settled: renderedSettledThreads,
       }),
-    [pinnedThreads, renderedActiveThreads, visibleSnoozedThreads, renderedSettledThreads],
+    [renderedPinnedThreads, renderedActiveThreads, visibleSnoozedThreads, renderedSettledThreads],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -3611,6 +3868,37 @@ export default function Sidebar() {
   // rendered at click time.
   const orderedThreadKeysRef = useRef(orderedThreadKeys);
   orderedThreadKeysRef.current = orderedThreadKeys;
+  // Next/previous also reaches rows in collapsed lanes and reveals them; jumps
+  // and range select keep to the rendered order above.
+  const traversalThreadByKey = useMemo(
+    () =>
+      new Map(
+        sidebarVisualThreadOrder({
+          pinned: pinnedThreads,
+          active: sidebarRenderedActiveThreads({
+            branchLanes: branchMode ? branchLanes : layout === "status" ? statusLanes : null,
+            projectGroups: activeProjectGroups,
+            active: activeThreads,
+          }),
+          snoozed: visibleSnoozedThreads,
+          settled: renderedSettledThreads,
+        }).map(
+          (thread) =>
+            [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
+        ),
+      ),
+    [
+      activeProjectGroups,
+      activeThreads,
+      branchLanes,
+      branchMode,
+      layout,
+      pinnedThreads,
+      renderedSettledThreads,
+      statusLanes,
+      visibleSnoozedThreads,
+    ],
+  );
   const threadByKey = useMemo(
     () =>
       new Map(
@@ -3668,12 +3956,16 @@ export default function Sidebar() {
   // Settled threads are live shells, so opening one is plain navigation:
   // history stays readable without un-settling, and sending a message or
   // starting a session un-settles server-side.
+  // Navigations the sidebar starts itself; they never reveal a collapsed lane
+  // unless they ask to, as next/previous does for a row in one.
+  const sidebarNavigationKeyRef = useRef<string | null>(null);
   const navigateToThread = useCallback(
-    (threadRef: ScopedThreadRef) => {
+    (threadRef: ScopedThreadRef, options?: { readonly reveal?: boolean }) => {
       if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
         clearSelection();
       }
       setSelectionAnchor(scopedThreadKey(threadRef));
+      sidebarNavigationKeyRef.current = options?.reveal ? null : scopedThreadKey(threadRef);
       if (isMobile) {
         setOpenMobile(false);
       }
@@ -3684,6 +3976,76 @@ export default function Sidebar() {
     },
     [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
   );
+
+  // Reaching a thread from outside the sidebar (palette, shortcuts, a
+  // notification, a new thread, a deep link) opens the collapsed lane that
+  // hides it and scrolls its row into view. A reload leaves the route it
+  // mounts with alone, so the lane stays collapsed, and nothing is written
+  // beyond that lane's own collapse key.
+  const [pendingReveal, setPendingReveal] = useState<{
+    readonly threadKey: string;
+    readonly expanded: boolean;
+  } | null>(null);
+  // Only a reload's first mount keeps its route quiet. A fresh load at a
+  // thread's URL is a deep link, and the sidebar also remounts on the way
+  // back from Settings; both reach the thread from outside.
+  const revealRouteKeyRef = useRef(
+    !sidebarMountedThisPageLoad && pageLoadIsReload() ? routeThreadKey : undefined,
+  );
+  useEffect(() => {
+    sidebarMountedThisPageLoad = true;
+  }, []);
+  useEffect(() => {
+    if (revealRouteKeyRef.current === routeThreadKey) return;
+    revealRouteKeyRef.current = routeThreadKey;
+    const fromSidebar = sidebarNavigationKeyRef.current === routeThreadKey;
+    sidebarNavigationKeyRef.current = null;
+    setPendingReveal(
+      switchboard && routeThreadKey !== null && !fromSidebar
+        ? { threadKey: routeThreadKey, expanded: false }
+        : null,
+    );
+  }, [routeThreadKey, switchboard]);
+  useEffect(() => {
+    if (pendingReveal === null) return;
+    const { threadKey } = pendingReveal;
+    if (pendingReveal.expanded) {
+      // The lane opened last commit, so the row is in the DOM now.
+      document
+        .querySelector<HTMLElement>(`[data-sb-thread-row="${globalThis.CSS.escape(threadKey)}"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "instant" });
+      setPendingReveal(null);
+      return;
+    }
+    // Branch lanes and Status sections both map their rows' lanes.
+    const laneKey = laneHoldsThread(pinnedThreads, threadKey)
+      ? "pinned"
+      : (layout === "branch" || layout === "status") && laneHoldsThread(activeThreads, threadKey)
+        ? (laneKeyByThreadKey.get(threadKey) ?? null)
+        : null;
+    // The thread's shell may not have arrived yet (a new thread); wait for it.
+    // A thread outside the lanes (on a shelf, in another project) drops the
+    // reveal, so its lane cannot pop open later.
+    if (laneKey === null) {
+      if (laneHoldsThread(threads, threadKey)) setPendingReveal(null);
+      return;
+    }
+    if (sidebarLaneCollapsed[laneKey] !== true) {
+      setPendingReveal(null);
+      return;
+    }
+    setSidebarLaneCollapsed(laneKey, false);
+    setPendingReveal({ threadKey, expanded: true });
+  }, [
+    activeThreads,
+    laneKeyByThreadKey,
+    layout,
+    pendingReveal,
+    pinnedThreads,
+    setSidebarLaneCollapsed,
+    sidebarLaneCollapsed,
+    threads,
+  ]);
 
   // Dropping files on a row opens that thread and attaches the files there.
   // The composer only accepts drops for its OWN thread, so when the row is
@@ -4022,6 +4384,13 @@ export default function Sidebar() {
   const dragTargetSection = dragState?.targetSection ?? null;
   const dragOverLaneKey = dragState?.overLaneKey ?? null;
   const rejectedLaneKey = dragState?.rejectedLaneKey ?? null;
+  // A refused lane is another branch, or a Status section sorted by status.
+  const dragRejection =
+    rejectedLaneKey === null
+      ? null
+      : layout === "status"
+        ? ("status" as const)
+        : ("branch" as const);
   const draggedThread = dragState ? threadByKey.get(dragState.activeKey) : undefined;
   useEffect(() => {
     if (rejectedLaneKey === null) return;
@@ -4242,7 +4611,7 @@ export default function Sidebar() {
       return [];
     }
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
+    const pinnedRows = rowsOf(renderedPinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
     const activeRows = rowsOf(renderedActiveThreads, "active");
@@ -4260,6 +4629,7 @@ export default function Sidebar() {
   }, [
     activeThreads,
     pinnedThreads,
+    renderedPinnedThreads,
     renderedActiveThreads,
     renderedSettledThreads,
     settledThreads.length,
@@ -4279,23 +4649,28 @@ export default function Sidebar() {
       overId,
       laneKeyByThreadKey,
       activeOrder: activeKeys,
+      ...(lockedLaneKeys ? { lockedLaneKeys } : {}),
     });
     const sourceSection = sectionByThreadKey.get(activeKey);
+    const rejectedStatusLane = statusLanes.find((lane) => lane.key === feedback.rejectedLaneKey);
     return resolveSidebarBranchDragAnnouncement({
       phase,
       verb: sourceSection
         ? resolveSidebarBranchDragVerb({
             sourceSection,
             targetSection: feedback.target?.section ?? null,
-            rejected: feedback.rejectedLaneKey !== null,
+            rejected:
+              feedback.rejectedLaneKey === null ? false : layout === "status" ? "status" : "branch",
             overSelf,
           })
         : null,
       hasTarget: overId !== null,
       overSelf,
       leftOwnSlot: branchDragLeftSlotRef.current,
-      rejectedBranch:
-        branchLanes.find((lane) => lane.key === feedback.rejectedLaneKey)?.branch ?? null,
+      // Status mode names the section under the pointer.
+      rejectedBranch: rejectedStatusLane
+        ? SIDEBAR_STATUS_SECTION_LABELS[rejectedStatusLane.section]
+        : (branchLanes.find((lane) => lane.key === feedback.rejectedLaneKey)?.branch ?? null),
     });
   };
   const branchDragAnnouncements: Announcements = {
@@ -4349,13 +4724,14 @@ export default function Sidebar() {
   const handleThreadDragOver = useCallback(
     (event: DragOverEvent) => {
       const overId = event.over ? String(event.over.id) : null;
-      const feedback = branchMode
+      const feedback = switchboard
         ? resolveSidebarBranchDragFeedback({
             items: sidebarListItems,
             activeKey: String(event.active.id),
             overId,
             laneKeyByThreadKey,
             activeOrder: activeKeys,
+            ...(lockedLaneKeys ? { lockedLaneKeys } : {}),
           })
         : null;
       const target = feedback
@@ -4375,7 +4751,7 @@ export default function Sidebar() {
             },
       );
     },
-    [activeKeys, branchMode, laneKeyByThreadKey, sidebarListItems],
+    [activeKeys, switchboard, laneKeyByThreadKey, lockedLaneKeys, sidebarListItems],
   );
   const sortableIds = useMemo(() => sidebarListItems.map(sidebarListItemId), [sidebarListItems]);
   const draggedSettledOrder = useMemo(() => {
@@ -4390,8 +4766,12 @@ export default function Sidebar() {
   }, [dragState, settledThreads, threadByKey]);
   const sidebarSortingStrategy = useMemo(
     () =>
-      branchMode
-        ? createSidebarBranchSortingStrategy({ items: sidebarListItems, laneKeyByThreadKey })
+      switchboard
+        ? createSidebarBranchSortingStrategy({
+            items: sidebarListItems,
+            laneKeyByThreadKey,
+            ...(lockedLaneKeys ? { lockedLaneKeys } : {}),
+          })
         : createSidebarSortingStrategy({
             items: sidebarListItems,
             boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
@@ -4403,8 +4783,9 @@ export default function Sidebar() {
           }),
     [
       draggedSettledOrder,
-      branchMode,
+      switchboard,
       laneKeyByThreadKey,
+      lockedLaneKeys,
       routeThreadKey,
       settledShelfExpanded,
       settledVisibleCount,
@@ -4438,16 +4819,21 @@ export default function Sidebar() {
   // registers as the pinned-header marker.
   const branchLaneRows = useMemo(() => {
     const rows = new Map<string, readonly string[]>();
-    if (!branchMode) return rows;
+    if (!switchboard) return rows;
     const keysOf = (list: readonly EnvironmentThreadShell[]) =>
       list.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
-    rows.set(sidebarMarkerId("pinned-header"), keysOf(pinnedThreads));
-    for (const lane of branchLanes) rows.set(sidebarBranchLaneId(lane.key), keysOf(lane.threads));
+    // Collapsed lanes keep their wrapper as a target, with no rows inside.
+    rows.set(sidebarMarkerId("pinned-header"), keysOf(renderedPinnedThreads));
+    for (const lane of [...branchLanes, ...statusLanes])
+      rows.set(
+        sidebarBranchLaneId(lane.key),
+        sidebarLaneCollapsed[lane.key] === true ? [] : keysOf(lane.threads),
+      );
     return rows;
-  }, [branchLanes, branchMode, pinnedThreads]);
+  }, [branchLanes, renderedPinnedThreads, sidebarLaneCollapsed, statusLanes, switchboard]);
   const dndCollisionDetection = useMemo(() => {
     if (draggedThreadKey === undefined || draggedFromSection === undefined) {
-      return branchMode
+      return switchboard
         ? createSidebarBranchCollisionDetection({
             laneRows: branchLaneRows,
             gate: branchDragGate,
@@ -4474,7 +4860,7 @@ export default function Sidebar() {
         activeKeysById,
         activeReorderableKeys: activeReorderableThreadKeys,
       }).kind !== "none";
-    if (branchMode) {
+    if (switchboard) {
       return createSidebarBranchCollisionDetection({
         laneRows: branchLaneRows,
         gate: branchDragGate,
@@ -4485,8 +4871,9 @@ export default function Sidebar() {
             overId: id,
             laneKeyByThreadKey,
             activeOrder: activeKeys,
+            ...(lockedLaneKeys ? { lockedLaneKeys } : {}),
           });
-          // Cross-lane and shelf hits stay targets so the feedback can explain them.
+          // Cross-lane, locked-lane and shelf hits stay targets so the feedback can explain them.
           return target === null || canDrop(target);
         },
       });
@@ -4503,7 +4890,7 @@ export default function Sidebar() {
       },
     );
   }, [
-    branchMode,
+    switchboard,
     branchLaneRows,
     activeKeysById,
     pinnedKeysById,
@@ -4515,6 +4902,7 @@ export default function Sidebar() {
     dragActivationY,
     draggableThreadKeys,
     laneKeyByThreadKey,
+    lockedLaneKeys,
     pinnedKeys,
     branchDragGate,
     sidebarListItems,
@@ -4527,19 +4915,20 @@ export default function Sidebar() {
       const target =
         event.over === null
           ? null
-          : branchMode
+          : switchboard
             ? resolveSidebarBranchDropTarget({
                 items: sidebarListItems,
                 activeKey,
                 overId: String(event.over.id),
                 laneKeyByThreadKey,
                 activeOrder: activeKeys,
+                ...(lockedLaneKeys ? { lockedLaneKeys } : {}),
               })
             : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
       const activeThread = threadByKey.get(activeKey);
       if (activeSection === undefined || target === null || activeThread === undefined) return;
       const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
-      const plan = planSidebarThreadDrop({
+      const dropPlan = planSidebarThreadDrop({
         activeKey,
         activeSection,
         activePinned: activeThread.pinnedAt != null,
@@ -4555,6 +4944,12 @@ export default function Sidebar() {
         activeKeysById,
         activeReorderableKeys: activeReorderableThreadKeys,
       });
+      // A collapsed Pinned lane hides the rows a position would be measured
+      // against, so the drop pins where the menu's Pin would.
+      const plan =
+        dropPlan.kind === "pin" && pinnedCollapsed
+          ? { ...dropPlan, orderKey: undefined, extraAssignments: [] }
+          : dropPlan;
       if (plan.kind === "none") return;
       if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
       const assignments =
@@ -4669,7 +5064,7 @@ export default function Sidebar() {
       })();
     },
     [
-      branchMode,
+      switchboard,
       laneKeyByThreadKey,
       activeKeysById,
       pinnedKeysById,
@@ -4677,7 +5072,9 @@ export default function Sidebar() {
       activeKeys,
       activeReorderableThreadKeys,
       draggableThreadKeys,
+      lockedLaneKeys,
       pinThread,
+      pinnedCollapsed,
       pinnedKeys,
       planForwardNavigation,
       reorderPinnedThread,
@@ -5414,18 +5811,21 @@ export default function Sidebar() {
       });
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
-        const targetThread = threadByKey.get(targetThreadKey);
+        const targetThread = traversalThreadByKey.get(targetThreadKey);
         if (!targetThread) return false;
         event.preventDefault();
         event.stopPropagation();
-        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
+        // A row that is not rendered sits in a collapsed lane: the reveal opens it.
+        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id), {
+          reveal: !threadByKey.has(targetThreadKey),
+        });
         return true;
       };
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         navigateToThreadKey(
           resolveAdjacentThreadId({
-            threadIds: orderedThreadKeys,
+            threadIds: [...traversalThreadByKey.keys()],
             currentThreadId: routeThreadKey,
             direction: traversalDirection,
           }),
@@ -5445,6 +5845,7 @@ export default function Sidebar() {
     routeTerminalOpen,
     routeThreadKey,
     threadByKey,
+    traversalThreadByKey,
   ]);
 
   // Same predicate as v1: hints show only while the held modifiers exactly
@@ -5701,6 +6102,15 @@ export default function Sidebar() {
                 onClearSearch={clearThreadSearch}
               />
             </SidebarGroup>
+            {switchboard ? (
+              <SidebarGroupByRow
+                groupBy={effectiveGroupBy}
+                allProjects={scopedProjectGroup === null}
+                onGroupByChange={setSidebarGroupBy}
+                density={sidebarDensity}
+                onDensityChange={setSidebarDensity}
+              />
+            ) : null}
             {switchboard && statFilterLabel ? (
               <div
                 role="status"
@@ -5799,11 +6209,11 @@ export default function Sidebar() {
                 sensors={dndSensors}
                 collisionDetection={dndCollisionDetection}
                 modifiers={
-                  branchMode
+                  switchboard
                     ? [restrictToVerticalAxis, restrictToFirstScrollableAncestor]
                     : [restrictToVerticalAxis, restrictBelowPins, restrictToFirstScrollableAncestor]
                 }
-                {...(branchMode
+                {...(switchboard
                   ? { accessibility: { announcements: branchDragAnnouncements } }
                   : {})}
                 onDragStart={handleThreadDragStart}
@@ -5834,10 +6244,12 @@ export default function Sidebar() {
                           key={`${threadKey}:${rowVariant}`}
                           thread={thread}
                           variant={rowVariant}
-                          branchMode={branchMode}
-                          dragActive={branchMode && dragState !== null}
+                          switchboard={switchboard}
+                          density={sidebarDensity}
+                          showBranch={layout === "status"}
+                          dragActive={switchboard && dragState !== null}
                           dropIndicator={
-                            branchMode &&
+                            switchboard &&
                             dragState?.overId === threadKey &&
                             dragTargetSection === section &&
                             rejectedLaneKey === null &&
@@ -5954,7 +6366,11 @@ export default function Sidebar() {
                             // markers, so grouped view drops drag; pin/settle stay
                             // in menus. Teach Sidebar.drag.ts project headers to
                             // bring it back.
-                            (!branchMode && groupByProject) ||
+                            // The switchboard's Project mode relies on this too:
+                            // its groups take no drops (`droppable={false}`) and
+                            // have no drop plan, so enabling drag here first needs
+                            // Project-mode handling in Sidebar.drag.ts.
+                            projectGrouped ||
                             !draggableThreadKeys.has(threadKey) ||
                             optimisticDrop !== null
                           }
@@ -5976,11 +6392,11 @@ export default function Sidebar() {
                     );
                     // Branch mode splits the list: the listbox may only own
                     // options and groups, so shelves get their own list.
-                    const items: ReactNode[] = branchMode ? [] : [draftBlock];
-                    const shelves: ReactNode[] = branchMode ? [] : items;
+                    const items: ReactNode[] = switchboard ? [] : [draftBlock];
+                    const shelves: ReactNode[] = switchboard ? [] : items;
                     for (const item of sidebarListItems) {
                       if (item.kind === "thread") {
-                        if (branchMode && (item.section === "active" || item.section === "pinned"))
+                        if (switchboard && (item.section === "active" || item.section === "pinned"))
                           continue;
                         // Grouped active rows render under their headers below.
                         if (activeProjectGroups !== null && item.section === "active") continue;
@@ -5989,7 +6405,7 @@ export default function Sidebar() {
                       }
                       switch (item.marker) {
                         case "pinned-header":
-                          if (branchMode) {
+                          if (switchboard) {
                             // Drop to pin is only offered when the dragged thread's server can pin.
                             const canPinDragged =
                               draggedThread !== undefined &&
@@ -6004,9 +6420,20 @@ export default function Sidebar() {
                                   pinned
                                   count={pinnedThreads.length}
                                   dragOver={dragTargetSection === "pinned"}
+                                  expanded={!pinnedCollapsed}
+                                  onToggle={() =>
+                                    setSidebarLaneCollapsed("pinned", !pinnedCollapsed)
+                                  }
+                                  containsOpenThread={
+                                    pinnedCollapsed &&
+                                    laneHoldsThread(pinnedThreads, routeThreadKey)
+                                  }
+                                  density={sidebarDensity}
                                   listRef={attachNestedListMotion}
                                 >
-                                  {pinnedThreads.map((thread) => renderThreadRow(thread, "pinned"))}
+                                  {renderedPinnedThreads.map((thread) =>
+                                    renderThreadRow(thread, "pinned"),
+                                  )}
                                 </BranchLane>,
                               );
                             break;
@@ -6022,7 +6449,7 @@ export default function Sidebar() {
                           );
                           break;
                         case "pinned-divider":
-                          if (branchMode) break;
+                          if (switchboard) break;
                           items.push(
                             <SidebarDragBoundary
                               key="pinned-divider"
@@ -6052,7 +6479,10 @@ export default function Sidebar() {
                                   isDropTarget={dragTargetSection === "active"}
                                 />,
                               );
-                            for (const lane of branchLanes)
+                            for (const lane of branchLanes) {
+                              const collapsed = sidebarLaneCollapsed[lane.key] === true;
+                              const meta = branchLaneMeta.get(lane.key);
+                              const pullRequest = meta?.pullRequest ?? null;
                               items.push(
                                 <BranchLane
                                   key={lane.key}
@@ -6060,6 +6490,17 @@ export default function Sidebar() {
                                   branch={lane.branch}
                                   worktree={lane.worktreePath !== null}
                                   count={lane.threads.length}
+                                  expanded={!collapsed}
+                                  onToggle={() => setSidebarLaneCollapsed(lane.key, !collapsed)}
+                                  containsOpenThread={
+                                    collapsed && laneHoldsThread(lane.threads, routeThreadKey)
+                                  }
+                                  live={meta?.live ?? false}
+                                  pullRequest={pullRequest}
+                                  cleanUp={
+                                    pullRequest?.state === "merged" && lane.worktreePath !== null
+                                  }
+                                  density={sidebarDensity}
                                   {...(scopedProjectGroup
                                     ? {}
                                     : {
@@ -6076,9 +6517,82 @@ export default function Sidebar() {
                                     rejectedLaneKey === null
                                   }
                                 >
+                                  {collapsed
+                                    ? null
+                                    : lane.threads.map((thread) =>
+                                        renderThreadRow(thread, "active"),
+                                      )}
+                                </BranchLane>,
+                              );
+                            }
+                            break;
+                          }
+                          if (layout === "status") {
+                            for (const lane of statusLanes)
+                              items.push(
+                                <BranchLane
+                                  key={lane.key}
+                                  laneKey={lane.key}
+                                  branch={null}
+                                  status={lane.section}
+                                  count={lane.threads.length}
+                                  rejected={rejectedLaneKey === lane.key}
+                                  density={sidebarDensity}
+                                  listRef={attachNestedListMotion}
+                                >
                                   {lane.threads.map((thread) => renderThreadRow(thread, "active"))}
                                 </BranchLane>,
                               );
+                            break;
+                          }
+                          if (layout === "project") {
+                            // Grouped view has no drag (see the sortable rows), so
+                            // project groups only borrow the lane's group markup.
+                            for (const group of activeProjectGroups ?? []) {
+                              const project = projectByGroupKey.get(group.projectKey) ?? null;
+                              items.push(
+                                <BranchLane
+                                  key={`project-group:${group.projectKey}`}
+                                  laneKey={`project:${group.projectKey}`}
+                                  branch={group.displayName}
+                                  count={group.threadCount}
+                                  droppable={false}
+                                  density={sidebarDensity}
+                                  expanded={group.expanded}
+                                  collapsedRows={
+                                    group.expanded || group.rendered.length === 0
+                                      ? undefined
+                                      : group.rendered.map((thread) =>
+                                          renderThreadRow(thread, "active"),
+                                        )
+                                  }
+                                  listRef={attachNestedListMotion}
+                                  header={
+                                    <SwitchboardProjectGroupHeader
+                                      group={group}
+                                      project={project}
+                                      onToggle={() =>
+                                        setProjectExpanded(group.projectKey, !group.expanded)
+                                      }
+                                      onNewThread={
+                                        project
+                                          ? () =>
+                                              void handleNewThreadRef.current(
+                                                scopeProjectRef(project.environmentId, project.id),
+                                              )
+                                          : null
+                                      }
+                                    />
+                                  }
+                                >
+                                  {group.expanded
+                                    ? group.rendered.map((thread) =>
+                                        renderThreadRow(thread, "active"),
+                                      )
+                                    : null}
+                                </BranchLane>,
+                              );
+                            }
                             break;
                           }
                           items.push(
@@ -6127,6 +6641,7 @@ export default function Sidebar() {
                             <SidebarSectionHeader
                               key="snoozed-shelf-header"
                               marker="snoozed-header"
+                              switchboard={switchboard}
                               className="mt-auto"
                               label={
                                 snoozedShelfExpanded
@@ -6145,6 +6660,7 @@ export default function Sidebar() {
                             <SidebarSectionHeader
                               key="settled-shelf-header"
                               marker="settled-header"
+                              switchboard={switchboard}
                               className={cn(snoozedThreads.length === 0 && "mt-auto")}
                               label={
                                 settledShelfExpanded
@@ -6171,7 +6687,7 @@ export default function Sidebar() {
                               label="Settled"
                               // Branch mode drops on the shelf header; this hint has no hit area there.
                               showHint={
-                                !branchMode &&
+                                !switchboard &&
                                 from !== null &&
                                 (renderedSettledThreads.length === 0 ||
                                   (from === "settled" &&
@@ -6198,7 +6714,7 @@ export default function Sidebar() {
                           </button>
                         </li>
                       ) : null;
-                    if (!branchMode) {
+                    if (!switchboard) {
                       return (
                         <ul
                           ref={attachListMotionRef}
@@ -6218,7 +6734,7 @@ export default function Sidebar() {
                         // Rows hide their hover actions and show their age while anything drags.
                         data-sb-dragging={dragState !== null || undefined}
                         className={cn(
-                          "relative flex flex-col gap-px @container/sidebar-column",
+                          "relative flex flex-col gap-px",
                           sidebarListItems.length > 0 && "flex-1",
                         )}
                       >
@@ -6249,7 +6765,7 @@ export default function Sidebar() {
                     );
                   })()}
                 </SortableContext>
-                {branchMode &&
+                {switchboard &&
                   createPortal(
                     <div data-switchboard="sidebar">
                       <DragOverlay
@@ -6263,10 +6779,11 @@ export default function Sidebar() {
                           <SidebarDraggedThreadChip
                             thread={draggedThread}
                             wokeAt={threadWokeAt(draggedThread, { now: snoozeNow })}
+                            rejected={dragRejection}
                             verb={resolveSidebarBranchDragVerb({
                               sourceSection: dragState.activeSection,
                               targetSection: dragTargetSection,
-                              rejected: rejectedLaneKey !== null,
+                              rejected: dragRejection ?? false,
                               // Until the first drag-over, the pointer is over its own slot.
                               overSelf:
                                 (dragState.overId ?? dragState.activeKey) === dragState.activeKey,

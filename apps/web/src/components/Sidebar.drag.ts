@@ -105,10 +105,12 @@ export function createSidebarBranchCollisionDetection(input: {
   };
 }
 
-/** Lane wrappers stay fixed; only peers inside the source lane preview a reorder. */
+/** Lane wrappers stay fixed; only peers inside the source lane preview a
+ * reorder, and locked lanes (Status sections) never do. */
 export function createSidebarBranchSortingStrategy(input: {
   readonly items: readonly SidebarListItem[];
   readonly laneKeyByThreadKey: ReadonlyMap<string, string>;
+  readonly lockedLaneKeys?: ReadonlySet<string>;
 }): SortingStrategy {
   return (args) => {
     const active = input.items[args.activeIndex];
@@ -120,6 +122,7 @@ export function createSidebarBranchSortingStrategy(input: {
       active.section === "active" &&
       over.section === "active" &&
       lane !== undefined &&
+      !input.lockedLaneKeys?.has(lane) &&
       lane === input.laneKeyByThreadKey.get(over.key);
     return pinned || sameLane ? verticalListSortingStrategy(args) : null;
   };

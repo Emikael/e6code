@@ -11,24 +11,27 @@ const VERB_ICONS: Record<SidebarBranchDragVerb, LucideIcon> = {
   Settle: Archive,
   Wake: AlarmClock,
   "Can't move here": Ban,
+  "Sorted by status": Ban,
 };
 
-/** Branch-mode drag overlay: glyph, title and the drop verb. It is portaled
+/** Switchboard drag overlay: glyph, title and the drop verb. It is portaled
  * and may cross the column edge, so it never clips its title to the column.
- * A rejected drop shows its reason as a static tooltip, since a positioned
- * popup cannot track the overlay's per-frame transform. */
+ * `rejected` styles the verb as a refusal, whatever its wording; a rejected
+ * drop may show its reason as a static tooltip, since a positioned popup
+ * cannot track the overlay's per-frame transform. */
 export function BranchDragChip({
   status,
   title,
   verb,
+  rejected = false,
   rejectReason,
 }: {
   status: SwitchboardStatus;
   title: ReactNode;
   verb: SidebarBranchDragVerb | null;
+  rejected?: boolean;
   rejectReason?: string;
 }) {
-  const rejected = verb === "Can't move here";
   const VerbIcon = verb ? VERB_ICONS[verb] : null;
   return (
     <div className="pointer-events-none relative inline-flex w-max">
@@ -44,6 +47,7 @@ export function BranchDragChip({
         {verb && VerbIcon && (
           <span
             data-sb-drag-verb={verb}
+            data-sb-drag-rejected={rejected || undefined}
             className={cn(
               "inline-flex h-5 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-[11px] font-semibold",
               rejected

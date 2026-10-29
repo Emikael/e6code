@@ -431,6 +431,17 @@ describe("uiStateStore persistence", () => {
     },
   );
 
+  it("collapses one lane without touching the others", () => {
+    useUiStateStore.setState({ sidebarLaneCollapsed: { pinned: true, "env:project:br:a": true } });
+    useUiStateStore.getState().setSidebarLaneCollapsed("env:project:br:a", false);
+    useUiStateStore.getState().setSidebarLaneCollapsed("env:project:wt:/w", true);
+    expect(useUiStateStore.getState().sidebarLaneCollapsed).toEqual({
+      pinned: true,
+      "env:project:br:a": false,
+      "env:project:wt:/w": true,
+    });
+  });
+
   it("drops the temporary expanded-only migration fallback when rewriting state", () => {
     const migrated = parsePersistedState({
       expandedProjectCwds: ["/repo/a"],

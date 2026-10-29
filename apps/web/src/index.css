@@ -103,6 +103,39 @@
   outline-offset: -2px;
 }
 
+/* A thread option's positioned children (the hover and selected fill, the lane
+   glyph's knockout) paint over an outline on the option, so the ring is drawn
+   on a layer above them (WCAG 2.4.7). */
+[data-switchboard] [role="option"][data-sb-thread-row]:focus-visible {
+  outline: none;
+}
+[data-switchboard] [role="option"][data-sb-thread-row]:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: 10;
+  pointer-events: none;
+  border: 2px solid var(--ring);
+  border-radius: calc(var(--radius-lg) + 4px);
+}
+/* Compact rows stack with no gap: keep the ring inside the row. */
+[data-switchboard]
+  [role="option"][data-sb-thread-row][data-sb-density="compact"]:focus-visible::after {
+  inset: 0;
+  border-radius: var(--radius-lg);
+}
+
+/* Menu items fill their popup; an outset ring would run past its edge. */
+[data-switchboard] [role^="menuitem"]:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The search and rename fields draw their own focus ring. */
+[data-switchboard] [data-sb-search-input]:focus-visible,
+[data-switchboard] [data-sb-rename-input]:focus-visible {
+  outline: none;
+}
+
 /* Solid monogram tiles. Inlined oklch so these shades never join :root. */
 [data-switchboard] [data-sb-monogram="gray"] {
   background-color: oklch(96.7% 0.003 264.542);

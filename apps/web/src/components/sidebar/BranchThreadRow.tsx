@@ -16,6 +16,10 @@ export interface BranchThreadRowProps {
   selected?: boolean;
   planProgress?: { step: string; completedSteps: number; totalSteps: number } | null | undefined;
   lastError?: string | null | undefined;
+  /** Compact keeps one 28px line: glyph, title, diff stat and age. */
+  density?: "comfortable" | "compact";
+  /** The diff stat for the compact line; comfortable rows show it in `meta`. */
+  diffStat?: ReactNode;
 }
 
 /** The visible row inside a thread option. Only the title reaches the option's
@@ -30,13 +34,17 @@ export function BranchThreadRow({
   selected = false,
   planProgress,
   lastError,
+  density = "comfortable",
+  diffStat,
 }: BranchThreadRowProps) {
+  const compact = density === "compact";
   return (
     <div
       data-sb-thread-content
+      data-sb-density={density}
       className={cn(
-        "group/sidebar-row relative flex h-12 min-w-0 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sb-foreground hover:bg-sb-hover group-hover/sidebar-row:bg-sb-hover",
-        (lastError || planProgress) && "h-[68px]",
+        "group/sidebar-row relative flex min-w-0 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sb-foreground hover:bg-sb-hover group-hover/sidebar-row:bg-sb-hover",
+        compact ? "h-7 py-[5px]" : lastError || planProgress ? "h-[68px]" : "h-12",
         selected && "bg-sb-selection hover:bg-sb-selection group-hover/sidebar-row:bg-sb-selection",
       )}
     >
@@ -50,6 +58,20 @@ export function BranchThreadRow({
         <div className="flex min-w-0 flex-1 items-center truncate text-(length:--sb-text-body) leading-[18px] font-medium">
           {title}
         </div>
+        {compact &&
+          diffStat && (
+            // Narrow columns give the diff stat's room to the hover actions.
+            <span
+              className={cn(
+                "shrink-0",
+                actionCount > 0 &&
+                  "@max-[279px]/sidebar-column:group-focus-within/sidebar-row:hidden @max-[279px]/sidebar-column:group-hover/sidebar-row:hidden",
+                actionCount > 0 && actionsVisible && "@max-[279px]/sidebar-column:hidden",
+              )}
+            >
+              {diffStat}
+            </span>
+          )}
         <span
           aria-hidden="true"
           className={cn(
@@ -75,10 +97,12 @@ export function BranchThreadRow({
           />
         )}
       </div>
-      <div className="flex h-4 min-w-0 items-center gap-1.5 text-(length:--sb-text-meta) leading-4 text-sb-muted @max-[280px]/sidebar-column:[&_[data-sb-model]]:sr-only @max-[360px]/sidebar-column:[&_[data-sb-environment-label]]:sr-only">
-        {meta}
-      </div>
-      {lastError ? (
+      {!compact && (
+        <div className="flex h-4 min-w-0 items-center gap-1.5 text-(length:--sb-text-meta) leading-4 text-sb-muted @max-[279px]/sidebar-column:[&_[data-sb-model]]:sr-only @max-[359px]/sidebar-column:[&_[data-sb-environment-label]]:sr-only">
+          {meta}
+        </div>
+      )}
+      {compact ? null : lastError ? (
         <div
           aria-hidden="true"
           className="mt-0.5 h-4 truncate text-(length:--sb-text-meta) leading-4 text-(--state-error)"
@@ -98,7 +122,10 @@ export function BranchThreadRow({
       {/* Placed on the lane line. */}
       <span
         aria-hidden="true"
-        className="absolute top-[7px] -left-[17px] flex size-4 items-center justify-center bg-sb-surface"
+        className={cn(
+          "absolute -left-[17px] flex size-4 items-center justify-center bg-sb-surface",
+          compact ? "top-[6px]" : "top-[7px]",
+        )}
       >
         <StatusGlyph status={status} />
       </span>
@@ -114,9 +141,11 @@ export function BranchThreadRow({
  * users reach the same actions through the context menu (tab stops are C10). */
 export function BranchThreadRowActions({
   visible = false,
+  density = "comfortable",
   children,
 }: {
   visible?: boolean;
+  density?: "comfortable" | "compact";
   children: ReactNode;
 }) {
   return (
@@ -125,7 +154,8 @@ export function BranchThreadRowActions({
       // A pointer press must not move focus into the hidden actions.
       onMouseDown={(event) => event.preventDefault()}
       className={cn(
-        "sb-row-actions absolute top-[3px] right-[3px] items-center group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex",
+        "sb-row-actions absolute right-[3px] items-center group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex",
+        density === "compact" ? "top-[2px]" : "top-[3px]",
         visible ? "inline-flex" : "hidden",
         "[[data-sb-dragging]_&]:hidden",
       )}

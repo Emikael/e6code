@@ -5,6 +5,10 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import {
   groupSidebarThreadsByProject,
   groupSidebarBranchLanes,
+  groupSidebarThreadsByStatus,
+  sidebarThreadLifecycleSection,
+  pickLanePullRequest,
+  resolveSidebarGroupBy,
   sidebarRenderedActiveThreads,
   sidebarVisualThreadOrder,
   animateSidebarLayoutChanges,
@@ -70,6 +74,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type ThreadPullRequestLink,
 } from "@e6tools/contracts";
 
 import {
@@ -173,6 +178,34 @@ describe("groupSidebarBranchLanes", () => {
     expect(sidebarRenderedActiveThreads({ branchLanes: null, projectGroups: null, active })).toBe(
       active,
     );
+  });
+
+  it("drops collapsed lanes from the order, and ignores stale collapse keys", () => {
+    const a1 = thread("a1", { branch: "alpha", updatedAt: "2026-03-09T10:00:00.000Z" });
+    const b1 = thread("b1", { branch: "beta", updatedAt: "2026-03-09T12:00:00.000Z" });
+    const pinned = thread("pinned");
+    const lanes = groupSidebarBranchLanes([a1, b1]);
+    const betaKey = lanes.find((lane) => lane.branch === "beta")!.key;
+    const order = (collapsedLanes: Record<string, boolean>) =>
+      sidebarVisualThreadOrder({
+        // The Pinned lane collapses under the single "pinned" key.
+        pinned: collapsedLanes.pinned === true ? [] : [pinned],
+        active: sidebarRenderedActiveThreads({
+          branchLanes: lanes,
+          projectGroups: null,
+          active: [a1, b1],
+          collapsedLanes,
+        }),
+        snoozed: [],
+        settled: [],
+      }).map((row) => row.id);
+    expect(order({ [betaKey]: true, pinned: true })).toEqual(["a1"]);
+    expect(order({ [betaKey]: false })).toEqual(["pinned", "b1", "a1"]);
+    expect(order({ "gone-env:gone-project:br:old": true, unknown: true })).toEqual([
+      "pinned",
+      "b1",
+      "a1",
+    ]);
   });
 
   it("puts live lanes first, uses newest activity, and preserves row order within each lane", () => {
@@ -3000,6 +3033,261 @@ describe("countProjectSidebarThreads", () => {
     expect(threadMatchesSwitchboardStatFilter(threads[7]!, "threads")).toBe(false);
     expect(threadMatchesSwitchboardStatFilter(threads[7]!, "worktrees")).toBe(true);
     expect(threadMatchesSwitchboardStatFilter(threads[8]!, "need-you")).toBe(false);
+  });
+});
+
+describe("resolveSidebarGroupBy", () => {
+  it("lets a stat filter override the saved mode without replacing it", () => {
+    expect(
+      resolveSidebarGroupBy({ saved: "project", statFilter: "need-you", allProjects: true }),
+    ).toBe("status");
+    expect(
+      resolveSidebarGroupBy({ saved: "status", statFilter: "worktrees", allProjects: true }),
+    ).toBe("branch");
+    expect(resolveSidebarGroupBy({ saved: "status", statFilter: "live", allProjects: true })).toBe(
+      "status",
+    );
+    // Clearing the filter is the same call with no filter: the saved mode returns.
+    expect(resolveSidebarGroupBy({ saved: "project", statFilter: null, allProjects: true })).toBe(
+      "project",
+    );
+  });
+
+  it("renders Branch for a saved Project mode while one project is scoped", () => {
+    expect(resolveSidebarGroupBy({ saved: "project", statFilter: null, allProjects: false })).toBe(
+      "branch",
+    );
+    expect(resolveSidebarGroupBy({ saved: "status", statFilter: null, allProjects: false })).toBe(
+      "status",
+    );
+  });
+});
+
+describe("groupSidebarThreadsByStatus", () => {
+  const projectId = ProjectId.make("alpha");
+  function statusThread(
+    id: string,
+    overrides: Partial<ProjectCountThread> = {},
+  ): ProjectCountThread & { id: string } {
+    return {
+      id,
+      environmentId: localEnvironmentId,
+      projectId,
+      archivedAt: null,
+      settledOverride: null,
+      worktreePath: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+      interactionMode: "default",
+      session: null,
+      latestTurn: null,
+      ...overrides,
+    };
+  }
+  const settledTurn = makeLatestTurn();
+  const threads = [
+    statusThread("idle-ready"),
+    statusThread("running", { session: { status: "running", activeTurnId: "turn" } as never }),
+    // Qualifies for Needs you and Running at once: the first match wins.
+    statusThread("approval-and-running", {
+      hasPendingApprovals: true,
+      session: { status: "running", activeTurnId: "turn" } as never,
+    }),
+    // A failed session with lingering background work is an error, not running.
+    statusThread("failed-live", {
+      backgroundLiveness: "working",
+      session: { status: "error", activeTurnId: null } as never,
+    }),
+    statusThread("plan", {
+      hasActionableProposedPlan: true,
+      interactionMode: "plan",
+      latestTurn: settledTurn,
+      session: { status: "ready", activeTurnId: null } as never,
+    }),
+    statusThread("connecting", { session: { status: "starting", activeTurnId: null } as never }),
+    statusThread("monitoring", {
+      backgroundLiveness: "monitoring",
+      session: { status: "ready", activeTurnId: null } as never,
+    }),
+    statusThread("completed", {
+      latestTurn: settledTurn,
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      session: { status: "ready", activeTurnId: null } as never,
+    }),
+  ];
+
+  it("orders sections and places each thread once, first match wins", () => {
+    const sections = groupSidebarThreadsByStatus(threads);
+    expect(
+      sections.map((section) => [section.key, section.threads.map((thread) => thread.id)]),
+    ).toEqual([
+      ["needs-you", ["approval-and-running", "plan"]],
+      ["error", ["failed-live"]],
+      ["running", ["running", "connecting", "monitoring"]],
+      ["idle", ["idle-ready", "completed"]],
+    ]);
+    const placed = sections.flatMap((section) => section.threads);
+    expect(placed).toHaveLength(threads.length);
+    expect(new Set(placed).size).toBe(threads.length);
+  });
+
+  it("matches the masthead counts once Error is taken out of the live count", () => {
+    const counts = countProjectSidebarThreads(threads);
+    const sections = new Map(
+      groupSidebarThreadsByStatus(threads).map((section) => [section.key, section.threads]),
+    );
+    expect(sections.get("needs-you")).toHaveLength(counts.needYou);
+    const liveOutsideOtherSections = threads.filter(
+      (thread) =>
+        threadMatchesSwitchboardStatFilter(thread, "live") &&
+        !sections.get("needs-you")!.includes(thread) &&
+        !sections.get("error")!.includes(thread),
+    );
+    expect(sections.get("running")).toEqual(liveOutsideOtherSections);
+  });
+
+  it("keeps pinned threads under Pinned and shelved pins on their shelf", () => {
+    const now = "2026-03-09T12:00:00.000Z";
+    const options = { now, supportsSnooze: true, supportsSettlement: true };
+    type LifecycleThread = Parameters<typeof sidebarThreadLifecycleSection>[0];
+    const pinned = (id: string, overrides: Partial<ProjectCountThread> & Record<string, unknown>) =>
+      ({
+        ...statusThread(id, overrides),
+        pinnedAt: "2026-03-09T09:00:00.000Z",
+        snoozedUntil: null,
+        snoozedAt: null,
+        ...overrides,
+      }) as unknown as LifecycleThread & ProjectCountThread;
+    // Pinned wins over every status section: Status mode only arranges `active`.
+    const failed = pinned("pinned-failed", {
+      session: { status: "error", activeTurnId: null } as never,
+    });
+    const needYou = pinned("pinned-need-you", { hasPendingApprovals: true });
+    for (const thread of [failed, needYou]) {
+      expect(sidebarThreadLifecycleSection(thread, options)).toBe("pinned");
+    }
+    const active = [failed, needYou].filter(
+      (thread) => sidebarThreadLifecycleSection(thread, options) === "active",
+    );
+    expect(groupSidebarThreadsByStatus(active)).toEqual([]);
+
+    // A shelf outranks the pin, which is kept: waking or un-settling (no pin
+    // write) brings the thread straight back under Pinned.
+    const snoozed = pinned("pinned-snoozed", {
+      snoozedUntil: "2026-03-10T00:00:00.000Z",
+      snoozedAt: "2026-03-09T08:00:00.000Z",
+    });
+    expect(sidebarThreadLifecycleSection(snoozed, options)).toBe("snoozed");
+    expect(
+      sidebarThreadLifecycleSection(snoozed, { ...options, now: "2026-03-10T00:00:01.000Z" }),
+    ).toBe("pinned");
+    const settled = pinned("pinned-settled", { settledOverride: "settled" });
+    expect(sidebarThreadLifecycleSection(settled, options)).toBe("settled");
+    expect(sidebarThreadLifecycleSection({ ...settled, settledOverride: null }, options)).toBe(
+      "pinned",
+    );
+  });
+
+  it("omits empty sections", () => {
+    expect(groupSidebarThreadsByStatus([statusThread("only-idle")]).map((s) => s.key)).toEqual([
+      "idle",
+    ]);
+    expect(groupSidebarThreadsByStatus([])).toEqual([]);
+  });
+});
+
+describe("pickLanePullRequest", () => {
+  function link(
+    number: number,
+    snapshot: { state: "open" | "closed" | "merged"; isDraft?: boolean; updatedAt: string } | null,
+    source: ThreadPullRequestLink["source"] = "created",
+  ): ThreadPullRequestLink {
+    return {
+      host: "github.com",
+      repository: "acme/app",
+      number,
+      url: `https://github.com/acme/app/pull/${number}`,
+      source,
+      linkedAt: "2026-03-01T00:00:00.000Z",
+      snapshot:
+        snapshot === null
+          ? null
+          : {
+              state: snapshot.state,
+              title: `PR ${number}`,
+              headBranch: "feature",
+              baseBranch: "main",
+              isDraft: snapshot.isDraft ?? false,
+              updatedAt: snapshot.updatedAt,
+              syncedAt: snapshot.updatedAt,
+            },
+      stack: null,
+    } as ThreadPullRequestLink;
+  }
+  const lane = (
+    ...threads: Array<{
+      pullRequests?: ThreadPullRequestLink[];
+      branchPullRequest?: SidebarThreadSummary["branchPullRequest"];
+    }>
+  ) => threads.map((thread) => ({ pullRequests: [], branchPullRequest: null, ...thread }));
+  const branchPr = (number: number) => ({
+    projectId: ProjectId.make("project-1"),
+    repository: "acme/app",
+    number,
+    url: `https://github.com/acme/app/pull/${number}`,
+  });
+
+  it("prefers the branch pull request, with its state from a matching link", () => {
+    expect(
+      pickLanePullRequest(
+        lane(
+          { pullRequests: [link(7, { state: "open", updatedAt: "2026-03-05T00:00:00.000Z" })] },
+          {
+            branchPullRequest: branchPr(3),
+            pullRequests: [link(3, { state: "merged", updatedAt: "2026-03-02T00:00:00.000Z" })],
+          },
+        ),
+      ),
+    ).toEqual({ number: 3, url: "https://github.com/acme/app/pull/3", state: "merged", count: 2 });
+  });
+
+  it("leaves a branch pull request without a snapshot stateless", () => {
+    expect(pickLanePullRequest(lane({ branchPullRequest: branchPr(9) }))).toMatchObject({
+      number: 9,
+      state: null,
+      count: 1,
+    });
+  });
+
+  it("prefers open or draft work, then the most recent, then the higher number", () => {
+    const open = link(10, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    const draft = link(11, { state: "open", isDraft: true, updatedAt: "2026-03-04T00:00:00.000Z" });
+    const merged = link(12, { state: "merged", updatedAt: "2026-03-09T00:00:00.000Z" });
+    expect(
+      pickLanePullRequest(lane({ pullRequests: [open, merged] }, { pullRequests: [draft] })),
+    ).toMatchObject({ number: 11, state: "draft", count: 3 });
+    const closed = link(13, { state: "closed", updatedAt: "2026-03-10T00:00:00.000Z" });
+    expect(pickLanePullRequest(lane({ pullRequests: [merged, closed] }))).toMatchObject({
+      number: 13,
+      state: "closed",
+    });
+    const tieLow = link(20, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    const tieHigh = link(21, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    expect(pickLanePullRequest(lane({ pullRequests: [tieLow, tieHigh] }))?.number).toBe(21);
+  });
+
+  it("counts a pull request linked from two threads once and skips dismissed links", () => {
+    const shared = link(5, { state: "open", updatedAt: "2026-03-02T00:00:00.000Z" });
+    expect(
+      pickLanePullRequest(
+        lane(
+          { pullRequests: [shared] },
+          { pullRequests: [shared, link(6, null, "stack-dismissed")] },
+        ),
+      ),
+    ).toMatchObject({ number: 5, count: 1 });
+    expect(pickLanePullRequest(lane({}, {}))).toBeNull();
   });
 });
 

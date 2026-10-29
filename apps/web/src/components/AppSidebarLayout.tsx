@@ -171,7 +171,11 @@ function SwitchboardSidebarFrame({
       className={isMobile ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-1 flex-row"}
     >
       <ProjectRail orientation={isMobile ? "horizontal" : "vertical"} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* The thread column is the container the switchboard's width
+          breakpoints read. The sidebar's 1px divider comes out of the
+          column width setting, so a 280px setting leaves 279px here: the
+          breakpoints are written as 279px and 359px to switch at 280 and 360. */}
+      <div className="@container/sidebar-column flex min-h-0 min-w-0 flex-1 flex-col">
         {isOnSettings ? (
           <>
             <SidebarChromeHeader isElectron={isElectron} />

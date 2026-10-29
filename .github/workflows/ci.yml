@@ -115,7 +115,8 @@ jobs:
   switchboard_browser:
     name: Switchboard Browser
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The suite alone runs about 6-13 minutes; installs come on top.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -141,8 +142,29 @@ jobs:
           cache: true
           run-install: true
 
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./apps/web/package.json').devDependencies['playwright-core']")" >> "$GITHUB_OUTPUT"
+
+      # The cache key is the playwright-core value verbatim, so it relies on
+      # apps/web pinning an exact version: a range (^1.60.0) would keep one
+      # key while the installed version, and its Chromium build, moved.
+      # The Chromium download is cached per Playwright version; the system
+      # libraries and fonts still come from apt (through the mirrors above).
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
       - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: vp run --filter @e6tools/web test:browser:install
+
+      - name: Install Chromium system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: vp run --filter @e6tools/web test:browser:install-deps
 
       - name: Audit contrast and flags-off snapshots
         env:

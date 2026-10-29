@@ -200,6 +200,7 @@ export function ThreadPullRequestBadgeControl({
   status,
   onOpenStack,
   onOpenPullRequest,
+  decorative = false,
 }: {
   variant: "underline" | "ghost";
   badge: ThreadPullRequestBadge | null;
@@ -207,7 +208,11 @@ export function ThreadPullRequestBadgeControl({
   url?: string | undefined;
   status: PrStatusIndicator | null;
   onOpenStack: () => void;
-  onOpenPullRequest: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onOpenPullRequest: (event: MouseEvent<HTMLElement>) => void;
+  /** A pointer shortcut inside a row that already describes the pull request
+   * (a listbox option may not hold interactive content): a plain span that
+   * still opens on click, outside the tab order and the accessibility tree. */
+  decorative?: boolean;
 }) {
   const presentation = resolveThreadPullRequestBadgePresentation({ badge, number, url, status });
   if (presentation === null) return null;
@@ -231,7 +236,23 @@ export function ThreadPullRequestBadgeControl({
     <Tooltip>
       <TooltipTrigger
         render={
-          isStack ? (
+          decorative ? (
+            <span
+              aria-hidden="true"
+              data-pr-badge
+              className={className}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                if (isStack) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenStack();
+                } else {
+                  onOpenPullRequest(event);
+                }
+              }}
+            />
+          ) : isStack ? (
             <InlineButton
               className={className}
               aria-label={presentation.label}

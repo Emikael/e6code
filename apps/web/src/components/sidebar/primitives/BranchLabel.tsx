@@ -6,12 +6,15 @@ export function BranchLabel({
   branch,
   worktree = false,
   lane = false,
+  showWorktreeTag = true,
   decorative = false,
   className,
 }: {
   branch: string | null;
   worktree?: boolean;
   lane?: boolean;
+  /** A merged lane's clean-up link stands in for the tag. */
+  showWorktreeTag?: boolean;
   /** Hide from assistive tech when the surrounding row describes it instead. */
   decorative?: boolean;
   className?: string;
@@ -37,11 +40,11 @@ export function BranchLabel({
       ) : (
         <span className="truncate font-mono">{branch ?? "No branch"}</span>
       )}
-      {worktree && (
+      {worktree && showWorktreeTag && (
         <span
           className={cn(
             "shrink-0 rounded-[5px] bg-sb-hover px-1.5 py-0.5",
-            lane && "text-[10.5px] font-normal text-sb-muted @max-[280px]/sidebar-column:sr-only",
+            lane && "text-[10.5px] font-normal text-sb-muted @max-[279px]/sidebar-column:sr-only",
           )}
         >
           worktree
