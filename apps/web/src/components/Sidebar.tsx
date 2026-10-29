@@ -2239,9 +2239,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       />
                     )}
                     {prBadge && (
+                      // The badge is a decorative span here (no link or
+                      // button), so it needs its own selector to take the
+                      // row's PR colour instead of its tone class.
                       <span
                         style={{ color: prColor }}
-                        className="shrink-0 [&_a]:text-inherit [&_a]:text-[11px] [&_button]:text-inherit [&_button]:text-[11px]"
+                        className="shrink-0 [&_a]:text-inherit [&_a]:text-[11px] [&_button]:text-inherit [&_button]:text-[11px] [&_[data-pr-badge]]:text-inherit [&_[data-pr-badge]]:text-[11px]"
                       >
                         {prBadge}
                       </span>

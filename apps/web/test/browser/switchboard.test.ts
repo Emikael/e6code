@@ -2868,6 +2868,21 @@ NodeTest.test(
           await audit(`status ${density}`);
           await chooseGroupBy(page, sidebar, "Branch");
         }
+        // Row PR badges (a stack's +N and a single PR) over the hover and selection fills.
+        await sidebar
+          .getByRole("radiogroup", { name: "Density" })
+          .getByRole("radio", { name: "Comfortable" })
+          .click();
+        for (const title of ["Beta thread", "Alpha first"]) {
+          const row = sidebar.getByRole("option", { name: title, exact: true });
+          await row.locator("[data-pr-badge]").waitFor();
+          await row.hover();
+          await audit(`${title} hovered with its PR badge`);
+          await row.click();
+          await row.and(sidebar.locator('[aria-current="page"]')).waitFor();
+          await away();
+          await audit(`${title} selected with its PR badge`);
+        }
         await sidebar.getByRole("button", { name: "Group by Branch", exact: true }).click();
         await page.getByRole("menu").waitFor();
         await audit("group by menu open", "[data-switchboard]");
@@ -2901,8 +2916,8 @@ NodeTest.test(
     console.log(
       `aria-required-children on the Threads listbox: ${listboxFindings.length} (${listboxFindings.join(", ")})`,
     );
-    // One per audited state; any growth fails.
-    NodeAssert.equal(listboxFindings.length, 16);
+    // One per audited state (12 per theme); any growth fails.
+    NodeAssert.equal(listboxFindings.length, 24);
     NodeAssert.deepEqual(violations, []);
   },
 );
