@@ -939,6 +939,12 @@ function SidebarProjectGroupHeader(props: {
 /** Set once the thread sidebar has mounted in this page load; see the reveal. */
 let sidebarMountedThisPageLoad = false;
 
+/** Whether this page load is a reload rather than a fresh visit; see the reveal. */
+function pageLoadIsReload(): boolean {
+  const [entry] = performance.getEntriesByType("navigation");
+  return entry instanceof PerformanceNavigationTiming && entry.type === "reload";
+}
+
 /** Whether a lane's rows include the given thread. */
 function laneHoldsThread(
   threads: readonly EnvironmentThreadShell[],
@@ -3855,6 +3861,37 @@ export default function Sidebar() {
   // rendered at click time.
   const orderedThreadKeysRef = useRef(orderedThreadKeys);
   orderedThreadKeysRef.current = orderedThreadKeys;
+  // Next/previous also reaches rows in collapsed lanes and reveals them; jumps
+  // and range select keep to the rendered order above.
+  const traversalThreadByKey = useMemo(
+    () =>
+      new Map(
+        sidebarVisualThreadOrder({
+          pinned: pinnedThreads,
+          active: sidebarRenderedActiveThreads({
+            branchLanes: branchMode ? branchLanes : layout === "status" ? statusLanes : null,
+            projectGroups: activeProjectGroups,
+            active: activeThreads,
+          }),
+          snoozed: visibleSnoozedThreads,
+          settled: renderedSettledThreads,
+        }).map(
+          (thread) =>
+            [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
+        ),
+      ),
+    [
+      activeProjectGroups,
+      activeThreads,
+      branchLanes,
+      branchMode,
+      layout,
+      pinnedThreads,
+      renderedSettledThreads,
+      statusLanes,
+      visibleSnoozedThreads,
+    ],
+  );
   const threadByKey = useMemo(
     () =>
       new Map(
@@ -3912,15 +3949,16 @@ export default function Sidebar() {
   // Settled threads are live shells, so opening one is plain navigation:
   // history stays readable without un-settling, and sending a message or
   // starting a session un-settles server-side.
-  // Navigations the sidebar starts itself; they never reveal a collapsed lane.
+  // Navigations the sidebar starts itself; they never reveal a collapsed lane
+  // unless they ask to, as next/previous does for a row in one.
   const sidebarNavigationKeyRef = useRef<string | null>(null);
   const navigateToThread = useCallback(
-    (threadRef: ScopedThreadRef) => {
+    (threadRef: ScopedThreadRef, options?: { readonly reveal?: boolean }) => {
       if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
         clearSelection();
       }
       setSelectionAnchor(scopedThreadKey(threadRef));
-      sidebarNavigationKeyRef.current = scopedThreadKey(threadRef);
+      sidebarNavigationKeyRef.current = options?.reveal ? null : scopedThreadKey(threadRef);
       if (isMobile) {
         setOpenMobile(false);
       }
@@ -3934,17 +3972,19 @@ export default function Sidebar() {
 
   // Reaching a thread from outside the sidebar (palette, shortcuts, a
   // notification, a new thread, a deep link) opens the collapsed lane that
-  // hides it and scrolls its row into view. The route the sidebar mounts
-  // with is left alone, so a reload keeps the lane collapsed, and nothing is
-  // written beyond that lane's own collapse key.
+  // hides it and scrolls its row into view. A reload leaves the route it
+  // mounts with alone, so the lane stays collapsed, and nothing is written
+  // beyond that lane's own collapse key.
   const [pendingReveal, setPendingReveal] = useState<{
     readonly threadKey: string;
     readonly expanded: boolean;
   } | null>(null);
-  // Only the page load's first mount keeps its route quiet (a reload). The
-  // sidebar also remounts on the way back from Settings, and reaching a
-  // thread that way is a navigation from outside.
-  const revealRouteKeyRef = useRef(sidebarMountedThisPageLoad ? undefined : routeThreadKey);
+  // Only a reload's first mount keeps its route quiet. A fresh load at a
+  // thread's URL is a deep link, and the sidebar also remounts on the way
+  // back from Settings; both reach the thread from outside.
+  const revealRouteKeyRef = useRef(
+    !sidebarMountedThisPageLoad && pageLoadIsReload() ? routeThreadKey : undefined,
+  );
   useEffect(() => {
     sidebarMountedThisPageLoad = true;
   }, []);
@@ -3970,9 +4010,10 @@ export default function Sidebar() {
       setPendingReveal(null);
       return;
     }
+    // Branch lanes and Status sections both map their rows' lanes.
     const laneKey = laneHoldsThread(pinnedThreads, threadKey)
       ? "pinned"
-      : layout === "branch" && laneHoldsThread(activeThreads, threadKey)
+      : (layout === "branch" || layout === "status") && laneHoldsThread(activeThreads, threadKey)
         ? (laneKeyByThreadKey.get(threadKey) ?? null)
         : null;
     // The thread's shell may not have arrived yet (a new thread); wait for it.
@@ -5763,18 +5804,21 @@ export default function Sidebar() {
       });
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
-        const targetThread = threadByKey.get(targetThreadKey);
+        const targetThread = traversalThreadByKey.get(targetThreadKey);
         if (!targetThread) return false;
         event.preventDefault();
         event.stopPropagation();
-        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
+        // A row that is not rendered sits in a collapsed lane: the reveal opens it.
+        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id), {
+          reveal: !threadByKey.has(targetThreadKey),
+        });
         return true;
       };
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         navigateToThreadKey(
           resolveAdjacentThreadId({
-            threadIds: orderedThreadKeys,
+            threadIds: [...traversalThreadByKey.keys()],
             currentThreadId: routeThreadKey,
             direction: traversalDirection,
           }),
@@ -5794,6 +5838,7 @@ export default function Sidebar() {
     routeTerminalOpen,
     routeThreadKey,
     threadByKey,
+    traversalThreadByKey,
   ]);
 
   // Same predicate as v1: hints show only while the held modifiers exactly

@@ -203,8 +203,9 @@ export function sidebarRenderedActiveThreads<T>(input: {
   return input.projectGroups?.flatMap((group) => group.rendered) ?? input.active;
 }
 
-/** Every rendered row in drawing order. Next/previous, the ⌘1–9 numbering and
- * Shift-click range select all read this order. */
+/** Every rendered row in drawing order. The ⌘1–9 numbering and Shift-click
+ * range select read this order; next/previous reads it with collapsed lanes'
+ * rows included. */
 export function sidebarVisualThreadOrder<T>(input: {
   readonly pinned: readonly T[];
   readonly active: readonly T[];

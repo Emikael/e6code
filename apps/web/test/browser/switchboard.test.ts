@@ -1252,8 +1252,13 @@ async function seedBranchProject(id: string, pinned = true) {
 async function openBranchProject(
   page: Page,
   project: Awaited<ReturnType<typeof seedBranchProject>>,
+  options?: {
+    /** Playwright's fake clock replaces `performance`, so a page that must
+     * tell a reload from a fresh load runs on the real clock. */
+    readonly realClock?: boolean;
+  },
 ) {
-  await page.clock.setFixedTime(new Date(fixedTime));
+  if (options?.realClock !== true) await page.clock.setFixedTime(new Date(fixedTime));
   await page.goto(`${currentUrl}/`);
   try {
     await page
@@ -2437,7 +2442,8 @@ NodeTest.test(
     });
     try {
       const page = await context.newPage();
-      const sidebar = await openBranchProject(page, project);
+      // It reloads with the open thread in a collapsed lane.
+      const sidebar = await openBranchProject(page, project, { realClock: true });
       const listbox = sidebar.getByRole("listbox", { name: "Threads" });
       const toggles = listbox.locator("[data-sb-lane-header] button[aria-expanded]");
       await toggles.first().waitFor();
@@ -2489,7 +2495,7 @@ NodeTest.test(
       await worktreeToggle.waitFor();
       NodeAssert.equal(await worktreeToggle.getAttribute("aria-expanded"), "true");
 
-      // Collapse persists and drops the lane's rows from traversal.
+      // Collapse persists across a reload and drops the lane's rows.
       const row = (key: keyof typeof project.rows) =>
         sidebar.locator(`[data-sb-thread-row$=":${project.threadId(key)}"]`);
       await betaToggle.click();
@@ -2500,10 +2506,6 @@ NodeTest.test(
       await betaToggle.waitFor();
       NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "false");
       const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
-      await row("worktree").click();
-      await page.waitForURL((url) => url.pathname.endsWith(`/${project.threadId("worktree")}`));
-      await page.keyboard.press(`${mod}+Shift+BracketRight`);
-      await page.waitForURL((url) => url.pathname.endsWith(`/${project.threadId("alphaFirst")}`));
 
       // The open thread inside a collapsed lane: the rail and the description.
       await betaToggle.click();
@@ -2535,6 +2537,161 @@ NodeTest.test(
       await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], false);
       await row("beta").and(sidebar.locator('[aria-current="page"]')).waitFor();
       NodeAssert.ok(await onScreen(row("beta")), "The revealed row is not on screen");
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
+  "next and previous thread reach rows in collapsed lanes and reveal them; range select skips them",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-reveal-traversal");
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      const listbox = sidebar.getByRole("listbox", { name: "Threads" });
+      const row = (key: keyof typeof project.rows) =>
+        sidebar.locator(`[data-sb-thread-row$=":${project.threadId(key)}"]`);
+      const opened = async (key: keyof typeof project.rows) => {
+        await page.waitForURL((url) => url.pathname.endsWith(`/${project.threadId(key)}`));
+        await row(key).and(sidebar.locator('[aria-current="page"]')).waitFor();
+      };
+      const betaLane = sidebar.locator(`[data-sb-branch-lane$=":${project.id}:br:feature/beta"]`);
+      const betaKey = await betaLane.getAttribute("data-sb-branch-lane");
+      NodeAssert.ok(betaKey);
+      const betaToggle = betaLane.locator("[data-sb-lane-header] button[aria-expanded]");
+      const pinnedToggle = listbox.getByRole("button", { name: /^Pinned \d+ threads?$/ });
+      const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
+
+      await betaToggle.click();
+      await row("beta").waitFor({ state: "detached" });
+      await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], true);
+      // Range select follows what is on screen: the collapsed lane's row is left out.
+      await row("worktree").click();
+      await opened("worktree");
+      await row("alphaFirst").click({ modifiers: ["Shift"] });
+      NodeAssert.deepEqual(
+        await sidebar
+          .locator('[data-sb-thread-row][aria-selected="true"]')
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-sb-thread-row"))),
+        (["worktree", "alphaFirst"] as const).map((key) =>
+          betaKey.replace(`:${project.id}:br:feature/beta`, `:${project.threadId(key)}`),
+        ),
+      );
+
+      // Next thread lands on the hidden row, opens its lane and scrolls to it.
+      await row("worktree").click();
+      await opened("worktree");
+      await page.keyboard.press(`${mod}+Shift+BracketRight`);
+      await opened("beta");
+      NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "true");
+      await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], false);
+      NodeAssert.ok(await onScreen(row("beta")), "The revealed row is not on screen");
+
+      // Previous thread does the same for a collapsed Pinned lane.
+      await pinnedToggle.click();
+      await waitForPersisted(page, ["sidebarLaneCollapsed", "pinned"], true);
+      await row("worktree").click();
+      await opened("worktree");
+      await page.keyboard.press(`${mod}+Shift+BracketLeft`);
+      await opened("pinFirst");
+      NodeAssert.equal(await pinnedToggle.getAttribute("aria-expanded"), "true");
+      await waitForPersisted(page, ["sidebarLaneCollapsed", "pinned"], false);
+    } finally {
+      await context.close();
+    }
+
+    // Status mode: Pinned is the only section with a toggle, but a collapse key
+    // saved for a Status section still takes its rows out of the drawn order,
+    // so next/previous reveals that section the same way.
+    const statusContext = await newContext({
+      switchboard: true,
+      uiState: {
+        sidebarGroupBy: "status",
+        sidebarLaneCollapsed: { pinned: true, "status:idle": true },
+      },
+    });
+    try {
+      const page = await statusContext.newPage();
+      const sidebar = await openBranchProject(page, project);
+      const listbox = sidebar.getByRole("listbox", { name: "Threads" });
+      await listbox.getByRole("heading", { name: /^Idle/ }).waitFor();
+      const pinnedToggle = listbox.getByRole("button", { name: /^Pinned \d+ threads?$/ });
+      NodeAssert.equal(await pinnedToggle.getAttribute("aria-expanded"), "false");
+      const idleRows = sidebar.locator('[data-sb-status-section="idle"] [data-sb-thread-row]');
+      const pinnedRows = sidebar.locator('[data-sb-branch-lane="pinned"] [data-sb-thread-row]');
+      const current = sidebar.locator('[aria-current="page"]');
+      const mod = await page.evaluate(() => (/Mac/.test(navigator.platform) ? "Meta" : "Control"));
+
+      await idleRows.first().click();
+      await idleRows.first().and(current).waitFor();
+      // Previous thread lands on the collapsed Pinned section's last row and opens it.
+      await page.keyboard.press(`${mod}+Shift+BracketLeft`);
+      await pinnedRows.last().and(current).waitFor();
+      NodeAssert.equal(await pinnedToggle.getAttribute("aria-expanded"), "true");
+      await waitForPersisted(page, ["sidebarLaneCollapsed", "pinned"], false);
+      NodeAssert.ok(await onScreen(pinnedRows.last()), "The revealed row is not on screen");
+      // Next thread goes back into Idle and clears its collapse key.
+      await page.keyboard.press(`${mod}+Shift+BracketRight`);
+      await idleRows.first().and(current).waitFor();
+      await waitForPersisted(page, ["sidebarLaneCollapsed", "status:idle"], false);
+      NodeAssert.ok(await onScreen(idleRows.first()), "The revealed row is not on screen");
+    } finally {
+      await statusContext.close();
+    }
+  },
+);
+
+NodeTest.test(
+  "a deep link reveals its thread's collapsed lane, and a reload keeps it collapsed",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-reveal-deep-link");
+    let betaKey: string | null = null;
+    let betaPath = "";
+    const setup = await newContext({ switchboard: true });
+    try {
+      const page = await setup.newPage();
+      const sidebar = await openBranchProject(page, project);
+      betaKey = await sidebar
+        .locator(`[data-sb-branch-lane$=":${project.id}:br:feature/beta"]`)
+        .getAttribute("data-sb-branch-lane");
+      await sidebar.locator(`[data-sb-thread-row$=":${project.threadId("beta")}"]`).click();
+      await page.waitForURL((url) => url.pathname.endsWith(`/${project.threadId("beta")}`));
+      betaPath = new URL(page.url()).pathname;
+    } finally {
+      await setup.close();
+    }
+    NodeAssert.ok(betaKey);
+    // A fresh page load at the thread's URL, with its lane saved as collapsed.
+    const context = await newContext({
+      switchboard: true,
+      uiState: { sidebarLaneCollapsed: { [betaKey]: true } },
+    });
+    try {
+      const page = await context.newPage();
+      // No fake clock: the page must tell this fresh load from the reload below.
+      await page.goto(`${currentUrl}${betaPath}`);
+      const sidebar = page.locator('[data-switchboard="sidebar"]').first();
+      const betaLane = sidebar.locator(`[data-sb-branch-lane="${betaKey}"]`);
+      const betaToggle = betaLane.locator("[data-sb-lane-header] button[aria-expanded]");
+      const betaRow = sidebar.locator(`[data-sb-thread-row$=":${project.threadId("beta")}"]`);
+      await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], false);
+      await betaRow.and(sidebar.locator('[aria-current="page"]')).waitFor();
+      NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "true");
+      NodeAssert.ok(await onScreen(betaRow), "The revealed row is not on screen");
+
+      // A reload is rest: the lane stays collapsed and marks the open thread.
+      await betaToggle.click();
+      await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], true);
+      await page.reload();
+      await betaLane.locator("[data-sb-open-thread-mark]").waitFor();
+      await afterRenders(page);
+      NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "false");
+      NodeAssert.equal((await readUiState(page)).sidebarLaneCollapsed?.[betaKey], true);
     } finally {
       await context.close();
     }
