@@ -1,7 +1,12 @@
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { runtimeModeConfig, runtimeModeOptions } from "./runtimeModeConfig";
+import {
+  resolveRuntimeModeDisplay,
+  runtimeModeConfig,
+  runtimeModeOptions,
+} from "./runtimeModeConfig";
+import { ComposerPermissionsMenuSection } from "./ComposerPermissionsMenuSection";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { AttachmentFilePreview } from "../files/AttachmentFilePreview";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -261,6 +266,7 @@ import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
+  hasProviderTraitsControls,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
@@ -1057,6 +1063,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
+  /** "hidden" while the effort menu holds Permissions; "icon" for a default mode without one. */
+  runtimeModeDisplay: "label" | "icon" | "hidden";
   size?: "sm" | "xs";
   hidden?: boolean;
   onToggleInteractionMode: () => void;
@@ -1116,6 +1124,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
     </>
   ) : null;
 
+  if (props.runtimeModeDisplay === "hidden") return interactionModeToggle;
+
   return (
     <>
       <ComposerControlSeparator size={size} />
@@ -1133,12 +1143,17 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
                 data-composer-shortcut="composer.mode"
                 size={size}
                 className={size === "xs" ? undefined : "font-medium"}
-                aria-label="Runtime mode"
+                aria-label={`Permissions: ${runtimeModeOption.label}`}
               />
             }
           >
             <ComposerControlIcon icon={RuntimeModeIcon} size={size} />
-            <SelectValue data-composer-control-label>{runtimeModeOption.label}</SelectValue>
+            <SelectValue
+              data-composer-control-label
+              className={props.runtimeModeDisplay === "icon" ? "sr-only" : undefined}
+            >
+              {runtimeModeOption.label}
+            </SelectValue>
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
             {runtimeModeOptions.map((mode) => {
@@ -1162,7 +1177,9 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             })}
           </SelectPopup>
         </Select>
-        <TooltipPopup side="top">{runtimeModeOption.description}</TooltipPopup>
+        <TooltipPopup side="top">
+          {runtimeModeOption.label}: {runtimeModeOption.description}
+        </TooltipPopup>
       </Tooltip>
 
       {interactionModeToggle}
@@ -2602,6 +2619,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
   });
+  const modelHasTraitsMenu = hasProviderTraitsControls({
+    provider: selectedProvider,
+    instanceId: selectedInstanceId,
+    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    model: selectedModel,
+    models: selectedProviderModels,
+    modelOptions: composerModelOptions?.[selectedInstanceId],
+    prompt,
+    onPromptChange: setPromptFromTraits,
+    planModeEnabled: settings.planModeEnabled,
+  });
+  const runtimeModeDisplay = resolveRuntimeModeDisplay({
+    matchesDefault: runtimeMode === settings.defaultRuntimeMode,
+    hasTraitsMenu: modelHasTraitsMenu,
+  });
+  const permissionsInEffortMenu = runtimeModeDisplay === "hidden";
   const providerTraitsPickerInput = {
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -2615,6 +2649,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
     effortDisplay: settings.effortDisplay,
+    ...(permissionsInEffortMenu
+      ? {
+          extraMenu: {
+            content: (
+              <ComposerPermissionsMenuSection
+                runtimeMode={runtimeMode}
+                onRuntimeModeChange={handleRuntimeModeChange}
+              />
+            ),
+            ownsModeShortcut: true,
+            hint: `Permissions: ${runtimeModeConfig[runtimeMode].label}`,
+          },
+        }
+      : {}),
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
@@ -4767,6 +4815,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           showInteractionModeToggle={planModeUiEnabled}
           interactionMode={interactionMode}
           runtimeMode={runtimeMode}
+          runtimeModeDisplay={runtimeModeDisplay}
           size={composerControlsInStrip ? "xs" : "sm"}
           hidden={composerControlsHidden || restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}

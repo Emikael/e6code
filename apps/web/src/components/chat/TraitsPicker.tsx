@@ -16,7 +16,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@e6tools/shared/model";
-import { memo, useCallback } from "react";
+import { memo, type ReactNode, useCallback } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { GaugeIcon, ZapIcon } from "lucide-react";
 import { buttonVariants } from "../ui/button";
@@ -562,6 +562,9 @@ export const TraitsPicker = memo(function TraitsPicker({
   size = "sm",
   hidden = false,
   effortDisplay = "label",
+  extraMenuContent,
+  extraMenuOwnsModeShortcut = false,
+  extraMenuHint,
   ...persistence
 }: TraitsMenuContentProps &
   TraitsPersistence & {
@@ -569,6 +572,12 @@ export const TraitsPicker = memo(function TraitsPicker({
     hidden?: boolean;
     /** Composer chips name the effort level unless the user picked bars. */
     effortDisplay?: EffortDisplay;
+    /** Extra section shown below the traits in the picker popup (Permissions). */
+    extraMenuContent?: ReactNode;
+    /** This trigger also answers composer.mode while the permissions chip is hidden. */
+    extraMenuOwnsModeShortcut?: boolean;
+    /** Extra tooltip text naming what else the menu holds. */
+    extraMenuHint?: string;
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
@@ -623,7 +632,12 @@ export const TraitsPicker = memo(function TraitsPicker({
     ? (effortGlyph.special ?? (effortDisplay === "label" ? effortGlyph.label : null))
     : null;
   const accessibleLabel = effortGlyph
-    ? [`Effort: ${effortGlyph.label}`, showFastModeIcon ? "Fast" : null, ...otherLabels]
+    ? [
+        `Effort: ${effortGlyph.label}`,
+        showFastModeIcon ? "Fast" : null,
+        ...otherLabels,
+        extraMenuHint,
+      ]
         .filter(Boolean)
         .join(" · ")
     : showFastModeIcon
@@ -663,7 +677,13 @@ export const TraitsPicker = memo(function TraitsPicker({
               render={
                 <ComposerControl
                   aria-label={accessibleLabel}
-                  data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
+                  data-composer-shortcut={
+                    isComposerOwned
+                      ? extraMenuOwnsModeShortcut
+                        ? "composer.effort composer.mode"
+                        : "composer.effort"
+                      : undefined
+                  }
                   variant={triggerVariant ?? "ghost"}
                   size={size}
                   className={cn(
@@ -764,6 +784,12 @@ export const TraitsPicker = memo(function TraitsPicker({
           planModeEnabled={planModeEnabled}
           {...persistence}
         />
+        {extraMenuContent ? (
+          <>
+            <MenuDivider />
+            {extraMenuContent}
+          </>
+        ) : null}
       </MenuPopup>
     </Menu>
   );

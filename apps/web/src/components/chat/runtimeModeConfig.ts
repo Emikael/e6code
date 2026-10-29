@@ -1,5 +1,5 @@
 import type { RuntimeMode } from "@e6tools/contracts";
-import { type LucideIcon, LockIcon, LockOpenIcon, PenLineIcon, SparklesIcon } from "lucide-react";
+import { type LucideIcon, LockIcon, PenLineIcon, ShieldOffIcon, SparklesIcon } from "lucide-react";
 
 export const runtimeModeConfig: Record<
   RuntimeMode,
@@ -23,8 +23,22 @@ export const runtimeModeConfig: Record<
   "full-access": {
     label: "Full access",
     description: "Allow commands and edits without prompts.",
-    icon: LockOpenIcon,
+    // An open lock reads like a closed one at small sizes; a crossed shield does not.
+    icon: ShieldOffIcon,
   },
 };
 
 export const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];
+
+/**
+ * Where the composer shows Permissions, so it has exactly one visible home: a labelled chip while
+ * the thread runs on another mode, otherwise the effort menu when the model has one, otherwise an
+ * icon-only chip.
+ */
+export function resolveRuntimeModeDisplay(input: {
+  readonly matchesDefault: boolean;
+  readonly hasTraitsMenu: boolean;
+}): "label" | "icon" | "hidden" {
+  if (!input.matchesDefault) return "label";
+  return input.hasTraitsMenu ? "hidden" : "icon";
+}

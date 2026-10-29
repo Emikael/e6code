@@ -61,6 +61,8 @@ type TraitsRenderInput = {
   isComposerOwned?: boolean;
   /** Composer effort chips name the level or draw bars; only the picker uses it. */
   effortDisplay?: EffortDisplay;
+  /** Permissions section the picker shows below the traits, with its shortcut and hint. */
+  extraMenu?: { content: ReactNode; ownsModeShortcut: boolean; hint: string };
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -223,6 +225,11 @@ function resolveTraitsControlProps(input: TraitsRenderInput) {
   };
 }
 
+/** Whether the model has a traits (effort) menu for this target. */
+export function hasProviderTraitsControls(input: TraitsRenderInput): boolean {
+  return resolveTraitsControlProps(input) !== null;
+}
+
 export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
   const props = resolveTraitsControlProps(input);
   return props ? <TraitsMenuContent {...props} /> : null;
@@ -234,6 +241,13 @@ export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode 
     <TraitsPicker
       {...props}
       {...(input.effortDisplay !== undefined ? { effortDisplay: input.effortDisplay } : {})}
+      {...(input.extraMenu
+        ? {
+            extraMenuContent: input.extraMenu.content,
+            extraMenuOwnsModeShortcut: input.extraMenu.ownsModeShortcut,
+            extraMenuHint: input.extraMenu.hint,
+          }
+        : {})}
     />
   ) : null;
 }
