@@ -1,4 +1,5 @@
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
+import { attachSidebarTree, SIDEBAR_TREE_PROPS } from "../lib/sidebarTree";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@e6tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -716,6 +717,9 @@ function SidebarSectionHeader(props: {
             : undefined
         }
         aria-expanded={props.toggle.expanded}
+        role="treeitem"
+        tabIndex={-1}
+        data-sidebar-row={`shelf:${snoozed ? "snoozed" : "settled"}`}
         data-testid={`sidebar-${snoozed ? "snoozed" : "settled"}-shelf-toggle`}
         className={cn(className, "min-w-0 cursor-pointer")}
       >
@@ -759,6 +763,9 @@ function SidebarProjectGroupHeader(props: {
         type="button"
         onClick={props.onToggle}
         aria-expanded={group.expanded}
+        role="treeitem"
+        tabIndex={-1}
+        data-sidebar-row={`project:${group.projectKey}`}
         className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left text-[13px] font-semibold text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover focus-visible:ring-2"
       >
         {/* The tile is the project's mark; nested thread cards hang off a
@@ -875,8 +882,9 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   return (
     <li className="list-none py-0.5">
       <div
-        role="button"
-        tabIndex={0}
+        role="treeitem"
+        tabIndex={-1}
+        data-sidebar-row={`draft:${draftId}`}
         data-testid="sidebar-draft-row"
         className={cn(
           "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left text-sidebar-foreground outline-none select-none",
@@ -1108,6 +1116,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   dragOverPinned: boolean;
   // Compact wake countdown ("2h") for rows in the snoozed shelf.
   snoozeWakeLabelText: string | null;
+  // The tree row this one sits under (a project group or a shelf), for arrow-key navigation.
+  navigationParent?: string | undefined;
   // When a snooze ended (timer or early wake); drives the Woke pill until
   // the user visits the thread.
   wokeAt: string | null;
@@ -1382,11 +1392,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.target !== event.currentTarget) return;
+      if (event.key === "F2" && !isRenaming) {
+        event.preventDefault();
+        onStartRename(threadRef, thread.title);
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       onThreadActivate(threadRef);
     },
-    [onThreadActivate, threadRef],
+    [isRenaming, onStartRename, onThreadActivate, thread.title, threadRef],
   );
   const handleDoubleClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -1721,8 +1736,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             render={
               <div
                 ref={rowRef}
-                role="button"
-                tabIndex={0}
+                role="treeitem"
+                tabIndex={-1}
+                data-sidebar-row={threadKey}
+                data-sidebar-parent={props.navigationParent}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
@@ -1896,8 +1913,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           render={
             <div
               ref={rowRef}
-              role="button"
-              tabIndex={0}
+              role="treeitem"
+              tabIndex={-1}
+              data-sidebar-row={threadKey}
+              data-sidebar-parent={props.navigationParent}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
@@ -3331,6 +3350,16 @@ export default function Sidebar() {
     listMotionRef.current = node === null ? null : createSidebarListMotion(node);
     listMotionRef.current?.update(false);
   }, []);
+  // The list is also a keyboard tree: arrows move between rows without opening them.
+  const detachSidebarTreeRef = useRef<(() => void) | undefined>(undefined);
+  const attachTreeRef = useCallback(
+    (node: HTMLUListElement | null) => {
+      attachListMotionRef(node);
+      detachSidebarTreeRef.current?.();
+      detachSidebarTreeRef.current = attachSidebarTree(node);
+    },
+    [attachListMotionRef],
+  );
 
   // Hold the chosen section and order until every key write arrives. This
   // also covers first-time ordering, which assigns keys to keyless neighbors.
@@ -4973,8 +5002,8 @@ export default function Sidebar() {
                 <SidebarDragLifecycle onUnmount={cancelThreadDrag} />
                 <SortableContext items={sortableIds} strategy={sidebarSortingStrategy}>
                   <ul
-                    ref={attachListMotionRef}
-                    role="list"
+                    {...SIDEBAR_TREE_PROPS}
+                    ref={attachTreeRef}
                     className={cn(
                       "relative flex flex-col gap-px",
                       sidebarListItems.length > 0 && "flex-1",
@@ -4985,6 +5014,7 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
+                        navigationParent?: string,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5003,6 +5033,12 @@ export default function Sidebar() {
                             thread={thread}
                             variant={rowVariant}
                             nested={activeProjectGroups !== null && section === "active"}
+                            navigationParent={
+                              navigationParent ??
+                              (section === "snoozed" || section === "settled"
+                                ? `shelf:${section}`
+                                : undefined)
+                            }
                             // Snoozed rows wake, settled rows un-settle, and cards settle.
                             variantAction={
                               section === "snoozed"
@@ -5096,6 +5132,7 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
+                        navigationParent?: string,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5114,7 +5151,7 @@ export default function Sidebar() {
                               optimisticDrop !== null
                             }
                           >
-                            {(bag) => renderThreadRowInner(thread, section, bag)}
+                            {(bag) => renderThreadRowInner(thread, section, bag, navigationParent)}
                           </SortableThreadRow>
                         );
                       };
@@ -5197,7 +5234,9 @@ export default function Sidebar() {
                                 />,
                               );
                               for (const thread of group.rendered) {
-                                items.push(renderThreadRow(thread, "active"));
+                                items.push(
+                                  renderThreadRow(thread, "active", `project:${group.projectKey}`),
+                                );
                               }
                             }
                             break;

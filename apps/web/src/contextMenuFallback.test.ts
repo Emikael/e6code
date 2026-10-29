@@ -104,6 +104,11 @@ class FakeElement {
     return `${this.textValue}${this.children.map((child) => child.textContent).join("")}`;
   }
 
+  // These menus open from a pointer, so the opener is never :focus-visible.
+  matches(_selector: string) {
+    return false;
+  }
+
   querySelectorAll(tagName: string): FakeElement[] {
     const matches: FakeElement[] = [];
     if (this.tagName === tagName) {
@@ -191,6 +196,8 @@ beforeEach(() => {
   vi.stubGlobal("window", {
     innerWidth: 1280,
     innerHeight: 800,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
   });
   vi.stubGlobal("requestAnimationFrame", (callback: (time: number) => void) => {
     callback(0);

@@ -22,3 +22,12 @@ In a browser, plain `F6` may move to the browser's own toolbar. Use `mod+F6` and
 `mod+Shift+F6` instead (`mod` is Command on macOS and Ctrl elsewhere). **Focus Next
 Workspace Area** and **Focus Previous Workspace Area** are also in the command palette and
 can be remapped in Settings > Keybindings.
+
+## Browse threads
+
+Tab enters the sidebar once. Up and Down move between threads without opening them; Enter
+opens the focused thread or toggles a group. Right and Left expand and collapse groups.
+Tab moves from the focused thread to its buttons. `F2` renames the focused thread.
+
+Press `Shift+F10` or the Context Menu key to open the focused thread's menu. Use the arrow
+keys to move through it, Enter to choose, and Escape to close it.
