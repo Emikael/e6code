@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test:browser": "node --test --test-force-exit test/browser/switchboard.test.ts",
     "test:browser:install": "playwright-core install --with-deps --only-shell chromium",
+    "test:browser:install-deps": "playwright-core install-deps chromium-headless-shell",
     "test": "vp test run --passWithNoTests --project unit"
   },
   "dependencies": {
