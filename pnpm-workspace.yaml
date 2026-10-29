@@ -51,9 +51,9 @@ catalog:
   typescript: 7.0.2
   # The `vite` override pins every Vite consumer to this core release, so it must move
   # with `vite-plus`. Dependabot only bumps the latter; update both together.
-  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
-  vite-plus: 1.1.0
-  wrangler: 4.151.2
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+  wrangler: 4.156.0
   yaml: ^2.9.0
 
 minimumReleaseAgeExclude:
@@ -97,15 +97,15 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/prisma@1.0.0-rc.12"
   - "@distilled.cloud/railway@1.0.0-rc.12"
   - "@distilled.cloud/stripe@1.0.0-rc.12"
-  - wrangler@4.151.2
-  - "@cloudflare/workerd-darwin-64@1.20261019.1"
-  - "@cloudflare/workerd-darwin-arm64@1.20261019.1"
-  - "@cloudflare/workerd-linux-64@1.20261019.1"
-  - "@cloudflare/workerd-linux-arm64@1.20261019.1"
-  - "@cloudflare/workerd-windows-64@1.20261019.1"
+  - wrangler@4.156.0
+  - "@cloudflare/workerd-darwin-64@1.20261023.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20261023.1"
+  - "@cloudflare/workerd-linux-64@1.20261023.1"
+  - "@cloudflare/workerd-linux-arm64@1.20261023.1"
+  - "@cloudflare/workerd-windows-64@1.20261023.1"
   - astro@7.4.1
-  - miniflare@5.20261019.0-beta
-  - workerd@1.20261019.1
+  - miniflare@5.20261023.3-beta
+  - workerd@1.20261023.1
 
 overrides:
   # Earlier React Navigation declarations create a circular type alias in TypeScript 7.
@@ -154,6 +154,13 @@ overrides:
   # ENG-31: GHSA-2m5v-pch6-74hx, GHSA-xjj6-f33q-929c, GHSA-qrxm-fqhp-jwvm.
   # @ai-sdk/provider-utils and node-gyp accept ^6.28.0. 6.29.1 is the patched release.
   "undici@^6": ^6.29.1
+  # ENG-33: GHSA-2m5v-pch6-74hx, GHSA-4w7w-5xrc-9h26, GHSA-xjj6-f33q-929c,
+  # GHSA-qrxm-fqhp-jwvm. miniflare pinned 7.29.1 and alchemy accepts ^7.16.0.
+  # 7.30.1 is the patched release.
+  "undici@^7": ^7.30.1
+  # ENG-33: GHSA-68fv-2mgg-jv7q. postcss, css-tree, and magicast accept ^1.2.1.
+  # 1.2.2 is the patched release.
+  source-map-js: ^1.2.2
   # ENG-31: GHSA-mrhx-c7xc-m3w5. Zod 4 parents accept ^4; 4.6.6 is the patched floor.
   # Zod 3 has no patched release, so it stays on its own line.
   "zod@^4": ^4.6.7
