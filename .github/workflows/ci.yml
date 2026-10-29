@@ -146,6 +146,9 @@ jobs:
         id: playwright
         run: echo "version=$(node -p "require('./apps/web/package.json').devDependencies['playwright-core']")" >> "$GITHUB_OUTPUT"
 
+      # The cache key is the playwright-core value verbatim, so it relies on
+      # apps/web pinning an exact version: a range (^1.60.0) would keep one
+      # key while the installed version, and its Chromium build, moved.
       # The Chromium download is cached per Playwright version; the system
       # libraries and fonts still come from apt (through the mirrors above).
       - name: Cache Playwright Chromium
