@@ -1896,7 +1896,7 @@ const SIDEBAR_STATUS_SECTION_ORDER: readonly SidebarStatusSectionKey[] = [
  * Running are exactly the masthead's need-you and live stats; Idle takes the
  * rest, so every thread has a section. Pinned, snoozed and settled threads
  * never reach this: they keep their own lane and shelves. */
-export function sidebarStatusSectionOf(thread: ProjectCountThread): SidebarStatusSectionKey {
+function sidebarStatusSectionOf(thread: ProjectCountThread): SidebarStatusSectionKey {
   if (threadMatchesSwitchboardStatFilter(thread, "need-you")) return "needs-you";
   if (resolveSidebarThreadStatus(thread) === "failed") return "error";
   if (threadMatchesSwitchboardStatFilter(thread, "live")) return "running";
