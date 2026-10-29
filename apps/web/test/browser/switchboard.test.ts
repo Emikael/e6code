@@ -2063,7 +2063,7 @@ NodeTest.test(
     const context = await newContext({ switchboard: true });
     try {
       const page = await context.newPage();
-      const sidebar = await openBranchProject(page, project);
+      const sidebar = await openBranchProject(page, project, { settleComposerFocus: true });
       const trigger = sidebar.getByRole("button", { name: "Group by Branch", exact: true });
       await trigger.waitFor();
       // The header row holds the two controls and no thread count.
@@ -2282,7 +2282,7 @@ NodeTest.test(
     const context = await newContext({ switchboard: true, uiState: { sidebarGroupBy: "status" } });
     try {
       const page = await context.newPage();
-      const sidebar = await openBranchProject(page, project);
+      const sidebar = await openBranchProject(page, project, { settleComposerFocus: true });
       const menu = page.getByRole("menu");
       // DOM focus and the menu's own highlight must agree, or the next key
       // moves from an item the user is not on.
