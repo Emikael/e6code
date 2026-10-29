@@ -35,6 +35,11 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
+import {
+  mcpToolCallParts,
+  toolCallLines,
+  toolCallText,
+} from "@e6tools/client-runtime/work-log/tool-call";
 
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
@@ -56,6 +61,8 @@ export interface ThreadFeedActivity {
   readonly detail: string | null;
   readonly canExpand: boolean;
   readonly getFullDetail: () => string | null;
+  /** The expanded body split into the call (foreground) and its result (muted). */
+  readonly getExpandedParts: () => WorkEntryExpandedParts | null;
   readonly getCopyText: () => string;
   readonly icon:
     | "agent"
@@ -985,6 +992,46 @@ function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
   if (entry.tone === "thinking") return "agent";
   if (entry.tone === "info") return "check";
   return "zap";
+}
+
+export interface WorkEntryExpandedParts {
+  readonly call: string | null;
+  readonly result: string | null;
+}
+
+function buildWorkEntryExpandedParts(entry: WorkLogEntry): WorkEntryExpandedParts | null {
+  if (entry.agentSpawn) {
+    const result = agentSpawnExpandedBody(entry.agentSpawn);
+    return result ? { call: null, result } : null;
+  }
+  const visibleLabel = workEntryRowLabel(entry, true).trim();
+  const seen: string[] = [];
+  const keep = (value: string | null | undefined) => {
+    const trimmed = value?.trim();
+    if (!trimmed || (!entry.command && (trimmed === visibleLabel || seen.includes(trimmed)))) {
+      return null;
+    }
+    seen.push(trimmed);
+    return trimmed;
+  };
+  let call: string | null = null;
+  const results: string[] = [];
+  if (entry.itemType === "mcp_tool_call" && entry.toolData !== undefined) {
+    const parts = mcpToolCallParts(entry.toolData);
+    call = keep(toolCallText(toolCallLines({ args: parts.args })));
+    const result = keep(parts.result);
+    if (result) results.push(result);
+  }
+  const command = keep(entry.rawCommand ?? entry.command);
+  if (command) call = call ? `${call}\n\n${command}` : command;
+  const detail = keep(entry.detail);
+  if (detail) results.push(detail);
+  if ((entry.changedFiles?.length ?? 0) > 0) {
+    const files = keep(entry.changedFiles!.join("\n"));
+    if (files) results.push(files);
+  }
+  const result = results.length > 0 ? results.join("\n\n") : null;
+  return call || result ? { call, result } : null;
 }
 
 function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
@@ -2469,6 +2516,7 @@ function toThreadFeedActivityEntry(
   const summary = workEntryHeading(entry);
   const detail = workEntryPreview(entry);
   const getFullDetail = memoizeValue(() => buildWorkEntryExpandedBody(entry));
+  const getExpandedParts = memoizeValue(() => buildWorkEntryExpandedParts(entry));
   const getCopyText = memoizeValue(() => {
     const copyLabel = capitalizePhrase(normalizeCompactToolLabel(entry.toolTitle || entry.label));
     const fullDetail = getFullDetail();
@@ -2498,6 +2546,7 @@ function toThreadFeedActivityEntry(
       detail,
       canExpand: workEntryCanExpand(entry),
       getFullDetail,
+      getExpandedParts,
       getCopyText,
       icon: workEntryIcon(entry),
       toolLike: workLogEntryIsToolLike(entry),

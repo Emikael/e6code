@@ -1,4 +1,9 @@
 import { ArrowUpIcon, ClockIcon } from "lucide-react";
+import {
+  mcpToolCallParts,
+  toolCallLines,
+  toolCallText,
+} from "@e6tools/client-runtime/work-log/tool-call";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -4642,33 +4647,46 @@ function workEntryRawCommand(
   return rawCommand === workEntry.command.trim() ? null : rawCommand;
 }
 
+interface ToolCallExpandedBody {
+  /** The call itself (command or arguments), shown in the foreground. */
+  readonly call: string | null;
+  /** What came back, shown muted below the call. */
+  readonly result: string | null;
+}
+
 function buildToolCallExpandedBody(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
   visibleLabel: string,
   viewedImagePath: string | null,
-): string | null {
-  const blocks: string[] = [];
+): ToolCallExpandedBody | null {
   const seen = new Set<string>([visibleLabel.trim()]);
-  const addBlock = (value: string | null | undefined) => {
+  const unseen = (value: string | null | undefined) => {
     const text = value?.trim();
-    if (!text || seen.has(text)) return;
+    if (!text || seen.has(text)) return null;
     seen.add(text);
-    blocks.push(text);
+    return text;
   };
+  const results: string[] = [];
+  let call: string | null = null;
   if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
-    addBlock(`MCP call\n${JSON.stringify(workEntry.toolData, null, 2)}`);
+    const parts = mcpToolCallParts(workEntry.toolData);
+    call = unseen(toolCallText(toolCallLines({ args: parts.args })));
+    const result = unseen(parts.result);
+    if (result) results.push(result);
   }
   const command = workEntry.command?.trim();
   const raw = workEntryRawCommand(workEntry);
-  if (command === visibleLabel.trim()) {
-    seen.add(command);
-  } else {
-    addBlock(raw ?? command);
+  // The row title truncates to its width, so the body always has the full command.
+  const fullCommand = raw ?? command;
+  if (fullCommand && call === null) {
+    seen.add(fullCommand);
+    call = fullCommand;
   }
   const detail = workEntry.detail?.trim();
   if (detail !== viewedImagePath?.trim()) {
-    addBlock(detail);
+    const text = unseen(detail);
+    if (text) results.push(text);
   }
   const viewedImagePaths = new Set(
     viewedImagePath
@@ -4685,9 +4703,11 @@ function buildToolCallExpandedBody(
       : [formattedPath];
   });
   if (changedFiles.length > 0) {
-    addBlock([...new Set(changedFiles)].join("\n"));
+    const text = unseen([...new Set(changedFiles)].join("\n"));
+    if (text) results.push(text);
   }
-  return blocks.length > 0 ? blocks.join("\n\n") : null;
+  const result = results.length > 0 ? results.join("\n\n") : null;
+  return call || result ? { call, result } : null;
 }
 
 const toolCallExpandedBodyClassName =
@@ -5161,11 +5181,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       ) : null}
       {expanded && canExpand && expandedBody && !workEntry.questionAnswer ? (
         <div
-          className="mt-1 ms-7 cursor-default rounded-md bg-muted/40 px-3 py-2"
+          className="mt-1 ms-7 cursor-default space-y-1.5"
           onClick={stopRowToggle}
           onPointerDown={stopRowToggle}
         >
-          <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
+          {expandedBody.call ? (
+            <pre className={cn(toolCallExpandedBodyClassName, "text-foreground/85")}>
+              {expandedBody.call}
+            </pre>
+          ) : null}
+          {expandedBody.result ? (
+            <pre className={toolCallExpandedBodyClassName}>{expandedBody.result}</pre>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -748,6 +748,8 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   const { row, expanded } = props;
   const canExpand = row.canExpand;
   const fullDetail = expanded ? row.getFullDetail() : null;
+  // Tool calls show the call in the foreground and the result muted below it.
+  const expandedParts = expanded ? row.getExpandedParts() : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(row.workEntry);
   const previewText = workEntryRowLabel(row.workEntry);
@@ -884,7 +886,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
           entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
           layout={WORK_LOG_LAYOUT_TRANSITION}
-          className="ml-7 border-l border-border pb-1 pl-3 pt-0.5"
+          className="ml-7 pb-1 pl-3 pt-0.5"
         >
           {row.workEntry.questionAnswer ? (
             <QuestionAnswerHistory
@@ -904,9 +906,22 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
             className="max-h-60"
             contentContainerStyle={{ paddingRight: 8 }}
           >
-            <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
-              {fullDetail}
-            </Text>
+            {expandedParts?.call ? (
+              <Text selectable className="font-mono text-2xs leading-normal text-foreground">
+                {expandedParts.call}
+              </Text>
+            ) : null}
+            {expandedParts?.result ? (
+              <Text
+                selectable
+                className={cn(
+                  "font-mono text-2xs leading-normal text-foreground-muted",
+                  expandedParts.call && "mt-1.5",
+                )}
+              >
+                {expandedParts.result}
+              </Text>
+            ) : null}
           </ScrollView>
         </Animated.View>
       ) : null}

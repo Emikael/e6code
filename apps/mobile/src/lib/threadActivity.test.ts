@@ -517,6 +517,42 @@ describe("buildThreadFeed", () => {
     expect(row?.getCopyText()).toBe(`Command run\n${command}`);
   });
 
+  it("splits an MCP call's arguments from its result", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-mcp-call"),
+      projectId: ProjectId.make("project-1"),
+      title: "MCP call",
+      activities: [
+        makeActivity({
+          id: EventId.make("mcp-call"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Snapshot",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          payload: {
+            itemType: "mcp_tool_call",
+            title: "Snapshot",
+            data: {
+              item: {
+                server: "e6-code",
+                tool: "preview_snapshot",
+                arguments: { url: "http://localhost:5173" },
+                result: { content: [{ type: "text", text: "Snapshot saved" }] },
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    expect(group.activities[0]?.getExpandedParts()).toEqual({
+      call: "url http://localhost:5173",
+      result: "Snapshot saved",
+    });
+  });
+
   it("keeps command output when it equals the displayed command", () => {
     const command = "printf hello";
     const thread = makeThread({
@@ -2094,6 +2130,7 @@ describe("buildThreadFeed", () => {
       detail: null,
       canExpand: false,
       getFullDetail: () => null,
+      getExpandedParts: () => null,
       getCopyText: () => id,
       icon: "command",
       toolLike: true,
@@ -2209,6 +2246,7 @@ describe("buildThreadFeed", () => {
         detail: lifecycleStatus === "stopped" ? "Exit code 130" : null,
         canExpand: false,
         getFullDetail: () => null,
+        getExpandedParts: () => null,
         getCopyText: () => id,
         icon: "command",
         toolLike: true,
@@ -2870,6 +2908,7 @@ describe("buildThreadFeed", () => {
             detail: null,
             canExpand: false,
             getFullDetail: () => null,
+            getExpandedParts: () => null,
             getCopyText: () => "",
             icon: "command",
             toolLike: true,
