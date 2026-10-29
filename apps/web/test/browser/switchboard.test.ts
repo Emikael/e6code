@@ -3306,10 +3306,10 @@ NodeTest.test(
     }
     const context = await newContext();
     try {
-      const [baseVars, currentVars] = await Promise.all([
-        rootCustomProperties(context, mainUrl),
-        rootCustomProperties(context, currentUrl),
-      ]);
+      // Sequential on purpose: two concurrent newPage + clock.setFixedTime calls in
+      // one context race inside Playwright's clock controller.
+      const baseVars = await rootCustomProperties(context, mainUrl);
+      const currentVars = await rootCustomProperties(context, currentUrl);
       const names = new Set([...Object.keys(baseVars), ...Object.keys(currentVars)]);
       const added = [...names].filter((name) => !(name in baseVars)).sort();
       const removed = [...names].filter((name) => !(name in currentVars)).sort();
