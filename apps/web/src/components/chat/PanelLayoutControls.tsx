@@ -74,6 +74,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
             }
             variant="ghost"
             size="sm"
+            data-right-panel-toggle
             disabled={!rightPanelAvailable}
           >
             <PanelRightIcon className="size-4" />

@@ -70,6 +70,7 @@ export function PreviewPanelShell(props: {
   const open = props.open ?? true;
   const maximized = props.maximized ?? false;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const returnedFocus = useRef(false);
   // Only inline non-maximized mode applies `width`/`maxWidth`; skip the
   // container measurement (and its re-renders) everywhere else.
   const maxWidth = useClampedMaxWidth(hostRef, isInline && !maximized);
@@ -117,6 +118,35 @@ export function PreviewPanelShell(props: {
       window.cancelAnimationFrame(restoreFrame);
     };
   }, [suppressWidthTransition]);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host || !collapsible) return;
+    return () => {
+      if (!host.contains(host.ownerDocument.activeElement) && !returnedFocus.current) return;
+      // The toggle moves when the shell unmounts, after an animation or immediately.
+      // Restore focus at its committed location if removal cleared focus to body.
+      queueMicrotask(() => {
+        if (host.ownerDocument.activeElement === host.ownerDocument.body) {
+          host.ownerDocument.querySelector<HTMLButtonElement>("[data-right-panel-toggle]")?.focus();
+        }
+      });
+    };
+  }, [collapsible, hostRef]);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const collapsed = collapsible && !open;
+    if (!collapsed) returnedFocus.current = false;
+    // Move focus before making its current owner inert, while the toggle is reachable.
+    if (collapsed && host.contains(host.ownerDocument.activeElement)) {
+      const toggle = host.ownerDocument.querySelector<HTMLButtonElement>(
+        "[data-right-panel-toggle]",
+      );
+      toggle?.focus();
+      returnedFocus.current = toggle !== null && host.ownerDocument.activeElement === toggle;
+    }
+    host.toggleAttribute("inert", collapsed);
+  }, [collapsible, open, hostRef]);
   return (
     <div
       ref={hostRef}
@@ -124,7 +154,9 @@ export function PreviewPanelShell(props: {
         "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-background",
         isInline
           ? maximized
-            ? "flex-1 border-l border-border"
+            ? // Maximized, the panel's left edge meets the sidebar's own border
+              // (or the window edge), so a second border would double it.
+              "flex-1"
             : "shrink-0 border-l border-border"
           : "w-full",
         collapsible &&

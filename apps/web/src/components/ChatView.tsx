@@ -224,6 +224,7 @@ import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { AgentsPanel } from "./AgentsPanel";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
@@ -704,8 +705,10 @@ function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
   // instead of typing into the composer.
   const launcherKeys = document
     .querySelector("[data-surface-launcher-keys]")
-    ?.getAttribute("data-surface-launcher-keys");
-  if (launcherKeys && launcherKeys.toLowerCase().includes(event.key.toLowerCase())) return false;
+    ?.getAttribute("data-surface-launcher-keys")
+    ?.toLowerCase();
+  const launcherKey = surfaceShortcutKey(event);
+  if (launcherKey !== null && launcherKeys?.includes(launcherKey)) return false;
 
   return true;
 }
@@ -1733,9 +1736,6 @@ export default function ChatView(props: ChatViewProps) {
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
-  const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
-    null,
-  );
   const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
   const userInputResponsesInFlight = useRef(new Set<string>());
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
@@ -1757,7 +1757,7 @@ export default function ChatView(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const prefersRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const isMobileViewport = useMediaQuery("max-sm");
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
@@ -2026,6 +2026,7 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
+  const shouldUseRightPanelSheet = prefersRightPanelSheet && rightPanelState.maximized !== true;
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
   );
@@ -2088,9 +2089,8 @@ export default function ChatView(props: ChatViewProps) {
     activePreviewMiniPlayer?.source ?? null,
     renderedRightPanelSurface,
   );
-  const canMaximizeRightPanel = rightPanelOpen && !shouldUseRightPanelSheet;
-  const rightPanelMaximized =
-    canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
+  const canMaximizeRightPanel = rightPanelOpen;
+  const rightPanelMaximized = canMaximizeRightPanel && rightPanelState.maximized === true;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUseRightPanelSheet;
 
   useEffect(() => {
@@ -4870,7 +4870,7 @@ export default function ChatView(props: ChatViewProps) {
           .getState()
           .open(activeThreadRef, { kind: "device", ...activeRightPanelSurface.target });
       }
-      setMaximizedRightPanelThreadKey(null);
+      useRightPanelStore.getState().setMaximized(activeThreadRef, false);
       useRightPanelStore.getState().close(activeThreadRef);
     }
   }, [activeRightPanelSurface, activeThreadRef]);
@@ -5034,11 +5034,9 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
   const toggleRightPanelMaximized = useCallback(() => {
-    if (!canMaximizeRightPanel) return;
-    setMaximizedRightPanelThreadKey((threadKey) =>
-      threadKey === routeThreadKey ? null : routeThreadKey,
-    );
-  }, [canMaximizeRightPanel, routeThreadKey]);
+    if (!canMaximizeRightPanel || !activeThreadRef) return;
+    useRightPanelStore.getState().setMaximized(activeThreadRef, !rightPanelMaximized);
+  }, [activeThreadRef, canMaximizeRightPanel, rightPanelMaximized]);
   const cleanupRightPanelSurfaces = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
@@ -5113,8 +5111,10 @@ export default function ChatView(props: ChatViewProps) {
         (left, right) => Number(left.id === activeId) - Number(right.id === activeId),
       );
       for (const surface of ordered) {
-        cleanupRightPanelSurfaces([surface]);
+        // Releasing a browser drops its session, which prunes the tab automatically; close it
+        // first so the close stays a user action that hides the panel after the last tab.
         store.closeSurface(activeThreadRef, surface.id);
+        cleanupRightPanelSurfaces([surface]);
       }
       syncActivePreviewSurface();
     },
@@ -10688,7 +10688,13 @@ export default function ChatView(props: ChatViewProps) {
             // the sheet opens.
             layoutControls={
               rightPanelOpen ? (
-                <div className="mr-px flex items-center">{panelToggleControls}</div>
+                <div className="mr-px flex items-center gap-1">
+                  <RightPanelMaximizeControl
+                    maximized={rightPanelMaximized}
+                    onToggle={toggleRightPanelMaximized}
+                  />
+                  {panelToggleControls}
+                </div>
               ) : null
             }
             surfaces={renderedRightPanelSurfaces}

@@ -84,6 +84,24 @@ describe("rightPanelStore", () => {
     ]);
   });
 
+  it("hides the panel when browser reconciliation removes its last session tab", () => {
+    const store = useRightPanelStore.getState();
+    store.openBrowser(refA, "tab-a");
+    store.reconcileBrowserSurfaces(refA, []);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: false,
+      activeSurfaceId: null,
+      surfaces: [],
+    });
+
+    store.openBrowser(refA, "tab-b");
+    store.open(refA, "diff");
+    store.reconcileBrowserSurfaces(refA, []);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ isOpen: true, activeSurfaceId: "diff" });
+  });
+
   it("keeps a dismissed device hidden after another file opens", () => {
     const store = useRightPanelStore.getState();
     const device = {
@@ -317,6 +335,35 @@ describe("rightPanelStore", () => {
 
     expect(store.openProactive(refA, completedDiff, revision)).toBe(true);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+  });
+
+  it("keeps a maximized panel per thread without counting it as a manual choice", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "preview");
+    store.open(refB, "diff");
+    const revision = store.getUserActionRevision(refA);
+    store.setMaximized(refA, true);
+    store.setMaximized(refB, true);
+    store.setMaximized(refB, false);
+
+    const { byThreadKey } = useRightPanelStore.getState();
+    expect(selectThreadRightPanelState(byThreadKey, refA).maximized).toBe(true);
+    expect(selectThreadRightPanelState(byThreadKey, refB).maximized).toBeUndefined();
+    expect(store.getUserActionRevision(refA)).toBe(revision);
+  });
+
+  it("restores a saved maximized panel during migration", () => {
+    const migrated = migratePersistedRightPanelState({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "browser:new",
+          surfaces: [{ id: "browser:new", kind: "preview", resourceId: null }],
+          maximized: true,
+        },
+      },
+    });
+    expect(selectThreadRightPanelState(migrated.byThreadKey, refA).maximized).toBe(true);
   });
 
   it("drops the legacy singleton terminal surface during migration", () => {
