@@ -1258,7 +1258,8 @@ describe("branch drag feedback", () => {
     expect(announce({ verb: "Can't move here" })).toBe(
       "Can't move to No branch. Branch comes from the thread's worktree.",
     );
-    expect(announce({ verb: null })).toBe("Cannot drop here");
+    // The spec's copy is "Can't", never "Cannot".
+    expect(announce({ verb: null })).toBe("Can't drop here");
   });
 
   it.each([

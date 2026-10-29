@@ -1831,7 +1831,7 @@ NodeTest.test(
       await startRowDrag(page, row("worktree"));
       await moveDragTo(page, row("snoozed"), 0.5, true);
       // The live region confirms a non-target; a misread lane would announce "Can't move to …".
-      await dndAnnouncement(page, "Cannot drop here").waitFor({ state: "attached" });
+      await dndAnnouncement(page, "Can't drop here").waitFor({ state: "attached" });
       NodeAssert.equal(await overlay.locator("[data-sb-drag-verb]").count(), 0);
       NodeAssert.equal(await sidebar.locator("[data-sb-drop-rejected]").count(), 0);
       await page.mouse.up();

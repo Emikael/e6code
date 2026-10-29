@@ -506,7 +506,7 @@ export function resolveSidebarBranchDragAnnouncement(input: {
   }
   if (verb === "Pin") return "Pin thread: drop to pin";
   if (verb !== null) return `${verb} thread`;
-  if (!input.overSelf) return "Cannot drop here";
+  if (!input.overSelf) return "Can't drop here";
   return input.leftOwnSlot ? "Thread is back in its place" : undefined;
 }
 
