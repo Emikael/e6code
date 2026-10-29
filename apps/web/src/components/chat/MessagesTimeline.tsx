@@ -1,4 +1,5 @@
 import { ArrowUpIcon, ClockIcon } from "lucide-react";
+import { observeResize } from "~/lib/observeResize";
 import {
   mcpToolCallParts,
   toolCallLines,
@@ -391,12 +392,29 @@ function TimelineLoadEarlierHeader({
 function TimelineListFooter({
   composerInset,
   frontierResolution,
+  threadNow,
+  onGrow,
 }: {
   readonly composerInset: number;
   readonly frontierResolution?: ReactNode;
+  readonly threadNow?: ReactNode;
+  /** The footer's content grew, such as a new status line, which the list does not follow. */
+  readonly onGrow: () => void;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    let height = content.offsetHeight;
+    return observeResize(content, () => {
+      const next = content.offsetHeight;
+      if (next > height) onGrow();
+      height = next;
+    });
+  }, [onGrow]);
   return (
-    <div>
+    <div ref={contentRef}>
+      {threadNow ? <div data-thread-now="true">{threadNow}</div> : null}
       {frontierResolution ? (
         <div
           className="mx-auto w-full min-w-0 max-w-(--chat-max-width) px-1 pb-2.5 pt-1"
@@ -511,6 +529,8 @@ interface MessagesTimelineProps {
   onRemoveQueuedMessage?: (id: string) => void;
   /** Point-of-attention resolution bar rendered inline at the active turn frontier. */
   frontierResolution?: ReactNode;
+  /** Thread state shown after the last row: background work and sync status. */
+  threadNow?: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +589,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   frontierResolution,
+  threadNow,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -1022,14 +1043,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
     return config ? { ...config, onReady: handleAnchorReady } : undefined;
   }, [anchorMessageId, handleAnchorReady, rows]);
+  // Keep the end in view when a status line appears below the last row, but only if the
+  // reader was already there.
+  const followFooterGrowth = useCallback(() => {
+    const list = listRef.current;
+    if (resolveTimelineIsAtEnd(list?.getState?.()) === false) return;
+    list?.scrollToEnd({ animated: false });
+  }, []);
   const timelineListFooter = useMemo(
     () => (
       <TimelineListFooter
         composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}
         frontierResolution={frontierResolution}
+        threadNow={threadNow}
+        onGrow={followFooterGrowth}
       />
     ),
-    [anchoredEndSpace, contentInsetEndAdjustment, frontierResolution],
+    [
+      anchoredEndSpace,
+      contentInsetEndAdjustment,
+      frontierResolution,
+      threadNow,
+      followFooterGrowth,
+    ],
   );
 
   const measureContentOverflow = useCallback(

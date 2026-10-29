@@ -484,7 +484,11 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
-    if (activity.kind === "turn.plan.updated") continue;
+    if (activity.kind === "turn.plan.updated") {
+      const todoEntry = todoListWorkLogEntry(activity);
+      if (todoEntry) entries.push(todoEntry);
+      continue;
+    }
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
@@ -539,6 +543,27 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
 }
 
 const decodeQuestionAttachmentAnswer = Schema.decodeUnknownOption(UserInputAttachmentAnswerPayload);
+
+const TODO_STEP_MARKS = { completed: "✓", inProgress: "→", pending: "○" } as const;
+
+/** Each todo update is a quiet row where the agent wrote it; it opens to every step. */
+function todoListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry | null {
+  const plan = planStateFromActivity(activity);
+  if (!plan || plan.steps.length === 0) return null;
+  const done = plan.steps.filter((step) => step.status === "completed").length;
+  const current =
+    plan.steps.find((step) => step.status === "inProgress") ??
+    plan.steps.find((step) => step.status === "pending");
+  return {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    turnId: activity.turnId,
+    label: `Tasks ${done}/${plan.steps.length}${current ? ` · ${current.step}` : ""}`,
+    detail: plan.steps.map((step) => `${TODO_STEP_MARKS[step.status]} ${step.step}`).join("\n"),
+    tone: "info",
+    sourceActivityKind: activity.kind,
+  };
+}
 
 function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
   const cachedEntry = derivedWorkLogEntryByActivity.get(activity);

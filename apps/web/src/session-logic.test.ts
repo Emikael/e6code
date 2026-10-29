@@ -477,7 +477,7 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
-  it("keeps the latest task progress without emitting plan-update log entries", () => {
+  it("shows each plan update as a Tasks row and keeps the latest task progress", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),
       makeActivity({
@@ -498,7 +498,14 @@ describe("deriveWorkLogEntries", () => {
       }),
       makeActivity({ id: "after", kind: "tool.completed", summary: "Ran tests", sequence: 3 }),
     ];
-    expect(deriveWorkLogEntries(activities).map((entry) => entry.id)).toEqual(["before", "after"]);
+    expect(
+      deriveWorkLogEntries(activities).map(({ id, label, detail }) => ({ id, label, detail })),
+    ).toEqual([
+      { id: "before", label: "Read files", detail: undefined },
+      { id: "plan-1", label: "Tasks 0/1 · Verify the composer", detail: "→ Verify the composer" },
+      { id: "plan-2", label: "Tasks 1/1", detail: "✓ Verify the composer" },
+      { id: "after", label: "Ran tests", detail: undefined },
+    ]);
     expect(deriveActivePlanState(activities, TurnId.make("turn-1"))?.steps).toMatchObject([
       { step: "Verify the composer", status: "completed" },
     ]);

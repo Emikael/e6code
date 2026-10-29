@@ -138,7 +138,6 @@ import {
   derivePhase,
   deriveTimelineEntriesWithState,
   deriveActiveWorkStartedAt,
-  deriveActivePlanState,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
@@ -224,6 +223,7 @@ import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { AgentsPanel } from "./AgentsPanel";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
@@ -3090,10 +3090,6 @@ export default function ChatView(props: ChatViewProps) {
       activeLatestTurn?.turnId ?? null,
     );
   }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
-  const activePlan = useMemo(
-    () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
-  );
   const showPlanFollowUpPrompt = shouldShowPlanFollowUpPrompt({
     pendingUserInputCount: pendingUserInputs.length,
     interactionMode,
@@ -5879,24 +5875,6 @@ export default function ChatView(props: ChatViewProps) {
         : null,
     [activeThreadBranch, activeWorktreePath, envMode, gitStatusQuery.data?.refName, isServerThread],
   );
-  const activeComposerTasksProgress = useMemo(() => {
-    if (!activeLatestTurn || latestTurnSettled || activePlan?.turnId !== activeLatestTurn.turnId) {
-      return null;
-    }
-    const currentStep =
-      activePlan.steps.find((step) => step.status === "inProgress") ??
-      activePlan.steps.find((step) => step.status === "pending");
-    if (!currentStep) return null;
-    return {
-      step: currentStep.step,
-      completedSteps: activePlan.steps.filter((step) => step.status === "completed").length,
-      totalSteps: activePlan.steps.length,
-    };
-  }, [activeLatestTurn, activePlan, latestTurnSettled]);
-  const activeComposerTaskSteps =
-    activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
-      ? activePlan.steps
-      : null;
 
   const publishScrollToEndClearance = useCallback(
     (overlayHeight: number) => {
@@ -6290,7 +6268,7 @@ export default function ChatView(props: ChatViewProps) {
       }
     }
   }, [activeThread, environmentId, interruptThreadTurn, setThreadError]);
-  const backgroundLivenessBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+  const backgroundWorkNow = useMemo<ThreadNowItem | null>(() => {
     if (activeBackgroundLiveness === null || !activeThread) {
       return null;
     }
@@ -6298,8 +6276,6 @@ export default function ChatView(props: ChatViewProps) {
     const liveCount = agentPanelModel.liveCount;
     return {
       id: `background-liveness:${activeThread.id}`,
-      variant: "default",
-      priority: "activity",
       icon: (
         <span
           className={cn("size-1.5 rounded-full bg-foreground", working && "animate-status-pulse")}
@@ -6312,14 +6288,14 @@ export default function ChatView(props: ChatViewProps) {
           : "Background work"
         : "Monitoring",
       actions: (
-        <Button
-          size="xs"
-          variant="ghost"
+        <button
+          type="button"
+          className="cursor-pointer text-foreground underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-60"
           disabled={isStoppingBackgroundWork}
           onClick={() => void handleStopBackgroundWork()}
         >
           {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-        </Button>
+        </button>
       ),
     };
   }, [
@@ -6657,8 +6633,6 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses,
   ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const backgroundLivenessItems =
-      backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -6674,7 +6648,6 @@ export default function ChatView(props: ChatViewProps) {
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
-        ...backgroundLivenessItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
         ...parkedThreadItems,
@@ -6686,7 +6659,6 @@ export default function ChatView(props: ChatViewProps) {
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
-      ...backgroundLivenessItems,
       ...resumeCompactionItems,
       ...wokeThreadItems,
       {
@@ -6731,7 +6703,6 @@ export default function ChatView(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
-    backgroundLivenessBannerItem,
     feedbackBannerItems,
     handoffBanner,
     handleRestoreThreadBranch,
@@ -10159,6 +10130,15 @@ export default function ChatView(props: ChatViewProps) {
                   { context: { terminalFocus: false } },
                 )}
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
+                threadNow={
+                  paintOnlyDisplayedTimeline ? null : (
+                    <ThreadNow
+                      key={activeThreadKey}
+                      work={backgroundWorkNow}
+                      syncPhase={activeEnvironmentUnavailable ? null : threadSyncPhase}
+                    />
+                  )
+                }
                 frontierResolution={
                   !paintOnlyDisplayedTimeline &&
                   (activePendingApproval ||
@@ -10409,8 +10389,6 @@ export default function ChatView(props: ChatViewProps) {
                             respondingRequestIds={respondingRequestIds}
                             showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                             activeProposedPlan={activeProposedPlan}
-                            activeTasksProgress={activeComposerTasksProgress}
-                            activeTaskSteps={activeComposerTaskSteps}
                             threadSyncPhase={activeEnvironmentUnavailable ? null : threadSyncPhase}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
