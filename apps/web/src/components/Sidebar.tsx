@@ -3976,8 +3976,10 @@ export default function Sidebar() {
         ? (laneKeyByThreadKey.get(threadKey) ?? null)
         : null;
     // The thread's shell may not have arrived yet (a new thread); wait for it.
+    // A thread outside the lanes (on a shelf, in another project) drops the
+    // reveal, so its lane cannot pop open later.
     if (laneKey === null) {
-      if (threadByKey.has(threadKey)) setPendingReveal(null);
+      if (laneHoldsThread(threads, threadKey)) setPendingReveal(null);
       return;
     }
     if (sidebarLaneCollapsed[laneKey] !== true) {
@@ -3994,7 +3996,7 @@ export default function Sidebar() {
     pinnedThreads,
     setSidebarLaneCollapsed,
     sidebarLaneCollapsed,
-    threadByKey,
+    threads,
   ]);
 
   // Dropping files on a row opens that thread and attaches the files there.

@@ -344,6 +344,15 @@ async function afterRenders(page: Page) {
   }
 }
 
+/** An in-app navigation that the sidebar did not start, like a notification's. */
+async function navigateFromOutside(page: Page, pathname: string) {
+  await page.evaluate((path) => {
+    history.pushState(null, "", path);
+    dispatchEvent(new PopStateEvent("popstate"));
+  }, pathname);
+  await page.waitForURL((url) => url.pathname === pathname);
+}
+
 /** Which sides of `target` show the focus ring's colour within 6px of the
  * edge, read from a real screenshot, so a ring covered by a positioned fill
  * counts as missing. The left side is sampled at the lane glyph's height too. */
@@ -2526,6 +2535,42 @@ NodeTest.test(
       await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], false);
       await row("beta").and(sidebar.locator('[aria-current="page"]')).waitFor();
       NodeAssert.ok(await onScreen(row("beta")), "The revealed row is not on screen");
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
+  "a reveal for a thread outside the rendered lanes is dropped, not left pending",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-reveal-pending");
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      const laneSuffix = `:${project.id}:br:feature/beta`;
+      const betaLane = sidebar.locator(`[data-sb-branch-lane$="${laneSuffix}"]`);
+      const betaKey = await betaLane.getAttribute("data-sb-branch-lane");
+      NodeAssert.ok(betaKey);
+      const betaToggle = betaLane.locator("[data-sb-lane-header] button[aria-expanded]");
+      const betaPath = `/${betaKey.slice(0, -laneSuffix.length)}/${project.threadId("beta")}`;
+      await betaToggle.click();
+      await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], true);
+
+      // Another project is in view, so the opened thread has no lane to reveal.
+      await scopeFromRail(page, "Switchboard QA");
+      await navigateFromOutside(page, betaPath);
+      await afterRenders(page);
+      // Bringing its project back is a sidebar action, not a reveal: the lane
+      // stays collapsed and marks the open thread.
+      await scopeFromRail(page, project.title);
+      await betaLane.waitFor();
+      await afterRenders(page);
+      NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "false");
+      await betaLane.locator("[data-sb-open-thread-mark]").waitFor();
+      NodeAssert.equal((await readUiState(page)).sidebarLaneCollapsed?.[betaKey], true);
     } finally {
       await context.close();
     }
