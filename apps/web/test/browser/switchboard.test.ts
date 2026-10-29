@@ -986,6 +986,8 @@ NodeTest.test(
   },
 );
 
+const BACKEND_REQUEST_TIMEOUT_MS = 30_000;
+
 /** Calls the test backend: a GET, or a JSON POST when given a body. Every
  * call opens its own connection. Reusing an idle pooled socket races the
  * server closing it, and a POST that lost that race cannot be resent: it may
@@ -1011,10 +1013,17 @@ function backendRequest(path: string, body?: object): Promise<Response> {
         const chunks: Buffer[] = [];
         response.on("data", (chunk: Buffer) => chunks.push(chunk));
         response.on("error", reject);
-        response.on("end", () =>
-          resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 500 })),
-        );
+        response.on("end", () => {
+          const status = response.statusCode ?? 500;
+          // A Response refuses any body, even an empty one, for these statuses.
+          const nullBody = status === 204 || status === 205 || status === 304;
+          resolve(new Response(nullBody ? null : Buffer.concat(chunks), { status }));
+        });
       },
+    );
+    // A backend that stops answering fails the call instead of the whole test timeout.
+    request.setTimeout(BACKEND_REQUEST_TIMEOUT_MS, () =>
+      request.destroy(new Error(`${path}: no response in ${BACKEND_REQUEST_TIMEOUT_MS}ms`)),
     );
     request.on("error", reject);
     request.end(payload);
