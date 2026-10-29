@@ -65,8 +65,8 @@ export function BranchThreadRow({
               className={cn(
                 "shrink-0",
                 actionCount > 0 &&
-                  "@max-[280px]/sidebar-column:group-focus-within/sidebar-row:hidden @max-[280px]/sidebar-column:group-hover/sidebar-row:hidden",
-                actionCount > 0 && actionsVisible && "@max-[280px]/sidebar-column:hidden",
+                  "@max-[279px]/sidebar-column:group-focus-within/sidebar-row:hidden @max-[279px]/sidebar-column:group-hover/sidebar-row:hidden",
+                actionCount > 0 && actionsVisible && "@max-[279px]/sidebar-column:hidden",
               )}
             >
               {diffStat}
@@ -98,7 +98,7 @@ export function BranchThreadRow({
         )}
       </div>
       {!compact && (
-        <div className="flex h-4 min-w-0 items-center gap-1.5 text-(length:--sb-text-meta) leading-4 text-sb-muted @max-[280px]/sidebar-column:[&_[data-sb-model]]:sr-only @max-[360px]/sidebar-column:[&_[data-sb-environment-label]]:sr-only">
+        <div className="flex h-4 min-w-0 items-center gap-1.5 text-(length:--sb-text-meta) leading-4 text-sb-muted @max-[279px]/sidebar-column:[&_[data-sb-model]]:sr-only @max-[359px]/sidebar-column:[&_[data-sb-environment-label]]:sr-only">
           {meta}
         </div>
       )}

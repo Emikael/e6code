@@ -164,7 +164,7 @@ export function LaneHeader({
             aria-label="Live work"
             className="size-1.5 shrink-0 rounded-full bg-(--state-working)"
           />
-          <span aria-hidden="true" className="@max-[360px]/sidebar-column:hidden">
+          <span aria-hidden="true" className="@max-[359px]/sidebar-column:hidden">
             live
           </span>
         </span>
@@ -183,7 +183,7 @@ export function LaneHeader({
             PR #{pullRequest.number}
           </span>
           {pullRequest.count > 1 && (
-            <span className="text-sb-muted @max-[280px]/sidebar-column:hidden">
+            <span className="text-sb-muted @max-[279px]/sidebar-column:hidden">
               +{pullRequest.count - 1}
             </span>
           )}

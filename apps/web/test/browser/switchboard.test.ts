@@ -131,6 +131,8 @@ async function newContext(options?: {
   readonly snoozedShelfExpanded?: boolean;
   /** Extra persisted UI state, merged into the seeded ui-state blob. */
   readonly uiState?: Record<string, unknown>;
+  /** The switchboard thread column's width, without the rail. */
+  readonly columnWidth?: number;
 }): Promise<BrowserContext> {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -151,7 +153,7 @@ async function newContext(options?: {
     },
   ]);
   await context.addInitScript(
-    ({ time, switchboard, snoozedShelfExpanded, uiState }) => {
+    ({ time, switchboard, snoozedShelfExpanded, uiState, columnWidth }) => {
       // A reload keeps what the page persisted; every other load starts seeded.
       const navigation = performance.getEntriesByType("navigation")[0];
       if (navigation instanceof PerformanceNavigationTiming && navigation.type === "reload") return;
@@ -169,12 +171,15 @@ async function newContext(options?: {
         }),
       );
       if (snoozedShelfExpanded) localStorage.setItem("e6code:sidebar:snoozed-expanded", "true");
+      if (columnWidth !== null)
+        localStorage.setItem("switchboard_column_width", String(columnWidth));
     },
     {
       time: fixedTime,
       switchboard: options?.switchboard === true,
       snoozedShelfExpanded: options?.snoozedShelfExpanded === true,
       uiState: options?.uiState ?? {},
+      columnWidth: options?.columnWidth ?? null,
     },
   );
   return context;
@@ -2809,6 +2814,92 @@ NodeTest.test(
       NodeAssert.equal((await readUiState(page)).sidebarLaneCollapsed?.[betaKey], true);
     } finally {
       await context.close();
+    }
+  },
+);
+
+NodeTest.test(
+  "compact rows at a 256px column keep one 28px line and give the diff stat to the actions",
+  { timeout: 240_000 },
+  async () => {
+    const project = await seedBranchProject("qa-compact-256");
+    const latestTurn = (threadId: string) => ({
+      turnId: `${threadId}-turn`,
+      state: "completed",
+      requestedAt: fixedTime,
+      startedAt: fixedTime,
+      completedAt: fixedTime,
+      assistantMessageId: null,
+      diffStat: { insertions: 12, deletions: 3 },
+    });
+    for (const columnWidth of [256, 280] as const) {
+      const context = await newContext({
+        switchboard: true,
+        columnWidth,
+        uiState: { sidebarDensity: "compact" },
+      });
+      await patchThreadShells(context, {
+        [project.threadId("alphaFirst")]: {
+          latestTurn: latestTurn(project.threadId("alphaFirst")),
+        },
+        [project.threadId("beta")]: {
+          pullRequests: [
+            qaPullRequest(127, "merged", "2026-03-01T00:00:00.000Z"),
+            qaPullRequest(128, "open", "2026-03-02T00:00:00.000Z"),
+          ],
+        },
+      });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project);
+        const listbox = sidebar.getByRole("listbox", { name: "Threads" });
+        await listbox.locator('[data-sb-thread-row][data-sb-density="compact"]').first().waitFor();
+        // The thread column beside the rail; the sidebar's 1px divider is the
+        // rest of the column width.
+        const columnBox = await sidebar.locator(":scope > :last-child").boundingBox();
+        NodeAssert.ok(columnBox);
+        NodeAssert.equal(Math.round(columnBox.width), columnWidth - 1);
+        // Every card row is one 28px line: no meta, plan or error line.
+        NodeAssert.deepEqual(
+          new Set(
+            await listbox
+              .locator('[role="option"] [data-sb-thread-content]')
+              .evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height)),
+          ),
+          new Set([28]),
+          `${columnWidth}px`,
+        );
+        const row = listbox.getByRole("option", { name: "Alpha first", exact: true });
+        const diffStat = row.getByText("+12", { exact: true });
+        await diffStat.waitFor();
+        await page.mouse.move(1000, 450);
+        NodeAssert.ok(await diffStat.isVisible(), `${columnWidth}px: diff stat hidden at rest`);
+        // Below 280px the hover actions take the diff stat's room; at 280 both fit.
+        await row.hover();
+        await row.locator("xpath=..").locator("button[tabindex='-1']").first().waitFor();
+        await afterRenders(page);
+        NodeAssert.equal(
+          await diffStat.isVisible(),
+          columnWidth >= 280,
+          `${columnWidth}px: diff stat on hover`,
+        );
+        // The lane header's +N follows the same 280px boundary.
+        const betaLane = sidebar.locator(`[data-sb-branch-lane$=":${project.id}:br:feature/beta"]`);
+        await betaLane.locator('[data-sb-lane-pr="open"]').waitFor();
+        NodeAssert.equal(
+          await betaLane.getByText("+1", { exact: true }).isVisible(),
+          columnWidth >= 280,
+          `${columnWidth}px: lane +N`,
+        );
+        await page.mouse.move(1000, 450);
+        await sidebar.screenshot({
+          path: NodePath.join(artifacts, `compact-${columnWidth}.png`),
+          animations: "disabled",
+          caret: "hide",
+        });
+      } finally {
+        await context.close();
+      }
     }
   },
 );

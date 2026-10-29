@@ -44,7 +44,7 @@ export function BranchLabel({
         <span
           className={cn(
             "shrink-0 rounded-[5px] bg-sb-hover px-1.5 py-0.5",
-            lane && "text-[10.5px] font-normal text-sb-muted @max-[280px]/sidebar-column:sr-only",
+            lane && "text-[10.5px] font-normal text-sb-muted @max-[279px]/sidebar-column:sr-only",
           )}
         >
           worktree

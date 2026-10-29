@@ -6716,7 +6716,7 @@ export default function Sidebar() {
                         // Rows hide their hover actions and show their age while anything drags.
                         data-sb-dragging={dragState !== null || undefined}
                         className={cn(
-                          "relative flex flex-col gap-px @container/sidebar-column",
+                          "relative flex flex-col gap-px",
                           sidebarListItems.length > 0 && "flex-1",
                         )}
                       >
