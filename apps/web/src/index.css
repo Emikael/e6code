@@ -103,10 +103,26 @@
   outline-offset: -2px;
 }
 
-/* Compact rows stack with no gap, so an outset ring would cover their
-   neighbours. */
-[data-switchboard] [data-sb-thread-row][data-sb-density="compact"]:focus-visible {
-  outline-offset: -2px;
+/* A thread option's positioned children (the hover and selected fill, the lane
+   glyph's knockout) paint over an outline on the option, so the ring is drawn
+   on a layer above them (WCAG 2.4.7). */
+[data-switchboard] [role="option"][data-sb-thread-row]:focus-visible {
+  outline: none;
+}
+[data-switchboard] [role="option"][data-sb-thread-row]:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: 10;
+  pointer-events: none;
+  border: 2px solid var(--ring);
+  border-radius: calc(var(--radius-lg) + 4px);
+}
+/* Compact rows stack with no gap: keep the ring inside the row. */
+[data-switchboard]
+  [role="option"][data-sb-thread-row][data-sb-density="compact"]:focus-visible::after {
+  inset: 0;
+  border-radius: var(--radius-lg);
 }
 
 /* Menu items fill their popup; an outset ring would run past its edge. */

@@ -332,6 +332,82 @@ async function onScreen(locator: Locator): Promise<boolean> {
   });
 }
 
+/** Lets pending effects and the renders they cause land: two animation frames. */
+async function afterRenders(page: Page) {
+  for (let frame = 0; frame < 2; frame += 1) {
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+  }
+}
+
+/** Which sides of `target` show the focus ring's colour within 6px of the
+ * edge, read from a real screenshot, so a ring covered by a positioned fill
+ * counts as missing. The left side is sampled at the lane glyph's height too. */
+async function focusRingSides(page: Page, target: Locator) {
+  const box = await target.boundingBox();
+  NodeAssert.ok(box);
+  const pad = 6;
+  const clip = {
+    x: Math.floor(box.x) - pad,
+    y: Math.floor(box.y) - pad,
+    width: Math.ceil(box.width) + pad * 2,
+    height: Math.ceil(box.height) + pad * 2,
+  };
+  const png = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
+  return page.evaluate(
+    async ({ data, box, clip, pad }) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--ring)";
+      document.querySelector('[data-switchboard="sidebar"]')!.append(probe);
+      const swatch = document.createElement("canvas").getContext("2d")!;
+      swatch.fillStyle = getComputedStyle(probe).color;
+      probe.remove();
+      swatch.fillRect(0, 0, 1, 1);
+      const ring = swatch.getImageData(0, 0, 1, 1).data;
+      const image = new Image();
+      image.src = `data:image/png;base64,${data}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, image.width, image.height).data;
+      const isRing = (x: number, y: number) => {
+        const index = (y * image.width + x) * 4;
+        return (
+          Math.hypot(
+            pixels[index]! - ring[0]!,
+            pixels[index + 1]! - ring[1]!,
+            pixels[index + 2]! - ring[2]!,
+          ) < 40
+        );
+      };
+      const left = Math.round(box.x - clip.x);
+      const top = Math.round(box.y - clip.y);
+      const right = left + Math.round(box.width) - 1;
+      const bottom = top + Math.round(box.height) - 1;
+      const midX = Math.round((left + right) / 2);
+      const midY = Math.round((top + bottom) / 2);
+      const band = (edge: number) =>
+        Array.from({ length: pad * 2 }, (_, step) => edge - pad + step);
+      const across = (y: number, edge: number) => band(edge).some((x) => isRing(x, y));
+      const down = (x: number, edge: number) => band(edge).some((y) => isRing(x, y));
+      return {
+        top: down(midX, top),
+        bottom: down(midX, bottom),
+        left: across(midY, left) && across(top + 14, left),
+        right: across(midY, right),
+      };
+    },
+    { data: png.toString("base64"), box, clip, pad },
+  );
+}
+
 NodeTest.before(
   async () => {
     try {
@@ -2048,16 +2124,21 @@ NodeTest.test(
       await compactRadio.waitFor();
       const compactRow = sidebar.locator('[data-sb-thread-row][data-sb-density="compact"]').first();
       await compactRow.waitFor();
-      // Compact rows are card options, not the slim shelf rows, with an inset ring.
+      // Compact rows are card options, not the slim shelf rows. They stack with
+      // no gap, so their focus ring sits inside the row.
       NodeAssert.equal(await compactRow.getAttribute("role"), "option");
       await page.keyboard.press("Tab");
       await compactRow.focus();
       NodeAssert.deepEqual(
-        await compactRow.evaluate((row) => ({
-          visible: row.matches(":focus-visible"),
-          offset: getComputedStyle(row).outlineOffset,
-        })),
-        { visible: true, offset: "-2px" },
+        await compactRow.evaluate((row) => {
+          const ring = getComputedStyle(row, "::after");
+          return {
+            visible: row.matches(":focus-visible"),
+            inset: [ring.top, ring.right, ring.bottom, ring.left],
+            width: ring.borderTopWidth,
+          };
+        }),
+        { visible: true, inset: ["0px", "0px", "0px", "0px"], width: "2px" },
       );
     } finally {
       await context.close();
@@ -2086,6 +2167,85 @@ NodeTest.test(
     } finally {
       await legacy.close();
     }
+  },
+);
+
+NodeTest.test(
+  "thread rows keep a visible focus ring over the selected and hover fill",
+  { timeout: 240_000 },
+  async () => {
+    const project = await seedBranchProject("qa-focus-ring");
+    const missing: string[] = [];
+    for (const colorScheme of ["light", "dark"] as const) {
+      const context = await newContext({ switchboard: true, colorScheme });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project);
+        const option = (title: string) => sidebar.getByRole("option", { name: title, exact: true });
+        const away = () => page.mouse.move(1000, 450);
+        const holdsFocus = (row: Locator) =>
+          row.evaluate((node) => document.activeElement === node && node.matches(":focus-visible"));
+        const check = async (state: string, row: Locator) => {
+          // Chromium tracks keyboard-vs-pointer modality per page; a real key
+          // press puts it back in keyboard mode before the focus.
+          await page.keyboard.press("Tab");
+          await row.focus();
+          NodeAssert.ok(await holdsFocus(row), `${colorScheme} ${state}: the row lost focus`);
+          const sides = await focusRingSides(page, row);
+          for (const [side, visible] of Object.entries(sides)) {
+            if (!visible) missing.push(`${colorScheme} ${state}: ${side}`);
+          }
+          await row.locator("xpath=..").screenshot({
+            path: NodePath.join(
+              artifacts,
+              `focus-ring-${state.replaceAll(" ", "-")}-${colorScheme}.png`,
+            ),
+            animations: "disabled",
+            caret: "hide",
+          });
+          // Nothing took focus back while the ring was read.
+          NodeAssert.ok(
+            await holdsFocus(row),
+            `${colorScheme} ${state}: focus left the row during the capture`,
+          );
+        };
+        for (const density of ["Compact", "Comfortable"] as const) {
+          await sidebar
+            .getByRole("radiogroup", { name: "Density" })
+            .getByRole("radio", { name: density })
+            .click();
+          await sidebar
+            .locator(`[data-sb-thread-row][data-sb-density="${density.toLowerCase()}"]`)
+            .first()
+            .waitFor();
+          const selected = option("Alpha first");
+          const opensThread = (await selected.getAttribute("aria-current")) !== "page";
+          await selected.click();
+          await selected.and(sidebar.locator('[aria-current="page"]')).waitFor();
+          // Opening a thread focuses the composer one animation frame later
+          // (ChatView); let that land before the row takes focus, or it steals
+          // the focus back mid-check.
+          if (opensThread) {
+            await page.waitForFunction(
+              () =>
+                document
+                  .querySelector('[data-testid="composer-editor"]')
+                  ?.contains(document.activeElement) === true,
+            );
+          }
+          await afterRenders(page);
+          await away();
+          await check(`${density} selected`, selected);
+          const hovered = option("Alpha second");
+          await hovered.hover();
+          await check(`${density} hovered`, hovered);
+          await away();
+        }
+      } finally {
+        await context.close();
+      }
+    }
+    NodeAssert.deepEqual(missing, []);
   },
 );
 
