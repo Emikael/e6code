@@ -1,4 +1,5 @@
 import {
+  type EffortDisplay,
   type ProviderDriverKind,
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
@@ -41,6 +42,7 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
+import { EffortGlyph, REASONING_SELECT_DESCRIPTOR_IDS, resolveEffortGlyph } from "./EffortGlyph";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -492,10 +494,16 @@ export function buildTraitsTriggerDisplay(input: {
   descriptors: ReadonlyArray<ProviderOptionDescriptor>;
   primarySelectDescriptorId: string | null;
   ultrathinkPromptControlled: boolean;
-}): { label: string; showFastModeIcon: boolean } {
+}): {
+  label: string;
+  showFastModeIcon: boolean;
+  /** Labels other than the reasoning effort and fast mode, such as context window. */
+  otherLabels: ReadonlyArray<string>;
+} {
   let fastModeFallbackLabel: string | null = null;
   let fastModeEnabled = false;
   const labels: Array<string> = [];
+  const otherLabels: Array<string> = [];
   for (const descriptor of input.descriptors) {
     if (descriptor.id === "fastMode" && descriptor.type === "boolean") {
       fastModeEnabled = descriptor.currentValue === true;
@@ -525,6 +533,7 @@ export function buildTraitsTriggerDisplay(input: {
           : getProviderOptionCurrentLabel(descriptor);
     if (typeof label === "string" && label.length > 0) {
       labels.push(label);
+      if (descriptor.id !== input.primarySelectDescriptorId) otherLabels.push(label);
     }
   }
 
@@ -532,9 +541,9 @@ export function buildTraitsTriggerDisplay(input: {
   // off an empty label list alone would also catch descriptors that resolved to
   // no label at all, printing a bogus "Normal" for a model without fast mode.
   if (labels.length === 0 && fastModeFallbackLabel !== null) {
-    return { label: fastModeFallbackLabel, showFastModeIcon: false };
+    return { label: fastModeFallbackLabel, showFastModeIcon: false, otherLabels };
   }
-  return { label: labels.join(" · "), showFastModeIcon: fastModeEnabled };
+  return { label: labels.join(" · "), showFastModeIcon: fastModeEnabled, otherLabels };
 }
 
 export const TraitsPicker = memo(function TraitsPicker({
@@ -552,11 +561,14 @@ export const TraitsPicker = memo(function TraitsPicker({
   isComposerOwned,
   size = "sm",
   hidden = false,
+  effortDisplay = "label",
   ...persistence
 }: TraitsMenuContentProps &
   TraitsPersistence & {
     size?: ComposerControlSize;
     hidden?: boolean;
+    /** Composer chips name the effort level unless the user picked bars. */
+    effortDisplay?: EffortDisplay;
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
@@ -584,13 +596,39 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
-  const { label: triggerLabel, showFastModeIcon } = buildTraitsTriggerDisplay({
+  const {
+    label: triggerLabel,
+    showFastModeIcon,
+    otherLabels,
+  } = buildTraitsTriggerDisplay({
     provider,
     descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,
   });
-  const accessibleLabel = showFastModeIcon ? `${triggerLabel}, Fast mode on` : triggerLabel;
+  // In the composer, effort reads as a word or bars after the model name, not a list of traits.
+  const effortGlyph =
+    isComposerOwned &&
+    primarySelectDescriptor &&
+    REASONING_SELECT_DESCRIPTOR_IDS.has(primarySelectDescriptor.id)
+      ? resolveEffortGlyph(
+          primarySelectDescriptor,
+          ultrathinkPromptControlled
+            ? "ultrathink"
+            : getDescriptorStringValue(primarySelectDescriptor),
+        )
+      : null;
+  // Workflow levels such as Ultrathink always show their name; the setting names every level.
+  const effortWord = effortGlyph
+    ? (effortGlyph.special ?? (effortDisplay === "label" ? effortGlyph.label : null))
+    : null;
+  const accessibleLabel = effortGlyph
+    ? [`Effort: ${effortGlyph.label}`, showFastModeIcon ? "Fast" : null, ...otherLabels]
+        .filter(Boolean)
+        .join(" · ")
+    : showFastModeIcon
+      ? `${triggerLabel}, Fast mode on`
+      : triggerLabel;
   const fastModeIcon = showFastModeIcon ? (
     <>
       <ComposerControlIcon
@@ -629,9 +667,12 @@ export const TraitsPicker = memo(function TraitsPicker({
                   variant={triggerVariant ?? "ghost"}
                   size={size}
                   className={cn(
-                    isCodexStyle
+                    isCodexStyle && !effortGlyph
                       ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap sm:max-w-48"
                       : "shrink-0 whitespace-nowrap",
+                    // The word is muted next to the model name and brightens like it on hover.
+                    effortWord !== null &&
+                      "text-muted-foreground hover:text-foreground data-pressed:text-foreground data-popup-open:text-foreground",
                     triggerClassName,
                   )}
                 />
@@ -639,7 +680,39 @@ export const TraitsPicker = memo(function TraitsPicker({
             />
           }
         >
-          {isCodexStyle ? (
+          {effortGlyph ? (
+            <span className="flex items-center gap-1.5">
+              {effortWord === null ? (
+                <EffortGlyph count={effortGlyph.count} filled={effortGlyph.filled} size={size} />
+              ) : (
+                <>
+                  <span data-composer-control-label>{effortWord}</span>
+                  {/* Icon-only footers hide labels and reveal this instead. */}
+                  <GaugeIcon
+                    aria-hidden="true"
+                    data-composer-control-compact-icon
+                    className="invisible absolute size-3.5"
+                  />
+                </>
+              )}
+              {showFastModeIcon ? (
+                <ZapIcon
+                  aria-hidden="true"
+                  data-composer-control-icon
+                  className="size-3 fill-current"
+                />
+              ) : null}
+              {otherLabels.length > 0 ? (
+                <span
+                  aria-hidden="true"
+                  data-composer-control-label
+                  className="max-w-24 truncate text-xs"
+                >
+                  {otherLabels.join(" · ")}
+                </span>
+              ) : null}
+            </span>
+          ) : isCodexStyle ? (
             // The label truncates itself; clipping the wrapper too would cut off
             // the chevron, whose negative end margin overhangs the wrapper edge.
             <span
