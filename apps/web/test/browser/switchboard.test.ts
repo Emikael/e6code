@@ -2185,6 +2185,85 @@ NodeTest.test(
 );
 
 NodeTest.test(
+  "the group by menu opens on the checked mode and the keys move from it",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-group-by-keys");
+    const context = await newContext({ switchboard: true, uiState: { sidebarGroupBy: "status" } });
+    try {
+      const page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      const menu = page.getByRole("menu");
+      // DOM focus and the menu's own highlight must agree, or the next key
+      // moves from an item the user is not on.
+      const expectItem = async (label: string) => {
+        await page.waitForFunction(
+          (label) =>
+            document.activeElement?.getAttribute("role") === "menuitemradio" &&
+            document.activeElement.textContent?.startsWith(label) === true,
+          label,
+        );
+        NodeAssert.ok(
+          await page.evaluate(() => {
+            const highlighted = document.querySelectorAll(
+              '[role="menuitemradio"][data-highlighted]',
+            );
+            return highlighted.length === 1 && highlighted[0] === document.activeElement;
+          }),
+          `The highlight is not on the focused ${label} item`,
+        );
+      };
+      const press = async (key: string, label: string) => {
+        await page.keyboard.press(key);
+        await expectItem(label);
+      };
+      const openWith = async (key: string, mode: string) => {
+        await menu.waitFor({ state: "detached" });
+        await sidebar.getByRole("button", { name: `Group by ${mode}`, exact: true }).focus();
+        await page.keyboard.press(key);
+        await expectItem(mode);
+      };
+      const close = async (mode: string) => {
+        await page.keyboard.press("Escape");
+        await menu.waitFor({ state: "detached" });
+        await page.waitForFunction(
+          (name) => document.activeElement?.textContent?.includes(name) === true,
+          `Group by ${mode}`,
+        );
+      };
+
+      // One project scoped: Branch, Status. The checked Status is the last item.
+      await openWith("Enter", "Status");
+      await press("Home", "Branch");
+      await press("End", "Status");
+      await press("ArrowUp", "Branch");
+      await press("ArrowDown", "Status");
+      await close("Status");
+      await openWith("ArrowDown", "Status");
+      await press("ArrowUp", "Branch");
+      await close("Status");
+
+      // All projects: Branch, Status, Project. Status sits in the middle.
+      await scopeFromRail(page, "All projects");
+      await openWith("Space", "Status");
+      await press("ArrowUp", "Branch");
+      await press("ArrowDown", "Status");
+      await press("ArrowDown", "Project");
+      await press("Home", "Branch");
+      await press("End", "Project");
+      await page.keyboard.press("Enter");
+      await sidebar.getByRole("button", { name: "Group by Project", exact: true }).waitFor();
+      await openWith("Enter", "Project");
+      await press("ArrowUp", "Status");
+      await press("Home", "Branch");
+      await close("Project");
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
   "thread rows keep a visible focus ring over the selected and hover fill",
   { timeout: 240_000 },
   async () => {

@@ -82,6 +82,9 @@ export function SidebarGroupByRow({
   const CurrentIcon = current.icon;
   // Keyboard opens land on the checked item. The menu highlights its first
   // item on open, so the first focus inside the popup is redirected once.
+  // The menu moves its highlight to whichever item takes focus, so the
+  // redirect must also stop the first item's focus from reaching it after
+  // the checked item's, or the highlight snaps back to the first item.
   const focusCheckedOnOpenRef = useRef(false);
 
   return (
@@ -122,7 +125,9 @@ export function SidebarGroupByRow({
               const checked = event.currentTarget.querySelector<HTMLElement>(
                 '[role="menuitemradio"][aria-checked="true"]',
               );
-              if (checked && checked !== event.target) checked.focus();
+              if (!checked || checked === event.target) return;
+              event.stopPropagation();
+              checked.focus();
             }}
           >
             <MenuRadioGroup
