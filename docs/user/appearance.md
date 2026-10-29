@@ -11,6 +11,9 @@ Use **Change appearance** in the command palette to choose System, Light, or Dar
 the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
 those modes. Customize these shortcuts under **Settings → Keybindings**.
 
+On wide screens, **Chat width** in **Settings → Appearance** lets messages and the composer grow
+beyond the default column: choose Wide or Full.
+
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
 
