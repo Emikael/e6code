@@ -2090,6 +2090,49 @@ NodeTest.test(
 );
 
 NodeTest.test(
+  "only the search and rename fields drop the switchboard focus outline",
+  { timeout: 120_000 },
+  async () => {
+    const project = await seedBranchProject("qa-field-outline");
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const sidebar = await openBranchProject(page, project);
+      const outline = (field: Locator) =>
+        field.evaluate((node) => ({
+          focusVisible: node.matches(":focus-visible"),
+          outlineStyle: getComputedStyle(node).outlineStyle,
+        }));
+      // Both fields draw their own ring, so the outline would double it.
+      const search = sidebar.getByRole("combobox", { name: "Search threads" });
+      await search.focus();
+      NodeAssert.deepEqual(await outline(search), { focusVisible: true, outlineStyle: "none" });
+      // Open the thread first: the route change remounts the row.
+      const row = sidebar.getByRole("option", { name: "Alpha first", exact: true });
+      await row.click();
+      await row.and(sidebar.locator('[aria-current="page"]')).waitFor();
+      await row.dblclick();
+      const rename = sidebar.getByRole("textbox", { name: "Thread title" });
+      await rename.waitFor();
+      NodeAssert.deepEqual(await outline(rename), { focusVisible: true, outlineStyle: "none" });
+      await page.keyboard.press("Escape");
+      await rename.waitFor({ state: "detached" });
+      // Any other field has no ring of its own and keeps the outline (WCAG 2.4.7).
+      await sidebar.evaluate((root) => {
+        const field = document.createElement("input");
+        field.setAttribute("aria-label", "Plain field");
+        root.append(field);
+      });
+      const plain = sidebar.getByRole("textbox", { name: "Plain field" });
+      await plain.focus();
+      NodeAssert.deepEqual(await outline(plain), { focusVisible: true, outlineStyle: "solid" });
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
   "status mode orders derived sections and refuses reorder drops without writing",
   { timeout: 240_000 },
   async () => {

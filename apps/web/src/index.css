@@ -114,8 +114,9 @@
   outline-offset: -2px;
 }
 
-/* Text fields draw their own focus ring on the field wrapper. */
-[data-switchboard] input:focus-visible {
+/* The search and rename fields draw their own focus ring. */
+[data-switchboard] [data-sb-search-input]:focus-visible,
+[data-switchboard] [data-sb-rename-input]:focus-visible {
   outline: none;
 }
 

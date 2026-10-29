@@ -105,6 +105,7 @@ export function SidebarThreadHeader({
           nativeInput
           unstyled
           type="search"
+          data-sb-search-input={switchboard || undefined}
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
           onKeyDown={onSearchKeyDown}
