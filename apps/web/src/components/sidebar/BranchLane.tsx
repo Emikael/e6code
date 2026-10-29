@@ -1,6 +1,6 @@
 import { useDroppable } from "@dnd-kit/core";
 import { Pin } from "lucide-react";
-import { useId, type ReactNode, type Ref } from "react";
+import { createContext, useId, type ReactNode, type Ref } from "react";
 import { cn } from "~/lib/utils";
 import {
   SIDEBAR_STATUS_SECTION_LABELS,
@@ -10,6 +10,9 @@ import {
   type SidebarStatusSectionKey,
 } from "../Sidebar.logic";
 import { LaneHeader, threadCountLabel } from "./primitives/LaneHeader";
+
+/** The id of the lane's rows, for a custom header's toggle `aria-controls`. */
+export const BranchLaneRowsIdContext = createContext<string | undefined>(undefined);
 
 export interface BranchLaneProps {
   laneKey: string;
@@ -116,22 +119,24 @@ export function BranchLane({
             "cursor-not-allowed outline outline-(--state-error) -outline-offset-1 **:cursor-not-allowed",
         )}
       >
-        {header ?? (
-          <LaneHeader
-            branch={branch}
-            count={count}
-            worktree={worktree}
-            projectName={projectName}
-            pinned={pinned}
-            {...(status ? { status } : {})}
-            expanded={expanded}
-            {...(onToggle ? { onToggle, controlsId: rowsId } : {})}
-            live={live}
-            pullRequest={pullRequest}
-            cleanUp={cleanUp}
-            containsOpenThread={containsOpenThread}
-          />
-        )}
+        <BranchLaneRowsIdContext.Provider value={rowsId}>
+          {header ?? (
+            <LaneHeader
+              branch={branch}
+              count={count}
+              worktree={worktree}
+              projectName={projectName}
+              pinned={pinned}
+              {...(status ? { status } : {})}
+              expanded={expanded}
+              {...(onToggle ? { onToggle, controlsId: rowsId } : {})}
+              live={live}
+              pullRequest={pullRequest}
+              cleanUp={cleanUp}
+              containsOpenThread={containsOpenThread}
+            />
+          )}
+        </BranchLaneRowsIdContext.Provider>
         <div id={rowsId} hidden={!expanded} className="relative pl-[18px]">
           {expanded && (
             <>

@@ -2090,6 +2090,21 @@ NodeTest.test(
       await scopeFromRail(page, "All projects");
       await chooseGroupBy(page, sidebar, "Project");
       await sidebar.getByTestId("sidebar-project-group").first().waitFor();
+      // Each group toggle points at the rows it shows and hides, in its own group.
+      const projectToggles = await sidebar
+        .locator('[data-testid="sidebar-project-group"] button[aria-expanded]')
+        .all();
+      NodeAssert.ok(projectToggles.length > 0);
+      for (const toggle of projectToggles) {
+        NodeAssert.ok(
+          await toggle.evaluate((node) => {
+            const controlled = document.getElementById(node.getAttribute("aria-controls") ?? "");
+            const lane = node.closest("[data-sb-branch-lane]");
+            return controlled !== null && lane !== null && lane.contains(controlled);
+          }),
+          `${await toggle.textContent()}: the Project group toggle controls no rows in its group`,
+        );
+      }
       await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
       for (const mode of ["Project", "Status", "Branch"] as const) {
         await chooseGroupBy(page, sidebar, mode);

@@ -71,6 +71,7 @@ import {
 } from "lucide-react";
 import {
   memo,
+  use,
   useCallback,
   useEffect,
   useId,
@@ -237,7 +238,7 @@ import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
 import { createSidebarListMotion, playSidebarStatusSettle } from "./Sidebar.motion";
 import { canAnimate, prefersReducedMotion } from "~/lib/motion";
 import { BranchDragChip } from "./sidebar/BranchDragChip";
-import { BranchLane } from "./sidebar/BranchLane";
+import { BranchLane, BranchLaneRowsIdContext } from "./sidebar/BranchLane";
 import { BranchThreadRow, BranchThreadRowActions } from "./sidebar/BranchThreadRow";
 import { SWITCHBOARD_STATUS } from "./sidebar/primitives/status";
 import { BranchLabel } from "./sidebar/primitives/BranchLabel";
@@ -967,6 +968,8 @@ function SwitchboardProjectGroupHeader(props: {
   onNewThread: (() => void) | null;
 }) {
   const { group } = props;
+  // The group's rows, which the toggle shows and hides.
+  const rowsId = use(BranchLaneRowsIdContext);
   const counts = useMemo(() => countProjectSidebarThreads(group.threads), [group.threads]);
   const Chevron = group.expanded ? ChevronDownIcon : ChevronRightIcon;
   return (
@@ -979,6 +982,7 @@ function SwitchboardProjectGroupHeader(props: {
         type="button"
         onClick={props.onToggle}
         aria-expanded={group.expanded}
+        aria-controls={rowsId}
         className="sb-action flex h-7 min-w-0 flex-1 items-center justify-start gap-1.5 pl-0"
       >
         <span aria-hidden className="flex w-3.5 shrink-0 items-center justify-center">
