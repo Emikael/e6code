@@ -6366,6 +6366,10 @@ export default function Sidebar() {
                             // markers, so grouped view drops drag; pin/settle stay
                             // in menus. Teach Sidebar.drag.ts project headers to
                             // bring it back.
+                            // The switchboard's Project mode relies on this too:
+                            // its groups take no drops (`droppable={false}`) and
+                            // have no drop plan, so enabling drag here first needs
+                            // Project-mode handling in Sidebar.drag.ts.
                             projectGrouped ||
                             !draggableThreadKeys.has(threadKey) ||
                             optimisticDrop !== null
