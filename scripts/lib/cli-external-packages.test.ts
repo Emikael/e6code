@@ -283,6 +283,28 @@ var x = 1;
     assert.strictEqual(result.regionCount, 0);
     assert.deepStrictEqual(result.inlined, []);
   });
+
+  // Vite+ 1.4's Rolldown dropped `//#region` and writes one full-line path
+  // comment per inlined module. The scan has to see those or the artifact
+  // build fails closed on a blind scan.
+  it("reads Vite+ 1.4 full-line module path comments", () => {
+    const source = [
+      "// ../../node_modules/.pnpm/node-pty@1.0.0/node_modules/node-pty/lib/index.js",
+      "var pty = 1;",
+      "// ../../node_modules/.pnpm/effect@4.0.0/node_modules/effect/dist/index.js",
+      "var effect = 1;",
+      "// src/server/main.ts",
+      "var main = 1;",
+      "// package.json",
+      "// \\0rolldown/runtime.js",
+      "// Keep installs used by any running helper, including older E6 releases.",
+    ].join("\n");
+    const result = findInlinedExternalPackages(source);
+
+    assert.deepStrictEqual(result.inlined, ["node-pty"]);
+    assert.deepStrictEqual(result.inlinedPackages, ["effect", "node-pty"]);
+    assert.strictEqual(result.regionCount, 5);
+  });
 });
 
 describe("findUnexpectedExternalBundleImports", () => {

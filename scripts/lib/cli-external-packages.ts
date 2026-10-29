@@ -92,6 +92,8 @@ export function selectCliRuntimeExternalDependencies(
  *
  * `regionCount` is reported so the caller can tell "nothing was inlined" apart
  * from "the marker format changed and this scan no longer sees anything".
+ * Vite+ 1.4's Rolldown writes a full-line `// <path>` comment per module.
+ * Earlier Rolldown builds wrote `//#region <path>`. Both are module regions.
  *
  * `inlinedPackages` is every package seen in a region, which lets the caller
  * check the opposite direction too. Verifying only that externals are absent
@@ -105,16 +107,13 @@ export function findInlinedExternalPackages(source: string): {
   readonly inlined: ReadonlyArray<string>;
   readonly inlinedPackages: ReadonlyArray<string>;
 } {
-  // Rolldown marks each inlined module with a `//#region <path>` comment.
-  const regionPattern = /\/\/#region\s+(\S+)/g;
   const packagePattern = /node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//g;
 
   let regionCount = 0;
   const inlined = new Set<string>();
   const inlinedPackages = new Set<string>();
-  for (const region of source.matchAll(regionPattern)) {
+  for (const regionPath of moduleRegionPaths(source)) {
     regionCount += 1;
-    const regionPath = region[1] ?? "";
     for (const candidate of regionPath.matchAll(packagePattern)) {
       const name = candidate[1];
       if (name === undefined || name === ".pnpm") continue;
@@ -128,4 +127,39 @@ export function findInlinedExternalPackages(source: string): {
     inlined: [...inlined].sort(),
     inlinedPackages: [...inlinedPackages].sort(),
   };
+}
+
+/**
+ * Paths Rolldown stamps on each inlined module.
+ *
+ * `//#region <path>` is the older marker. Vite+ 1.4 emits a full-line
+ * `// <path>` comment instead. Prose comments are not paths, so a line that
+ * is not a module id stays out of the count and a format change still reports
+ * zero regions.
+ */
+function moduleRegionPaths(source: string): Array<string> {
+  const paths: Array<string> = [];
+  for (const region of source.matchAll(/\/\/#region\s+(\S+)/g)) {
+    const regionPath = region[1];
+    if (regionPath !== undefined) paths.push(regionPath);
+  }
+  for (const line of source.matchAll(/^\/\/[ \t]+(\S+)\s*$/gm)) {
+    const regionPath = line[1];
+    if (regionPath !== undefined && isModulePathComment(regionPath)) paths.push(regionPath);
+  }
+  return paths;
+}
+
+function isModulePathComment(value: string): boolean {
+  return (
+    value.startsWith("./") ||
+    value.startsWith("../") ||
+    value.startsWith("src/") ||
+    value.startsWith("packages/") ||
+    value.startsWith("apps/") ||
+    value.startsWith("node_modules/") ||
+    value.includes("node_modules/") ||
+    value === "package.json" ||
+    value === "\\0rolldown/runtime.js"
+  );
 }
