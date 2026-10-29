@@ -3142,6 +3142,38 @@ NodeTest.test(
 );
 
 NodeTest.test(
+  "the lane header's live word shows from a 360px column and hides at 359",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-live-360");
+    for (const columnWidth of [359, 360] as const) {
+      const context = await newContext({ switchboard: true, columnWidth });
+      await patchThreadShells(context, {
+        [project.threadId("beta")]: { session: qaSession(project.threadId("beta"), "running") },
+      });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project);
+        const columnBox = await sidebar.locator(":scope > :last-child").boundingBox();
+        NodeAssert.ok(columnBox);
+        NodeAssert.equal(Math.round(columnBox.width), columnWidth - 1);
+        const betaLane = sidebar.locator(`[data-sb-branch-lane$=":${project.id}:br:feature/beta"]`);
+        // The dot names the live work at every width; the word needs 360px.
+        await betaLane.getByRole("img", { name: "Live work" }).first().waitFor();
+        await afterRenders(page);
+        NodeAssert.equal(
+          await betaLane.getByText("live", { exact: true }).isVisible(),
+          columnWidth >= 360,
+          `${columnWidth}px: lane live word`,
+        );
+      } finally {
+        await context.close();
+      }
+    }
+  },
+);
+
+NodeTest.test(
   "group-by modes, densities, the menu and lane states have no critical or serious axe violations",
   { timeout: 300_000 },
   async () => {
