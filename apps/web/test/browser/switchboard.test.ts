@@ -3,6 +3,7 @@ import * as NodeAssert from "node:assert/strict";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -309,6 +310,26 @@ async function scopeFromRail(page: Page, name: string) {
     .getByRole("button", { name: new RegExp(`^${name}(,|$)`) })
     .click();
   await page.getByRole("heading", { name, exact: true }).waitFor();
+}
+
+/** Whether the element's box lies inside the viewport and every scrolling ancestor. */
+async function onScreen(locator: Locator): Promise<boolean> {
+  return locator.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const inside = (outer: { top: number; bottom: number; left: number; right: number }) =>
+      box.top >= outer.top - 1 &&
+      box.bottom <= outer.bottom + 1 &&
+      box.left >= outer.left - 1 &&
+      box.right <= outer.right + 1;
+    if (box.width === 0 || box.height === 0) return false;
+    if (!inside({ top: 0, left: 0, bottom: innerHeight, right: innerWidth })) return false;
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+      const { overflowY } = getComputedStyle(parent);
+      const scrolls = overflowY === "auto" || overflowY === "scroll";
+      if (scrolls && !inside(parent.getBoundingClientRect())) return false;
+    }
+    return true;
+  });
 }
 
 NodeTest.before(
@@ -668,6 +689,7 @@ async function snapshot(context: BrowserContext, url: string, surface: "sidebar"
       await snoozedRow.waitFor({ state: "attached", timeout: 60_000 });
       await snoozedRow.scrollIntoViewIfNeeded({ timeout: 60_000 });
       await snoozedRow.waitFor({ state: "visible", timeout: 60_000 });
+      NodeAssert.ok(await onScreen(snoozedRow), "The snoozed row is not on screen for the capture");
     }
     if (surface === "settings") {
       // The header is static. These rows appear only after server settings hydrate
@@ -863,31 +885,39 @@ NodeTest.test(
   },
 );
 
-/** Calls the test backend: a GET, or a JSON POST when given a body. */
-async function backendRequest(path: string, body?: object): Promise<Response> {
-  const send = () =>
-    fetch(
-      `http://127.0.0.1:${backendPort}${path}`,
-      body === undefined
-        ? { headers: { Authorization: `Bearer ${token}` } }
-        : {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
+/** Calls the test backend: a GET, or a JSON POST when given a body. Every
+ * call opens its own connection. Reusing an idle pooled socket races the
+ * server closing it, and a POST that lost that race cannot be resent: it may
+ * have reached the server and would double-apply. */
+function backendRequest(path: string, body?: object): Promise<Response> {
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const request = NodeHttp.request(
+      {
+        host: "127.0.0.1",
+        port: backendPort,
+        path,
+        method: payload === undefined ? "GET" : "POST",
+        agent: false,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(payload === undefined
+            ? {}
+            : { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }),
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("error", reject);
+        response.on("end", () =>
+          resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 500 })),
+        );
+      },
     );
-  try {
-    return await send();
-  } catch (error) {
-    // A pooled socket the server already closed fails before the request
-    // lands; one retry on a fresh socket covers it. Anything else is real,
-    // and a POST must never be resent: a non-idempotent request that did
-    // reach the server before the socket dropped would double-apply.
-    const cause = error instanceof Error ? error.cause : undefined;
-    const code = cause instanceof Error && "code" in cause ? cause.code : undefined;
-    if (body !== undefined || (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET")) throw error;
-    return send();
-  }
+    request.on("error", reject);
+    request.end(payload);
+  });
 }
 
 async function dispatchFixture(command: object) {
@@ -2000,15 +2030,22 @@ NodeTest.test(
           .waitFor();
         NodeAssert.deepEqual(new Set(await cardHeights()), new Set([48]), `${mode} comfortable`);
       }
-      // One Tab stop; arrows change the value, and the choice persists.
+      // One Tab stop; arrows change the value, and the choice persists. The
+      // reload runs in one project's Branch view: rendering every project's
+      // rows again is what made the wait after it slow on a loaded machine.
+      await chooseGroupBy(page, sidebar, "Branch");
+      await scopeFromRail(page, project.title);
       await density.getByRole("radio", { name: "Comfortable" }).focus();
       await page.keyboard.press("ArrowRight");
-      await density
+      const compactRadio = density
         .getByRole("radio", { name: "Compact" })
-        .and(page.locator('[aria-checked="true"]'))
-        .waitFor();
+        .and(page.locator('[aria-checked="true"]'));
+      await compactRadio.waitFor();
       await waitForPersisted(page, ["sidebarDensity"], "compact");
+      await waitForPersisted(page, ["sidebarGroupBy"], "branch");
       await page.reload();
+      // The saved choice hydrates first; the rows follow once the shell loads.
+      await compactRadio.waitFor();
       const compactRow = sidebar.locator('[data-sb-thread-row][data-sb-density="compact"]').first();
       await compactRow.waitFor();
       // Compact rows are card options, not the slim shelf rows, with an inset ring.
@@ -2275,7 +2312,8 @@ NodeTest.test(
       await page.waitForURL((url) => url.pathname.endsWith(`/${project.threadId("alphaFirst")}`));
       NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "false");
       await page.keyboard.press(`${mod}+KeyK`);
-      const palette = page.getByRole("dialog");
+      // A role=dialog lookup also matches a toast that can appear mid-test.
+      const palette = page.getByTestId("command-palette");
       await palette.waitFor();
       await page.keyboard.type("Beta thread");
       await palette.getByText("Beta thread", { exact: true }).first().click();
@@ -2284,7 +2322,7 @@ NodeTest.test(
       NodeAssert.equal(await betaToggle.getAttribute("aria-expanded"), "true");
       await waitForPersisted(page, ["sidebarLaneCollapsed", betaKey], false);
       await row("beta").and(sidebar.locator('[aria-current="page"]')).waitFor();
-      NodeAssert.ok(await row("beta").isVisible());
+      NodeAssert.ok(await onScreen(row("beta")), "The revealed row is not on screen");
     } finally {
       await context.close();
     }
