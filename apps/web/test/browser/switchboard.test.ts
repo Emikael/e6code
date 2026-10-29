@@ -2420,6 +2420,95 @@ NodeTest.test(
   },
 );
 
+/** The focus ring's contrast with the sidebar behind it and with the field's
+ * own fill, the two colors it adjoins (WCAG 1.4.11). */
+async function fieldRingContrast(field: Locator) {
+  return field.evaluate((node) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const paint = canvas.getContext("2d", { willReadFrequently: true })!;
+    // Canvas resolves oklch and color-mix to sRGB, compositing over `under`.
+    const rgb = (color: string, under = "#fff") => {
+      paint.clearRect(0, 0, 1, 1);
+      paint.fillStyle = under;
+      paint.fillRect(0, 0, 1, 1);
+      paint.fillStyle = color;
+      paint.fillRect(0, 0, 1, 1);
+      return Array.from(paint.getImageData(0, 0, 1, 1).data.subarray(0, 3));
+    };
+    const luminance = ([r, g, b]: number[]) => {
+      const [R, G, B] = [r!, g!, b!].map((v) => {
+        const c = v / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * R! + 0.7152 * G! + 0.0722 * B!;
+    };
+    const ratio = (a: number[], b: number[]) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    // Every background from the root down, so translucent fills composite.
+    const backdrop = (from: Element | null) => {
+      const chain: string[] = [];
+      for (let el = from; el; el = el.parentElement)
+        chain.unshift(getComputedStyle(el).backgroundColor);
+      return chain.reduce((under, color) => `rgb(${rgb(color, under).join(" ")})`, "#fff");
+    };
+    const style = getComputedStyle(node);
+    // Tailwind stacks transparent placeholder shadows around the ring; the
+    // ring is the one with a spread.
+    const ring = [
+      ...style.boxShadow.matchAll(/((?:rgba?|oklch|oklab|color)\([^)]*\)) 0px 0px 0px ([\d.]+)px/g),
+    ].find((shadow) => Number(shadow[2]) > 0)?.[1];
+    if (!ring) throw new Error(`No ring in box-shadow ${style.boxShadow}`);
+    const outside = backdrop(node.parentElement);
+    const ringRgb = rgb(ring, outside);
+    return {
+      outside: Math.round(ratio(ringRgb, rgb(outside)) * 100) / 100,
+      fill: Math.round(ratio(ringRgb, rgb(backdrop(node))) * 100) / 100,
+    };
+  });
+}
+
+NodeTest.test(
+  "the search and rename fields' focus ring reaches 3:1 in light and dark",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-field-ring");
+    const measured: Record<string, { outside: number; fill: number }> = {};
+    for (const colorScheme of ["light", "dark"] as const) {
+      const context = await newContext({ switchboard: true, colorScheme });
+      try {
+        const page = await context.newPage();
+        const sidebar = await openBranchProject(page, project, { settleComposerFocus: true });
+        const search = sidebar.getByRole("combobox", { name: "Search threads" });
+        await search.focus();
+        await afterRenders(page);
+        measured[`${colorScheme} search`] = await fieldRingContrast(
+          search.locator("xpath=ancestor::div[contains(@class,'focus-within:ring-2')][1]"),
+        );
+        const row = sidebar.getByRole("option", { name: "Alpha first", exact: true });
+        await row.click();
+        await row.and(sidebar.locator('[aria-current="page"]')).waitFor();
+        await row.dblclick();
+        const rename = sidebar.getByRole("textbox", { name: "Thread title" });
+        await rename.waitFor();
+        await afterRenders(page);
+        measured[`${colorScheme} rename`] = await fieldRingContrast(rename);
+        await page.keyboard.press("Escape");
+      } finally {
+        await context.close();
+      }
+    }
+    console.log(`field focus ring contrast: ${JSON.stringify(measured)}`);
+    for (const [field, { outside, fill }] of Object.entries(measured)) {
+      NodeAssert.ok(outside >= 3, `${field} ring vs sidebar ${outside}:1`);
+      NodeAssert.ok(fill >= 3, `${field} ring vs field fill ${fill}:1`);
+    }
+  },
+);
+
 NodeTest.test(
   "status mode orders derived sections and refuses reorder drops without writing",
   { timeout: 240_000 },

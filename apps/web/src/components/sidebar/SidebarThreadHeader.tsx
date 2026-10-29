@@ -97,7 +97,14 @@ export function SidebarThreadHeader({
     <div className="flex items-center gap-1.5">
       <div
         ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar-control-surface/45 px-2.5 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-control-surface/80 hover:text-sidebar-foreground focus-within:border-ring/60 focus-within:bg-sidebar-control-surface focus-within:text-sidebar-foreground"
+        className={cn(
+          "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar-control-surface/45 px-2.5 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-control-surface/80 hover:text-sidebar-foreground focus-within:bg-sidebar-control-surface focus-within:text-sidebar-foreground",
+          // The switchboard drops the input's outline (index.css), so the field
+          // draws a full-strength ring; the faded border alone is below 3:1.
+          switchboard
+            ? "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring"
+            : "focus-within:border-ring/60",
+        )}
       >
         <SearchIcon className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]" />
         <Input

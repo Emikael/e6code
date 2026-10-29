@@ -1930,7 +1930,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       className={
         props.switchboard
           ? // Draws its own ring; index.css drops the switchboard outline for it.
-            "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            "min-w-0 flex-1 rounded-sm border border-sb-border bg-sb-surface px-1 text-[13px] leading-[18px] font-medium text-sb-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring"
           : "min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
       }
     />
