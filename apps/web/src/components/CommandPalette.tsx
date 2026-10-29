@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  queueWorkspaceFocusFromPalette,
+  restoreWorkspaceFocusFromPalette,
+} from "../lib/workspaceFocus";
 import { threadPullRequestLinkMode } from "@e6tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@e6tools/shared/threadPullRequests";
 
@@ -673,6 +677,8 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
+        // A workspace focus command moves to its area instead of the composer.
+        if (restoreWorkspaceFocusFromPalette()) return false;
         composerHandleRef?.current?.focusAtEnd();
         return false;
       }}
@@ -1845,6 +1851,21 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+  }
+
+  for (const direction of [1, -1] as const) {
+    const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
+    actionItems.push({
+      kind: "action",
+      value: `action:workspace-focus:${direction}`,
+      title,
+      searchTerms: [title, "accessibility", "navigation", "focus", "F6"],
+      icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: direction === 1 ? "workspace.focusNext" : "workspace.focusPrevious",
+      run: async () => {
+        queueWorkspaceFocusFromPalette(direction);
+      },
+    });
   }
 
   actionItems.push({

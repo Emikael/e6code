@@ -194,7 +194,7 @@ function isNodeWithinMenuStack(target: EventTarget | null, menuStack: readonly H
 // Only one fallback menu exists at a time in the renderer; the active one is
 // tracked so a state change (for example a terminal selection clearing) can
 // dismiss it with the same result as an outside click or Escape.
-let activeContextMenuDismiss: (() => void) | null = null;
+let activeContextMenuDismiss: ((restoreFocus?: boolean) => void) | null = null;
 
 export function isContextMenuOpen(): boolean {
   return activeContextMenuDismiss !== null;
@@ -205,8 +205,8 @@ export function isContextMenuOpen(): boolean {
  * null (the same result as dismissing by outside click or Escape). No-op when
  * no fallback menu is open.
  */
-export function dismissContextMenu(): void {
-  activeContextMenuDismiss?.();
+export function dismissContextMenu(restoreFocus = true): void {
+  activeContextMenuDismiss?.(restoreFocus);
   activeContextMenuDismiss = null;
 }
 
@@ -226,9 +226,9 @@ export function showContextMenuFallback<T extends string>(
     let isDisposed = false;
     let canDismissFromPointer = false;
 
-    const dismiss = () => cleanup(null);
+    const dismiss = (restoreFocus = true) => cleanup(null, restoreFocus);
 
-    const cleanup = (result: T | null) => {
+    const cleanup = (result: T | null, restoreFocus = true) => {
       if (isDisposed) {
         return;
       }
@@ -239,7 +239,8 @@ export function showContextMenuFallback<T extends string>(
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("contextmenu", onContextMenu, true);
-      const shouldRestoreFocus = isNodeWithinMenuStack(document.activeElement, menuStack);
+      const shouldRestoreFocus =
+        restoreFocus && isNodeWithinMenuStack(document.activeElement, menuStack);
       for (const menu of menuStack) {
         menu.remove();
       }

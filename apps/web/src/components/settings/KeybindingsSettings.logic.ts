@@ -285,6 +285,8 @@ export function buildKeybindingCommandOptions(
 export function commandLabel(command: KeybindingCommand): string {
   if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread ID";
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
+  if (command === "workspace.focusNext") return "Focus Next Workspace Area";
+  if (command === "workspace.focusPrevious") return "Focus Previous Workspace Area";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;

@@ -10,6 +10,7 @@ import {
 import { isElectron } from "~/env";
 import { useResizableWidth } from "~/hooks/useResizableWidth";
 import { cn } from "~/lib/utils";
+import { workspaceAreaProps } from "~/lib/workspaceFocus";
 
 import { RightPanelResizeHandle } from "./RightPanelResizeHandle";
 
@@ -62,6 +63,10 @@ export function PreviewPanelShell(props: {
   widthStorageKey?: string;
   /** Overrides the initial width (px) before the user has resized the panel. */
   defaultWidth?: number;
+  /** Makes the panel one stop in the F6 cycle; the key changes when its surface does. */
+  workspaceArea?: boolean;
+  workspaceFocusKey?: string;
+  workspaceLabel?: string;
   children: ReactNode;
 }) {
   const useDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
@@ -150,6 +155,11 @@ export function PreviewPanelShell(props: {
   return (
     <div
       ref={hostRef}
+      {...(props.workspaceArea
+        ? workspaceAreaProps("panel", 4, props.workspaceLabel ?? "Workspace panel")
+        : {})}
+      data-workspace-focus-key={props.workspaceFocusKey}
+      data-workspace-unavailable={collapsible && !open ? "true" : undefined}
       className={cn(
         "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-background",
         isInline

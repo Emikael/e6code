@@ -225,6 +225,7 @@ import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavaila
 import { RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { workspaceAreaProps } from "~/lib/workspaceFocus";
 import { AgentsPanel } from "./AgentsPanel";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
@@ -9938,6 +9939,7 @@ export default function ChatView(props: ChatViewProps) {
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
+        inert={rightPanelMaximized}
       >
         {/* Top bar */}
         <WorkspacePageHeader
@@ -10025,7 +10027,10 @@ export default function ChatView(props: ChatViewProps) {
               />
             </div>
             {/* Messages Wrapper */}
-            <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            <div
+              {...workspaceAreaProps("conversation", 1, "Conversation")}
+              className="relative flex min-h-0 flex-1 flex-col bg-background"
+            >
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
@@ -10255,6 +10260,7 @@ export default function ChatView(props: ChatViewProps) {
 
             {/* Input bar — centered hero while a draft has no messages, docked at the bottom otherwise */}
             <div
+              {...workspaceAreaProps("composer", 2, "Message input")}
               ref={setComposerOverlayElement}
               inert={isRevertingCheckpoint}
               data-chat-composer-overlay="true"

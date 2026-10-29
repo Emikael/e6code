@@ -313,13 +313,17 @@ describe("root reopen shortcut", () => {
       .getState()
       .remember({ kind: "panel-tab", threadRef: ref, surface: { kind: "diff", id: "diff" } });
     await render();
-    expect(state.setShortcuts).toHaveBeenLastCalledWith([
-      expect.objectContaining({ command: "view.reopenClosed" }),
-    ]);
+    const forwardedCommands = () =>
+      ((state.setShortcuts.mock.calls.at(-1) as unknown[] | undefined)?.[0] as
+        | ReadonlyArray<{ command: string }>
+        | undefined)!.map(({ command }) => command);
+    expect(forwardedCommands()).toContain("view.reopenClosed");
     await act(() => {
       menuAction?.("view.reopenClosed");
     });
     expect(useClosedViewStore.getState().entries).toEqual([]);
-    expect(state.setShortcuts).toHaveBeenLastCalledWith([]);
+    expect(forwardedCommands()).not.toContain("view.reopenClosed");
+    // F6 still leaves a focused desktop browser.
+    expect(forwardedCommands()).toContain("workspace.focusNext");
   });
 });

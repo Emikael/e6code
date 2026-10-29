@@ -175,22 +175,28 @@ export function ReopenClosedViewShortcut() {
   useEffect(() => {
     const preview = window.desktopBridge?.preview;
     if (!preview?.setForwardedShortcuts) return;
+    // A focused desktop browser keeps these keys from the app unless they are forwarded.
+    const forwardedCommands = [
+      ...(hasHistory ? (["view.reopenClosed"] as const) : []),
+      "workspace.focusNext",
+      "workspace.focusPrevious",
+    ] as const;
     void preview
       .setForwardedShortcuts(
-        hasHistory
-          ? effectiveShortcutsForCommand(keybindings, "view.reopenClosed", {
-              context: {
-                previewFocus: true,
-                previewOpen: true,
-                terminalFocus: false,
-                terminalOpen,
-                editableFocus: false,
-                modelPickerOpen: false,
-                isDesktop: true,
-                isWeb: false,
-              },
-            }).map((shortcut) => ({ command: "view.reopenClosed", shortcut }))
-          : [],
+        forwardedCommands.flatMap((command) =>
+          effectiveShortcutsForCommand(keybindings, command, {
+            context: {
+              previewFocus: true,
+              previewOpen: true,
+              terminalFocus: false,
+              terminalOpen,
+              editableFocus: false,
+              modelPickerOpen: false,
+              isDesktop: true,
+              isWeb: false,
+            },
+          }).map((shortcut) => ({ command, shortcut })),
+        ),
       )
       .catch(() => undefined);
     return () => {
