@@ -2121,6 +2121,51 @@ NodeTest.test(
           `${await toggle.textContent()}: the Project group toggle controls no rows in its group`,
         );
       }
+      // Collapsing a group hides what its toggle controls, with no rows left
+      // inside; the open thread stays on screen outside that region.
+      const controlledRows = (toggle: (typeof projectToggles)[number]) =>
+        toggle.evaluate((node) => {
+          const controlled = document.getElementById(node.getAttribute("aria-controls") ?? "");
+          return {
+            hidden: controlled === null || controlled.hidden,
+            rows: controlled?.querySelectorAll('[role="option"]').length ?? 0,
+          };
+        });
+      const openThreadRows = () => sidebar.locator('[role="option"][aria-current="page"]').count();
+      // Open a thread so one group holds the route row when it collapses.
+      await sidebar.locator('[role="option"]').first().click();
+      await sidebar.locator('[role="option"][aria-current="page"]').waitFor();
+      const openBefore = await openThreadRows();
+      for (const toggle of projectToggles) {
+        const name = await toggle.textContent();
+        await toggle.click();
+        await page.waitForFunction(
+          (node) => node?.getAttribute("aria-expanded") === "false",
+          await toggle.elementHandle(),
+        );
+        await afterRenders(page);
+        NodeAssert.deepEqual(
+          await controlledRows(toggle),
+          { hidden: true, rows: 0 },
+          `${name} collapsed`,
+        );
+        NodeAssert.equal(
+          await openThreadRows(),
+          openBefore,
+          `${name} collapsed: the open thread row`,
+        );
+        await toggle.click();
+        await page.waitForFunction(
+          (node) => node?.getAttribute("aria-expanded") === "true",
+          await toggle.elementHandle(),
+        );
+        await afterRenders(page);
+        const expanded = await controlledRows(toggle);
+        NodeAssert.equal(expanded.hidden, false, `${name} expanded`);
+        NodeAssert.ok(expanded.rows > 0, `${name} expanded: no rows`);
+      }
+      await page.goBack();
+      await page.waitForURL(/\/draft\//);
       await sidebar.getByTestId("sidebar-snoozed-shelf-toggle").click();
       for (const mode of ["Project", "Status", "Branch"] as const) {
         await chooseGroupBy(page, sidebar, mode);

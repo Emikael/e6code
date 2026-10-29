@@ -6558,6 +6558,14 @@ export default function Sidebar() {
                                   count={group.threadCount}
                                   droppable={false}
                                   density={sidebarDensity}
+                                  expanded={group.expanded}
+                                  collapsedRows={
+                                    group.expanded || group.rendered.length === 0
+                                      ? undefined
+                                      : group.rendered.map((thread) =>
+                                          renderThreadRow(thread, "active"),
+                                        )
+                                  }
                                   listRef={attachNestedListMotion}
                                   header={
                                     <SwitchboardProjectGroupHeader
@@ -6577,9 +6585,11 @@ export default function Sidebar() {
                                     />
                                   }
                                 >
-                                  {group.rendered.map((thread) =>
-                                    renderThreadRow(thread, "active"),
-                                  )}
+                                  {group.expanded
+                                    ? group.rendered.map((thread) =>
+                                        renderThreadRow(thread, "active"),
+                                      )
+                                    : null}
                                 </BranchLane>,
                               );
                             }

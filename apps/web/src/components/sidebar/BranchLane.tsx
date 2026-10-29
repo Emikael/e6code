@@ -40,6 +40,9 @@ export interface BranchLaneProps {
   /** Receives the row list, e.g. to animate rows within the lane. */
   listRef?: Ref<HTMLUListElement>;
   children?: ReactNode;
+  /** Rows a collapsed lane still shows (a Project group's open thread). They
+      sit outside the region the toggle hides, which stays empty. */
+  collapsedRows?: ReactNode;
 }
 
 /** A lane is a group inside the thread listbox; its list item is only layout. */
@@ -64,6 +67,7 @@ export function BranchLane({
   droppable = true,
   listRef,
   children,
+  collapsedRows,
 }: BranchLaneProps) {
   const rowsId = useId();
   const { setNodeRef } = useDroppable({
@@ -100,6 +104,27 @@ export function BranchLane({
   // A collapsed lane takes drops on its header without opening: the rows it
   // would place against are hidden, so it highlights like a shelf drop.
   const collapsedDrop = !expanded && dragOver && !rejected;
+  const laneRows = (rows: ReactNode) => (
+    <>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute top-0 bottom-3 left-[9px] w-px bg-(--sb-lane-line)",
+          dragOver && !rejected && "bg-sb-accent",
+        )}
+      />
+      <ul
+        ref={listRef}
+        role="presentation"
+        className={cn(
+          "relative flex min-w-0 flex-col",
+          density === "compact" ? "gap-0" : "gap-0.5",
+        )}
+      >
+        {rows}
+      </ul>
+    </>
+  );
   return (
     <li role="none" className="mt-1.5 min-w-0 list-none first:mt-0">
       <div
@@ -138,28 +163,11 @@ export function BranchLane({
           )}
         </BranchLaneRowsIdContext.Provider>
         <div id={rowsId} hidden={!expanded} className="relative pl-[18px]">
-          {expanded && (
-            <>
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "pointer-events-none absolute top-0 bottom-3 left-[9px] w-px bg-(--sb-lane-line)",
-                  dragOver && !rejected && "bg-sb-accent",
-                )}
-              />
-              <ul
-                ref={listRef}
-                role="presentation"
-                className={cn(
-                  "relative flex min-w-0 flex-col",
-                  density === "compact" ? "gap-0" : "gap-0.5",
-                )}
-              >
-                {children}
-              </ul>
-            </>
-          )}
+          {expanded && laneRows(children)}
         </div>
+        {!expanded && collapsedRows ? (
+          <div className="relative pl-[18px]">{laneRows(collapsedRows)}</div>
+        ) : null}
       </div>
     </li>
   );
