@@ -2300,6 +2300,70 @@ NodeTest.test(
 );
 
 NodeTest.test(
+  "the group by menu returns focus to its trigger after Escape and Enter in every mode",
+  { timeout: 180_000 },
+  async () => {
+    const project = await seedBranchProject("qa-group-by-return");
+    const context = await newContext({ switchboard: true });
+    try {
+      const page = await context.newPage();
+      const sidebar = await openBranchProject(page, project, { settleComposerFocus: true });
+      await scopeFromRail(page, "All projects");
+      const menu = page.getByRole("menu");
+      const trigger = (mode: string) =>
+        sidebar.getByRole("button", { name: `Group by ${mode}`, exact: true });
+      const item = (mode: string) =>
+        page.getByRole("menuitemradio", { name: new RegExp(`^${mode}`) });
+      const expectTriggerFocused = async (mode: string, after: string) => {
+        await menu.waitFor({ state: "detached" });
+        await afterRenders(page);
+        NodeAssert.equal(
+          await trigger(mode).evaluate((node) => node === document.activeElement),
+          true,
+          `${after}: focus is on ${await page.evaluate(
+            () => document.activeElement?.tagName ?? "nothing",
+          )}, not the Group by ${mode} trigger`,
+        );
+      };
+      const openWithKeyboard = async (mode: string) => {
+        await trigger(mode).focus();
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(
+          () => document.activeElement?.getAttribute("role") === "menuitemradio",
+        );
+      };
+      // Picks alternate between the mouse and the keyboard. The pointer stays
+      // where the last mouse pick left it, over the spot the popup reopens in:
+      // closing under a resting pointer is what used to drop focus on the body.
+      const steps = [
+        ["Branch", "Status", "mouse"],
+        ["Status", "Project", "keyboard"],
+        ["Project", "Branch", "mouse"],
+        ["Branch", "Project", "keyboard"],
+        ["Project", "Status", "mouse"],
+        ["Status", "Branch", "keyboard"],
+      ] as const;
+      for (const [from, to, by] of steps) {
+        if (by === "mouse") {
+          await trigger(from).click();
+          await item(to).click();
+        } else {
+          await openWithKeyboard(from);
+          await item(to).focus();
+          await page.keyboard.press("Enter");
+        }
+        await expectTriggerFocused(to, `${by} pick of ${to} from ${from}`);
+        await openWithKeyboard(to);
+        await page.keyboard.press("Escape");
+        await expectTriggerFocused(to, `Escape in ${to} after a ${by} pick`);
+      }
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+NodeTest.test(
   "thread rows keep a visible focus ring over the selected and hover fill",
   { timeout: 240_000 },
   async () => {

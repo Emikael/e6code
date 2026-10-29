@@ -90,7 +90,15 @@ export function SidebarGroupByRow({
   return (
     // The breakpoints read the thread column's container (AppSidebarLayout).
     <div data-testid="sidebar-group-by-row" className="flex h-8 items-center gap-1.5 px-2.5">
-      <Menu>
+      <Menu
+        onOpenChange={(open, details) => {
+          // This menu never opens on hover, yet a popup that closes under a
+          // resting pointer reports a second, hover close (the items' mouseleave).
+          // Base UI then skips returning focus, which lands on the body, and
+          // after a mouse pick every keyboard reopen sits under that pointer.
+          if (!open && details.reason === "trigger-hover") details.cancel();
+        }}
+      >
         <MenuTrigger
           onKeyDown={(event) => {
             if (OPEN_KEYS.has(event.key)) focusCheckedOnOpenRef.current = true;
