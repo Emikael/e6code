@@ -18,7 +18,7 @@ export function attachSidebarTree(element: HTMLElement | null) {
 }
 
 /** A roving DOM focus, separate from thread activation, as in VS Code's list commands. */
-export function installSidebarTree(root: HTMLElement) {
+function installSidebarTree(root: HTMLElement) {
   let rows: HTMLElement[] = [];
   let focusedId: string | undefined;
   let ownsFocus = false;

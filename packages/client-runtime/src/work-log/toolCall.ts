@@ -59,7 +59,7 @@ function prettyJsonText(text: string): string {
 }
 
 /** Formats a tool input or output for display: text blocks as text, the rest as JSON. */
-export function formatToolValue(value: unknown): string | null {
+function formatToolValue(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   const text = textFromBlocks(value, 0);
   if (text !== null) return text.trim() ? prettyJsonText(text) : null;

@@ -87,7 +87,7 @@ function revealInScrollers(target: HTMLElement) {
 }
 
 /** Keeps area focus local, like VS Code's layout service focusPart/visible-neighbour actions. */
-export function createWorkspaceFocusController(doc: Document) {
+function createWorkspaceFocusController(doc: Document) {
   const lastFocused = new Map<string, HTMLElement>();
   let lastArea: string | undefined;
   const remember = (event: FocusEvent) => {
@@ -322,8 +322,6 @@ export function createWorkspaceFocusController(doc: Document) {
 }
 
 let controller: ReturnType<typeof createWorkspaceFocusController> | undefined;
-let focusRequestVersion = 0;
-export const getWorkspaceFocusRequestVersion = () => focusRequestVersion;
 
 /**
  * Starts workspace focus for the app: F6 area moves, focus requests, focus-loss recovery,
@@ -360,15 +358,8 @@ export function moveWorkspaceFocus(direction: 1 | -1, fromArea?: string): boolea
 }
 
 /** Explicit user actions request focus after React has committed the destination. */
-export function requestWorkspaceFocus(target: WorkspaceFocusTarget) {
-  focusRequestVersion++;
+function requestWorkspaceFocus(target: WorkspaceFocusTarget) {
   controller?.request(target);
-}
-
-export function requestWorkspaceContentFocus() {
-  // Resolve after the layout commits: closing a maximized panel makes the
-  // composer available again, while hiding a sidebar may leave only the panel.
-  requestWorkspaceFocus({ area: "content" });
 }
 
 let pendingPaletteDirection: 1 | -1 | undefined;
