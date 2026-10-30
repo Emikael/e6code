@@ -6,6 +6,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -166,6 +167,10 @@ const buildExeCmd = Command.make(
 // publish subcommand
 // ---------------------------------------------------------------------------
 
+const decodePackageManifest = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Struct({ name: Schema.String, version: Schema.String })),
+);
+
 /**
  * Publishes the tarballs scripts/build-npm-platform-packages.ts produced:
  * every `@e6code/e6-<platform>.tgz` first, then `@e6code/e6.tgz`, so the
@@ -189,6 +194,7 @@ const publishCmd = Command.make(
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const fs = yield* FileSystem.FileSystem;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       // npm runs with cwd set to the packages dir below, so tarball paths are
       // resolved once here rather than joined twice.
       const packagesDir = path.resolve(config.packagesDir);
@@ -214,6 +220,26 @@ const publishCmd = Command.make(
       if (config.dryRun) args.push("--dry-run");
 
       for (const tarball of [...platformTarballs, launcherTarball]) {
+        // A release rerun after a later job failed finds this version already
+        // live, and npm refuses to publish over it. Skip what is published so
+        // the rerun can reach the jobs that did not finish.
+        const manifest = yield* decodePackageManifest(
+          yield* fs.readFileString(path.join(tarball.slice(0, -".tgz".length), "package.json")),
+        );
+        const spec = `${manifest.name}@${manifest.version}`;
+        const viewCommand = yield* resolveSpawnCommand("npm", ["view", spec, "version"]);
+        const publishedVersion = yield* spawner.string(
+          ChildProcess.make(viewCommand.command, viewCommand.args, {
+            cwd: packagesDir,
+            stderr: "ignore",
+            shell: viewCommand.shell,
+          }),
+        );
+        if (publishedVersion.trim() === manifest.version) {
+          yield* Effect.log(`[cli] ${spec} is already published, skipping`);
+          continue;
+        }
+
         const spawnCommand = yield* resolveSpawnCommand("npm", [...args, tarball]);
         yield* Effect.log(`[cli] npm ${args.join(" ")} ${path.basename(tarball)}`);
         yield* runCommand(
