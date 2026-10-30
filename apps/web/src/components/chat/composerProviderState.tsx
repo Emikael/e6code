@@ -1,4 +1,5 @@
 import {
+  type EffortDisplay,
   type ModelCapabilities,
   type ProviderDriverKind,
   type ProviderInstanceId,
@@ -58,6 +59,10 @@ type TraitsRenderInput = {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   isComposerOwned?: boolean;
+  /** Composer effort chips name the level or draw bars; only the picker uses it. */
+  effortDisplay?: EffortDisplay;
+  /** Permissions section the picker shows below the traits, with its shortcut and hint. */
+  extraMenu?: { content: ReactNode; ownsModeShortcut: boolean; hint: string };
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -161,10 +166,8 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
   };
 }
 
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-): ReactNode {
+/** The shared props for a traits control, or null when the model has no traits to show. */
+function resolveTraitsControlProps(input: TraitsRenderInput) {
   const {
     provider,
     instanceId,
@@ -203,31 +206,48 @@ function renderTraitsControl(
   ) {
     return null;
   }
-  return (
-    <Component
-      provider={provider}
-      {...(instanceId ? { instanceId } : {})}
-      models={models}
-      {...(threadRef ? { threadRef } : {})}
-      {...(draftId ? { draftId } : {})}
-      model={model}
-      modelOptions={resolvedModelOptions}
-      prompt={prompt}
-      onPromptChange={onPromptChange}
-      planModeEnabled={planModeEnabled}
-      {...(size !== undefined ? { size } : {})}
-      {...(hidden !== undefined ? { hidden } : {})}
-      {...(triggerVariant !== undefined ? { triggerVariant } : {})}
-      {...(triggerClassName !== undefined ? { triggerClassName } : {})}
-      {...(isComposerOwned ? { isComposerOwned } : {})}
-    />
-  );
+  return {
+    provider,
+    ...(instanceId ? { instanceId } : {}),
+    models,
+    ...(threadRef ? { threadRef } : {}),
+    ...(draftId ? { draftId } : {}),
+    model,
+    modelOptions: resolvedModelOptions,
+    prompt,
+    onPromptChange,
+    planModeEnabled,
+    ...(size !== undefined ? { size } : {}),
+    ...(hidden !== undefined ? { hidden } : {}),
+    ...(triggerVariant !== undefined ? { triggerVariant } : {}),
+    ...(triggerClassName !== undefined ? { triggerClassName } : {}),
+    ...(isComposerOwned ? { isComposerOwned } : {}),
+  };
+}
+
+/** Whether the model has a traits (effort) menu for this target. */
+export function hasProviderTraitsControls(input: TraitsRenderInput): boolean {
+  return resolveTraitsControlProps(input) !== null;
 }
 
 export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsMenuContent, input);
+  const props = resolveTraitsControlProps(input);
+  return props ? <TraitsMenuContent {...props} /> : null;
 }
 
 export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsPicker, input);
+  const props = resolveTraitsControlProps(input);
+  return props ? (
+    <TraitsPicker
+      {...props}
+      {...(input.effortDisplay !== undefined ? { effortDisplay: input.effortDisplay } : {})}
+      {...(input.extraMenu
+        ? {
+            extraMenuContent: input.extraMenu.content,
+            extraMenuOwnsModeShortcut: input.extraMenu.ownsModeShortcut,
+            extraMenuHint: input.extraMenu.hint,
+          }
+        : {})}
+    />
+  ) : null;
 }

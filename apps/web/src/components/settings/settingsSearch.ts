@@ -210,6 +210,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["red green blue orange additions deletions changes counts palette colorblind"],
   },
   {
+    id: "effort-display",
+    title: "Effort display",
+    to: "/settings/appearance",
+    searchTerms: ["reasoning effort thinking bars graph word label level composer"],
+  },
+  {
+    id: "chat-width",
+    title: "Chat width",
+    to: "/settings/appearance",
+    searchTerms: ["wide full width column layout messages composer monitor"],
+  },
+  {
     id: "panel-animations",
     title: "Panel animations",
     to: "/settings/appearance",
@@ -356,12 +368,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Rich text composer",
     to: "/settings/general",
     searchTerms: ["composer rich text tiptap bold italic markdown styled wysiwyg"],
-  },
-  {
-    id: "composer-collapse",
-    title: "Collapse composer on scroll",
-    to: "/settings/general",
-    searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
   },
   {
     id: "send-shortcut",

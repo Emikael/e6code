@@ -51,9 +51,9 @@ catalog:
   typescript: 7.0.2
   # The `vite` override pins every Vite consumer to this core release, so it must move
   # with `vite-plus`. Dependabot only bumps the latter; update both together.
-  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
-  vite-plus: 1.1.0
-  wrangler: 4.151.2
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+  wrangler: 4.156.0
   yaml: ^2.9.0
 
 minimumReleaseAgeExclude:
@@ -97,19 +97,22 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/prisma@1.0.0-rc.12"
   - "@distilled.cloud/railway@1.0.0-rc.12"
   - "@distilled.cloud/stripe@1.0.0-rc.12"
-  - wrangler@4.151.2
-  - "@cloudflare/workerd-darwin-64@1.20261019.1"
-  - "@cloudflare/workerd-darwin-arm64@1.20261019.1"
-  - "@cloudflare/workerd-linux-64@1.20261019.1"
-  - "@cloudflare/workerd-linux-arm64@1.20261019.1"
-  - "@cloudflare/workerd-windows-64@1.20261019.1"
+  - wrangler@4.156.0
+  - "@cloudflare/workerd-darwin-64@1.20261023.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20261023.1"
+  - "@cloudflare/workerd-linux-64@1.20261023.1"
+  - "@cloudflare/workerd-linux-arm64@1.20261023.1"
+  - "@cloudflare/workerd-windows-64@1.20261023.1"
   - astro@7.4.1
-  - miniflare@5.20261019.0-beta
-  - workerd@1.20261019.1
+  - miniflare@5.20261023.3-beta
+  - workerd@1.20261023.1
 
 overrides:
   # Earlier React Navigation declarations create a circular type alias in TypeScript 7.
-  "@react-navigation/core": 7.21.13
+  # ENG-31: GHSA-qr28-fpjm-wq7f. 7.24.0 drops query-string, so decode-uri-component
+  # leaves the graph. Do not pin decode-uri-component to 0.5.x: it is ESM-only and
+  # query-string 7 require()s it.
+  "@react-navigation/core": 7.24.0
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the
   # registry manifest, so the edge has to be cut here as well.
   "dbus-next>usocket": "-"
@@ -120,6 +123,50 @@ overrides:
   # resolves to 5.2.1 and proxy-addr 2.0.7. 2.0.8 is the patched release and
   # satisfies express's ^2.0.7 range.
   "express>proxy-addr": 2.0.8
+  # ENG-32: GHSA-5p2g-fcmc-qvqq, GHSA-w3rx-r6r6-pgpr. metro 0.84.5+ drops
+  # image-size. Stay on 0.84.x; 0.87 needs React Native 0.88 and Expo SDK 58.
+  # @expo/metro pins 0.84.5 and the React Native CLI resolves 0.84.4.
+  metro: ^0.84.6
+  metro-babel-transformer: ^0.84.6
+  metro-cache: ^0.84.6
+  metro-cache-key: ^0.84.6
+  metro-config: ^0.84.6
+  metro-core: ^0.84.6
+  metro-file-map: ^0.84.6
+  metro-minify-terser: ^0.84.6
+  metro-resolver: ^0.84.6
+  metro-runtime: ^0.84.6
+  metro-source-map: ^0.84.6
+  metro-symbolicate: ^0.84.6
+  metro-transform-plugins: ^0.84.6
+  metro-transform-worker: ^0.84.6
+  # ENG-32: GHSA-pqg4-j6r4-53mv. react-devtools-core accepts ^1.6.1.
+  shell-quote: ^1.12.0
+  # ENG-32: GHSA-86w9-cpqp-85rv. @expo/cli and @expo/code-signing-certificates
+  # accept ^1.3.3. npm 1.4.2 is the patched release.
+  node-forge: ^1.4.2
+  # ENG-31: GHSA-27r3-jxmh-p828. express 5.2.1 accepts body-parser ^2.2.1.
+  "express>body-parser": ^2.4.0
+  # ENG-31: GHSA-2m5v-pch6-74hx, GHSA-4w7w-5xrc-9h26, GHSA-xjj6-f33q-929c,
+  # GHSA-qrxm-fqhp-jwvm. @effect/platform-node accepts ^8.10.2 and unifont accepts
+  # ^8. 8.12.2 is the patched floor.
+  "undici@^8": ^8.12.3
+  # ENG-31: GHSA-2m5v-pch6-74hx, GHSA-xjj6-f33q-929c, GHSA-qrxm-fqhp-jwvm.
+  # @ai-sdk/provider-utils and node-gyp accept ^6.28.0. 6.29.1 is the patched release.
+  "undici@^6": ^6.29.1
+  # ENG-33: GHSA-2m5v-pch6-74hx, GHSA-4w7w-5xrc-9h26, GHSA-xjj6-f33q-929c,
+  # GHSA-qrxm-fqhp-jwvm. miniflare pinned 7.29.1 and alchemy accepts ^7.16.0.
+  # 7.30.1 is the patched release.
+  "undici@^7": ^7.30.1
+  # ENG-33: GHSA-68fv-2mgg-jv7q. postcss, css-tree, and magicast accept ^1.2.1.
+  # 1.2.2 is the patched release.
+  source-map-js: ^1.2.2
+  # ENG-31: GHSA-mrhx-c7xc-m3w5. Zod 4 parents accept ^4; 4.6.6 is the patched floor.
+  # Zod 3 has no patched release, so it stays on its own line.
+  "zod@^4": ^4.6.7
+  # ENG-32: zod@3.25.76 via @expo/cli (GHSA-mrhx-c7xc-m3w5) has no 3.x fix.
+  # Do not force zod 4 onto @expo/cli. Accepted deferral, owner Emikael,
+  # review by 2026-12-15 or the Expo SDK 58 migration, whichever comes first.
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64": "-"

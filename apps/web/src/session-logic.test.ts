@@ -477,7 +477,7 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
-  it("keeps the latest task progress without emitting plan-update log entries", () => {
+  it("shows each plan update as a Tasks row and keeps the latest task progress", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),
       makeActivity({
@@ -498,9 +498,71 @@ describe("deriveWorkLogEntries", () => {
       }),
       makeActivity({ id: "after", kind: "tool.completed", summary: "Ran tests", sequence: 3 }),
     ];
-    expect(deriveWorkLogEntries(activities).map((entry) => entry.id)).toEqual(["before", "after"]);
+    expect(
+      deriveWorkLogEntries(activities).map(({ id, label, detail }) => ({ id, label, detail })),
+    ).toEqual([
+      { id: "before", label: "Read files", detail: undefined },
+      { id: "plan-1", label: "Tasks 0/1 · Verify the composer", detail: "→ Verify the composer" },
+      { id: "plan-2", label: "Tasks 1/1", detail: "✓ Verify the composer" },
+      { id: "after", label: "Ran tests", detail: undefined },
+    ]);
     expect(deriveActivePlanState(activities, TurnId.make("turn-1"))?.steps).toMatchObject([
       { step: "Verify the composer", status: "completed" },
+    ]);
+  });
+
+  it("drops the step from a finished plan's Tasks row and skips empty plans", () => {
+    const activities = [
+      makeActivity({
+        id: "plan-done",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        sequence: 1,
+        payload: {
+          plan: [
+            { step: "Write", status: "completed" },
+            { step: "Ship", status: "completed" },
+          ],
+        },
+      }),
+      makeActivity({
+        id: "plan-empty",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        sequence: 2,
+        payload: { plan: [] },
+      }),
+    ];
+    expect(deriveWorkLogEntries(activities).map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: "plan-done", label: "Tasks 2/2" },
+    ]);
+  });
+
+  it("hides todo tool rows only in turns whose plan update shows them", () => {
+    const todoTool = (id: string, turnId: string, sequence: number) =>
+      makeActivity({
+        id,
+        kind: "tool.completed",
+        summary: "TodoWrite",
+        turnId,
+        sequence,
+        payload: { data: { toolName: "TodoWrite" } },
+      });
+    const activities = [
+      todoTool("todo-planned", "turn-1", 0),
+      makeActivity({
+        id: "plan",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        turnId: "turn-1",
+        sequence: 1,
+        payload: { plan: [{ step: "Verify", status: "pending" }] },
+      }),
+      todoTool("todo-unplanned", "turn-2", 2),
+    ];
+    expect(deriveWorkLogEntries(activities).map(({ id }) => id)).toEqual([
+      "plan",
+      "todo-unplanned",
     ]);
   });
 

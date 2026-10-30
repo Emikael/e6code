@@ -37,3 +37,43 @@ export function isCommandPaletteOpen(): boolean {
     typeof document !== "undefined" && document.querySelector("[data-command-palette]") !== null
   );
 }
+
+let afterCloseAction: (() => void) | undefined;
+
+/**
+ * Runs `action` once the palette has closed and released its focus trap, in place of returning
+ * focus to the composer. For commands that open another popup or move focus themselves.
+ */
+export function runAfterCommandPaletteCloses(action: () => void): void {
+  afterCloseAction = action;
+}
+
+/** Read by the palette at its focus restoration milestone. */
+export function takeCommandPaletteCloseAction(): (() => void) | undefined {
+  const action = afterCloseAction;
+  afterCloseAction = undefined;
+  return action;
+}
+
+const REOPEN_CLOSED_VIEW_EVENT = "e6code:reopen-closed-view";
+const OPEN_RIGHT_PANEL_NEW_MENU_EVENT = "e6code:open-right-panel-new-menu";
+
+/** Asks the mounted reopen handler to restore the most recently closed tab. */
+export function requestReopenClosedView(): void {
+  window.dispatchEvent(new Event(REOPEN_CLOSED_VIEW_EVENT));
+}
+
+export function onReopenClosedViewRequest(listener: () => void): () => void {
+  window.addEventListener(REOPEN_CLOSED_VIEW_EVENT, listener);
+  return () => window.removeEventListener(REOPEN_CLOSED_VIEW_EVENT, listener);
+}
+
+/** Asks the open right panel to show its new-tab menu, as Mod+T does. */
+export function requestRightPanelNewMenu(): void {
+  window.dispatchEvent(new Event(OPEN_RIGHT_PANEL_NEW_MENU_EVENT));
+}
+
+export function onRightPanelNewMenuRequest(listener: () => void): () => void {
+  window.addEventListener(OPEN_RIGHT_PANEL_NEW_MENU_EVENT, listener);
+  return () => window.removeEventListener(OPEN_RIGHT_PANEL_NEW_MENU_EVENT, listener);
+}

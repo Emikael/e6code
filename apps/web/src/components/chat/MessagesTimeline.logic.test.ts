@@ -33,6 +33,7 @@ import {
   type MessagesTimelineRow,
   type MessagesTimelineRowsProjection,
   WORKTREE_SETUP_ROW_ID,
+  buildToolCallExpandedBody,
   workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
 import {
@@ -740,6 +741,17 @@ describe("work entry labels", () => {
     expect(workEntryDisplayLabel({ ...unknownEntry, detail: "Found 3 issues" }, undefined)).toBe(
       "Found 3 issues",
     );
+  });
+
+  it("previews a Tasks row by its summary, not its step list", () => {
+    const tasksEntry = {
+      ...entry,
+      label: "Tasks 1/2 · Ship the release complete",
+      detail: "✓ Draft notes\n→ Ship the release complete",
+      sourceActivityKind: "turn.plan.updated" as const,
+    };
+    expect(workEntryDisplayLabel(tasksEntry, undefined)).toBe(tasksEntry.label);
+    expect(liveWorkEntryLabel(tasksEntry, undefined, true)).toBe(tasksEntry.label);
   });
 
   it("keeps command summaries compact without replacing the full command in expanded rows", () => {
@@ -3888,5 +3900,62 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
+  });
+});
+
+describe("buildToolCallExpandedBody", () => {
+  const entry = {
+    id: "tool-1",
+    createdAt: "2026-09-01T12:00:00Z",
+    label: "Tool call",
+    tone: "tool" as const,
+  };
+
+  it("shows the full command as the call and the output as the result", () => {
+    expect(
+      buildToolCallExpandedBody(
+        { ...entry, command: "vp test", rawCommand: "bash -lc 'vp test'", detail: "1 passed" },
+        undefined,
+        "Ran vp",
+        null,
+      ),
+    ).toEqual({ call: "bash -lc 'vp test'", result: "1 passed" });
+  });
+
+  it("leaves out text the row title already shows", () => {
+    expect(
+      buildToolCallExpandedBody(
+        { ...entry, detail: "Found 3 issues" },
+        undefined,
+        "Found 3 issues",
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("splits an MCP call into its arguments and result", () => {
+    expect(
+      buildToolCallExpandedBody(
+        {
+          ...entry,
+          itemType: "mcp_tool_call" as const,
+          toolData: { tool: "search", arguments: { query: "flaky" }, result: "2 matches" },
+        },
+        undefined,
+        "Search",
+        null,
+      ),
+    ).toEqual({ call: "query flaky", result: "2 matches" });
+  });
+
+  it("lists changed files under the workspace name, except the viewed image", () => {
+    expect(
+      buildToolCallExpandedBody(
+        { ...entry, changedFiles: ["/repo/src/a.ts", "/repo/shot.png"] },
+        "/repo",
+        "Edited files",
+        "/repo/shot.png",
+      ),
+    ).toEqual({ call: null, result: "repo/src/a.ts" });
   });
 });

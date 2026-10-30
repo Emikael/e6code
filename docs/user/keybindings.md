@@ -15,7 +15,7 @@ use `mod+Shift+Enter` for the opposite action. In a new thread, `mod+Enter` keep
 starting the thread in the background.
 
 Use `mod+shift+m` to choose a model and `mod+shift+h` to choose a host.
-Use `mod+shift+e` for effort, `mod+shift+a` for access mode, `mod+shift+x` for the
+Use `mod+shift+e` for effort, `mod+shift+a` for permissions, `mod+shift+x` for the
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
@@ -126,6 +126,16 @@ In the desktop app, `mod+w` closes the focused terminal or the active right-pane
 tab. When nothing remains to close, it closes the window. In a browser, `mod+w`
 closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
 shortcut such as `alt+w`.
+
+While the right panel is open, `mod+t` opens its new-tab menu. Drag tabs to reorder
+them. In a browser, rebind `rightPanel.new` if the browser takes `mod+t` first.
+
+`mod+shift+t` reopens the last closed tab across the app, including files,
+diffs, pull requests, browsers, and devices, in the order you closed them.
+A browser opens in a fresh session without its old page history. Incognito tabs
+can reopen until you reload or quit the app. This shortcut does not undo deleted work.
+Browsers also use it to reopen browser tabs; choose another binding in Settings
+if the browser takes it first.
 
 Many defaults include `!terminalFocus` so they do not intercept terminal input.
 Keep that condition when remapping them if you want the same behavior.

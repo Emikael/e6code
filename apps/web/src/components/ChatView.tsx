@@ -138,7 +138,6 @@ import {
   derivePhase,
   deriveTimelineEntriesWithState,
   deriveActiveWorkStartedAt,
-  deriveActivePlanState,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
@@ -224,6 +223,9 @@ import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
+import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { workspaceAreaProps } from "~/lib/workspaceFocus";
 import { AgentsPanel } from "./AgentsPanel";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
@@ -651,6 +653,8 @@ const TYPE_TO_FOCUS_INTERACTIVE_SELECTOR = [
   '[role="radio"]',
   '[role="switch"]',
   '[role="tab"]',
+  // Tree rows take type-ahead and Space from the sidebar's keyboard navigation.
+  '[role="treeitem"]',
 ].join(",");
 const TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR = [
   '[role="dialog"][aria-modal="true"]',
@@ -704,8 +708,10 @@ function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
   // instead of typing into the composer.
   const launcherKeys = document
     .querySelector("[data-surface-launcher-keys]")
-    ?.getAttribute("data-surface-launcher-keys");
-  if (launcherKeys && launcherKeys.toLowerCase().includes(event.key.toLowerCase())) return false;
+    ?.getAttribute("data-surface-launcher-keys")
+    ?.toLowerCase();
+  const launcherKey = surfaceShortcutKey(event);
+  if (launcherKey !== null && launcherKeys?.includes(launcherKey)) return false;
 
   return true;
 }
@@ -1733,9 +1739,6 @@ export default function ChatView(props: ChatViewProps) {
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
-  const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
-    null,
-  );
   const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
   const userInputResponsesInFlight = useRef(new Set<string>());
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
@@ -1757,7 +1760,7 @@ export default function ChatView(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const prefersRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const isMobileViewport = useMediaQuery("max-sm");
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
@@ -1780,10 +1783,6 @@ export default function ChatView(props: ChatViewProps) {
     LastInvokedScriptByProjectSchema,
   );
   const legendListRef = useRef<LegendListRef | null>(null);
-  const getTimelineScrollableNode = useCallback(
-    () => legendListRef.current?.getScrollableNode() ?? null,
-    [],
-  );
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const composerOverlayElementRef = useRef(composerOverlayElement);
   composerOverlayElementRef.current = composerOverlayElement;
@@ -2026,6 +2025,7 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
+  const shouldUseRightPanelSheet = prefersRightPanelSheet && rightPanelState.maximized !== true;
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
   );
@@ -2088,17 +2088,18 @@ export default function ChatView(props: ChatViewProps) {
     activePreviewMiniPlayer?.source ?? null,
     renderedRightPanelSurface,
   );
-  const canMaximizeRightPanel = rightPanelOpen && !shouldUseRightPanelSheet;
-  const rightPanelMaximized =
-    canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
+  const canMaximizeRightPanel = rightPanelOpen;
+  const rightPanelMaximized = canMaximizeRightPanel && rightPanelState.maximized === true;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUseRightPanelSheet;
 
   useEffect(() => {
-    if (!activeThreadRef) return;
+    // Before the first preview.list lands, `sessions` is not authoritative: reconciling against
+    // it would drop restored browser tabs and hide the panel.
+    if (!activeThreadRef || !activePreviewState.listLoaded) return;
     useRightPanelStore
       .getState()
       .reconcileBrowserSurfaces(activeThreadRef, Object.keys(activePreviewState.sessions));
-  }, [activePreviewState.sessions, activeThreadRef]);
+  }, [activePreviewState.listLoaded, activePreviewState.sessions, activeThreadRef]);
 
   useEffect(() => {
     if (!activeThreadRef || activePreviewMiniPlayer?.source.kind !== "browser") return;
@@ -3090,10 +3091,6 @@ export default function ChatView(props: ChatViewProps) {
       activeLatestTurn?.turnId ?? null,
     );
   }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
-  const activePlan = useMemo(
-    () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
-  );
   const showPlanFollowUpPrompt = shouldShowPlanFollowUpPrompt({
     pendingUserInputCount: pendingUserInputs.length,
     interactionMode,
@@ -4870,7 +4867,7 @@ export default function ChatView(props: ChatViewProps) {
           .getState()
           .open(activeThreadRef, { kind: "device", ...activeRightPanelSurface.target });
       }
-      setMaximizedRightPanelThreadKey(null);
+      useRightPanelStore.getState().setMaximized(activeThreadRef, false);
       useRightPanelStore.getState().close(activeThreadRef);
     }
   }, [activeRightPanelSurface, activeThreadRef]);
@@ -5034,11 +5031,9 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
   const toggleRightPanelMaximized = useCallback(() => {
-    if (!canMaximizeRightPanel) return;
-    setMaximizedRightPanelThreadKey((threadKey) =>
-      threadKey === routeThreadKey ? null : routeThreadKey,
-    );
-  }, [canMaximizeRightPanel, routeThreadKey]);
+    if (!canMaximizeRightPanel || !activeThreadRef) return;
+    useRightPanelStore.getState().setMaximized(activeThreadRef, !rightPanelMaximized);
+  }, [activeThreadRef, canMaximizeRightPanel, rightPanelMaximized]);
   const cleanupRightPanelSurfaces = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
@@ -5104,10 +5099,19 @@ export default function ChatView(props: ChatViewProps) {
   const finishRightPanelSurfaceClose = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
-      cleanupRightPanelSurfaces(surfaces);
       const store = useRightPanelStore.getState();
-      for (const surface of surfaces) {
+      const activeId = selectThreadRightPanelState(
+        store.byThreadKey,
+        activeThreadRef,
+      ).activeSurfaceId;
+      const ordered = surfaces.toSorted(
+        (left, right) => Number(left.id === activeId) - Number(right.id === activeId),
+      );
+      for (const surface of ordered) {
+        // Releasing a browser drops its session, which prunes the tab automatically; close it
+        // first so the close stays a user action that hides the panel after the last tab.
         store.closeSurface(activeThreadRef, surface.id);
+        cleanupRightPanelSurfaces([surface]);
       }
       syncActivePreviewSurface();
     },
@@ -5184,6 +5188,13 @@ export default function ChatView(props: ChatViewProps) {
     finishRightPanelSurfaceClose,
     rightPanelState.surfaces,
   ]);
+  const moveRightPanelSurface = useCallback(
+    (surfaceId: string, toIndex: number) => {
+      if (activeThreadRef)
+        useRightPanelStore.getState().moveSurface(activeThreadRef, surfaceId, toIndex);
+    },
+    [activeThreadRef],
+  );
   const copyRightPanelFilePath = useCallback((relativePath: string) => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
       toastManager.add(
@@ -5369,7 +5380,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   const handlePageScrollStart = useEffectEvent((key: PageScrollKey) => {
     timelineScrollIntentRef.current = key === "PageUp" ? "away-from-end" : "toward-end";
-    composerRef.current?.collapseForTimelineScrollKey(key);
     if ((key === "PageUp" && timelineRealContentOverflowsViewport()) || !isTimelineAtLogicalEnd()) {
       cancelTimelineLiveFollowForUserNavigation();
     }
@@ -5455,6 +5465,9 @@ export default function ChatView(props: ChatViewProps) {
           }
           return;
         }
+        // F6 lands on the scroller itself, so arrow and page keys scroll the conversation.
+        if (!scrollNode.hasAttribute("tabindex")) scrollNode.tabIndex = -1;
+        scrollNode.setAttribute("data-workspace-focus-default", "");
         const handleManualNavigation = () => {
           cancelTimelineLiveFollowForUserNavigationRef.current();
         };
@@ -5476,9 +5489,6 @@ export default function ChatView(props: ChatViewProps) {
         const handleWheel = (event: WheelEvent) => {
           if (event.deltaY > 0) {
             timelineScrollIntentRef.current = "toward-end";
-            if (isAtEndRef.current) {
-              composerRef.current?.restoreAfterTimelineReachedEnd();
-            }
           } else if (event.deltaY < 0) {
             timelineScrollIntentRef.current = "away-from-end";
           }
@@ -5543,7 +5553,6 @@ export default function ChatView(props: ChatViewProps) {
               timelineScrollIntentRef.current = "away-from-end";
               if (contentScrollsUp() && !toolGroupConsumesUpwardNavigation(event.target)) {
                 handleManualNavigation();
-                composerRef.current?.collapseForTimelineScrollKey(event.key);
               }
               break;
             case "PageDown":
@@ -5552,10 +5561,6 @@ export default function ChatView(props: ChatViewProps) {
               timelineScrollIntentRef.current = "toward-end";
               if (viewportIsAwayFromEnd()) {
                 handleManualNavigation();
-              }
-              composerRef.current?.collapseForTimelineScrollKey(event.key);
-              if (isTimelineAtLogicalEnd()) {
-                composerRef.current?.restoreAfterTimelineReachedEnd();
               }
               break;
             default:
@@ -5636,10 +5641,6 @@ export default function ChatView(props: ChatViewProps) {
     requestAnimationFrame(() => positionAnchor(12));
   }, []);
 
-  const onToolOutputCollapsedAtEnd = useCallback(() => {
-    composerRef.current?.restoreAfterTimelineReachedEnd();
-  }, []);
-
   const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
     if (
       !isAtEnd &&
@@ -5652,9 +5653,6 @@ export default function ChatView(props: ChatViewProps) {
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
     if (isAtEnd) {
-      if (timelineScrollIntentRef.current === "toward-end") {
-        composerRef.current?.restoreAfterTimelineReachedEnd();
-      }
       timelineScrollModeRef.current = "following-end";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
       setTimelineLiveFollowEnabled(true);
@@ -5865,24 +5863,6 @@ export default function ChatView(props: ChatViewProps) {
         : null,
     [activeThreadBranch, activeWorktreePath, envMode, gitStatusQuery.data?.refName, isServerThread],
   );
-  const activeComposerTasksProgress = useMemo(() => {
-    if (!activeLatestTurn || latestTurnSettled || activePlan?.turnId !== activeLatestTurn.turnId) {
-      return null;
-    }
-    const currentStep =
-      activePlan.steps.find((step) => step.status === "inProgress") ??
-      activePlan.steps.find((step) => step.status === "pending");
-    if (!currentStep) return null;
-    return {
-      step: currentStep.step,
-      completedSteps: activePlan.steps.filter((step) => step.status === "completed").length,
-      totalSteps: activePlan.steps.length,
-    };
-  }, [activeLatestTurn, activePlan, latestTurnSettled]);
-  const activeComposerTaskSteps =
-    activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
-      ? activePlan.steps
-      : null;
 
   const publishScrollToEndClearance = useCallback(
     (overlayHeight: number) => {
@@ -6276,7 +6256,7 @@ export default function ChatView(props: ChatViewProps) {
       }
     }
   }, [activeThread, environmentId, interruptThreadTurn, setThreadError]);
-  const backgroundLivenessBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+  const backgroundWorkNow = useMemo<ThreadNowItem | null>(() => {
     if (activeBackgroundLiveness === null || !activeThread) {
       return null;
     }
@@ -6284,8 +6264,6 @@ export default function ChatView(props: ChatViewProps) {
     const liveCount = agentPanelModel.liveCount;
     return {
       id: `background-liveness:${activeThread.id}`,
-      variant: "default",
-      priority: "activity",
       icon: (
         <span
           className={cn("size-1.5 rounded-full bg-foreground", working && "animate-status-pulse")}
@@ -6298,14 +6276,14 @@ export default function ChatView(props: ChatViewProps) {
           : "Background work"
         : "Monitoring",
       actions: (
-        <Button
-          size="xs"
-          variant="ghost"
+        <button
+          type="button"
+          className="cursor-pointer text-foreground underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-60"
           disabled={isStoppingBackgroundWork}
           onClick={() => void handleStopBackgroundWork()}
         >
           {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-        </Button>
+        </button>
       ),
     };
   }, [
@@ -6643,8 +6621,6 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses,
   ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const backgroundLivenessItems =
-      backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -6660,7 +6636,6 @@ export default function ChatView(props: ChatViewProps) {
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
-        ...backgroundLivenessItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
         ...parkedThreadItems,
@@ -6672,7 +6647,6 @@ export default function ChatView(props: ChatViewProps) {
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
-      ...backgroundLivenessItems,
       ...resumeCompactionItems,
       ...wokeThreadItems,
       {
@@ -6717,7 +6691,6 @@ export default function ChatView(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
-    backgroundLivenessBannerItem,
     feedbackBannerItems,
     handoffBanner,
     handleRestoreThreadBranch,
@@ -9973,6 +9946,7 @@ export default function ChatView(props: ChatViewProps) {
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
+        inert={rightPanelMaximized}
       >
         {/* Top bar */}
         <WorkspacePageHeader
@@ -10060,7 +10034,10 @@ export default function ChatView(props: ChatViewProps) {
               />
             </div>
             {/* Messages Wrapper */}
-            <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            <div
+              {...workspaceAreaProps("conversation", 1, "Conversation")}
+              className="relative flex min-h-0 flex-1 flex-col bg-background"
+            >
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
@@ -10131,7 +10108,6 @@ export default function ChatView(props: ChatViewProps) {
                 liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
                 onIsAtEndChange={onIsAtEndChange}
                 onContentOverflowChange={setTimelineOverflows}
-                onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 cancelPositionRestoreRef={cancelPositionRestoreRef}
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
@@ -10145,6 +10121,15 @@ export default function ChatView(props: ChatViewProps) {
                   { context: { terminalFocus: false } },
                 )}
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
+                threadNow={
+                  paintOnlyDisplayedTimeline ? null : (
+                    <ThreadNow
+                      key={activeThreadKey}
+                      work={backgroundWorkNow}
+                      syncPhase={activeEnvironmentUnavailable ? null : threadSyncPhase}
+                    />
+                  )
+                }
                 frontierResolution={
                   !paintOnlyDisplayedTimeline &&
                   (activePendingApproval ||
@@ -10248,7 +10233,6 @@ export default function ChatView(props: ChatViewProps) {
                     }
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => {
-                      composerRef.current?.restoreAfterTimelineReachedEnd();
                       scrollToEnd(true);
                     }}
                     className={cn(
@@ -10283,6 +10267,7 @@ export default function ChatView(props: ChatViewProps) {
 
             {/* Input bar — centered hero while a draft has no messages, docked at the bottom otherwise */}
             <div
+              {...workspaceAreaProps("composer", 2, "Message input")}
               ref={setComposerOverlayElement}
               inert={isRevertingCheckpoint}
               data-chat-composer-overlay="true"
@@ -10298,7 +10283,7 @@ export default function ChatView(props: ChatViewProps) {
               >
                 <div
                   data-chat-composer-stack="true"
-                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-3xl"
+                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-max-width)"
                 >
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
@@ -10395,10 +10380,9 @@ export default function ChatView(props: ChatViewProps) {
                             respondingRequestIds={respondingRequestIds}
                             showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                             activeProposedPlan={activeProposedPlan}
-                            activeTasksProgress={activeComposerTasksProgress}
-                            activeTaskSteps={activeComposerTaskSteps}
                             threadSyncPhase={activeEnvironmentUnavailable ? null : threadSyncPhase}
                             runtimeMode={runtimeMode}
+                            defaultRuntimeMode={defaultRuntimeMode}
                             interactionMode={interactionMode}
                             lockedProvider={lockedProvider}
                             providerStatuses={providerStatuses as ServerProvider[]}
@@ -10425,8 +10409,6 @@ export default function ChatView(props: ChatViewProps) {
                               isGitRepo || showComposerEnvironmentIndicator
                             }
                             onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
-                            getTimelineScrollableNode={getTimelineScrollableNode}
-                            isTimelineAtLogicalEnd={isTimelineAtLogicalEnd}
                             timelineOverflows={timelineOverflows}
                             onComposerOverlayHeightChange={publishComposerOverlayHeight}
                             onRestingChange={onComposerRestingChange}
@@ -10612,6 +10594,8 @@ export default function ChatView(props: ChatViewProps) {
           mode="inline"
           widthStorageKey={`e6code:preview-panel-width:${activeThreadKey}`}
           open={rightPanelOpen}
+          keybindings={keybindings}
+          getShortcutContext={getShortcutContext}
           maximized={rightPanelMaximized}
           surfaces={renderedRightPanelSurfaces}
           environmentId={activeThreadRef.environmentId}
@@ -10630,6 +10614,7 @@ export default function ChatView(props: ChatViewProps) {
           onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
           onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
           onCloseAllSurfaces={closeAllRightPanelSurfaces}
+          onMoveSurface={moveRightPanelSurface}
           onCopyFilePath={copyRightPanelFilePath}
           onAddBrowser={() => createBrowserSurface()}
           onAddBrowserInProfile={createBrowserSurface}
@@ -10662,13 +10647,22 @@ export default function ChatView(props: ChatViewProps) {
         >
           <RightPanelTabs
             mode="sheet"
+            open={rightPanelOpen}
+            keybindings={keybindings}
+            getShortcutContext={getShortcutContext}
             // Same effective inset as the closed-state titlebar controls
             // (pr-3 in the tab bar plus this pixel equals the absolute
             // right inset plus mr-px), so the cluster does not creep when
             // the sheet opens.
             layoutControls={
               rightPanelOpen ? (
-                <div className="mr-px flex items-center">{panelToggleControls}</div>
+                <div className="mr-px flex items-center gap-1">
+                  <RightPanelMaximizeControl
+                    maximized={rightPanelMaximized}
+                    onToggle={toggleRightPanelMaximized}
+                  />
+                  {panelToggleControls}
+                </div>
               ) : null
             }
             surfaces={renderedRightPanelSurfaces}
@@ -10688,6 +10682,7 @@ export default function ChatView(props: ChatViewProps) {
             onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
             onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
             onCloseAllSurfaces={closeAllRightPanelSurfaces}
+            onMoveSurface={moveRightPanelSurface}
             onCopyFilePath={copyRightPanelFilePath}
             onAddBrowser={() => createBrowserSurface()}
             onAddBrowserInProfile={createBrowserSurface}

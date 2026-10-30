@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  queueWorkspaceFocusFromPalette,
+  restoreWorkspaceFocusFromPalette,
+} from "../lib/workspaceFocus";
 import { threadPullRequestLinkMode } from "@e6tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@e6tools/shared/threadPullRequests";
 
@@ -53,6 +57,8 @@ import {
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
+  PlusIcon,
+  RotateCcwIcon,
   SettingsIcon,
   SquarePenIcon,
   SunIcon,
@@ -114,13 +120,21 @@ import {
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
-import { onOpenCommandPalette } from "../commandPaletteBus";
+import { useClosedViewStore } from "../closedViewStore";
+import {
+  onOpenCommandPalette,
+  requestReopenClosedView,
+  requestRightPanelNewMenu,
+  runAfterCommandPaletteCloses,
+  takeCommandPaletteCloseAction,
+} from "../commandPaletteBus";
 import { requestSidebarAction } from "../sidebarActionBus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   PULL_REQUESTS_PANEL_REF,
   selectActiveRightPanel,
+  selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
 import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
@@ -673,6 +687,13 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
+        // A workspace focus command moves to its area instead of the composer.
+        if (restoreWorkspaceFocusFromPalette()) return false;
+        const afterClose = takeCommandPaletteCloseAction();
+        if (afterClose) {
+          window.requestAnimationFrame(afterClose);
+          return false;
+        }
         composerHandleRef?.current?.focusAtEnd();
         return false;
       }}
@@ -756,6 +777,10 @@ function OpenCommandPaletteDialog(props: {
         ? scopeThreadRef(activeThread.environmentId, activeThread.id)
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
+  const referenceRightPanelOpen = useRightPanelStore(
+    (state) => selectThreadRightPanelState(state.byThreadKey, referenceThreadRef).isOpen,
+  );
+  const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1845,6 +1870,49 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+  }
+
+  if (referenceRightPanelOpen) {
+    actionItems.push({
+      kind: "action",
+      value: "action:right-panel-new-tab",
+      searchTerms: ["new tab", "panel", "right panel", "browser", "terminal", "files", "diff"],
+      title: "New Panel Tab…",
+      icon: <PlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "rightPanel.new",
+      run: async () => {
+        runAfterCommandPaletteCloses(requestRightPanelNewMenu);
+      },
+    });
+  }
+
+  if (hasClosedViewHistory) {
+    actionItems.push({
+      kind: "action",
+      value: "action:reopen-closed-view",
+      searchTerms: ["reopen", "closed tab", "undo close", "restore tab"],
+      title: "Reopen Closed Tab",
+      icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "view.reopenClosed",
+      run: async () => {
+        runAfterCommandPaletteCloses(requestReopenClosedView);
+      },
+    });
+  }
+
+  for (const direction of [1, -1] as const) {
+    const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
+    actionItems.push({
+      kind: "action",
+      value: `action:workspace-focus:${direction}`,
+      title,
+      searchTerms: [title, "accessibility", "navigation", "focus", "F6"],
+      icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: direction === 1 ? "workspace.focusNext" : "workspace.focusPrevious",
+      run: async () => {
+        queueWorkspaceFocusFromPalette(direction);
+      },
+    });
   }
 
   actionItems.push({

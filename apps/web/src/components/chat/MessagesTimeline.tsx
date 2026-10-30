@@ -1,4 +1,5 @@
 import { ArrowUpIcon, ClockIcon } from "lucide-react";
+import { observeResize } from "~/lib/observeResize";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -190,6 +191,7 @@ import {
   resolveTimelineMinimapHitStripWidth,
   resolveTimelineMinimapIndexFromPointer,
   resolveTimelineMinimapInteractiveWidth,
+  resolveTimelineMinimapNavigationInteractive,
   resolveTimelineMinimapTopPercent,
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
@@ -203,6 +205,8 @@ import {
   TIMELINE_MINIMAP_MIN_ITEMS,
   type TimelineLatestTurn,
   type WorkGroupScrollAnchor,
+  buildToolCallExpandedBody,
+  workEntryRawCommand,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -247,6 +251,7 @@ import {
 } from "../composerInlineChip";
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
+import { useClientSettings } from "~/hooks/useSettings";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
@@ -368,7 +373,7 @@ function TimelineLoadEarlierHeader({
 }) {
   return (
     <div className={fade ? "pt-[var(--workspace-titlebar-scroll-fade-height)]" : "pt-3 sm:pt-4"}>
-      <div className="mx-auto w-full max-w-3xl pb-2">
+      <div className="mx-auto w-full max-w-(--chat-max-width) pb-2">
         <button
           type="button"
           onClick={onLoadEarlier}
@@ -384,20 +389,41 @@ function TimelineLoadEarlierHeader({
 function TimelineListFooter({
   composerInset,
   frontierResolution,
+  threadNow,
+  onGrow,
 }: {
   readonly composerInset: number;
   readonly frontierResolution?: ReactNode;
+  readonly threadNow?: ReactNode;
+  /** The footer's content grew, such as a new status line, which the list does not follow. */
+  readonly onGrow: () => void;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    let height = content.offsetHeight;
+    return observeResize(content, () => {
+      const next = content.offsetHeight;
+      if (next > height) onGrow();
+      height = next;
+    });
+  }, [onGrow]);
+  // Only the status content is observed: the composer inset changes height on its own and must
+  // not count as growth.
   return (
     <div>
-      {frontierResolution ? (
-        <div
-          className="mx-auto w-full min-w-0 max-w-3xl px-1 pb-2.5 pt-1"
-          data-timeline-frontier-resolution="true"
-        >
-          {frontierResolution}
-        </div>
-      ) : null}
+      <div ref={contentRef}>
+        {threadNow ? <div data-thread-now="true">{threadNow}</div> : null}
+        {frontierResolution ? (
+          <div
+            className="mx-auto w-full min-w-0 max-w-(--chat-max-width) px-1 pb-2.5 pt-1"
+            data-timeline-frontier-resolution="true"
+          >
+            {frontierResolution}
+          </div>
+        ) : null}
+      </div>
       <div aria-hidden>
         <div style={{ height: composerInset }} />
         <div className="h-3 sm:h-4" />
@@ -490,7 +516,6 @@ interface MessagesTimelineProps {
    * Reported after scrolls, row size changes, and viewport resizes.
    */
   onContentOverflowChange?: (overflows: boolean) => void;
-  onToolOutputCollapsedAtEnd?: () => void;
   onManualNavigation: () => void;
   cancelPositionRestoreRef?: React.RefObject<(() => void) | null>;
   hideEmptyPlaceholder?: boolean;
@@ -504,6 +529,8 @@ interface MessagesTimelineProps {
   onRemoveQueuedMessage?: (id: string) => void;
   /** Point-of-attention resolution bar rendered inline at the active turn frontier. */
   frontierResolution?: ReactNode;
+  /** Thread state shown after the last row: background work and sync status. */
+  threadNow?: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,7 +578,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   liveFollowEnabled,
   onIsAtEndChange,
   onContentOverflowChange,
-  onToolOutputCollapsedAtEnd,
   onManualNavigation,
   cancelPositionRestoreRef,
   hideEmptyPlaceholder = false,
@@ -562,6 +588,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   frontierResolution,
+  threadNow,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -665,32 +692,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [settlingListIdentity]);
 
-  const suspendEndScrollMaintenanceForDisclosure = useCallback(
-    (anchorKey: string, collapsed = false) => {
-      disclosureAnchorKeyRef.current = anchorKey;
-      setDisclosureToggleSettling(true);
-      if (disclosureSettleFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleFrameRef.current);
-      }
-      if (disclosureSettleSecondFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
-      }
-      disclosureSettleFrameRef.current = requestAnimationFrame(() => {
-        disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
-          disclosureAnchorKeyRef.current = null;
-          setDisclosureToggleSettling(false);
-          disclosureSettleFrameRef.current = null;
-          disclosureSettleSecondFrameRef.current = null;
-          // Wait for row measurement and the disclosure click's blur check.
-          // Closing output can reveal the end without a scroll event.
-          if (collapsed && resolveTimelineIsAtEnd(listRef.current?.getState()) === true) {
-            onToolOutputCollapsedAtEnd?.();
-          }
-        });
+  const suspendEndScrollMaintenanceForDisclosure = useCallback((anchorKey: string) => {
+    disclosureAnchorKeyRef.current = anchorKey;
+    setDisclosureToggleSettling(true);
+    if (disclosureSettleFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleFrameRef.current);
+    }
+    if (disclosureSettleSecondFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+    }
+    disclosureSettleFrameRef.current = requestAnimationFrame(() => {
+      disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
+        disclosureAnchorKeyRef.current = null;
+        setDisclosureToggleSettling(false);
+        disclosureSettleFrameRef.current = null;
+        disclosureSettleSecondFrameRef.current = null;
       });
-    },
-    [listRef, onToolOutputCollapsedAtEnd],
-  );
+    });
+  }, []);
 
   const shouldRestoreVisibleContentPosition = useCallback((row: MessagesTimelineRow) => {
     const disclosureAnchorKey = disclosureAnchorKeyRef.current;
@@ -723,7 +742,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const onToggleWorkGroup = useCallback(
     (groupId: string, anchorKey: string) => {
-      suspendEndScrollMaintenanceForDisclosure(anchorKey, expandedWorkGroupIds.has(groupId));
+      suspendEndScrollMaintenanceForDisclosure(anchorKey);
       setExpandedWorkGroupIds((existing) => {
         const next = new Set(existing);
         if (next.has(groupId)) {
@@ -738,7 +757,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const onToggleReasoning = useCallback(
     (messageId: string, expanded: boolean, anchorKey: string) => {
-      suspendEndScrollMaintenanceForDisclosure(anchorKey, !expanded);
+      suspendEndScrollMaintenanceForDisclosure(anchorKey);
       setExpandedReasoningMessageIds((current) => {
         if (current.has(messageId) === expanded) return current;
         const next = new Set(current);
@@ -976,6 +995,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
   );
+  // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1013,14 +1034,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
     return config ? { ...config, onReady: handleAnchorReady } : undefined;
   }, [anchorMessageId, handleAnchorReady, rows]);
+  // Keep the end in view when a status line appears below the last row, but only if the
+  // reader was already there.
+  const followFooterGrowth = useCallback(() => {
+    const list = listRef.current;
+    if (resolveTimelineIsAtEnd(list?.getState?.()) === false) return;
+    list?.scrollToEnd({ animated: false });
+  }, []);
   const timelineListFooter = useMemo(
     () => (
       <TimelineListFooter
         composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}
         frontierResolution={frontierResolution}
+        threadNow={threadNow}
+        onGrow={followFooterGrowth}
       />
     ),
-    [anchoredEndSpace, contentInsetEndAdjustment, frontierResolution],
+    [
+      anchoredEndSpace,
+      contentInsetEndAdjustment,
+      frontierResolution,
+      threadNow,
+      followFooterGrowth,
+    ],
   );
 
   const measureContentOverflow = useCallback(
@@ -1152,11 +1188,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
     const measure = () => {
       const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
-      const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(viewportWidth);
+      // Without a mounted row, treat the column as full width so the strip stays inert.
+      const contentWidth =
+        timelineViewportElement
+          .querySelector<HTMLElement>("[data-timeline-root]")
+          ?.getBoundingClientRect().width ?? viewportWidth;
+      const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(
+        viewportWidth,
+        contentWidth,
+      );
       setMinimapHasPersistentGutter((current) =>
         current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
       );
-      setMinimapHitStripWidth(resolveTimelineMinimapHitStripWidth(viewportWidth));
+      setMinimapHitStripWidth(resolveTimelineMinimapHitStripWidth(viewportWidth, contentWidth));
       reportContentOverflow();
     };
 
@@ -1169,7 +1213,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [timelineViewportElement, rows.length, reportContentOverflow]);
+  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
@@ -1282,7 +1326,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+      <div
+        className="mx-auto w-full min-w-0 max-w-(--chat-max-width) overflow-x-clip"
+        data-timeline-root="true"
+      >
         <TimelineRowContent row={item} />
       </div>
     ),
@@ -1448,6 +1495,7 @@ function TimelineMinimap({
       ),
     [items, resolvedActiveIndex],
   );
+  const navigationInteractive = resolveTimelineMinimapNavigationInteractive(hitStripWidth);
   const activeTopPercent =
     resolvedActiveIndex === null
       ? 0
@@ -1529,6 +1577,7 @@ function TimelineMinimap({
           <TimelineMinimapNavigationButton
             direction="previous"
             disabled={previousItem === null}
+            interactive={navigationInteractive}
             onClick={() => {
               if (previousItem) onSelect(previousItem);
             }}
@@ -1648,6 +1697,7 @@ function TimelineMinimap({
           <TimelineMinimapNavigationButton
             direction="next"
             disabled={nextItem === null}
+            interactive={navigationInteractive}
             onClick={() => {
               if (nextItem) onSelect(nextItem);
             }}
@@ -1661,10 +1711,12 @@ function TimelineMinimap({
 function TimelineMinimapNavigationButton({
   direction,
   disabled,
+  interactive,
   onClick,
 }: {
   direction: "previous" | "next";
   disabled: boolean;
+  interactive: boolean;
   onClick: () => void;
 }) {
   const previous = direction === "previous";
@@ -1677,7 +1729,8 @@ function TimelineMinimapNavigationButton({
         render={
           <span
             className={cn(
-              "absolute left-1 z-10 inline-flex -translate-x-1/2 opacity-0 pointer-events-auto transition-opacity duration-150 hover:opacity-100 focus-within:opacity-100",
+              "absolute left-1 z-10 inline-flex -translate-x-1/2 opacity-0 transition-opacity duration-150 hover:opacity-100 focus-within:opacity-100",
+              interactive ? "pointer-events-auto" : "pointer-events-none",
               previous ? "bottom-[calc(100%+2px)]" : "top-[calc(100%+2px)]",
             )}
           />
@@ -1912,7 +1965,7 @@ function ContextCompactionTimelineRow({
     <div
       role="separator"
       aria-label={row.label}
-      className="mx-auto flex w-full max-w-3xl items-center gap-3 py-1 text-muted-foreground text-xs"
+      className="mx-auto flex w-full max-w-(--chat-max-width) items-center gap-3 py-1 text-muted-foreground text-xs"
     >
       <span className="h-px flex-1 bg-border/70" />
       <span className="flex shrink-0 items-center gap-1.5">
@@ -4611,64 +4664,6 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   };
 }
 
-function workEntryRawCommand(
-  workEntry: Pick<TimelineWorkEntry, "command" | "rawCommand">,
-): string | null {
-  const rawCommand = workEntry.rawCommand?.trim();
-  if (!rawCommand || !workEntry.command) {
-    return null;
-  }
-  return rawCommand === workEntry.command.trim() ? null : rawCommand;
-}
-
-function buildToolCallExpandedBody(
-  workEntry: TimelineWorkEntry,
-  workspaceRoot: string | undefined,
-  visibleLabel: string,
-  viewedImagePath: string | null,
-): string | null {
-  const blocks: string[] = [];
-  const seen = new Set<string>([visibleLabel.trim()]);
-  const addBlock = (value: string | null | undefined) => {
-    const text = value?.trim();
-    if (!text || seen.has(text)) return;
-    seen.add(text);
-    blocks.push(text);
-  };
-  if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
-    addBlock(`MCP call\n${JSON.stringify(workEntry.toolData, null, 2)}`);
-  }
-  const command = workEntry.command?.trim();
-  const raw = workEntryRawCommand(workEntry);
-  if (command === visibleLabel.trim()) {
-    seen.add(command);
-  } else {
-    addBlock(raw ?? command);
-  }
-  const detail = workEntry.detail?.trim();
-  if (detail !== viewedImagePath?.trim()) {
-    addBlock(detail);
-  }
-  const viewedImagePaths = new Set(
-    viewedImagePath
-      ? [viewedImagePath.trim(), formatWorkspaceRelativePath(viewedImagePath, workspaceRoot)]
-      : [],
-  );
-  const changedFiles = (workEntry.changedFiles ?? []).flatMap((filePath) => {
-    const formattedPath = formatWorkspaceRelativePath(filePath, workspaceRoot);
-    return viewedImagePaths.has(filePath) ||
-      viewedImagePaths.has(formattedPath) ||
-      filePath.trim() === detail ||
-      formattedPath === detail
-      ? []
-      : [formattedPath];
-  });
-  if (changedFiles.length > 0) {
-    addBlock([...new Set(changedFiles)].join("\n"));
-  }
-  return blocks.length > 0 ? blocks.join("\n\n") : null;
-}
-
 const toolCallExpandedBodyClassName =
   "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[length:var(--font-size-code,0.6875rem)] leading-relaxed select-text";
 
@@ -5140,11 +5135,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       ) : null}
       {expanded && canExpand && expandedBody && !workEntry.questionAnswer ? (
         <div
-          className="mt-1 ms-7 cursor-default rounded-md bg-muted/40 px-3 py-2"
+          className="mt-1 ms-7 cursor-default space-y-1.5"
           onClick={stopRowToggle}
           onPointerDown={stopRowToggle}
         >
-          <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
+          {expandedBody.call ? (
+            <pre className={cn(toolCallExpandedBodyClassName, "text-foreground/85")}>
+              {expandedBody.call}
+            </pre>
+          ) : null}
+          {expandedBody.result ? (
+            <pre className={toolCallExpandedBodyClassName}>{expandedBody.result}</pre>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -1,4 +1,6 @@
-import { Maximize2Icon, Minimize2Icon, PanelBottomIcon, PanelRightIcon } from "lucide-react";
+import { PanelBottomIcon, PanelRightIcon } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide";
+import { MorphIcon } from "~/components/MorphIcon";
 import { memo } from "react";
 
 import { Toggle } from "../ui/toggle";
@@ -72,6 +74,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
             }
             variant="ghost"
             size="sm"
+            data-right-panel-toggle
             disabled={!rightPanelAvailable}
           >
             <PanelRightIcon className="size-4" />
@@ -119,11 +122,7 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             variant="ghost"
             size="sm"
           >
-            {maximized ? (
-              <Minimize2Icon className="size-4" />
-            ) : (
-              <Maximize2Icon className="size-4" />
-            )}
+            <MorphIcon className="size-4" icon={maximized ? Minimize2 : Maximize2} />
           </Toggle>
         }
       />

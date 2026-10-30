@@ -29,6 +29,7 @@ import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
+import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -225,6 +226,7 @@ function RootRouteView() {
           <SshPasswordPromptDialog />
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
+          <ReopenClosedViewShortcut />
           <ConfirmDialogHost />
           <ImportedCookieApprovalDialogHost />
           <CustomSnoozeDialogHost />
@@ -262,6 +264,11 @@ function ContrastAppearanceSync() {
   useEffect(() => {
     document.documentElement.dataset.diffColorScheme = diffColorScheme;
   }, [diffColorScheme]);
+
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
+  useEffect(() => {
+    document.documentElement.dataset.chatWidth = chatWidth;
+  }, [chatWidth]);
 
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
