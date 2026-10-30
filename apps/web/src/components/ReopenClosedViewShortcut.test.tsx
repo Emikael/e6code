@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   params: {} as Record<string, string>,
   paletteOpen: false,
   workspaceAvailable: true,
+  shellStatus: "live",
   navigate: vi.fn(),
   openPreview: vi.fn(),
   setShortcuts: vi.fn(async () => undefined),
@@ -33,7 +34,7 @@ vi.mock("../rpc/atomRegistry", () => ({
     get: (atom: unknown) =>
       atom === "catalog"
         ? { isReady: true, entries: new Map([["remote", {}]]) }
-        : { status: "live" },
+        : { status: state.shellStatus },
   },
 }));
 vi.mock("../state/entities", () => ({
@@ -112,6 +113,7 @@ beforeEach(() => {
     params: {},
     paletteOpen: false,
     workspaceAvailable: true,
+    shellStatus: "live",
   });
   state.navigate.mockResolvedValue(undefined);
   state.openPreview.mockReset();
@@ -279,7 +281,9 @@ describe("root reopen shortcut", () => {
                     },
             },
       );
+      // A cached shell cannot tell a removed project from one not loaded yet.
       state.workspaceAvailable = false;
+      state.shellStatus = "cached";
       state.openPreview.mockResolvedValue(AsyncResult.failure(Cause.fail(new Error("offline"))));
       await render();
       await act(() => {
@@ -311,6 +315,39 @@ describe("root reopen shortcut", () => {
     },
   );
 
+  it("drops a files tab whose project a live shell no longer has", async () => {
+    const store = useClosedViewStore.getState();
+    const older = store.remember({
+      kind: "panel-tab",
+      threadRef: ref,
+      surface: { kind: "diff", id: "diff" },
+    });
+    store.remember({ kind: "panel-tab", threadRef: ref, surface: { kind: "files", id: "files" } });
+    state.workspaceAvailable = false;
+    await render();
+    await act(() => {
+      press();
+    });
+    expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([older]);
+    expect(state.toast).toHaveBeenCalledWith({
+      type: "info",
+      title: "That tab's project was removed",
+    });
+  });
+
+  it("says why a press restored nothing", async () => {
+    await render();
+    useClosedViewStore.getState().remember({
+      kind: "panel-tab",
+      threadRef: { ...ref, environmentId: "gone" as ScopedThreadRef["environmentId"] },
+      surface: { kind: "diff", id: "diff" },
+    });
+    await act(() => {
+      press();
+    });
+    expect(useClosedViewStore.getState().entries).toEqual([]);
+    expect(state.toast).toHaveBeenCalledWith({ type: "info", title: "No closed tabs to reopen" });
+  });
   it("forwards the chord to a focused desktop browser only while history exists", async () => {
     useClosedViewStore
       .getState()

@@ -139,7 +139,6 @@ describe("planNextReopen", () => {
     environmentKnown: true,
     catalogReady: true,
     ownerExists: true,
-    shellLive: true,
     panel: { isOpen: false, activeSurfaceId: null, surfaces: [] },
   };
   const openDiff: ThreadRightPanelState = {
@@ -157,20 +156,20 @@ describe("planNextReopen", () => {
       "b",
     ],
     [
-      "waits for the catalog before dropping",
+      "skips but keeps an unknown environment until the catalog is ready",
       [{ ...known, environmentKnown: false, catalogReady: false }, known],
       [],
-      null,
+      "b",
     ],
     [
-      "skips but keeps a thread deleted from a live shell",
+      "skips but keeps a missing thread, deleted or on an offline environment",
       [{ ...known, ownerExists: false }, known],
       [],
       "b",
     ],
     [
-      "waits when a cached shell lacks the thread",
-      [{ ...known, ownerExists: false, shellLive: false }, known],
+      "restores nothing while no entry can be restored",
+      [{ ...known, ownerExists: false }],
       [],
       null,
     ],

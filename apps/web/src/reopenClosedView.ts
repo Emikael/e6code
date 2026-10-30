@@ -16,15 +16,14 @@ export interface ReopenOwnerState {
   catalogReady: boolean;
   /** Whether the owning thread or draft still exists locally. */
   ownerExists: boolean;
-  /** A live shell that lacks the thread means it was deleted; a cached one may just be stale. */
-  shellLive: boolean;
   panel: ThreadRightPanelState;
 }
 
 /**
  * Picks the history entry the next reopen press restores, newest first. Entries whose
- * environment is gone or whose tab is already open are dropped. A thread missing from a
- * live shell is skipped but kept; anything not yet knowable stops the scan with no restore.
+ * environment is gone or whose tab is already open are dropped. Entries that cannot be
+ * restored right now (a thread missing from a live shell, or an owner not yet knowable,
+ * such as an offline environment) are skipped but kept, so they never block older entries.
  */
 export function planNextReopen(
   entries: readonly ClosedViewEntry[],
@@ -34,14 +33,10 @@ export function planNextReopen(
   for (const entry of entries) {
     const owner = ownerState(entry);
     if (!owner.environmentKnown) {
-      if (!owner.catalogReady) break;
-      drop.push(entry);
+      if (owner.catalogReady) drop.push(entry);
       continue;
     }
-    if (!owner.ownerExists) {
-      if (owner.shellLive) continue;
-      break;
-    }
+    if (!owner.ownerExists) continue;
     const alreadyOpen =
       entry.kind === "panel-tab"
         ? owner.panel.isOpen && owner.panel.surfaces.some((s) => s.id === entry.surface.id)
@@ -96,6 +91,13 @@ export function pullRequestsSearchForRestore<S extends PullRequestsSearchLike>(
   } as S & PullRequestListPreferences;
 }
 
+/** A files tab or a workspace file tab, which needs its project's workspace to reopen. */
+export function closedViewNeedsWorkspace(view: ClosedView): boolean {
+  if (view.kind !== "panel-tab") return false;
+  const surface = view.surface;
+  return surface.kind === "files" || (surface.kind === "file" && !surface.attachment);
+}
+
 export async function reopenClosedView(
   view: ClosedView,
   options: {
@@ -120,11 +122,7 @@ export async function reopenClosedView(
     return true;
   }
   const surface = view.surface;
-  if (
-    !options.workspaceAvailable &&
-    (surface.kind === "files" || (surface.kind === "file" && !surface.attachment))
-  )
-    return false;
+  if (!options.workspaceAvailable && closedViewNeedsWorkspace(view)) return false;
   switch (surface.kind) {
     case "preview":
       if (surface.resourceId !== null) return false;
