@@ -867,9 +867,10 @@ jobs:
           EOF
           printf 'Built from %s.\n' "\`$RELEASE_REF\`" >> release-notes.md
 
-      # GITHUB_TOKEN is refused (403) when it creates the tag for a stable
-      # release, because the released commit is older than the workflow commit
-      # that dispatched the run. The release app token is not subject to that.
+      # Creating the release tag on a commit whose .github/workflows differ from
+      # main (a stable release ships the last nightly's commit, so any workflow
+      # change merged since then counts) needs the `workflows` permission.
+      # GITHUB_TOKEN can never hold it and gets a 403; the release app can.
       - id: app_token
         name: Mint release app token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -879,6 +880,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+          permission-workflows: write
 
       - name: Publish release
         if: needs.preflight.outputs.previous_tag != ''

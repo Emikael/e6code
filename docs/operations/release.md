@@ -89,11 +89,16 @@ credentials documented below:
 - `RELEASE_APP_ID`
 - `RELEASE_APP_PRIVATE_KEY`
 
-The finalize job uses them to open a pull request for aligned package versions as the Release App.
-Grant the app Contents and Pull requests write access. The maintainer must approve and merge that
-pull request before the next stable release or nightly version is resolved from `main`.
-GitHub Release publication uses the repository-scoped workflow token so it has a rate-limit quota
-independent from the shared Release App installation.
+The release job publishes the GitHub Release as the Release App, and the finalize job uses it to
+open a pull request for aligned package versions. Grant the app Contents, Pull requests, and
+Workflows write access. Workflows is needed because the release tag is created on the last nightly's
+commit: when a workflow change has merged to `main` since then, GitHub refuses to create that tag
+for any token without it, and `GITHUB_TOKEN` cannot be granted it. The maintainer must approve and
+merge the version pull request before the next stable release or nightly version is resolved from
+`main`.
+
+A release rerun skips npm packages whose version is already published, so a run that published the
+CLI and then failed in a later job can be rerun as is.
 
 ## E6 Connect relay deployment
 
