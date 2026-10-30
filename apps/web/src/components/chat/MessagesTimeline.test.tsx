@@ -6,13 +6,11 @@ import {
   TurnId,
   type ComposerContextRecord,
 } from "@e6tools/contracts";
-import { act, createRef, useLayoutEffect, type ReactNode, type Ref } from "react";
+import { act, createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef, MaintainScrollAtEndOptions } from "@legendapp/list/react";
-import { shouldUseRestingComposerLayout } from "../composerFooterLayout";
-import { useComposerFocusState } from "./useComposerFocusState";
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
@@ -383,97 +381,6 @@ describe("MessagesTimeline", () => {
     },
   );
 
-  it.each([
-    { toolLifecycleStatus: "inProgress", isAtEnd: true },
-    { toolLifecycleStatus: "inProgress", isAtEnd: false },
-    { toolLifecycleStatus: "completed", isAtEnd: true },
-    { toolLifecycleStatus: "completed", isAtEnd: false },
-  ] as const)(
-    "restores the composer after closing $toolLifecycleStatus tool output only at the end: $isAtEnd",
-    async ({ toolLifecycleStatus, isAtEnd }) => {
-      const frames = new Map<number, FrameRequestCallback>();
-      let nextFrame = 0;
-      vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-        frames.set(++nextFrame, callback);
-        return nextFrame;
-      });
-      vi.stubGlobal("cancelAnimationFrame", (frame: number) => frames.delete(frame));
-      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-      const flushFrame = () =>
-        act(() => {
-          const callbacks = [...frames.values()];
-          frames.clear();
-          callbacks.forEach((callback) => callback(0));
-        });
-      const props = buildProps();
-      let timelineIsAtEnd = isAtEnd;
-      props.listRef.current = {
-        getState: () => ({ isAtEnd: timelineIsAtEnd }),
-        getScrollableNode: () => null,
-      } as unknown as LegendListRef;
-      let isResting = false;
-      let composerState: ReturnType<typeof useComposerFocusState> | undefined;
-      function ThreadProbe() {
-        const composer = useComposerFocusState();
-        useLayoutEffect(() => {
-          composerState = composer;
-          isResting = shouldUseRestingComposerLayout({
-            isExistingThread: true,
-            isMobileViewport: false,
-            isScrollCollapsed: composer.isComposerScrollCollapsed,
-            hasExpandedChrome: false,
-            hasMultilinePrompt: false,
-            timelineOverflows: true,
-          });
-        });
-        return (
-          <MessagesTimeline
-            {...props}
-            isWorking={toolLifecycleStatus === "inProgress"}
-            onToolOutputCollapsedAtEnd={composer.restoreAfterTimelineReachedEnd}
-            timelineEntries={[
-              {
-                id: "running-tool",
-                kind: "work",
-                createdAt: MESSAGE_CREATED_AT,
-                entry: {
-                  id: "running-tool",
-                  createdAt: MESSAGE_CREATED_AT,
-                  label: "Run command",
-                  tone: "tool",
-                  toolLifecycleStatus,
-                  detail: "Command output",
-                },
-              },
-            ]}
-          />
-        );
-      }
-      let renderer: ReactTestRenderer | undefined;
-      try {
-        await act(() => {
-          renderer = create(<ThreadProbe />);
-        });
-        // The user scrolled up to read, so the composer is resting.
-        await act(() => composerState!.setIsComposerScrollCollapsed(true));
-        const toggle = renderer!.root.findByProps({ "aria-expanded": false });
-        await act(() => toggle.props.onClick());
-        await flushFrame();
-        await flushFrame();
-        expect(isResting).toBe(true);
-
-        timelineIsAtEnd = false;
-        await act(() => toggle.props.onClick());
-        await flushFrame();
-        timelineIsAtEnd = isAtEnd;
-        await flushFrame();
-        expect(isResting).toBe(!isAtEnd);
-      } finally {
-        await act(() => renderer?.unmount());
-      }
-    },
-  );
-
   it("renders elapsed time for a completed turn", () => {
     const turnId = TurnId.make("turn-with-fold");
     const assistantEntry = buildAssistantTimelineEntry("Done.");
@@ -571,6 +478,7 @@ describe("MessagesTimeline", () => {
       resolveTimelineMinimapHitStripWidth,
       resolveTimelineMinimapIndexFromPointer,
       resolveTimelineMinimapInteractiveWidth,
+      resolveTimelineMinimapNavigationInteractive,
       resolveTimelineMinimapTopPercent,
     } = await import("./MessagesTimeline.logic");
 
@@ -655,22 +563,39 @@ describe("MessagesTimeline", () => {
         itemBounds: [{ top: 80, height: 20 }],
       }),
     ).toBeNull();
-    expect(resolveTimelineMinimapHasPersistentGutter(832)).toBe(false);
-    expect(resolveTimelineMinimapHasPersistentGutter(863)).toBe(false);
-    expect(resolveTimelineMinimapHasPersistentGutter(864)).toBe(true);
+    // Comfortable width: the column is capped at 768px.
+    expect(resolveTimelineMinimapHasPersistentGutter(832, 768)).toBe(false);
+    expect(resolveTimelineMinimapHasPersistentGutter(863, 768)).toBe(false);
+    expect(resolveTimelineMinimapHasPersistentGutter(864, 768)).toBe(true);
+    // Wider Chat width settings consume the gutter the minimap relies on.
+    expect(resolveTimelineMinimapHasPersistentGutter(1400, 1152)).toBe(true);
+    expect(resolveTimelineMinimapHasPersistentGutter(1200, 1152)).toBe(false);
+    expect(resolveTimelineMinimapHasPersistentGutter(2560, 2560)).toBe(false);
 
     // No usable gutter (zoomed in / narrow pane): the strip must go inert
     // instead of overlaying the centered content column.
-    expect(resolveTimelineMinimapHitStripWidth(768)).toBe(0);
-    expect(resolveTimelineMinimapHitStripWidth(792)).toBe(0);
+    expect(resolveTimelineMinimapHitStripWidth(768, 768)).toBe(0);
+    expect(resolveTimelineMinimapHitStripWidth(792, 768)).toBe(0);
     // Partial gutter: strip shrinks to what fits between the viewport edge
     // and the content column.
-    expect(resolveTimelineMinimapHitStripWidth(820)).toBe(14);
+    expect(resolveTimelineMinimapHitStripWidth(820, 768)).toBe(14);
     // Full gutter: unchanged 40px-wide strip.
-    expect(resolveTimelineMinimapHitStripWidth(872)).toBe(40);
-    expect(resolveTimelineMinimapHitStripWidth(1400)).toBe(40);
-    expect(resolveTimelineMinimapHitStripWidth(0)).toBe(0);
-    expect(resolveTimelineMinimapHitStripWidth(Number.NaN)).toBe(0);
+    expect(resolveTimelineMinimapHitStripWidth(872, 768)).toBe(40);
+    expect(resolveTimelineMinimapHitStripWidth(1400, 768)).toBe(40);
+    // Full Chat width: the column spans the viewport, so the strip is inert
+    // however wide the window gets.
+    expect(resolveTimelineMinimapHitStripWidth(2560, 2560)).toBe(0);
+    // Wide Chat width on a window just wider than the column: partial strip.
+    expect(resolveTimelineMinimapHitStripWidth(1204, 1152)).toBe(14);
+    expect(resolveTimelineMinimapHitStripWidth(0, 0)).toBe(0);
+    expect(resolveTimelineMinimapHitStripWidth(Number.NaN, 768)).toBe(0);
+
+    // Prev/next buttons reach 14px past the strip's left edge; a narrower
+    // strip means they would sit on the content column.
+    expect(resolveTimelineMinimapNavigationInteractive(40)).toBe(true);
+    expect(resolveTimelineMinimapNavigationInteractive(14)).toBe(true);
+    expect(resolveTimelineMinimapNavigationInteractive(8)).toBe(false);
+    expect(resolveTimelineMinimapNavigationInteractive(0)).toBe(false);
 
     // The collapsed target stays narrow, but an open preview keeps its full
     // 20rem width plus the 2rem offset from the minimap rail interactive.

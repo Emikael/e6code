@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { workspaceAreaProps } from "../lib/workspaceFocus";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -1392,6 +1393,7 @@ export default function ThreadTerminalDrawer({
   if (normalizedTerminalIds.length === 0) {
     return (
       <aside
+        {...(!isPanel && visible ? workspaceAreaProps("terminal", 5, "Terminal") : {})}
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background",
@@ -1422,6 +1424,7 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
+      {...(!isPanel && visible ? workspaceAreaProps("terminal", 5, "Terminal") : {})}
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
         "thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background",

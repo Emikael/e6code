@@ -442,6 +442,15 @@ describe("previewStateStore (single-tab)", () => {
     expect(state.desktopByTabId[stale.tabId]).toBeUndefined();
   });
 
+  it("marks the session index authoritative only once a list lands", () => {
+    applyPreviewServerSnapshot(ref, makeSnapshot());
+    expect(readThreadPreviewState(ref).listLoaded).toBe(false);
+
+    reconcilePreviewServerSessions(ref, { sessions: [], serverEpoch, revision: 1 });
+
+    expect(readThreadPreviewState(ref).listLoaded).toBe(true);
+  });
+
   it("clears stale sessions when an authoritative list is empty", () => {
     applyPreviewServerSnapshot(ref, makeSnapshot());
 

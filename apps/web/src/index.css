@@ -93,7 +93,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --sidebar-control-gap: 0.5rem;
   --sidebar-icon-color: color-mix(
     in srgb,
-    var(--contrast-sidebar-muted-foreground) 60%,
+    var(--contrast-sidebar-muted-foreground) 85%,
     var(--sidebar)
   );
   --sidebar-row-content-inset: 0.625rem;
@@ -1024,7 +1024,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 
 :root {
   color-scheme: light;
-  --radius: 0.625rem;
+  --radius: 0.5rem;
   --background: var(--color-zinc-25);
   --app-chrome-background: var(--background);
   --toolbar-background: var(--app-chrome-background);
@@ -1039,11 +1039,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --bezel-highlight: rgb(255 255 255 / 72%);
   --bezel-border: color-mix(in srgb, var(--foreground) 8%, transparent);
   --command-deck-shadow: 0 16px 36px -14px rgb(0 0 0 / 12%), 0 2px 6px -1px rgb(0 0 0 / 5%);
-  --foreground: var(--color-zinc-800);
+  --foreground: var(--color-zinc-900);
   --card: var(--color-white);
-  --card-foreground: var(--color-zinc-800);
+  --card-foreground: var(--color-zinc-900);
   --popover: var(--color-white);
-  --popover-foreground: var(--color-zinc-800);
+  --popover-foreground: var(--color-zinc-900);
   --primary: oklch(0.488 0.217 264);
   --primary-foreground: var(--color-white);
   --secondary: var(--color-zinc-50);
@@ -1053,7 +1053,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --placeholder: var(--muted-foreground);
   --secondary-label: var(--muted-foreground);
   --icon-muted: var(--muted-foreground);
-  --message-surface: var(--accent);
+  --message-surface: color-mix(in srgb, var(--color-zinc-200) 55%, var(--color-zinc-100));
   --message-foreground: var(--foreground);
   --message-action: var(--primary);
   --message-action-foreground: var(--primary-foreground);
@@ -1117,15 +1117,17 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --secondary: --alpha(var(--color-white) / 3%);
     --secondary-foreground: var(--color-neutral-100);
     --muted: --alpha(var(--color-white) / 3%);
-    --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
+    --muted-foreground: var(--color-neutral-400);
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--color-neutral-100);
+    /* A user turn sits above the composer tone, level with the selected sidebar row. */
+    --message-surface: color-mix(in srgb, var(--background) 92%, var(--color-white));
     --error: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
     --error-foreground: var(--color-red-400);
     --tool-error-icon: #fca5a5;
     --error-surface: color-mix(in srgb, var(--error) 16%, transparent);
-    --border: --alpha(var(--color-white) / 6%);
-    --input: --alpha(var(--color-white) / 8%);
+    --border: --alpha(var(--color-white) / 8%);
+    --input: --alpha(var(--color-white) / 11%);
     --info-foreground: var(--color-blue-400);
     --success-foreground: var(--color-emerald-400);
     --warning-foreground: var(--color-amber-400);
@@ -1148,9 +1150,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
    surfaces. */
 [data-app-sidebar] {
   --background: var(--color-zinc-25);
-  --foreground: var(--color-zinc-800);
+  --foreground: var(--color-zinc-900);
   --card: var(--color-white);
-  --card-foreground: var(--color-zinc-800);
+  --card-foreground: var(--color-zinc-900);
   --accent: var(--color-zinc-100);
   --accent-foreground: var(--color-zinc-900);
   --muted: var(--color-zinc-50);
@@ -1158,7 +1160,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --border: var(--color-zinc-200);
   --input: var(--color-zinc-300);
   --sidebar: var(--color-zinc-50);
-  --sidebar-foreground: var(--color-zinc-800);
+  --sidebar-foreground: var(--color-zinc-900);
   --sidebar-muted-foreground: var(--color-zinc-500);
   --sidebar-control-surface: var(--color-zinc-100);
   --sidebar-row-hover: var(--color-zinc-25);
@@ -1187,6 +1189,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --sidebar-row-selected: color-mix(in srgb, var(--contrast-foreground) 7%, transparent);
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
+    /* Row metadata sits a step below read titles (75% white). */
+    --secondary-label: #8f8f8f;
+  }
+}
+
+/* Lighter default icon stroke. In the base layer so stroke-* utilities still win; any
+   CSS beats lucide's stroke-width="2" attribute. */
+@layer base {
+  :where(svg.lucide[stroke-width="2"]) {
+    stroke-width: 1.75;
   }
 }
 
@@ -1466,6 +1478,7 @@ html[data-theme-id] [data-app-sidebar] {
   --sidebar-row-selected: var(--app-theme-sidebar-row-selected);
   --sidebar-border: var(--app-theme-sidebar-border);
   --sidebar-stage-fade: var(--app-theme-sidebar);
+  --secondary-label: var(--app-theme-secondary-label);
   border-color: color-mix(in srgb, var(--contrast-sidebar-foreground) 10%, transparent);
 
   @variant dark {
@@ -1995,12 +2008,14 @@ code {
   border-collapse: collapse;
   overflow-wrap: normal;
   word-break: normal;
-  font-size: 0.75rem;
+  /* One step under 15px prose. */
+  font-size: 0.875rem;
 }
 
 .chat-markdown th,
 .chat-markdown td {
   padding: 0.45rem 0.75rem;
+  text-wrap: pretty;
   text-align: left;
 }
 
@@ -2069,6 +2084,19 @@ code {
   --diff-deletion: var(--destructive);
   --diff-addition-foreground: light-dark(var(--color-emerald-600), var(--color-emerald-400));
   --diff-deletion-foreground: light-dark(var(--color-red-600), var(--color-red-400));
+}
+
+/* Chat timeline and composer column width, set from the Chat width setting. */
+:root {
+  --chat-max-width: 48rem;
+}
+
+:root[data-chat-width="wide"] {
+  --chat-max-width: 72rem;
+}
+
+:root[data-chat-width="full"] {
+  --chat-max-width: 100%;
 }
 
 :root[data-diff-color-scheme="blue-orange"] {
@@ -2314,4 +2342,11 @@ code {
 
 .composer-tiptap li[data-checked] > div > p {
   margin: 0;
+}
+
+/* A workspace area with no control of its own takes F6 focus itself; keep that visible. */
+[data-workspace-area]:focus-visible,
+[data-workspace-area="conversation"] [data-workspace-focus-default]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }

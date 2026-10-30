@@ -255,6 +255,10 @@
       "types": "./src/work-log/toolPresentation.ts",
       "default": "./src/work-log/toolPresentation.ts"
     },
+    "./work-log/tool-call": {
+      "types": "./src/work-log/toolCall.ts",
+      "default": "./src/work-log/toolCall.ts"
+    },
     "./work-log/command-label": {
       "types": "./src/work-log/commandLabel.ts",
       "default": "./src/work-log/commandLabel.ts"

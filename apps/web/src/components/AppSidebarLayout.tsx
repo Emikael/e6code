@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { moveWorkspaceFocus, startWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
@@ -7,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
@@ -119,6 +120,43 @@ function SidebarControl() {
   );
 }
 
+/**
+ * F6 and Shift+F6 move between workspace areas. Capture phase, so the keys also leave widgets
+ * that swallow them, such as the terminal; a focused desktop browser forwards them instead.
+ */
+function WorkspaceFocusControl() {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const router = useRouter();
+
+  useEffect(() => startWorkspaceFocus(router), [router]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]"))
+        return;
+      const command = resolveShortcutCommand(event, keybindings);
+      if (command !== "workspace.focusNext" && command !== "workspace.focusPrevious") return;
+      // Inside a dialog the move is refused, but the key is still consumed.
+      event.preventDefault();
+      event.stopPropagation();
+      moveWorkspaceFocus(command === "workspace.focusNext" ? 1 : -1);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    const unsubscribe = window.desktopBridge?.onMenuAction?.((action) => {
+      // The desktop browser's renderer focus is stale, so the move starts from the panel.
+      if (action === "workspace.focusNext") moveWorkspaceFocus(1, "panel");
+      if (action === "workspace.focusPrevious") moveWorkspaceFocus(-1, "panel");
+    });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      unsubscribe?.();
+    };
+  }, [keybindings]);
+
+  return null;
+}
+
 // Settings swaps the thread sidebar out of the tree. Keep the lightweight
 // project projection subscribed so returning to a draft never renders the
 // zero-project state while the environment snapshot reconnects.
@@ -213,9 +251,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
+        <WorkspaceFocusControl />
         <Sidebar
           side="left"
           collapsible="offcanvas"
+          {...workspaceAreaProps("sidebar", 0, "Sidebar")}
           data-app-sidebar=""
           className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
           resizable={{
