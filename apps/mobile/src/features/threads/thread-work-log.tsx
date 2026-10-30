@@ -747,7 +747,6 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
 ) {
   const { row, expanded } = props;
   const canExpand = row.canExpand;
-  const fullDetail = expanded ? row.getFullDetail() : null;
   // Tool calls show the call in the foreground and the result muted below it.
   const expandedParts = expanded ? row.getExpandedParts() : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
@@ -881,7 +880,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
         </View>
       </Pressable>
 
-      {expanded && (fullDetail || viewedImagePath || row.workEntry.questionAnswer) ? (
+      {expanded && (expandedParts || viewedImagePath || row.workEntry.questionAnswer) ? (
         <Animated.View
           entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}

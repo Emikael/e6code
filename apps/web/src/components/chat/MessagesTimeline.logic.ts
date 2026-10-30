@@ -5,6 +5,11 @@ import { shallow } from "zustand/vanilla/shallow";
 import { renderCodexDirectivesForCopy } from "@e6tools/client-runtime/codex-markdown-directives";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
 import {
+  mcpToolCallParts,
+  toolCallLines,
+  toolCallText,
+} from "@e6tools/client-runtime/work-log/tool-call";
+import {
   liveActivityToolStatus,
   normalizeCompactToolLabel,
   omitSupersededLifecycleMarkers,
@@ -1695,4 +1700,78 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       );
     }
   }
+}
+
+export function workEntryRawCommand(
+  workEntry: Pick<WorkLogEntry, "command" | "rawCommand">,
+): string | null {
+  const rawCommand = workEntry.rawCommand?.trim();
+  if (!rawCommand || !workEntry.command) {
+    return null;
+  }
+  return rawCommand === workEntry.command.trim() ? null : rawCommand;
+}
+
+export interface ToolCallExpandedBody {
+  /** The call itself (command or arguments), shown in the foreground. */
+  readonly call: string | null;
+  /** What came back, shown muted below the call. */
+  readonly result: string | null;
+}
+
+/** A tool row's expanded body, leaving out text the row already shows. */
+export function buildToolCallExpandedBody(
+  workEntry: WorkLogEntry,
+  workspaceRoot: string | undefined,
+  visibleLabel: string,
+  viewedImagePath: string | null,
+): ToolCallExpandedBody | null {
+  const seen = new Set<string>([visibleLabel.trim()]);
+  const unseen = (value: string | null | undefined) => {
+    const text = value?.trim();
+    if (!text || seen.has(text)) return null;
+    seen.add(text);
+    return text;
+  };
+  const results: string[] = [];
+  let call: string | null = null;
+  if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
+    const parts = mcpToolCallParts(workEntry.toolData);
+    call = unseen(toolCallText(toolCallLines({ args: parts.args })));
+    const result = unseen(parts.result);
+    if (result) results.push(result);
+  }
+  const command = workEntry.command?.trim();
+  const raw = workEntryRawCommand(workEntry);
+  // The row title truncates to its width, so the body always has the full command.
+  const fullCommand = raw ?? command;
+  if (fullCommand && call === null) {
+    seen.add(fullCommand);
+    call = fullCommand;
+  }
+  const detail = workEntry.detail?.trim();
+  if (detail !== viewedImagePath?.trim()) {
+    const text = unseen(detail);
+    if (text) results.push(text);
+  }
+  const viewedImagePaths = new Set(
+    viewedImagePath
+      ? [viewedImagePath.trim(), formatWorkspaceRelativePath(viewedImagePath, workspaceRoot)]
+      : [],
+  );
+  const changedFiles = (workEntry.changedFiles ?? []).flatMap((filePath) => {
+    const formattedPath = formatWorkspaceRelativePath(filePath, workspaceRoot);
+    return viewedImagePaths.has(filePath) ||
+      viewedImagePaths.has(formattedPath) ||
+      filePath.trim() === detail ||
+      formattedPath === detail
+      ? []
+      : [formattedPath];
+  });
+  if (changedFiles.length > 0) {
+    const text = unseen([...new Set(changedFiles)].join("\n"));
+    if (text) results.push(text);
+  }
+  const result = results.length > 0 ? results.join("\n\n") : null;
+  return call || result ? { call, result } : null;
 }

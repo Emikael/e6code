@@ -56,6 +56,16 @@ describe("mcpToolCallParts", () => {
     expect(toolCallText(toolCallLines({ args: parts.args }))).toBe("url http://localhost:5173");
   });
 
+  it("shows a call with empty arguments and no result as a whole", () => {
+    const toolData = { server: "e6-code", tool: "task_status", arguments: {} };
+    expect(mcpToolCallParts(toolData)).toEqual({ args: toolData, result: null });
+  });
+
+  it("keeps empty arguments apart once the call has a result", () => {
+    const parts = mcpToolCallParts({ tool: "list", arguments: {}, result: "3 items" });
+    expect(parts).toEqual({ args: {}, result: "3 items" });
+  });
+
   it("shows items without arguments as a whole", () => {
     const toolData = { server: "e6-code", tool: "task_status" };
     expect(mcpToolCallParts(toolData)).toEqual({ args: toolData, result: null });

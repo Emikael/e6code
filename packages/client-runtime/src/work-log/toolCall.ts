@@ -119,8 +119,12 @@ export function mcpToolCallParts(toolData: unknown): {
   if (!isRecord(toolData)) return { args: toolData, result: null };
   const args = toolData.arguments ?? toolData.input;
   const result = formatToolValue(toolData.result ?? toolData.output ?? toolData.error);
-  // Items without a recognizable call shape show as a whole, as before.
-  return args === undefined ? { args: toolData, result: null } : { args, result };
+  // Items without a recognizable call shape show as a whole, as before. So does a call with no
+  // arguments and no result yet, which would otherwise expand to an empty body.
+  const argsEmpty =
+    args === undefined ||
+    (isRecord(args) && Object.values(args).every((value) => value === undefined));
+  return argsEmpty && result === null ? { args: toolData, result: null } : { args, result };
 }
 
 /** The call as plain text lines, for surfaces that render one text block. */

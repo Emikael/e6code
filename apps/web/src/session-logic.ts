@@ -467,6 +467,12 @@ export function deriveWorkLogEntries(
       if (toolUseId) agentLaunchToolIds.add(toolUseId);
     }
   }
+  // Claude's todo tools also emit a plan update, whose Tasks row already shows the change.
+  const planUpdateTurnIds = new Set(
+    ordered.flatMap((activity) =>
+      activity.kind === "turn.plan.updated" && activity.turnId ? [activity.turnId] : [],
+    ),
+  );
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of foldUserInputActivities(ordered)) {
     if (
@@ -493,6 +499,7 @@ export function deriveWorkLogEntries(
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
+    if (isPlanToolActivity(activity, planUpdateTurnIds)) continue;
     const entry = toDerivedWorkLogEntry(activity);
     // Native agent launches get their visible row from task.started. Defer
     // their active tool row so another launch cannot duplicate the batch.
@@ -530,6 +537,21 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
   );
 }
 
+const PLAN_TOOL_NAMES = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList"]);
+
+/** A successful todo tool call in a turn whose plan update renders it as a Tasks row. */
+function isPlanToolActivity(
+  activity: OrchestrationThreadActivity,
+  planUpdateTurnIds: ReadonlySet<string>,
+): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") return false;
+  if (activity.tone === "error" || !activity.turnId || !planUpdateTurnIds.has(activity.turnId)) {
+    return false;
+  }
+  const toolName = asRecord(asRecord(activity.payload)?.data)?.toolName;
+  return typeof toolName === "string" && PLAN_TOOL_NAMES.has(toolName);
+}
+
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
   if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
     return false;
@@ -548,13 +570,15 @@ const TODO_STEP_MARKS = { completed: "✓", inProgress: "→", pending: "○" } 
 
 /** Each todo update is a quiet row where the agent wrote it; it opens to every step. */
 function todoListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry | null {
+  const cachedEntry = derivedWorkLogEntryByActivity.get(activity);
+  if (cachedEntry) return cachedEntry;
   const plan = planStateFromActivity(activity);
   if (!plan || plan.steps.length === 0) return null;
   const done = plan.steps.filter((step) => step.status === "completed").length;
   const current =
     plan.steps.find((step) => step.status === "inProgress") ??
     plan.steps.find((step) => step.status === "pending");
-  return {
+  const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
     turnId: activity.turnId,
@@ -563,6 +587,8 @@ function todoListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWor
     tone: "info",
     sourceActivityKind: activity.kind,
   };
+  derivedWorkLogEntryByActivity.set(activity, entry);
+  return entry;
 }
 
 function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
