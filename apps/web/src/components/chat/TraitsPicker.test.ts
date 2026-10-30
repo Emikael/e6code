@@ -65,6 +65,20 @@ describe("buildTraitsTriggerDisplay", () => {
     expect(display([EFFORT, fastModeDescriptor(true), CONTEXT_WINDOW]).otherLabels).toEqual(["1M"]);
   });
 
+  it("keeps the chip's other labels to traits that are not effort or a fast tier", () => {
+    expect(display([EFFORT, serviceTierDescriptor("flex")]).otherLabels).toEqual(["Flex"]);
+    expect(display([EFFORT, serviceTierDescriptor("priority")]).otherLabels).toEqual([]);
+    expect(display([fastModeDescriptor(true)]).otherLabels).toEqual([]);
+    expect(
+      buildTraitsTriggerDisplay({
+        provider: CODEX,
+        descriptors: [EFFORT, CONTEXT_WINDOW],
+        primarySelectDescriptorId: "reasoningEffort",
+        ultrathinkPromptControlled: true,
+      }).otherLabels,
+    ).toEqual(["1M"]);
+  });
+
   it("omits fast mode from the label entirely when it is off", () => {
     expect(display([EFFORT, fastModeDescriptor(false), CONTEXT_WINDOW])).toMatchObject({
       label: "High · 1M",

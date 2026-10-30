@@ -1,6 +1,6 @@
 import type { RuntimeMode } from "@e6tools/contracts";
 
-import { MenuGroup, MenuRadioGroup, MenuRadioItem } from "../ui/menu";
+import { MenuGroup, MenuGroupLabel, MenuRadioGroup, MenuRadioItem } from "../ui/menu";
 import { runtimeModeConfig, runtimeModeOptions } from "./runtimeModeConfig";
 
 /**
@@ -13,7 +13,7 @@ export function ComposerPermissionsMenuSection(props: {
 }) {
   return (
     <MenuGroup>
-      <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Permissions</div>
+      <MenuGroupLabel>Permissions</MenuGroupLabel>
       <MenuRadioGroup
         value={props.runtimeMode}
         onValueChange={(value) => props.onRuntimeModeChange(value as RuntimeMode)}
