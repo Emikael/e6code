@@ -38,7 +38,7 @@ const EVENT_CODE_SHORTCUT_KEYS: Readonly<Record<string, string>> = {
   Digit0: "0",
   Digit1: "1",
   Digit2: "2",
-  Digie6: "3",
+  Digit3: "3",
   Digit4: "4",
   Digit5: "5",
   Digit6: "6",
