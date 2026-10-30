@@ -867,6 +867,19 @@ jobs:
           EOF
           printf 'Built from %s.\n' "\`$RELEASE_REF\`" >> release-notes.md
 
+      # GITHUB_TOKEN is refused (403) when it creates the tag for a stable
+      # release, because the released commit is older than the workflow commit
+      # that dispatched the run. The release app token is not subject to that.
+      - id: app_token
+        name: Mint release app token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       - name: Publish release
         if: needs.preflight.outputs.previous_tag != ''
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -881,7 +894,7 @@ jobs:
           make_latest: ${{ needs.preflight.outputs.make_latest }}
           files: ${{ steps.release_files.outputs.files }}
           fail_on_unmatched_files: true
-          token: ${{ github.token }}
+          token: ${{ steps.app_token.outputs.token }}
 
       - name: Publish first release
         if: needs.preflight.outputs.previous_tag == ''
@@ -896,7 +909,7 @@ jobs:
           make_latest: ${{ needs.preflight.outputs.make_latest }}
           files: ${{ steps.release_files.outputs.files }}
           fail_on_unmatched_files: true
-          token: ${{ github.token }}
+          token: ${{ steps.app_token.outputs.token }}
 
   publish_aur:
     name: Publish AUR package
@@ -1137,69 +1150,3 @@ jobs:
           gh pr create --base main --head "$branch" \
             --title "chore(release): prepare $RELEASE_TAG" \
             --body "Align package versions after publishing $RELEASE_TAG."
-
-  announce_discord:
-    name: Announce release on Discord
-    if: |
-      always() && !cancelled() &&
-      needs.preflight.result == 'success' &&
-      needs.preflight.outputs.release_channel != 'preview' &&
-      needs.relay_public_config.result == 'success' &&
-      needs.release.result == 'success' &&
-      needs.deploy_web.result == 'success' &&
-      (needs.finalize.result == 'success' || needs.finalize.result == 'skipped')
-    needs: [preflight, relay_public_config, release, deploy_web, finalize]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=@e6tools/scripts...
-
-      - name: Announce prerelease on Discord
-        if: needs.preflight.outputs.is_prerelease == 'true'
-        continue-on-error: true
-        env:
-          DISCORD_MENTION_ROLE_ID: ${{ secrets.DISCORD_RELEASE_NIGHTLY_ROLE_ID }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
-          RELEASE_NAME: ${{ needs.preflight.outputs.release_name }}
-          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-        run: |
-          node scripts/notify-discord-release.ts prerelease \
-            --role-id "$DISCORD_MENTION_ROLE_ID" \
-            --release-name "$RELEASE_NAME" \
-            --release-version "$RELEASE_VERSION" \
-            --tag "$RELEASE_TAG" \
-            --release-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}"
-
-      - name: Announce latest release on Discord
-        if: needs.preflight.outputs.make_latest == 'true'
-        continue-on-error: true
-        env:
-          DISCORD_MENTION_ROLE_ID: ${{ secrets.DISCORD_RELEASE_LATEST_ROLE_ID }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
-          RELEASE_NAME: ${{ needs.preflight.outputs.release_name }}
-          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-        run: |
-          node scripts/notify-discord-release.ts latest \
-            --role-id "$DISCORD_MENTION_ROLE_ID" \
-            --release-name "$RELEASE_NAME" \
-            --release-version "$RELEASE_VERSION" \
-            --tag "$RELEASE_TAG" \
-            --release-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}"
