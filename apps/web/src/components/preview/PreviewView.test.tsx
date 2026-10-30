@@ -117,6 +117,7 @@ vi.mock("~/previewStateStore", () => ({
       },
     },
     recentlySeenUrls: [],
+    listLoaded: true,
     sessions: mocks.showEmptyState
       ? {}
       : {

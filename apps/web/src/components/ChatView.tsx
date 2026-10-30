@@ -2091,11 +2091,13 @@ export default function ChatView(props: ChatViewProps) {
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUseRightPanelSheet;
 
   useEffect(() => {
-    if (!activeThreadRef) return;
+    // Before the first preview.list lands, `sessions` is not authoritative: reconciling against
+    // it would drop restored browser tabs and hide the panel.
+    if (!activeThreadRef || !activePreviewState.listLoaded) return;
     useRightPanelStore
       .getState()
       .reconcileBrowserSurfaces(activeThreadRef, Object.keys(activePreviewState.sessions));
-  }, [activePreviewState.sessions, activeThreadRef]);
+  }, [activePreviewState.listLoaded, activePreviewState.sessions, activeThreadRef]);
 
   useEffect(() => {
     if (!activeThreadRef || activePreviewMiniPlayer?.source.kind !== "browser") return;
