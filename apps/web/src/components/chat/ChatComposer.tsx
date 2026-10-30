@@ -1389,6 +1389,8 @@ export interface ChatComposerProps {
 
   // Mode
   runtimeMode: RuntimeMode;
+  /** The project's default mode, after project overrides. */
+  defaultRuntimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
 
   // Provider / model
@@ -1519,6 +1521,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     showPlanFollowUpPrompt,
     activeProposedPlan,
     runtimeMode,
+    defaultRuntimeMode,
     interactionMode: requestedInteractionMode,
     lockedProvider,
     providerStatuses,
@@ -2632,7 +2635,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
   });
   const runtimeModeDisplay = resolveRuntimeModeDisplay({
-    matchesDefault: runtimeMode === settings.defaultRuntimeMode,
+    matchesDefault: runtimeMode === defaultRuntimeMode,
     hasTraitsMenu: modelHasTraitsMenu,
   });
   const permissionsInEffortMenu = runtimeModeDisplay === "hidden";
