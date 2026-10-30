@@ -50,6 +50,7 @@ import {
   useState,
 } from "react";
 
+import { onRightPanelNewMenuRequest } from "~/commandPaletteBus";
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
 import type { RightPanelSurface } from "~/rightPanelStore";
@@ -201,12 +202,17 @@ type TabContextMenuAction =
   | "rename"
   | "copy-path"
   | "toggle-mute"
+  | "move-left"
+  | "move-right"
   | "close"
   | "close-others"
   | "close-to-right"
   | "close-all";
 
 const TAB_SCROLL_EDGE_TOLERANCE = 1;
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
 
 function tabScrollViewport(root: HTMLDivElement | null): HTMLDivElement | null {
@@ -862,6 +868,8 @@ function RightPanelTab(
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.id,
     disabled: props.dragDisabled,
+    // Neighbours jump into place instead of sliding when motion is reduced.
+    ...(prefersReducedMotion() ? { transition: null } : {}),
   });
   const content = (
     <>
@@ -1005,15 +1013,20 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     if (!addSurfaceMenuOpen && document.querySelector(LAUNCHER_SHORTCUT_BLOCKING_LAYERS)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) {
-      addSurfaceTriggerRef.current?.focus();
-      setAddSurfaceMenuOpen(true);
-    }
+    if (!event.repeat) openNewSurfaceMenu();
+  });
+  const openNewSurfaceMenu = useEffectEvent(() => {
+    addSurfaceTriggerRef.current?.focus();
+    setAddSurfaceMenuOpen(true);
   });
   useEffect(() => {
     if (props.open === false) return;
     document.addEventListener("keydown", onNewSurfaceKeyDown, true);
-    return () => document.removeEventListener("keydown", onNewSurfaceKeyDown, true);
+    const unsubscribe = onRightPanelNewMenuRequest(openNewSurfaceMenu);
+    return () => {
+      document.removeEventListener("keydown", onNewSurfaceKeyDown, true);
+      unsubscribe();
+    };
   }, [props.open]);
 
   const updateTabScrollState = (viewport: HTMLDivElement) => {
@@ -1037,10 +1050,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const scrollTabs = (direction: -1 | 1) => {
     const viewport = tabScrollViewport(tabListRef.current);
     if (!viewport) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     viewport.scrollBy({
       left: direction * Math.max(120, viewport.clientWidth * 0.75),
-      behavior: reduceMotion ? "auto" : "smooth",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
     });
   };
 
@@ -1148,6 +1160,17 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         }),
       });
     }
+    // The keyboard route to reordering, which otherwise needs a drag.
+    if (props.onMoveSurface && props.surfaces.length > 1) {
+      items.push(
+        { id: "move-left", label: "Move left", disabled: surfaceIndex === 0 },
+        {
+          id: "move-right",
+          label: "Move right",
+          disabled: surfaceIndex >= props.surfaces.length - 1,
+        },
+      );
+    }
     items.push(
       { id: "close", label: "Close" },
       {
@@ -1187,6 +1210,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         }
         break;
       }
+      case "move-left":
+        props.onMoveSurface?.(surface.id, surfaceIndex - 1);
+        break;
+      case "move-right":
+        props.onMoveSurface?.(surface.id, surfaceIndex + 1);
+        break;
       case "close":
         props.onCloseSurface(surface);
         break;

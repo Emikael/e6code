@@ -798,9 +798,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) =>
           automaticUpdate(state, scopedThreadKey(ref), (current) => {
             const fromIndex = current.surfaces.findIndex((surface) => surface.id === surfaceId);
-            if (fromIndex < 0 || fromIndex === toIndex) return current;
+            if (fromIndex < 0) return current;
+            // A negative splice index counts from the end, so clamp rather than wrap.
+            const targetIndex = Math.min(Math.max(toIndex, 0), current.surfaces.length - 1);
+            if (fromIndex === targetIndex) return current;
             const surfaces = [...current.surfaces];
-            surfaces.splice(toIndex, 0, ...surfaces.splice(fromIndex, 1));
+            surfaces.splice(targetIndex, 0, ...surfaces.splice(fromIndex, 1));
             return { ...current, surfaces };
           }),
         ),

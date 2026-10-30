@@ -8,7 +8,7 @@ import type { ScopedThreadRef } from "@e6tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef } from "react";
 
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isCommandPaletteOpen, onReopenClosedViewRequest } from "../commandPaletteBus";
 import { useClosedViewStore } from "../closedViewStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentCatalog } from "../connection/catalog";
@@ -105,7 +105,9 @@ export function ReopenClosedViewShortcut() {
     const owner = thread ?? drafts.getDraftThreadByRef(ref);
     const project = owner ? readProject(scopeProjectRef(ref.environmentId, owner.projectId)) : null;
     if (!(await reopenClosedView(restore, { openPreview, workspaceAvailable: project !== null }))) {
+      // Kept in history behind newer entries, so the next press can retry it.
       useClosedViewStore.getState().defer(restore.id);
+      toastManager.add({ type: "error", title: "Could not reopen tab" });
       return;
     }
     useClosedViewStore.getState().remove(restore.id);
@@ -166,9 +168,11 @@ export function ReopenClosedViewShortcut() {
     const unsubscribe = window.desktopBridge?.onMenuAction((action) => {
       if (action === "view.reopenClosed" && !isCommandPaletteOpen()) enqueueReopen();
     });
+    const unsubscribeRequests = onReopenClosedViewRequest(enqueueReopen);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       unsubscribe?.();
+      unsubscribeRequests();
     };
   }, [keybindings, previewOpen, terminalOpen]);
 

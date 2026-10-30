@@ -1128,4 +1128,28 @@ describe("rightPanelStore", () => {
     // Reordering is not a choice about what the panel shows.
     expect(store.getUserActionRevision(refA)).toBe(revision);
   });
+
+  it("clamps a move past either end instead of wrapping", () => {
+    const store = useRightPanelStore.getState();
+    store.openTerminal(refA, "term-1");
+    store.openBrowser(refA, "tab-a");
+    store.open(refA, "diff");
+    const surfaceIds = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.map(
+        (surface) => surface.id,
+      );
+
+    store.moveSurface(refA, "browser:tab-a", -1);
+    expect(surfaceIds()).toEqual(["browser:tab-a", "terminal:term-1", "diff"]);
+    store.moveSurface(refA, "browser:tab-a", 9);
+    expect(surfaceIds()).toEqual(["terminal:term-1", "diff", "browser:tab-a"]);
+    store.moveSurface(refA, "browser:missing", 0);
+    expect(surfaceIds()).toEqual(["terminal:term-1", "diff", "browser:tab-a"]);
+  });
+
+  it("does not create panel state to record an unmaximized panel", () => {
+    const before = useRightPanelStore.getState().byThreadKey;
+    useRightPanelStore.getState().setMaximized(refA, false);
+    expect(useRightPanelStore.getState().byThreadKey).toBe(before);
+  });
 });
