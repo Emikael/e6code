@@ -138,6 +138,26 @@ export const useClosedViewStore = create<ClosedViewStoreState>()(
         };
       },
       partialize: ({ entries }) => ({ entries: entries.filter(isPersistentView) }),
+      // Another tab's write replaces the persisted history; this tab's unpersisted (incognito)
+      // entries stay, since no other tab could have seen them.
+      merge: (persisted, current) => ({
+        ...current,
+        entries: [
+          ...current.entries.filter((entry) => !isPersistentView(entry)),
+          ...((persisted as Partial<Pick<ClosedViewStoreState, "entries">> | undefined)?.entries ??
+            []),
+        ],
+      }),
     },
   ),
 );
+
+// Each app tab keeps history in memory; adopt another tab's writes instead of overwriting them
+// with a stale list on the next close.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === useClosedViewStore.persist.getOptions().name) {
+      void useClosedViewStore.persist.rehydrate();
+    }
+  });
+}

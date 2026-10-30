@@ -149,7 +149,12 @@ describe("closedViewStore", () => {
     expect(saved).not.toContain("private.example");
     expect(saved).not.toContain("Private page");
     await useClosedViewStore.persist.rehydrate();
-    expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([publicId]);
+    expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([
+      privateId,
+      publicId,
+    ]);
+    const persisted = (await storage!.getItem(name!)) as { state: { entries: ClosedViewEntry[] } };
+    expect(persisted.state.entries.map((entry) => entry.id)).toEqual([publicId]);
   });
 
   it("removes private metadata and malformed entries from history saved by earlier versions", async () => {
@@ -165,7 +170,7 @@ describe("closedViewStore", () => {
         navStatus: { _tag: "Success", url: "https://public.example", title: "Public page" },
       },
     });
-    store.remember({ kind: "browser", threadRef: refA, snapshot });
+    const privateId = store.remember({ kind: "browser", threadRef: refA, snapshot });
     const { storage, name } = useClosedViewStore.persist.getOptions();
     await storage!.setItem(name!, {
       state: {
@@ -181,7 +186,9 @@ describe("closedViewStore", () => {
     });
     await useClosedViewStore.persist.rehydrate();
     expect(useClosedViewStore.persist.hasHydrated()).toBe(true);
+    // The private entry was only ever in this tab's memory.
     expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([
+      privateId,
       browserId,
       publicId,
     ]);
@@ -216,5 +223,23 @@ describe("closedViewStore", () => {
     const entries = useClosedViewStore.getState().entries;
     expect(entries).toHaveLength(20);
     expect(entries[0]).toMatchObject({ surface: { id: "file:23" } });
+  });
+});
+
+describe("history written by another app tab", () => {
+  it("adopts the persisted history and keeps this tab's incognito entries", async () => {
+    const store = useClosedViewStore.getState();
+    store.remember(diff(refA));
+    const privateId = store.remember({ kind: "browser", threadRef: refA, snapshot });
+    const { name, storage } = useClosedViewStore.persist.getOptions();
+    const other: ClosedViewEntry = { ...diff(refB), id: "from-other-tab" };
+    await storage!.setItem(name!, { state: { entries: [other] }, version: 2 });
+
+    await useClosedViewStore.persist.rehydrate();
+
+    expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([
+      privateId,
+      "from-other-tab",
+    ]);
   });
 });
