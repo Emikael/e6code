@@ -146,7 +146,9 @@ export function installSidebarTree(root: HTMLElement) {
       !event.metaKey &&
       (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
       row instanceof HTMLElement &&
-      row.matches(ROW)
+      row.matches(ROW) &&
+      // Rows without a menu leave Shift+F10 and the menu key to the browser.
+      row.hasAttribute("data-sidebar-has-menu")
     ) {
       event.preventDefault();
       event.stopPropagation();

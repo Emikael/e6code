@@ -720,6 +720,7 @@ function SidebarSectionHeader(props: {
         role="treeitem"
         tabIndex={-1}
         data-sidebar-row={`shelf:${snoozed ? "snoozed" : "settled"}`}
+        data-sidebar-has-menu={onMenu ? true : undefined}
         data-testid={`sidebar-${snoozed ? "snoozed" : "settled"}-shelf-toggle`}
         className={cn(className, "min-w-0 cursor-pointer")}
       >
@@ -1751,6 +1752,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
                 onContextMenu={handleContextMenu}
+                data-sidebar-has-menu
               />
             }
           >
@@ -1929,6 +1931,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
               onContextMenu={handleContextMenu}
+              data-sidebar-has-menu
             />
           }
         >

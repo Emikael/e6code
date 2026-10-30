@@ -255,7 +255,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <Sidebar
           side="left"
           collapsible="offcanvas"
-          {...workspaceAreaProps("sidebar", 0, "Threads")}
+          {...workspaceAreaProps("sidebar", 0, "Sidebar")}
           data-app-sidebar=""
           className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
           resizable={{
