@@ -742,6 +742,17 @@ describe("work entry labels", () => {
     );
   });
 
+  it("previews a Tasks row by its summary, not its step list", () => {
+    const tasksEntry = {
+      ...entry,
+      label: "Tasks 1/2 · Ship the release complete",
+      detail: "✓ Draft notes\n→ Ship the release complete",
+      sourceActivityKind: "turn.plan.updated" as const,
+    };
+    expect(workEntryDisplayLabel(tasksEntry, undefined)).toBe(tasksEntry.label);
+    expect(liveWorkEntryLabel(tasksEntry, undefined, true)).toBe(tasksEntry.label);
+  });
+
   it("keeps command summaries compact without replacing the full command in expanded rows", () => {
     const commandEntry = { ...entry, command: "vp test run", detail: "All tests passed" };
     expect(liveWorkEntryLabel(commandEntry, undefined, true)).toBe("Running vp");

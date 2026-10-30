@@ -54,6 +54,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 }
 
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
+  // A Tasks row's detail is its step list, shown when expanded; the label is its summary.
+  if (entry.sourceActivityKind === "turn.plan.updated") return entry.label;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;

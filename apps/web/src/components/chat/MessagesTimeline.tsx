@@ -412,17 +412,21 @@ function TimelineListFooter({
       height = next;
     });
   }, [onGrow]);
+  // Only the status content is observed: the composer inset changes height on its own and must
+  // not count as growth.
   return (
-    <div ref={contentRef}>
-      {threadNow ? <div data-thread-now="true">{threadNow}</div> : null}
-      {frontierResolution ? (
-        <div
-          className="mx-auto w-full min-w-0 max-w-(--chat-max-width) px-1 pb-2.5 pt-1"
-          data-timeline-frontier-resolution="true"
-        >
-          {frontierResolution}
-        </div>
-      ) : null}
+    <div>
+      <div ref={contentRef}>
+        {threadNow ? <div data-thread-now="true">{threadNow}</div> : null}
+        {frontierResolution ? (
+          <div
+            className="mx-auto w-full min-w-0 max-w-(--chat-max-width) px-1 pb-2.5 pt-1"
+            data-timeline-frontier-resolution="true"
+          >
+            {frontierResolution}
+          </div>
+        ) : null}
+      </div>
       <div aria-hidden>
         <div style={{ height: composerInset }} />
         <div className="h-3 sm:h-4" />
