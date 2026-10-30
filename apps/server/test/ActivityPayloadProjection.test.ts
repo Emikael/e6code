@@ -139,8 +139,10 @@ describe("projectActivityPayload", () => {
     return {
       ...activity,
       fullDetail: activity.getFullDetail(),
+      expandedParts: activity.getExpandedParts(),
       copyText: activity.getCopyText(),
       getFullDetail: undefined,
+      getExpandedParts: undefined,
       getCopyText: undefined,
     };
   }
