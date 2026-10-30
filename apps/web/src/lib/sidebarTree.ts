@@ -120,7 +120,9 @@ export function installSidebarTree(root: HTMLElement) {
           !rows.includes(document.activeElement as HTMLElement) &&
           document.activeElement?.matches(ROW)))
     ) {
-      focusRow(selected);
+      // A refresh restores focus lost to a re-render; scrolling here would yank the list.
+      setTabStop(selected);
+      selected.focus({ preventScroll: true });
     }
     if (ownsFocus && !selected && document.activeElement === document.body) root.focus();
   };

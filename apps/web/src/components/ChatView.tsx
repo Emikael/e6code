@@ -653,6 +653,8 @@ const TYPE_TO_FOCUS_INTERACTIVE_SELECTOR = [
   '[role="radio"]',
   '[role="switch"]',
   '[role="tab"]',
+  // Tree rows take type-ahead and Space from the sidebar's keyboard navigation.
+  '[role="treeitem"]',
 ].join(",");
 const TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR = [
   '[role="dialog"][aria-modal="true"]',
@@ -5463,6 +5465,9 @@ export default function ChatView(props: ChatViewProps) {
           }
           return;
         }
+        // F6 lands on the scroller itself, so arrow and page keys scroll the conversation.
+        if (!scrollNode.hasAttribute("tabindex")) scrollNode.tabIndex = -1;
+        scrollNode.setAttribute("data-workspace-focus-default", "");
         const handleManualNavigation = () => {
           cancelTimelineLiveFollowForUserNavigationRef.current();
         };

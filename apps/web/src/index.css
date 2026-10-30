@@ -1478,6 +1478,7 @@ html[data-theme-id] [data-app-sidebar] {
   --sidebar-row-selected: var(--app-theme-sidebar-row-selected);
   --sidebar-border: var(--app-theme-sidebar-border);
   --sidebar-stage-fade: var(--app-theme-sidebar);
+  --secondary-label: var(--app-theme-secondary-label);
   border-color: color-mix(in srgb, var(--contrast-sidebar-foreground) 10%, transparent);
 
   @variant dark {
@@ -2344,7 +2345,8 @@ code {
 }
 
 /* A workspace area with no control of its own takes F6 focus itself; keep that visible. */
-[data-workspace-area]:focus-visible {
+[data-workspace-area]:focus-visible,
+[data-workspace-area="conversation"] [data-workspace-focus-default]:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
