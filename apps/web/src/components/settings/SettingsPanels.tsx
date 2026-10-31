@@ -431,7 +431,7 @@ function AboutVersionSection() {
     "up-to-date": "Up to Date",
   };
   const buttonLabel =
-    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
+    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for updates";
   const description =
     action === "download" || action === "install"
       ? "Update available."
