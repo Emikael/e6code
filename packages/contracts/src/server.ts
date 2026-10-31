@@ -827,6 +827,28 @@ export const ServerSelfUpdateInput = Schema.Struct({
 });
 export type ServerSelfUpdateInput = typeof ServerSelfUpdateInput.Type;
 
+export const ServerCheckForUpdateInput = Schema.Struct({
+  /** Skip the server's cached answer and ask the release index again. */
+  force: Schema.optionalKey(Schema.Boolean),
+});
+export type ServerCheckForUpdateInput = typeof ServerCheckForUpdateInput.Type;
+
+/** The newest published release on the server's own track (stable or
+    nightly), as last seen by the server. A failed or skipped lookup is data,
+    not an error: it keeps the last good answer, or `latestVersion: null` if
+    there has been none. */
+export const ServerUpdateCheckResult = Schema.Struct({
+  currentVersion: TrimmedNonEmptyString,
+  /** Exact version, usable as `ServerSelfUpdateInput.targetVersion`. Null
+      until a lookup has succeeded (offline, preview build, or no release
+      found); after that, the last good answer, dated by `checkedAt`. */
+  latestVersion: Schema.NullOr(TrimmedNonEmptyString),
+  updateAvailable: Schema.Boolean,
+  /** ISO time of the last successful lookup. */
+  checkedAt: Schema.NullOr(IsoDateTime),
+});
+export type ServerUpdateCheckResult = typeof ServerUpdateCheckResult.Type;
+
 /** Acknowledgement that the update artifact is installed and the server is
     about to restart into it — the connection will drop moments later. */
 export const ServerSelfUpdateResult = Schema.Struct({

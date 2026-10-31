@@ -5,6 +5,18 @@ When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that
 notice.
 
+## New releases
+
+In a browser, **Settings → General → About** shows the connected server's
+version and whether a newer release is out. When one is, an update icon appears
+in the sidebar. Open About to read the release notes and update. When the
+update finishes, reload the page if asked. **Check for updates** in the command
+palette checks right away; in the desktop app it checks for a new desktop
+release.
+
+Older servers and preview builds show only their version in About. Update an
+older server once with the steps below to get release checks.
+
 ## Before you update
 
 Server updates restart the connection and can interrupt active agents and

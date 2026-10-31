@@ -10,9 +10,7 @@ import {
 import {
   CLI_RELEASE_BASE_URL_SUFFIX,
   CLI_RELEASE_CHANNELS,
-  cliReleaseIndexPageUrl,
   cliReleaseChannelOf,
-  newestCliReleaseVersion,
   type CliReleaseChannel,
 } from "@e6tools/shared/cliRelease";
 import * as Console from "effect/Console";
@@ -24,12 +22,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Argument, Command, Flag, GlobalFlag, Prompt } from "effect/unstable/cli";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
@@ -39,6 +32,7 @@ import {
   PinnedRuntimeInstallError,
   pinnedRuntimePaths,
 } from "../cloud/pinnedRuntime.ts";
+import { resolveNewestReleaseVersion } from "../cloud/releaseIndex.ts";
 import { compareExactServiceVersions, isExactServiceVersion } from "../cloud/serviceProtocol.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -54,14 +48,6 @@ export class CliUpdateError extends Schema.TaggedError<CliUpdateError>()("CliUpd
   }
 }
 
-const ReleaseIndex = Schema.Array(
-  Schema.Struct({
-    tag_name: Schema.String,
-    draft: Schema.optional(Schema.Boolean),
-  }),
-);
-const decodeReleaseIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(ReleaseIndex));
-
 const RELEASE_INDEX_TIMEOUT = Duration.seconds(30);
 // Enough to walk past a long run of nightlies without hammering the API when
 // a channel genuinely has nothing published.
@@ -71,33 +57,11 @@ const RELEASE_INDEX_MAX_PAGES = 10;
 const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
   channel: CliReleaseChannel,
 ) {
-  const httpClient = yield* HttpClient.HttpClient;
-  for (let page = 1; page <= RELEASE_INDEX_MAX_PAGES; page += 1) {
-    const body = yield* httpClient
-      .execute(
-        HttpClientRequest.get(cliReleaseIndexPageUrl(page)).pipe(
-          HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
-        ),
-      )
-      .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap((response) => response.text),
-        Effect.mapError(() => new CliUpdateError({ reason: "Could not list e6 releases." })),
-        Effect.timeoutOrElse({
-          duration: RELEASE_INDEX_TIMEOUT,
-          orElse: () =>
-            Effect.fail(new CliUpdateError({ reason: "Timed out listing e6 releases." })),
-        }),
-      );
-    const releases = yield* decodeReleaseIndex(body).pipe(
-      Effect.mapError(
-        () => new CliUpdateError({ reason: "The e6 release index had an unexpected shape." }),
-      ),
-    );
-    const version = newestCliReleaseVersion(releases, channel);
-    if (version !== undefined) return version;
-    if (releases.length === 0) break;
-  }
+  const version = yield* resolveNewestReleaseVersion(channel, {
+    maxPages: RELEASE_INDEX_MAX_PAGES,
+    pageTimeout: RELEASE_INDEX_TIMEOUT,
+  }).pipe(Effect.mapError((error) => new CliUpdateError({ reason: error.message })));
+  if (version !== undefined) return version;
   return yield* new CliUpdateError({ reason: `No published ${channel} release was found.` });
 });
 

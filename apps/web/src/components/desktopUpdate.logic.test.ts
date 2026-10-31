@@ -8,7 +8,7 @@ import {
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
   getDesktopUpdateReleaseHistoryUrl,
-  getDesktopUpdateReleaseUrl,
+  getReleaseNotesUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
@@ -181,20 +181,20 @@ describe("getDesktopUpdateActionError", () => {
 
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
-    expect(getDesktopUpdateReleaseUrl("0.0.30")).toBe(
+    expect(getReleaseNotesUrl("0.0.30")).toBe(
       "https://github.com/Emikael/e6code/releases/tag/v0.0.30",
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
-    expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
+    expect(getReleaseNotesUrl("0.0.30-nightly.20260728.931")).toBe(
       "https://github.com/Emikael/e6code/releases/tag/v0.0.30-nightly.20260728.931",
     );
   });
 
   it("omits the release URL when the updater does not report a version", () => {
-    expect(getDesktopUpdateReleaseUrl(null)).toBeNull();
-    expect(getDesktopUpdateReleaseUrl("  ")).toBeNull();
+    expect(getReleaseNotesUrl(null)).toBeNull();
+    expect(getReleaseNotesUrl("  ")).toBeNull();
   });
 
   it("builds the release history URL", () => {

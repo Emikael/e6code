@@ -475,6 +475,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["logs traces processes resource history failures spans cpu memory"],
   },
   {
+    id: "about-version",
+    title: "Version",
+    to: "/settings/general",
+    searchTerms: ["about check for updates release notes upgrade new version"],
+  },
+  {
     id: "open-source-licenses",
     title: "Open source licenses",
     to: "/settings/general",
