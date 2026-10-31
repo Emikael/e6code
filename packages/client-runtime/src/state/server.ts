@@ -959,16 +959,23 @@ export function createServerEnvironmentAtoms<R, E>(
     readonly environmentId: EnvironmentId;
     readonly input: EnvironmentRpcInput<typeof WS_METHODS.subscribeServerLifecycle>;
   }) => welcomeFamily(target.environmentId);
+  const serverVersionAtom = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get) => get(configValueAtom(environmentId))?.environment.serverVersion ?? null).pipe(
+      Atom.withLabel(`environment-data:server:version:${environmentId}`),
+    ),
+  );
   // The server caches its release lookup for about an hour, so these reads are
-  // cheap; the interval only keeps long-lived windows from going stale.
+  // cheap; the interval only keeps long-lived windows from going stale. A new
+  // server version (after an update) asks again so the answer matches it.
   const checkForUpdate = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:server:check-for-update",
     tag: WS_METHODS.serverCheckForUpdate,
     staleTimeMs: 60 * 60_000,
     refreshIntervalMs: 6 * 60 * 60_000,
+    refreshTrigger: ({ environmentId }) => serverVersionAtom(environmentId),
   });
   // A user-initiated check bypasses the server cache, then refreshes the shared
-  // query so every reader sees the fresh answer.
+  // query so every reader sees the fresh answer (or the failure).
   const forceCheckForUpdate = createEnvironmentRpcCommand(runtime, {
     label: "environment-data:server:force-check-for-update",
     tag: WS_METHODS.serverCheckForUpdate,
@@ -977,7 +984,7 @@ export function createServerEnvironmentAtoms<R, E>(
       mode: "singleFlight",
       key: ({ environmentId }) => environmentId,
     },
-    onSuccess: ({ environmentId }, registry) =>
+    onSettled: ({ environmentId }, registry) =>
       Effect.sync(() => registry.refresh(checkForUpdate({ environmentId, input: {} }))),
   });
 

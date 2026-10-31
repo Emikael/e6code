@@ -7,16 +7,15 @@ notice.
 
 ## New releases
 
-In a browser, **Settings → General → About** shows the version of the server
-you are connected to and whether a newer E6 Code release is out. When one is,
-an update icon appears in the sidebar; open About to read the release notes and
-update the server from there. After the server restarts, reload the page to
-finish. Run **Check for Updates** from the command palette to jump to About, or
-use its **Check for Updates** button to ask again right away. In the desktop
-app, the same command checks for a new desktop release.
+In a browser, **Settings → General → About** shows the connected server's
+version and whether a newer release is out. When one is, an update icon appears
+in the sidebar. Open About to read the release notes and update. When the
+update finishes, reload the page if asked. **Check for updates** in the command
+palette checks right away; in the desktop app it checks for a new desktop
+release.
 
-If About shows only a version, the server predates release checks; update it
-once with the steps below.
+Older servers and preview builds show only their version in About. Update an
+older server once with the steps below to get release checks.
 
 ## Before you update
 

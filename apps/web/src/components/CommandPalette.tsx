@@ -196,7 +196,15 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+import {
+  primaryServerConfigAtom,
+  primaryServerKeybindingsAtom,
+  primaryServerProvidersAtom,
+  serverEnvironment,
+} from "../state/server";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { supportsServerUpdateCheck } from "../versionSkew";
+import { canCheckForUpdate } from "./desktopUpdate.logic";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
@@ -784,6 +792,9 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const forceCheckForServerUpdate = useAtomCommand(serverEnvironment.forceCheckForUpdate, {
+    reportFailure: false,
+  });
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
@@ -2197,14 +2208,23 @@ function OpenCommandPaletteDialog(props: {
     kind: "action",
     value: "action:check-for-updates",
     searchTerms: ["update", "version", "release", "upgrade", "about"],
-    title: "Check for Updates",
+    title: "Check for updates",
     icon: <CircleArrowUpIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       const bridge = window.desktopBridge;
-      if (bridge && typeof bridge.checkForUpdate === "function") {
-        // The sidebar update control shows the outcome; only failures toast.
-        await checkForDesktopUpdate(() => bridge.checkForUpdate());
-        return;
+      if (bridge) {
+        const state = await bridge.getUpdateState().catch(() => null);
+        if (canCheckForUpdate(state)) {
+          // The sidebar update control shows the outcome; only failures toast.
+          await checkForDesktopUpdate(() => bridge.checkForUpdate());
+          return;
+        }
+      } else if (
+        primaryEnvironmentId !== null &&
+        supportsServerUpdateCheck(appAtomRegistry.get(primaryServerConfigAtom))
+      ) {
+        // About shows the answer; failures read there too.
+        void forceCheckForServerUpdate({ environmentId: primaryEnvironmentId, input: {} });
       }
       await navigate({ to: "/settings/general", hash: "about-version", hashScrollIntoView: false });
     },

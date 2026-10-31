@@ -250,6 +250,16 @@ describe("versionSkew", () => {
       ).toEqual({ kind: "unsupported" });
     });
 
+    it("is unsupported for preview servers, which have no release track", () => {
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: serverConfig("0.0.34-preview.20260728.12"),
+          check: check("0.0.34-preview.20260728.12", null),
+          bundleFromServer: false,
+        }),
+      ).toEqual({ kind: "unsupported" });
+    });
+
     it("offers the newest release when the server is behind it", () => {
       expect(
         resolveServerReleaseStatus({

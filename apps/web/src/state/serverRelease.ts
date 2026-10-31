@@ -1,20 +1,36 @@
 import { useAtomValue } from "@effect/atom-react";
 
 import { HOSTED_APP_CHANNEL } from "../branding";
+import { readPrimaryEnvironmentTarget } from "../environments/primary";
 import { resolveServerReleaseStatus, supportsServerUpdateCheck } from "../versionSkew";
-import { usePrimaryEnvironment } from "./environments";
+import { usePrimaryEnvironmentId } from "./environments";
 import { useEnvironmentQuery } from "./query";
-import { serverEnvironment } from "./server";
+import { primaryServerConfigAtom, serverEnvironment } from "./server";
 
 /**
- * Release status of the primary server, the one that serves this bundle and
- * is what "update" replaces. Shared by Settings → About and the sidebar so
- * both read the same cached query.
+ * True when the primary server also served this page, so a reload picks up
+ * the bundle of a newer server. Hosted builds and builds pointed at a
+ * configured server URL are deployed separately.
+ */
+function readBundleFromPrimaryServer(): boolean {
+  if (HOSTED_APP_CHANNEL !== null) return false;
+  try {
+    return readPrimaryEnvironmentTarget()?.source === "window-origin";
+  } catch {
+    return false;
+  }
+}
+
+const bundleFromPrimaryServer = readBundleFromPrimaryServer();
+
+/**
+ * Release status of the primary server, the one an update from About
+ * replaces. Shared by Settings → About and the sidebar so both read the same
+ * cached query.
  */
 export function usePrimaryServerRelease() {
-  const environment = usePrimaryEnvironment();
-  const environmentId = environment?.environmentId ?? null;
-  const serverConfig = environment?.serverConfig ?? null;
+  const environmentId = usePrimaryEnvironmentId();
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
   const supported = environmentId !== null && supportsServerUpdateCheck(serverConfig);
   const check = useEnvironmentQuery(
     supported ? serverEnvironment.checkForUpdate({ environmentId, input: {} }) : null,
@@ -23,16 +39,19 @@ export function usePrimaryServerRelease() {
   const status = resolveServerReleaseStatus({
     serverConfig,
     check: check.data,
-    // Hosted builds are deployed separately, so reloading cannot pick up a
-    // newer server's bundle.
-    bundleFromServer: HOSTED_APP_CHANNEL === null,
+    bundleFromServer: bundleFromPrimaryServer,
   });
+  // An answer for another server version is being replaced: the query asks
+  // again when the version changes.
+  const isStale =
+    check.data !== null &&
+    check.error === null &&
+    check.data.currentVersion !== serverConfig?.environment.serverVersion;
   return {
-    environment,
     environmentId,
     serverConfig,
     status,
-    isLoading: check.isPending && check.data === null,
+    isChecking: supported && (check.isPending || isStale),
     updateState,
   };
 }

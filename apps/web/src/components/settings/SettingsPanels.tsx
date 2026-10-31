@@ -102,6 +102,7 @@ import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatDayAwareTimestamp, formatRelativeTimeLabel } from "../../timestampFormat";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { usePrimaryEnvironment } from "../../state/environments";
 import { usePrimaryServerRelease } from "../../state/serverRelease";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
@@ -534,26 +535,27 @@ function HostedUpdateTrackRow({ channel }: { readonly channel: HostedAppChannel 
  * this bundle, so its version is the one shown and the one an update replaces.
  */
 function ServerAboutVersionSection() {
-  const release = usePrimaryServerRelease();
-  const { environment, environmentId, serverConfig, status, updateState } = release;
+  const { environmentId, serverConfig, status, updateState, ...release } =
+    usePrimaryServerRelease();
+  const environment = usePrimaryEnvironment();
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const forceCheck = useAtomCommand(serverEnvironment.forceCheckForUpdate, {
     reportFailure: false,
   });
-  const [isChecking, setIsChecking] = useState(false);
-  const [checkFailed, setCheckFailed] = useState(false);
+  // The forced request runs before the shared query refreshes; cover that gap.
+  const [isForcing, setIsForcing] = useState(false);
+  const isChecking = isForcing || release.isChecking;
 
   const handleCheck = useCallback(async () => {
     if (environmentId === null) return;
-    setIsChecking(true);
-    const result = await forceCheck({ environmentId, input: {} });
-    setCheckFailed(result._tag === "Failure" && !isAtomCommandInterrupted(result));
-    setIsChecking(false);
+    setIsForcing(true);
+    await forceCheck({ environmentId, input: {} });
+    setIsForcing(false);
   }, [environmentId, forceCheck]);
 
   const checkButton = (
     <Button size="sm" variant="outline" disabled={isChecking} onClick={() => void handleCheck()}>
-      {isChecking ? "Checking…" : "Check for Updates"}
+      {isChecking ? "Checking…" : "Check for updates"}
     </Button>
   );
 
@@ -562,7 +564,7 @@ function ServerAboutVersionSection() {
   if (updateState.status === "running") {
     description = <ServerUpdateProgress state={updateState} />;
   } else if (status.kind === "unsupported") {
-    description = "Current version of the application.";
+    description = "Version of the connected server.";
   } else if (status.kind === "reload-needed") {
     description = `Updated to ${status.serverVersion}. Reload to finish.`;
     control = (
@@ -606,9 +608,6 @@ function ServerAboutVersionSection() {
         />
       );
     }
-  } else if (checkFailed) {
-    description = "Couldn't check for updates.";
-    control = checkButton;
   } else if (status.kind === "up-to-date") {
     const checkedAt =
       status.checkedAt === null ? "" : formatDayAwareTimestamp(status.checkedAt, timestampFormat);
@@ -617,7 +616,7 @@ function ServerAboutVersionSection() {
       : "You're on the latest release.";
     control = checkButton;
   } else {
-    description = release.isLoading ? "Checking for updates…" : "Couldn't check for updates.";
+    description = isChecking ? "Checking for updates…" : "Couldn't check for updates.";
     control = checkButton;
   }
   if (updateState.status === "failed") {

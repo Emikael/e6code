@@ -6,6 +6,7 @@ import type {
 } from "@e6tools/contracts";
 import type { ServerUpdateState } from "@e6tools/client-runtime/state/server";
 import { NPM_LAUNCHER_PACKAGE_NAME } from "@e6tools/shared/brand";
+import { cliReleaseChannelOf } from "@e6tools/shared/cliRelease";
 import { compareSemverVersions, parseSemver } from "@e6tools/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -143,6 +144,7 @@ export type ServerReleaseStatus =
 
 /**
  * Where the primary server stands against the newest published release.
+ * Preview servers report as unsupported.
  *
  * `bundleFromServer` says this page was served by that server, so a server
  * ahead of the running bundle (typically right after an update) only needs a
@@ -155,7 +157,12 @@ export function resolveServerReleaseStatus(input: {
   readonly bundleFromServer: boolean;
 }): ServerReleaseStatus {
   const serverVersion = normalizeVersion(input.serverConfig?.environment.serverVersion);
-  if (!serverVersion || !supportsServerUpdateCheck(input.serverConfig)) {
+  if (
+    !serverVersion ||
+    !supportsServerUpdateCheck(input.serverConfig) ||
+    // Preview builds have no release track to follow.
+    cliReleaseChannelOf(serverVersion) === "preview"
+  ) {
     return { kind: "unsupported" };
   }
   const clientVersion = normalizeVersion(APP_VERSION);

@@ -116,13 +116,14 @@ export function SidebarUpdatePill() {
 
 /**
  * Browser notice that the primary server has a newer release, or was updated
- * past this bundle. It only points to Settings → About, where the update runs.
+ * past this bundle. A new release opens Settings → About, where the update
+ * runs; an updated server only needs a reload.
  */
 function SidebarServerUpdateControl() {
   const { status } = usePrimaryServerRelease();
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
-  const handleClick = useCallback(() => {
+  const handleOpenAbout = useCallback(() => {
     if (isMobile) setOpenMobile(false);
     void navigate({ to: "/settings/general", hash: "about-version", hashScrollIntoView: false });
   }, [isMobile, navigate, setOpenMobile]);
@@ -130,8 +131,10 @@ function SidebarServerUpdateControl() {
   if (status.kind !== "available" && status.kind !== "reload-needed") return null;
   const tooltip =
     status.kind === "available"
-      ? `E6 Code ${status.targetVersion} available`
-      : `Updated to ${status.serverVersion}. Reload to finish.`;
+      ? `E6 Code ${status.targetVersion} is available`
+      : `Reload to finish updating to ${status.serverVersion}`;
+  const handleClick =
+    status.kind === "available" ? handleOpenAbout : () => window.location.reload();
 
   return (
     <SidebarMenuItem className="ml-auto shrink-0">
