@@ -67,6 +67,15 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("lets readers check for a server release without granting the update itself", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverCheckForUpdate)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverUpdateServer)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("rejects unknown RPC method names", () => {
     for (const method of ["server.notRegistered", "toString", "constructor"]) {
       expect(() => requiredScopeForRpcMethod(method)).toThrow(
