@@ -1,4 +1,9 @@
-import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@e6tools/contracts";
+import type {
+  EnvironmentId,
+  ServerConfig,
+  ServerSelfUpdateCapability,
+  ServerUpdateCheckResult,
+} from "@e6tools/contracts";
 import type { ServerUpdateState } from "@e6tools/client-runtime/state/server";
 import { NPM_LAUNCHER_PACKAGE_NAME } from "@e6tools/shared/brand";
 import { compareSemverVersions, parseSemver } from "@e6tools/shared/semver";
@@ -44,14 +49,30 @@ function versionCore(version: string): string {
 }
 
 /**
- * The skew a user can act on: the connected server runs an older E6 Code than
- * this client, so the server is the side that needs updating.
+ * Orders two E6 Code versions by the skew rules below, or null when either
+ * does not parse as semver.
  *
  * Two nightly builds compare their full versions, including the date and run.
  * Other combinations compare their core `major.minor.patch` only, so a stable
- * build and a nightly build with the same core do not cause an update warning.
- * A server ahead of the client does not need an update. Versions that do not
- * parse as semver fall back to plain string inequality.
+ * build and a nightly build with the same core compare as equal.
+ */
+function compareReleaseVersions(left: string, right: string): number | null {
+  const leftCore = versionCore(left);
+  const rightCore = versionCore(right);
+  if (!parseSemver(leftCore) || !parseSemver(rightCore)) return null;
+  const compareNightlyBuilds =
+    parseSemver(left)?.prerelease[0] === "nightly" &&
+    parseSemver(right)?.prerelease[0] === "nightly";
+  return compareNightlyBuilds
+    ? compareSemverVersions(left, right)
+    : compareSemverVersions(leftCore, rightCore);
+}
+
+/**
+ * The skew a user can act on: the connected server runs an older E6 Code than
+ * this client, so the server is the side that needs updating. A server ahead
+ * of the client does not need an update. Versions that do not parse as semver
+ * fall back to plain string inequality.
  */
 export function resolveVersionMismatch(
   serverVersion: string | null | undefined,
@@ -62,18 +83,9 @@ export function resolveVersionMismatch(
     return null;
   }
 
-  const clientCore = versionCore(normalizedClientVersion);
-  const serverCore = versionCore(normalizedServerVersion);
-  const compareNightlyBuilds =
-    parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
-    parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly";
+  const order = compareReleaseVersions(normalizedServerVersion, normalizedClientVersion);
   const serverIsBehind =
-    parseSemver(clientCore) && parseSemver(serverCore)
-      ? compareSemverVersions(
-          compareNightlyBuilds ? normalizedServerVersion : serverCore,
-          compareNightlyBuilds ? normalizedClientVersion : clientCore,
-        ) < 0
-      : normalizedServerVersion !== normalizedClientVersion;
+    order === null ? normalizedServerVersion !== normalizedClientVersion : order < 0;
   if (!serverIsBehind) {
     return null;
   }
@@ -113,6 +125,51 @@ export function supportsServerUpdateThreadContinuation(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): boolean {
   return serverConfig?.environment.capabilities.serverUpdateThreadContinuation === true;
+}
+
+/** True when the connected server can report its newest published release. */
+export function supportsServerUpdateCheck(
+  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
+): boolean {
+  return serverConfig?.environment.capabilities.serverUpdateCheck === true;
+}
+
+export type ServerReleaseStatus =
+  | { readonly kind: "unsupported" }
+  | { readonly kind: "unknown" }
+  | { readonly kind: "up-to-date"; readonly checkedAt: string | null }
+  | { readonly kind: "available"; readonly targetVersion: string }
+  | { readonly kind: "reload-needed"; readonly serverVersion: string };
+
+/**
+ * Where the primary server stands against the newest published release.
+ *
+ * `bundleFromServer` says this page was served by that server, so a server
+ * ahead of the running bundle (typically right after an update) only needs a
+ * reload. A check answered for a different server version than the current
+ * one is stale and reads as unknown until the query refreshes.
+ */
+export function resolveServerReleaseStatus(input: {
+  readonly serverConfig: Pick<ServerConfig, "environment"> | null | undefined;
+  readonly check: ServerUpdateCheckResult | null;
+  readonly bundleFromServer: boolean;
+}): ServerReleaseStatus {
+  const serverVersion = normalizeVersion(input.serverConfig?.environment.serverVersion);
+  if (!serverVersion || !supportsServerUpdateCheck(input.serverConfig)) {
+    return { kind: "unsupported" };
+  }
+  const clientVersion = normalizeVersion(APP_VERSION);
+  if (input.bundleFromServer && clientVersion) {
+    const order = compareReleaseVersions(serverVersion, clientVersion);
+    if (order !== null && order > 0) return { kind: "reload-needed", serverVersion };
+  }
+  const { check } = input;
+  if (check === null || check.latestVersion === null || check.currentVersion !== serverVersion) {
+    return { kind: "unknown" };
+  }
+  return check.updateAvailable && check.latestVersion !== serverVersion
+    ? { kind: "available", targetVersion: check.latestVersion }
+    : { kind: "up-to-date", checkedAt: check.checkedAt };
 }
 
 /** The command to hand users whose server cannot update itself. */

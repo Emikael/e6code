@@ -56,9 +56,11 @@ import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
+  getReleaseNotesUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
+import { ServerUpdateAction, ServerUpdateProgress } from "../ServerUpdateAction";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
@@ -96,9 +98,17 @@ import {
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
-import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
-import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { formatDayAwareTimestamp, formatRelativeTimeLabel } from "../../timestampFormat";
+import { usePrimarySettings } from "../../hooks/useSettings";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { usePrimaryServerRelease } from "../../state/serverRelease";
+import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  resolveServerSelfUpdateCapability,
+  supportsDesktopAppUpdate,
+  supportsServerUpdateThreadContinuation,
+} from "../../versionSkew";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -274,11 +284,11 @@ function backgroundActivityProfileSettings(profile: BackgroundActivityProfile) {
   };
 }
 
-function AboutVersionTitle() {
+function AboutVersionTitle({ version = APP_VERSION }: { readonly version?: string }) {
   return (
     <span className="inline-flex items-baseline gap-2">
       <span>Version</span>
-      <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+      <code className="text-[11px] font-medium text-muted-foreground">{version}</code>
     </span>
   );
 }
@@ -290,7 +300,6 @@ function AboutVersionSection() {
 
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const selectedUpdateChannel = updateState?.channel ?? "latest";
-  const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
 
   const handleUpdateChannelChange = useCallback(
     (channel: DesktopUpdateChannel) => {
@@ -430,6 +439,7 @@ function AboutVersionSection() {
   return (
     <>
       <SettingsRow
+        id={searchableSetting("about-version").id}
         title={<AboutVersionTitle />}
         description={description}
         control={
@@ -482,36 +492,145 @@ function AboutVersionSection() {
             </Select>
           }
         />
-      ) : selectedHostedAppChannel ? (
-        <SettingsRow
-          title="Update track"
-          description="Opens that channel's site. Sign-in and connections stay on this one."
-          control={
-            <Select
-              value={selectedHostedAppChannel}
-              onValueChange={(value) => {
-                if (value === selectedHostedAppChannel) return;
-                window.location.assign(
-                  buildHostedChannelSelectionUrl({ channel: value as HostedAppChannel }),
-                );
-              }}
-            >
-              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Update track">
-                <SelectValue>{HOSTED_APP_CHANNEL_LABEL}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="latest">
-                  Latest
-                </SelectItem>
-                <SelectItem hideIndicator value="nightly">
-                  Nightly
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
       ) : null}
     </>
+  );
+}
+
+function HostedUpdateTrackRow({ channel }: { readonly channel: HostedAppChannel }) {
+  return (
+    <SettingsRow
+      title="Update track"
+      description="Opens that channel's site. Sign-in and connections stay on this one."
+      control={
+        <Select
+          value={channel}
+          onValueChange={(value) => {
+            if (value === channel) return;
+            window.location.assign(
+              buildHostedChannelSelectionUrl({ channel: value as HostedAppChannel }),
+            );
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Update track">
+            <SelectValue>{HOSTED_APP_CHANNEL_LABEL}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            <SelectItem hideIndicator value="latest">
+              Latest
+            </SelectItem>
+            <SelectItem hideIndicator value="nightly">
+              Nightly
+            </SelectItem>
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
+/**
+ * About for a browser without the desktop bridge: the primary server serves
+ * this bundle, so its version is the one shown and the one an update replaces.
+ */
+function ServerAboutVersionSection() {
+  const release = usePrimaryServerRelease();
+  const { environment, environmentId, serverConfig, status, updateState } = release;
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
+  const forceCheck = useAtomCommand(serverEnvironment.forceCheckForUpdate, {
+    reportFailure: false,
+  });
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
+
+  const handleCheck = useCallback(async () => {
+    if (environmentId === null) return;
+    setIsChecking(true);
+    const result = await forceCheck({ environmentId, input: {} });
+    setCheckFailed(result._tag === "Failure" && !isAtomCommandInterrupted(result));
+    setIsChecking(false);
+  }, [environmentId, forceCheck]);
+
+  const checkButton = (
+    <Button size="sm" variant="outline" disabled={isChecking} onClick={() => void handleCheck()}>
+      {isChecking ? "Checking…" : "Check for Updates"}
+    </Button>
+  );
+
+  let description: ReactNode;
+  let control: ReactNode = null;
+  if (updateState.status === "running") {
+    description = <ServerUpdateProgress state={updateState} />;
+  } else if (status.kind === "unsupported") {
+    description = "Current version of the application.";
+  } else if (status.kind === "reload-needed") {
+    description = `Updated to ${status.serverVersion}. Reload to finish.`;
+    control = (
+      <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+        Reload
+      </Button>
+    );
+  } else if (status.kind === "available") {
+    const releaseUrl = getReleaseNotesUrl(status.targetVersion);
+    description = (
+      <>
+        E6 Code {status.targetVersion} is available.
+        {releaseUrl ? (
+          <>
+            {" "}
+            <a
+              href={releaseUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              Release notes
+            </a>
+          </>
+        ) : null}
+      </>
+    );
+    if (environmentId !== null) {
+      control = (
+        <ServerUpdateAction
+          size="sm"
+          environmentId={environmentId}
+          serverLabel={environment ? `${environment.label} server` : "server"}
+          selfUpdate={resolveServerSelfUpdateCapability(serverConfig)}
+          desktopAppUpdate={supportsDesktopAppUpdate(serverConfig)}
+          threadContinuation={supportsServerUpdateThreadContinuation(serverConfig)}
+          targetVersion={status.targetVersion}
+          label={
+            updateState.status === "failed" ? "Retry update" : `Update to ${status.targetVersion}`
+          }
+        />
+      );
+    }
+  } else if (checkFailed) {
+    description = "Couldn't check for updates.";
+    control = checkButton;
+  } else if (status.kind === "up-to-date") {
+    const checkedAt =
+      status.checkedAt === null ? "" : formatDayAwareTimestamp(status.checkedAt, timestampFormat);
+    description = checkedAt
+      ? `You're on the latest release. Checked ${checkedAt}.`
+      : "You're on the latest release.";
+    control = checkButton;
+  } else {
+    description = release.isLoading ? "Checking for updates…" : "Couldn't check for updates.";
+    control = checkButton;
+  }
+  if (updateState.status === "failed") {
+    description = <ServerUpdateProgress state={updateState} />;
+  }
+
+  return (
+    <SettingsRow
+      id={searchableSetting("about-version").id}
+      title={<AboutVersionTitle version={serverConfig?.environment.serverVersion ?? APP_VERSION} />}
+      description={description}
+      control={control}
+    />
   );
 }
 
@@ -3353,13 +3472,13 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="about" title="About">
-        {isElectron || HOSTED_APP_CHANNEL ? (
+        {isElectron ? (
           <AboutVersionSection />
         ) : (
-          <SettingsRow
-            title={<AboutVersionTitle />}
-            description="Current version of the application."
-          />
+          <>
+            <ServerAboutVersionSection />
+            {HOSTED_APP_CHANNEL ? <HostedUpdateTrackRow channel={HOSTED_APP_CHANNEL} /> : null}
+          </>
         )}
       </SettingsSection>
       <SettingsSection title="Diagnostics">

@@ -15,6 +15,7 @@ import {
   isServerUpdateFailureDismissed,
   isVersionMismatchDismissed,
   resolveServerConfigVersionMismatch,
+  resolveServerReleaseStatus,
   resolveServerSelfUpdateCapability,
   resolveVersionMismatch,
   serverUpdateGuidance,
@@ -217,5 +218,107 @@ describe("versionSkew", () => {
   it("matches version-drift guidance to the advertised update path", () => {
     expect(serverUpdateGuidance("respawn")).toBe("Update to stay in sync");
     expect(serverUpdateGuidance("desktop-managed")).toBe("Update the desktop app");
+  });
+
+  describe("resolveServerReleaseStatus", () => {
+    const serverConfig = (serverVersion: string, serverUpdateCheck = true) => ({
+      environment: {
+        environmentId: EnvironmentId.make("environment-primary"),
+        label: "Local",
+        platform: { os: "darwin", arch: "arm64" } as const,
+        serverVersion,
+        capabilities: { repositoryIdentity: true, serverUpdateCheck },
+      },
+    });
+    const check = (currentVersion: string, latestVersion: string | null) => ({
+      currentVersion,
+      latestVersion,
+      updateAvailable: latestVersion !== null && latestVersion !== currentVersion,
+      checkedAt: latestVersion === null ? null : "2026-10-31T12:00:00.000Z",
+    });
+
+    it("is unsupported when the server cannot check for releases", () => {
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: serverConfig("0.0.34", false),
+          check: check("0.0.34", "0.0.35"),
+          bundleFromServer: true,
+        }),
+      ).toEqual({ kind: "unsupported" });
+      expect(
+        resolveServerReleaseStatus({ serverConfig: null, check: null, bundleFromServer: true }),
+      ).toEqual({ kind: "unsupported" });
+    });
+
+    it("offers the newest release when the server is behind it", () => {
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: serverConfig("0.0.34"),
+          check: check("0.0.34", "0.0.35"),
+          bundleFromServer: true,
+        }),
+      ).toEqual({ kind: "available", targetVersion: "0.0.35" });
+    });
+
+    it("reports up to date with the time of the last lookup", () => {
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: serverConfig("0.0.34"),
+          check: check("0.0.34", "0.0.34"),
+          bundleFromServer: true,
+        }),
+      ).toEqual({ kind: "up-to-date", checkedAt: "2026-10-31T12:00:00.000Z" });
+    });
+
+    it("is unknown before an answer, after a failed lookup, or for a stale answer", () => {
+      const config = serverConfig("0.0.35");
+      expect(
+        resolveServerReleaseStatus({ serverConfig: config, check: null, bundleFromServer: false }),
+      ).toEqual({ kind: "unknown" });
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: config,
+          check: check("0.0.35", null),
+          bundleFromServer: false,
+        }),
+      ).toEqual({ kind: "unknown" });
+      // Answered before the server restarted on 0.0.35.
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: config,
+          check: check("0.0.34", "0.0.35"),
+          bundleFromServer: false,
+        }),
+      ).toEqual({ kind: "unknown" });
+    });
+
+    it("asks for a reload when the serving server is ahead of this bundle", () => {
+      const status = resolveServerReleaseStatus({
+        serverConfig: serverConfig("0.0.35"),
+        check: check("0.0.35", "0.0.35"),
+        bundleFromServer: true,
+      });
+      expect(status).toEqual({ kind: "reload-needed", serverVersion: "0.0.35" });
+    });
+
+    it("does not ask for a reload when another origin served this bundle", () => {
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: serverConfig("0.0.35"),
+          check: check("0.0.35", "0.0.35"),
+          bundleFromServer: false,
+        }),
+      ).toEqual({ kind: "up-to-date", checkedAt: "2026-10-31T12:00:00.000Z" });
+    });
+
+    it("does not ask for a reload for a nightly sharing this bundle's release", () => {
+      expect(
+        resolveServerReleaseStatus({
+          serverConfig: serverConfig("0.0.34-nightly.20260728.931"),
+          check: check("0.0.34-nightly.20260728.931", "0.0.34-nightly.20260728.931"),
+          bundleFromServer: true,
+        }).kind,
+      ).toBe("up-to-date");
+    });
   });
 });

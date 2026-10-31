@@ -1,10 +1,7 @@
 import type { DesktopBridge, DesktopUpdateState } from "@e6tools/contracts";
 import { ExternalLinkIcon } from "lucide-react";
 
-import {
-  getDesktopUpdateReleaseHistoryUrl,
-  getDesktopUpdateReleaseUrl,
-} from "../desktopUpdate.logic";
+import { getDesktopUpdateReleaseHistoryUrl, getReleaseNotesUrl } from "../desktopUpdate.logic";
 import { openDesktopUpdateReleaseNotes } from "../desktopUpdate.toast";
 import { Separator } from "../ui/separator";
 
@@ -76,7 +73,7 @@ export function SidebarUpdateReleaseNotes({
       </div>
       <div className="min-h-0 max-h-[min(28rem,calc(100vh-6rem))] overflow-y-auto px-1 pt-4 pb-1">
         {state.releaseNotes.map((releaseNote, index) => {
-          const releaseUrl = getDesktopUpdateReleaseUrl(releaseNote.version);
+          const releaseUrl = getReleaseNotesUrl(releaseNote.version);
           const omittedItemCount = Math.max(0, releaseNote.totalItems - releaseNote.items.length);
           const linkLabel =
             omittedItemCount === 0

@@ -959,6 +959,27 @@ export function createServerEnvironmentAtoms<R, E>(
     readonly environmentId: EnvironmentId;
     readonly input: EnvironmentRpcInput<typeof WS_METHODS.subscribeServerLifecycle>;
   }) => welcomeFamily(target.environmentId);
+  // The server caches its release lookup for about an hour, so these reads are
+  // cheap; the interval only keeps long-lived windows from going stale.
+  const checkForUpdate = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:check-for-update",
+    tag: WS_METHODS.serverCheckForUpdate,
+    staleTimeMs: 60 * 60_000,
+    refreshIntervalMs: 6 * 60 * 60_000,
+  });
+  // A user-initiated check bypasses the server cache, then refreshes the shared
+  // query so every reader sees the fresh answer.
+  const forceCheckForUpdate = createEnvironmentRpcCommand(runtime, {
+    label: "environment-data:server:force-check-for-update",
+    tag: WS_METHODS.serverCheckForUpdate,
+    execute: (input) => request(WS_METHODS.serverCheckForUpdate, { ...input, force: true }),
+    concurrency: {
+      mode: "singleFlight",
+      key: ({ environmentId }) => environmentId,
+    },
+    onSuccess: ({ environmentId }, registry) =>
+      Effect.sync(() => registry.refresh(checkForUpdate({ environmentId, input: {} }))),
+  });
 
   return {
     configValueAtom,
@@ -1048,6 +1069,8 @@ export function createServerEnvironmentAtoms<R, E>(
       staleTimeMs: 60_000,
       refreshTrigger: ({ environmentId }) => usagePricesAtom(environmentId),
     }),
+    checkForUpdate,
+    forceCheckForUpdate,
     configProjection,
     welcome,
     consumeResetCredit: createEnvironmentRpcCommand(runtime, {

@@ -33,6 +33,7 @@ import {
 import {
   type DesktopWslState,
   type EnvironmentId,
+  type DesktopUpdateCheckResult,
   type EnvironmentMachineKind,
   type FilesystemBrowseResult,
   type ProjectId,
@@ -48,6 +49,7 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  CircleArrowUpIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -228,6 +230,26 @@ function notifyThemeSaveFailure(): void {
       type: "error",
       title: "Couldn't save theme selection",
       description: "Try again.",
+    }),
+  );
+}
+
+async function checkForDesktopUpdate(
+  checkForUpdate: () => Promise<DesktopUpdateCheckResult>,
+): Promise<void> {
+  const failure = await checkForUpdate().then(
+    (result) =>
+      result.checked
+        ? null
+        : (result.state.message ?? "Automatic updates are not available in this build."),
+    (error: unknown) => (error instanceof Error ? error.message : "Update check failed."),
+  );
+  if (failure === null) return;
+  toastManager.add(
+    stackedThreadToast({
+      type: "error",
+      title: "Could not check for updates",
+      description: failure,
     }),
   );
 }
@@ -2168,6 +2190,23 @@ function OpenCommandPaletteDialog(props: {
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/settings" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:check-for-updates",
+    searchTerms: ["update", "version", "release", "upgrade", "about"],
+    title: "Check for Updates",
+    icon: <CircleArrowUpIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      const bridge = window.desktopBridge;
+      if (bridge && typeof bridge.checkForUpdate === "function") {
+        // The sidebar update control shows the outcome; only failures toast.
+        await checkForDesktopUpdate(() => bridge.checkForUpdate());
+        return;
+      }
+      await navigate({ to: "/settings/general", hash: "about-version", hashScrollIntoView: false });
     },
   });
 

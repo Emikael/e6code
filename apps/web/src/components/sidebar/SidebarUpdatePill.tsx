@@ -2,11 +2,13 @@ import type { DesktopUpdateState } from "@e6tools/contracts";
 import { TriangleAlertIcon } from "lucide-react";
 import { type ComponentProps, useCallback, useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { isElectron } from "../../env";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { cn } from "../../lib/utils";
 import { ensureLocalApi } from "../../localApi";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
+import { usePrimaryServerRelease } from "../../state/serverRelease";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   canCheckForUpdate,
@@ -22,7 +24,7 @@ import {
 import { showDesktopUpdateDownloadedToast } from "../desktopUpdate.toast";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { SidebarMenuItem } from "../ui/sidebar";
+import { SidebarMenuItem, useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   DesktopUpdateStatusIcon,
@@ -109,7 +111,49 @@ function SidebarUpdateArchitectureWarningContent() {
 }
 
 export function SidebarUpdatePill() {
-  return isElectron ? <SidebarUpdateControl /> : null;
+  return isElectron ? <SidebarUpdateControl /> : <SidebarServerUpdateControl />;
+}
+
+/**
+ * Browser notice that the primary server has a newer release, or was updated
+ * past this bundle. It only points to Settings → About, where the update runs.
+ */
+function SidebarServerUpdateControl() {
+  const { status } = usePrimaryServerRelease();
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const handleClick = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void navigate({ to: "/settings/general", hash: "about-version", hashScrollIntoView: false });
+  }, [isMobile, navigate, setOpenMobile]);
+
+  if (status.kind !== "available" && status.kind !== "reload-needed") return null;
+  const tooltip =
+    status.kind === "available"
+      ? `E6 Code ${status.targetVersion} available`
+      : `Updated to ${status.serverVersion}. Reload to finish.`;
+
+  return (
+    <SidebarMenuItem className="ml-auto shrink-0">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={tooltip}
+              className="inline-flex size-8 cursor-pointer items-center justify-center rounded-full bg-sidebar-control-surface text-sidebar-foreground outline-hidden ring-ring transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2"
+              onClick={handleClick}
+            >
+              <DesktopUpdateStatusIcon status="available" />
+            </button>
+          }
+        />
+        <TooltipPopup align="center" side="top" variant="glass">
+          {tooltip}
+        </TooltipPopup>
+      </Tooltip>
+    </SidebarMenuItem>
+  );
 }
 
 function SidebarUpdateControl() {

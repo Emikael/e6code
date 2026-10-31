@@ -5,6 +5,19 @@ When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that
 notice.
 
+## New releases
+
+In a browser, **Settings → General → About** shows the version of the server
+you are connected to and whether a newer E6 Code release is out. When one is,
+an update icon appears in the sidebar; open About to read the release notes and
+update the server from there. After the server restarts, reload the page to
+finish. Run **Check for Updates** from the command palette to jump to About, or
+use its **Check for Updates** button to ask again right away. In the desktop
+app, the same command checks for a new desktop release.
+
+If About shows only a version, the server predates release checks; update it
+once with the steps below.
+
 ## Before you update
 
 Server updates restart the connection and can interrupt active agents and
