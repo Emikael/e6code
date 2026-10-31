@@ -834,16 +834,18 @@ export const ServerCheckForUpdateInput = Schema.Struct({
 export type ServerCheckForUpdateInput = typeof ServerCheckForUpdateInput.Type;
 
 /** The newest published release on the server's own track (stable or
-    nightly). A failed or skipped lookup is data, not an error: it reports
-    `latestVersion: null`. */
+    nightly), as last seen by the server. A failed or skipped lookup is data,
+    not an error: it keeps the last good answer, or `latestVersion: null` if
+    there has been none. */
 export const ServerUpdateCheckResult = Schema.Struct({
   currentVersion: TrimmedNonEmptyString,
-  /** Exact version, usable as `ServerSelfUpdateInput.targetVersion`. Null when
-      offline, on a preview build, or no release was found. */
+  /** Exact version, usable as `ServerSelfUpdateInput.targetVersion`. Null
+      until a lookup has succeeded (offline, preview build, or no release
+      found); after that, the last good answer, dated by `checkedAt`. */
   latestVersion: Schema.NullOr(TrimmedNonEmptyString),
   updateAvailable: Schema.Boolean,
   /** ISO time of the last successful lookup. */
-  checkedAt: Schema.NullOr(Schema.String),
+  checkedAt: Schema.NullOr(IsoDateTime),
 });
 export type ServerUpdateCheckResult = typeof ServerUpdateCheckResult.Type;
 

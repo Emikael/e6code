@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
@@ -17,17 +18,25 @@ const RELEASES = [
   { tag_name: "v1.2.0-nightly.20261001.1" },
 ];
 
-/** A release index that answers every page with `releases` and counts requests. */
-function releaseIndex(releases: ReadonlyArray<unknown> = RELEASES, status = 200) {
+/**
+ * A release index that answers every page with `releases` and counts requests.
+ * With `gate`, each response waits for it to complete.
+ */
+function releaseIndex(
+  releases: ReadonlyArray<unknown> = RELEASES,
+  status = 200,
+  gate?: Deferred.Deferred<void>,
+) {
   const counter = { requests: 0 };
   const client = HttpClient.make((request) =>
     Effect.sync(() => {
       counter.requests += 1;
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(encodeJsonString(releases), { status }),
-      );
-    }),
+    }).pipe(
+      Effect.andThen(gate === undefined ? Effect.void : Deferred.await(gate)),
+      Effect.as(
+        HttpClientResponse.fromWeb(request, new Response(encodeJsonString(releases), { status })),
+      ),
+    ),
   );
   return { counter, client };
 }
@@ -106,12 +115,63 @@ it.effect("answers from cache, and lets force refetch at most once a minute", ()
 
 it.effect("shares one lookup between concurrent checks", () =>
   Effect.gen(function* () {
-    const { client, counter } = releaseIndex();
+    const gate = yield* Deferred.make<void>();
+    const { client, counter } = releaseIndex(RELEASES, 200, gate);
     const service = yield* check("1.1.0", client);
-    yield* Effect.all([service.check({ force: true }), service.check({ force: true })], {
-      concurrency: "unbounded",
+    const first = yield* Effect.forkChild(service.check({ force: true }), {
+      startImmediately: true,
+    });
+    const second = yield* Effect.forkChild(service.check({ force: true }), {
+      startImmediately: true,
     });
     assert.equal(counter.requests, 1);
+    yield* Deferred.succeed(gate, undefined);
+    const results = yield* Fiber.joinAll([first, second]);
+    assert.deepStrictEqual(
+      results.map((result) => result.latestVersion),
+      ["1.2.0", "1.2.0"],
+    );
+    assert.equal(counter.requests, 1);
+  }),
+);
+
+it.effect("does not count an interrupted lookup against the rate limit", () =>
+  Effect.gen(function* () {
+    const gate = yield* Deferred.make<void>();
+    const { client, counter } = releaseIndex(RELEASES, 200, gate);
+    const service = yield* check("1.1.0", client);
+    const interrupted = yield* Effect.forkChild(service.check({}), { startImmediately: true });
+    yield* Fiber.interrupt(interrupted);
+    yield* Deferred.succeed(gate, undefined);
+    assert.equal((yield* service.check({})).latestVersion, "1.2.0");
+    assert.equal(counter.requests, 2);
+  }),
+);
+
+it.effect("rate-limits lookups after a failure", () =>
+  Effect.gen(function* () {
+    const { client, counter } = releaseIndex([], 500);
+    const service = yield* check("1.1.0", client);
+    yield* service.check({});
+    yield* service.check({ force: true });
+    assert.equal(counter.requests, 1);
+    yield* TestClock.adjust("61 seconds");
+    yield* service.check({});
+    assert.equal(counter.requests, 2);
+  }),
+);
+
+it.effect("reports no latest version when the track has no release yet", () =>
+  Effect.gen(function* () {
+    const { client, counter } = releaseIndex([{ tag_name: "v1.3.0-nightly.20261030.1" }]);
+    const service = yield* check("1.1.0", client);
+    const result = yield* service.check({});
+    assert.isNull(result.latestVersion);
+    assert.isNull(result.checkedAt);
+    assert.isFalse(result.updateAvailable);
+    const requests = counter.requests;
+    yield* service.check({ force: true });
+    assert.equal(counter.requests, requests);
   }),
 );
 

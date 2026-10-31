@@ -56,11 +56,8 @@ export const make = Effect.fn("cloud.update_check.make")(function* (currentVersi
     const recentlyAttempted =
       lastAttemptMs !== null && now - lastAttemptMs < MIN_ATTEMPT_INTERVAL_MS;
     if (recentlyAttempted || (fresh && !force)) return result();
-    lastAttemptMs = now;
-    const found = yield* resolveNewestReleaseVersion(channel, {
-      maxPages: LOOKUP_MAX_PAGES,
-      pageTimeout: LOOKUP_TIMEOUT,
-    }).pipe(
+    const found = yield* resolveNewestReleaseVersion(channel, { maxPages: LOOKUP_MAX_PAGES }).pipe(
+      // One budget for the whole lookup, however many pages it walks.
       Effect.timeoutOption(LOOKUP_TIMEOUT),
       Effect.map(Option.flatMap(Option.fromUndefinedOr)),
       Effect.catch((error) =>
@@ -70,9 +67,12 @@ export const make = Effect.fn("cloud.update_check.make")(function* (currentVersi
       ),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
+    // Recorded only once the lookup finishes, so an interrupted one does not
+    // count against the rate limit; failures do.
+    lastAttemptMs = yield* Clock.currentTimeMillis;
     if (Option.isSome(found)) {
       latestVersion = found.value;
-      checkedAtMs = yield* Clock.currentTimeMillis;
+      checkedAtMs = lastAttemptMs;
     }
     return result();
   });
