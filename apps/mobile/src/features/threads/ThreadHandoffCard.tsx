@@ -31,7 +31,8 @@ export function ThreadHandoffCard(props: {
           <Text className="font-sans text-sm leading-normal text-foreground-secondary">
             Continue in a new thread from a summary of this one.
           </Text>
-          <View className="flex-row">
+          {/* Filled so it reads as a control on the card, unlike the composer's ghost pill. */}
+          <View className="self-start rounded-xl bg-grouped-card">
             <ComposerInlineControl
               accessibilityHint="Chooses the model and effort for the new thread"
               accessibilityLabel={`Model for the new thread: ${props.selection.label}`}
@@ -58,12 +59,15 @@ export function ThreadHandoffCard(props: {
       <View className="flex-row flex-wrap gap-2">
         {props.selection ? (
           <RequestActionButton
+            accessibilityHint={`Starts a new thread on ${props.selection.label} from a summary of this one`}
+            accessibilityState={{ busy: props.busy }}
             disabled={props.busy}
             label={props.busy ? "Starting…" : "Continue"}
             onPress={props.onContinue}
           />
         ) : null}
         <RequestActionButton
+          accessibilityHint="Hides this notice for this thread"
           disabled={props.busy}
           tone="secondary"
           label="Dismiss"

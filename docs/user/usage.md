@@ -93,7 +93,7 @@ so you keep working without waiting for the limit to reset. The original thread 
 The dialog starts on the first available provider with the model and effort you last used there.
 Providers that are also at their limit appear in the model list but cannot be selected. On mobile,
 the notice is a card above the composer: tap its model button to choose the model and effort, then
-**Continue**.
+**Continue**. There, providers at their limit are left out of the list and named on the card.
 
 The new thread gets a short handoff summary and the last several turns from the original, and it
 reuses the same branch and worktree, so no code is lost. Dismiss the notice to hide it for that

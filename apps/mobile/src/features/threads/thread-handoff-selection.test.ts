@@ -114,6 +114,12 @@ describe("resolveHandoffDefaultSelection", () => {
     }
   });
 
+  it("does not default to a legacy last pick", () => {
+    expect(
+      resolveHandoffDefaultSelection(catalog, { instanceId: claude, model: "old" }),
+    ).toMatchObject({ instanceId: "claude", model: "fable" });
+  });
+
   it("returns null when every other provider is limited", () => {
     const limited = buildMobileHandoffCatalog(
       { providers: [config.providers[0], config.providers[1]] } as unknown as ServerConfig,

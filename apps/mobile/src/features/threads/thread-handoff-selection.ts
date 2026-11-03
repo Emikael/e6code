@@ -85,7 +85,12 @@ export function resolveHandoffDefaultSelection(
   sticky: ModelSelection | null,
 ): ModelSelection | null {
   const stickyOption = sticky ? findOption(catalog.options, sticky) : undefined;
-  if (sticky && stickyOption) return normalizeSelectionOptions(sticky, stickyOption.capabilities);
+  // Implicit defaults skip legacy models, except Antigravity (as resolveDefaultableModelSelection).
+  const stickyUsable =
+    stickyOption && (!stickyOption.isLegacy || stickyOption.providerDriver === "antigravity");
+  if (sticky && stickyOption && stickyUsable) {
+    return normalizeSelectionOptions(sticky, stickyOption.capabilities);
+  }
   const first = catalog.targets.find((target) => target.available);
   return first ? (findOption(catalog.options, first)?.selection ?? null) : null;
 }
@@ -96,6 +101,17 @@ export function isHandoffSelectionStartable(
   selection: ModelSelection | null,
 ): selection is ModelSelection {
   return selection !== null && findOption(catalog.options, selection) !== undefined;
+}
+
+/** The pick with its options re-checked against the model's current capabilities. */
+export function normalizeHandoffSelection(
+  catalog: MobileHandoffCatalog,
+  selection: ModelSelection,
+): ModelSelection {
+  return normalizeSelectionOptions(
+    selection,
+    findOption(catalog.options, selection)?.capabilities ?? null,
+  );
 }
 
 /** `Claude Fable 5.1 · High`, or just the model when it has no effort option. */

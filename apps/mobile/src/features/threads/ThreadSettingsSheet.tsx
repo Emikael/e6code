@@ -243,6 +243,8 @@ type ThreadSettingsSessionProps = {
   readonly onSelectModel: (option: ModelOption) => void;
   readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
+  /** Sheet title; defaults to "Thread settings". */
+  readonly title?: string | undefined;
   /** Omit both to hide the Runtime row, e.g. when the new thread keeps the source's runtime. */
   readonly runtimeMode?: RuntimeMode | undefined;
   readonly onUpdateRuntimeMode?: ((mode: RuntimeMode) => void) | undefined;
@@ -290,6 +292,7 @@ export function useExistingThreadSettingsRoutePresentation() {
 }
 
 type ThreadSettingsSessionValue = {
+  readonly title: string;
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
@@ -449,6 +452,7 @@ function ThreadSettingsSessionProvider(
 
   const value = useMemo<ThreadSettingsSessionValue>(
     () => ({
+      title: props.title ?? "Thread settings",
       environmentId: props.environmentId,
       providerInstanceId: props.providerInstanceId,
       providerGroups: props.providerGroups,
@@ -492,6 +496,7 @@ function ThreadSettingsSessionProvider(
       props.onUpdateRuntimeMode,
       props.providerGroups,
       props.runtimeMode,
+      props.title,
       searchQuery,
       showLegacyToggle,
       toggleProvider,
@@ -1157,7 +1162,7 @@ function ThreadSettingsModelsScreen() {
             </View>
           }
           onBack={presentation.onClose}
-          title="Thread settings"
+          title={session.title}
           hideBottomBorder
         />
       ) : null}
@@ -1212,14 +1217,14 @@ function ThreadSettingsModelsScreen() {
       </MaterialScreenContent>
       <NativeHeaderToolbar placement="left">
         <NativeHeaderToolbar.Button
-          accessibilityLabel="Cancel thread settings"
+          accessibilityLabel={`Cancel ${session.title.toLowerCase()}`}
           label="Cancel"
           onPress={presentation.onClose}
         />
       </NativeHeaderToolbar>
       <NativeHeaderToolbar placement="right">
         <NativeHeaderToolbar.Button
-          accessibilityLabel={session.pendingModel ? "Save thread settings" : "Done"}
+          accessibilityLabel={session.pendingModel ? `Save ${session.title.toLowerCase()}` : "Done"}
           label={session.pendingModel ? "Save" : "Done"}
           onPress={commitAndClose}
         />
@@ -1300,6 +1305,7 @@ function ThreadSettingsChoiceScreen() {
 }
 
 function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) {
+  const session = useThreadSettingsSession();
   const theme = useUniwindTheme();
   const solidSheetBackground = theme["--color-sheet-solid"];
   const foreground = theme["--color-foreground"];
@@ -1336,7 +1342,7 @@ function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) 
         <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsModels"
           component={ThreadSettingsModelsScreen}
-          options={{ headerBackVisible: false, title: "Thread settings" }}
+          options={{ headerBackVisible: false, title: session.title }}
         />
         <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsChoice"

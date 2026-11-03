@@ -24,30 +24,14 @@ import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ThreadId,
-  type ModelSelection,
   type ProjectScript,
 } from "@e6tools/contracts";
 import {
-  buildHandoffDocument,
-  buildHandoffTurnInput,
   shouldOfferHandoff,
+  type HandoffMessage,
 } from "@e6tools/client-runtime/state/thread-handoff";
-import { groupByProvider, providerDisplayLabel } from "../../lib/modelOptions";
-import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
-import { useStickyComposerModelSelection } from "../../state/use-composer-drafts";
-import { resolveProviderInteractionMode } from "./legacy-plan-mode";
-import { ThreadHandoffCard } from "./ThreadHandoffCard";
-import {
-  buildMobileHandoffCatalog,
-  handoffSelectionLabel,
-  isHandoffSelectionStartable,
-  limitedHandoffNote,
-  resolveHandoffDefaultSelection,
-} from "./thread-handoff-selection";
-import {
-  type ExistingThreadSettingsRouteSession,
-  useExistingThreadSettingsRoutePresentation,
-} from "./ThreadSettingsSheet";
+import { providerDisplayLabel } from "../../lib/modelOptions";
+import { ThreadHandoffContainer } from "./ThreadHandoffContainer";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
@@ -57,7 +41,7 @@ import {
   projectScriptRuntimeEnv,
   resolveProjectScripts,
 } from "@e6tools/shared/projectScripts";
-import { Alert, Keyboard, Platform, ScrollView, View } from "react-native";
+import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentShellState } from "../../state/shell";
@@ -238,6 +222,8 @@ type ThreadRouteScreenRouteProps = StaticScreenProps<{
   readonly environmentId: string;
   readonly threadId: string;
 }>;
+
+const EMPTY_HANDOFF_MESSAGES: ReadonlyArray<HandoffMessage> = [];
 
 interface ThreadRouteScreenProps extends ThreadRouteScreenRouteProps {
   readonly onReturnToThread?: () => void;
@@ -461,12 +447,7 @@ function ThreadRouteContent(
   );
 
   /* ─── Provider handoff when the active provider hits its limit ────── */
-  const startHandoffTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
-  const { present: presentSettingsRoute, clear: clearSettingsRoute } =
-    useExistingThreadSettingsRoutePresentation();
-  const stickyModelSelection = useStickyComposerModelSelection();
   const [dismissedHandoffKey, setDismissedHandoffKey] = useState<string | null>(null);
-  const [handoffBusy, setHandoffBusy] = useState(false);
   const handoffServerConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const handoffSourceInstanceId =
     selectedThread?.session?.providerInstanceId ??
@@ -479,178 +460,26 @@ function ThreadRouteContent(
   const handoffSourceProvider = handoffServerConfig?.providers.find(
     (provider) => provider.instanceId === handoffSourceInstanceId,
   );
-  const handoffSourceLabel = handoffSourceProvider
-    ? providerDisplayLabel(handoffSourceProvider)
-    : String(handoffSourceInstanceId ?? "");
-  const handoffCatalog = useMemo(
-    () => buildMobileHandoffCatalog(handoffServerConfig, handoffSourceInstanceId ?? ""),
-    [handoffServerConfig, handoffSourceInstanceId],
-  );
-  // A pick belongs to one thread and source; it is ignored once either changes
-  // or it stops being offered, so a reopened card never starts on a limited provider.
-  const [handoffPick, setHandoffPick] = useState<{
-    readonly key: string;
-    readonly selection: ModelSelection;
-  } | null>(null);
-  const handoffSelection =
-    handoffPick !== null &&
-    handoffPick.key === handoffKey &&
-    isHandoffSelectionStartable(handoffCatalog, handoffPick.selection)
-      ? handoffPick.selection
-      : resolveHandoffDefaultSelection(handoffCatalog, stickyModelSelection);
-  const handoffOffer =
+  const handoffCard: ReactNode =
     selectedThread !== null &&
     handoffKey !== null &&
+    handoffSourceInstanceId !== null &&
     dismissedHandoffKey !== handoffKey &&
     shouldOfferHandoff({
       sessionLastError: selectedThread.session?.lastError ?? null,
       usageLimits: handoffSourceProvider?.usageLimits,
-    });
-
-  // The model sheet reads a session snapshot, so it is re-presented while open
-  // and cleared when this screen regains focus (mirrors ThreadComposer).
-  const handoffSettingsOwnerId = `handoff:${handoffKey ?? ""}`;
-  const handoffSheetPresentedRef = useRef(false);
-  const handoffSettingsSession = useMemo<ExistingThreadSettingsRouteSession | null>(() => {
-    if (handoffKey === null || handoffSelection === null) return null;
-    const selectedOption = handoffCatalog.options.find(
-      (option) =>
-        option.selection.instanceId === handoffSelection.instanceId &&
-        option.selection.model === handoffSelection.model,
-    );
-    return {
-      ownerId: handoffSettingsOwnerId,
-      environmentId: selectedThread?.environmentId ?? null,
-      providerGroups: groupByProvider(handoffCatalog.options),
-      selectedModel: handoffSelection,
-      onSelectModel: (option) => setHandoffPick({ key: handoffKey, selection: option.selection }),
-      optionDescriptors: resolveProviderOptionDescriptors({
-        capabilities: selectedOption?.capabilities,
-        selections: handoffSelection.options,
-      }),
-      onUpdateOptionSelections: (options) =>
-        setHandoffPick({ key: handoffKey, selection: { ...handoffSelection, options } }),
-    };
-  }, [
-    handoffCatalog,
-    handoffKey,
-    handoffSelection,
-    handoffSettingsOwnerId,
-    selectedThread?.environmentId,
-    setHandoffPick,
-  ]);
-  useEffect(() => {
-    if (handoffSheetPresentedRef.current && handoffSettingsSession) {
-      presentSettingsRoute(handoffSettingsSession);
-    }
-  }, [handoffSettingsSession, presentSettingsRoute]);
-  useFocusEffect(
-    useCallback(() => {
-      if (!handoffSheetPresentedRef.current) return;
-      handoffSheetPresentedRef.current = false;
-      clearSettingsRoute(handoffSettingsOwnerId);
-    }, [clearSettingsRoute, handoffSettingsOwnerId]),
-  );
-  const openHandoffModelSheet = () => {
-    if (!handoffSettingsSession || handoffBusy) return;
-    handoffSheetPresentedRef.current = true;
-    presentSettingsRoute(handoffSettingsSession);
-    Keyboard.dismiss();
-    navigation.dispatch(StackActions.push("ThreadSettingsSheet"));
-  };
-
-  const handleHandoffContinue = async () => {
-    if (!selectedThread || !selectedThreadDetail || handoffBusy || handoffKey === null) return;
-    // Re-checked here: a provider can reach its limit while the card is open.
-    if (!isHandoffSelectionStartable(handoffCatalog, handoffSelection)) return;
-    const targetProvider = handoffServerConfig?.providers.find(
-      (provider) => provider.instanceId === handoffSelection.instanceId,
-    );
-    setHandoffBusy(true);
-    try {
-      const doc = buildHandoffDocument(
-        {
-          id: selectedThread.id,
-          title: selectedThread.title,
-          branch: selectedThread.branch,
-          modelLabel: handoffSourceLabel,
-          messages: selectedThreadDetail.messages.map((message) => ({
-            role: message.role,
-            text: message.text,
-            createdAt: message.createdAt,
-          })),
-        },
-        { recentCount: 10 },
-      );
-      const metadata = makeTurnCommandMetadata();
-      const input = buildHandoffTurnInput({
-        source: {
-          projectId: selectedThread.projectId,
-          title: selectedThread.title,
-          branch: selectedThread.branch,
-          worktreePath: selectedThread.worktreePath,
-          runtimeMode: selectedThread.runtimeMode,
-          interactionMode: resolveProviderInteractionMode(
-            targetProvider,
-            selectedThread.interactionMode,
-          ),
-        },
-        handoffMarkdown: doc.markdown,
-        target: handoffSelection,
-        ids: {
-          threadId: ThreadId.make(metadata.threadId),
-          commandId: metadata.commandId,
-          messageId: MessageId.make(metadata.messageId),
-          createdAt: metadata.createdAt,
-        },
-      });
-      const result = await startHandoffTurn({
-        environmentId: selectedThread.environmentId,
-        input,
-      });
-      if (result._tag === "Failure") {
-        Alert.alert(
-          "Could not start the new thread",
-          "The other provider could not be reached. Try again.",
-        );
-        return;
-      }
-      setDismissedHandoffKey(handoffKey);
-      setHandoffPick(null);
-      navigation.dispatch(
-        StackActions.replace("Thread", {
-          environmentId: String(selectedThread.environmentId),
-          threadId: String(metadata.threadId),
-        }),
-      );
-    } finally {
-      setHandoffBusy(false);
-    }
-  };
-  const handoffCard: ReactNode =
-    handoffOffer && handoffKey !== null ? (
-      <ThreadHandoffCard
-        sourceLabel={handoffSourceLabel}
-        selection={
-          handoffSelection
-            ? {
-                label: handoffSelectionLabel(handoffCatalog, handoffSelection),
-                providerDriver:
-                  handoffCatalog.options.find(
-                    (option) => option.providerKey === handoffSelection.instanceId,
-                  )?.providerDriver ?? null,
-              }
-            : null
+    }) ? (
+      <ThreadHandoffContainer
+        key={handoffKey}
+        thread={selectedThread}
+        messages={selectedThreadDetail?.messages ?? EMPTY_HANDOFF_MESSAGES}
+        serverConfig={handoffServerConfig}
+        sourceInstanceId={handoffSourceInstanceId}
+        sourceLabel={
+          handoffSourceProvider
+            ? providerDisplayLabel(handoffSourceProvider)
+            : handoffSourceInstanceId
         }
-        limitedNote={limitedHandoffNote(handoffCatalog.targets)}
-        emptyReason={
-          handoffCatalog.targets.length > 0
-            ? "Every other provider has reached its usage limit."
-            : "No other provider is available. Set one up in Settings."
-        }
-        busy={handoffBusy}
-        onOpenModel={openHandoffModelSheet}
-        onContinue={() => void handleHandoffContinue()}
         onDismiss={() => setDismissedHandoffKey(handoffKey)}
       />
     ) : null;
