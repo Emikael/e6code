@@ -168,6 +168,17 @@ export function getProviderOptionCurrentValue(
   return descriptor.options.find((option) => option.isDefault)?.id;
 }
 
+/** Select options that set reasoning effort, across providers. */
+export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
+  "reasoningEffort",
+  "effort",
+  "reasoning",
+  "variant",
+  "reasoning_effort",
+  "thinking_level",
+  "thinking",
+]);
+
 export function getProviderOptionCurrentLabel(
   descriptor: ProviderOptionDescriptor | null | undefined,
 ): string | undefined {

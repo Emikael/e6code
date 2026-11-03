@@ -1,5 +1,6 @@
 import type {
   ProviderInteractionMode,
+  ProviderOptionSelection,
   RuntimeMode,
   ServerProviderUsageLimits,
 } from "@e6tools/contracts";
@@ -30,6 +31,12 @@ export function isLimitErrorText(text: string | null | undefined): boolean {
 export function isProviderExhausted(limits: ServerProviderUsageLimits | undefined): boolean {
   if (!limits) return false;
   return limits.windows.some((window) => window.usedPercent >= 100);
+}
+
+/** Highest usage across a provider's limit windows, or undefined when it reports none. */
+export function maxUsedPercent(limits: ServerProviderUsageLimits | undefined): number | undefined {
+  if (!limits) return undefined;
+  return Math.max(...limits.windows.map((window) => window.usedPercent), 0);
 }
 
 export function shouldOfferHandoff(args: {
@@ -90,6 +97,8 @@ export interface HandoffTurnSource {
 export interface HandoffTarget {
   readonly instanceId: string;
   readonly model: string;
+  /** Model options such as reasoning effort; omitted uses the provider's defaults. */
+  readonly options?: ReadonlyArray<ProviderOptionSelection> | undefined;
 }
 
 export function buildHandoffTurnInput<
@@ -110,6 +119,13 @@ export function buildHandoffTurnInput<
 }) {
   const title = `Continue: ${args.source.title}`.slice(0, 72);
   void args.ids.commandId;
+  const modelSelection = {
+    instanceId: args.target.instanceId,
+    model: args.target.model,
+    ...(args.target.options && args.target.options.length > 0
+      ? { options: args.target.options }
+      : {}),
+  };
   return {
     threadId: args.ids.threadId,
     message: {
@@ -118,7 +134,7 @@ export function buildHandoffTurnInput<
       text: args.handoffMarkdown,
       attachments: [],
     },
-    modelSelection: { instanceId: args.target.instanceId, model: args.target.model },
+    modelSelection,
     titleSeed: title,
     runtimeMode: args.source.runtimeMode,
     interactionMode: args.source.interactionMode,
@@ -126,7 +142,7 @@ export function buildHandoffTurnInput<
       createThread: {
         projectId: args.source.projectId,
         title,
-        modelSelection: { instanceId: args.target.instanceId, model: args.target.model },
+        modelSelection,
         runtimeMode: args.source.runtimeMode,
         interactionMode: args.source.interactionMode,
         branch: args.source.branch,

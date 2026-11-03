@@ -1,12 +1,12 @@
-import { ArrowRightIcon } from "lucide-react";
+import { GaugeIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
+/** Banner for a thread whose provider hit its usage limit; the dialog picks the target. */
 export function handoffBannerItem(args: {
   readonly id: string;
-  readonly sourceTitle: string;
-  readonly targetLabel: string;
+  readonly sourceProviderLabel: string;
   readonly busy?: boolean;
   readonly onContinue: () => void;
   readonly onDismiss: () => void;
@@ -15,15 +15,14 @@ export function handoffBannerItem(args: {
     id: args.id,
     variant: "warning",
     priority: "urgent",
-    icon: <ArrowRightIcon />,
-    title: "Provider limit reached",
-    description: `"${args.sourceTitle}" is blocked. Continue with ${args.targetLabel}?`,
+    icon: <GaugeIcon className="text-warning" />,
+    title: `${args.sourceProviderLabel} usage limit reached`,
     actions: (
       <Button size="xs" variant="ghost" disabled={args.busy === true} onClick={args.onContinue}>
-        {args.busy === true ? "Starting…" : `Continue with ${args.targetLabel}`}
+        {args.busy === true ? "Starting…" : "Continue in new thread…"}
       </Button>
     ),
-    dismissLabel: "Dismiss provider handoff",
+    dismissLabel: "Dismiss usage limit notice",
     onDismiss: args.onDismiss,
   };
 }

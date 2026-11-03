@@ -7,6 +7,7 @@ import {
   firstAvailableHandoffTarget,
   isLimitErrorText,
   isProviderExhausted,
+  maxUsedPercent,
   shouldOfferHandoff,
 } from "./threadHandoff.ts";
 
@@ -28,6 +29,23 @@ describe("isProviderExhausted", () => {
         windows: [{ id: "five_hour", kind: "session", label: "5h", usedPercent: 100 }],
       }),
     ).toBe(true);
+  });
+});
+
+describe("maxUsedPercent", () => {
+  it("reports the fullest window, zero for none, and undefined without limits", () => {
+    const checkedAt = "2026-10-06T00:00:00.000Z";
+    expect(maxUsedPercent(undefined)).toBeUndefined();
+    expect(maxUsedPercent({ checkedAt, windows: [] })).toBe(0);
+    expect(
+      maxUsedPercent({
+        checkedAt,
+        windows: [
+          { id: "a", kind: "session", label: "5h", usedPercent: 40 },
+          { id: "b", kind: "weekly", label: "7d", usedPercent: 85 },
+        ],
+      }),
+    ).toBe(85);
   });
 });
 
@@ -86,6 +104,26 @@ describe("buildHandoffTurnInput", () => {
     expect(input.bootstrap?.createThread?.projectId).toBe("project-1");
     expect(input.bootstrap?.createThread?.branch).toBe("fix/auth");
     expect(input.bootstrap?.createThread?.modelSelection.instanceId).toBe("codex");
+    expect(input.modelSelection).not.toHaveProperty("options");
+  });
+
+  it("carries the chosen model options, such as effort, to the new thread", () => {
+    const options = [{ id: "reasoningEffort", value: "high" }] as const;
+    const input = buildHandoffTurnInput({
+      source: {
+        projectId: "project-1",
+        title: "Fix auth redirect",
+        branch: null,
+        worktreePath: null,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      },
+      handoffMarkdown: "Continuing from x",
+      target: { instanceId: "codex", model: "gpt-5.4", options },
+      ids: { threadId: "t", commandId: "c", messageId: "m", createdAt: "2026-10-06T02:00:00.000Z" },
+    });
+    expect(input.modelSelection).toEqual({ instanceId: "codex", model: "gpt-5.4", options });
+    expect(input.bootstrap.createThread.modelSelection).toEqual(input.modelSelection);
   });
 });
 

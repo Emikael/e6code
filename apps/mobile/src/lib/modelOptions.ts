@@ -28,7 +28,8 @@ export type ProviderGroup = {
   readonly models: ReadonlyArray<ModelOption>;
 };
 
-function providerDisplayLabel(provider: {
+/** Display name for a provider instance, with built-in names for unnamed defaults. */
+export function providerDisplayLabel(provider: {
   readonly displayName?: string | undefined;
   readonly driver: string;
   readonly instanceId: string;
@@ -39,7 +40,8 @@ function providerDisplayLabel(provider: {
   return provider.instanceId;
 }
 
-function normalizeSelectionOptions(
+/** Rewrites a selection's options as the explicit list its model's capabilities allow. */
+export function normalizeSelectionOptions(
   selection: ModelSelection,
   capabilities: ModelCapabilities | null,
 ): ModelSelection {

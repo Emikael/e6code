@@ -15,6 +15,7 @@ import {
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
+  REASONING_SELECT_DESCRIPTOR_IDS,
 } from "@e6tools/shared/model";
 import { memo, type ReactNode, useCallback } from "react";
 import type { VariantProps } from "class-variance-authority";
@@ -42,7 +43,7 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
-import { EffortGlyph, REASONING_SELECT_DESCRIPTOR_IDS, resolveEffortGlyph } from "./EffortGlyph";
+import { EffortGlyph, resolveEffortGlyph } from "./EffortGlyph";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 

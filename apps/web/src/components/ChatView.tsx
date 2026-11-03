@@ -14,6 +14,7 @@ import {
   buildHandoffDocument,
   buildHandoffTargets,
   buildHandoffTurnInput,
+  maxUsedPercent,
   shouldOfferHandoff,
 } from "@e6tools/client-runtime/state/thread-handoff";
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
@@ -271,6 +272,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  isProviderInstancePickerReady,
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import {
@@ -284,7 +286,10 @@ import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useRemoveClonedProject } from "../hooks/useRemoveClonedProject";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { useThreadActions } from "../hooks/useThreadActions";
-import { resolveAppModelSelectionForInstance } from "../modelSelection";
+import {
+  getCustomModelOptionsByInstance,
+  resolveAppModelSelectionForInstance,
+} from "../modelSelection";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -548,6 +553,7 @@ import {
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_QUEUED_MESSAGES: QueuedComposerMessage[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
+const EMPTY_HANDOFF_MODEL_OPTIONS: ReturnType<typeof getCustomModelOptionsByInstance> = new Map();
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
@@ -6479,29 +6485,83 @@ export default function ChatView(props: ChatViewProps) {
   );
   const handoffSourceInstanceId =
     activeThread?.session?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? null;
+  // Targets are the picker-ready instances other than the source, in picker order.
+  const handoffInstanceEntries = useMemo(
+    () =>
+      providerInstanceEntries.filter(
+        (entry) =>
+          entry.instanceId !== handoffSourceInstanceId && isProviderInstancePickerReady(entry),
+      ),
+    [providerInstanceEntries, handoffSourceInstanceId],
+  );
   const handoffTargets = useMemo(
     () =>
       buildHandoffTargets(
-        providerStatuses.flatMap((snapshot) => {
-          const model =
-            snapshot.models.find((entry) => entry.isDefault)?.slug ??
-            snapshot.models.find((entry) => !entry.isLegacy)?.slug ??
-            snapshot.models[0]?.slug;
+        handoffInstanceEntries.flatMap((entry) => {
+          const model = resolveAppModelSelectionForInstance(
+            entry.instanceId,
+            settings,
+            providerStatuses,
+            null,
+          );
           if (!model) return [];
           return [
             {
-              instanceId: snapshot.instanceId,
+              instanceId: entry.instanceId,
               model,
-              label: snapshot.displayName ?? String(snapshot.instanceId),
-              usedPercent: snapshot.usageLimits
-                ? Math.max(...snapshot.usageLimits.windows.map((window) => window.usedPercent), 0)
-                : undefined,
+              label: entry.displayName,
+              usedPercent: maxUsedPercent(entry.snapshot.usageLimits),
             },
           ];
         }),
         handoffSourceInstanceId ?? "",
       ),
-    [providerStatuses, handoffSourceInstanceId],
+    [handoffInstanceEntries, handoffSourceInstanceId, providerStatuses, settings],
+  );
+  const handoffSourceLabel =
+    providerInstanceEntries.find((entry) => entry.instanceId === handoffSourceInstanceId)
+      ?.displayName ?? String(handoffSourceInstanceId ?? "");
+  const handoffModelOptionsByInstance = useMemo(
+    () =>
+      handoffDialogOpen
+        ? getCustomModelOptionsByInstance(settings, providerStatuses)
+        : EMPTY_HANDOFF_MODEL_OPTIONS,
+    [handoffDialogOpen, settings, providerStatuses],
+  );
+  // Validates a target model and normalizes its options the way a composer send does.
+  const resolveHandoffSelection = useCallback(
+    (selection: {
+      instanceId: ProviderInstanceId;
+      model?: string;
+      options?: ModelSelection["options"];
+    }) => {
+      const entry = handoffInstanceEntries.find(
+        (candidate) => candidate.instanceId === selection.instanceId,
+      );
+      if (!entry) return null;
+      // Read on demand so ChatView does not re-render on every composer model change.
+      const sticky =
+        useComposerDraftStore.getState().stickyModelSelectionByProvider[entry.instanceId];
+      const model =
+        selection.model ??
+        resolveAppModelSelectionForInstance(
+          entry.instanceId,
+          settings,
+          providerStatuses,
+          sticky?.model ?? null,
+        );
+      if (!model) return null;
+      const options = selection.options ?? (sticky?.model === model ? sticky.options : undefined);
+      const { modelOptionsForDispatch } = getComposerProviderState({
+        provider: entry.driverKind,
+        model,
+        models: entry.models,
+        modelOptions: options,
+        planModeEnabled: settings.planModeEnabled,
+      });
+      return createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
+    },
+    [handoffInstanceEntries, providerStatuses, settings],
   );
   const handoffPreview = useMemo(() => {
     if (!activeThread) return "";
@@ -6510,7 +6570,7 @@ export default function ChatView(props: ChatViewProps) {
         id: activeThread.id,
         title: activeThread.title,
         branch: activeThread.branch,
-        modelLabel: String(handoffSourceInstanceId ?? ""),
+        modelLabel: handoffSourceLabel,
         messages: activeThread.messages.map((message) => ({
           role: message.role,
           text: message.text,
@@ -6519,10 +6579,18 @@ export default function ChatView(props: ChatViewProps) {
       },
       { recentCount: 10 },
     ).markdown;
-  }, [activeThread, handoffSourceInstanceId]);
+  }, [activeThread, handoffSourceLabel]);
   const handleHandoffConfirm = useCallback(
-    async (target: { readonly instanceId: string; readonly model: string }) => {
+    async (picked: ModelSelection) => {
       if (!activeThread || !activeProject || !isServerThread || handoffStarting) return;
+      const isAvailable = handoffTargets.some(
+        (candidate) => candidate.instanceId === picked.instanceId && candidate.available,
+      );
+      const target = isAvailable ? resolveHandoffSelection(picked) : null;
+      const targetEntry = handoffInstanceEntries.find(
+        (entry) => entry.instanceId === picked.instanceId,
+      );
+      if (!target || !targetEntry) return;
       setHandoffStarting(true);
       try {
         const nextThreadId = newThreadId();
@@ -6534,10 +6602,14 @@ export default function ChatView(props: ChatViewProps) {
             branch: activeThread.branch,
             worktreePath: activeThread.worktreePath,
             runtimeMode: activeThread.runtimeMode,
-            interactionMode: activeThread.interactionMode,
+            interactionMode: resolveComposerInteractionMode({
+              planModeEnabled: settings.planModeEnabled,
+              provider: targetEntry.snapshot,
+              interactionMode: activeThread.interactionMode,
+            }).interactionMode,
           },
           handoffMarkdown: handoffPreview,
-          target: { instanceId: ProviderInstanceId.make(target.instanceId), model: target.model },
+          target,
           ids: {
             threadId: nextThreadId,
             commandId: randomUUID(),
@@ -6551,8 +6623,9 @@ export default function ChatView(props: ChatViewProps) {
             const error = squashAtomCommandFailure(result);
             toastManager.add({
               type: "error",
-              title: "Could not start the new session",
-              description: error instanceof Error ? error.message : "Failed to start handoff.",
+              title: "Could not start the new thread",
+              description:
+                error instanceof Error ? error.message : "Failed to start the new thread.",
             });
           }
           return;
@@ -6576,12 +6649,16 @@ export default function ChatView(props: ChatViewProps) {
       activeProject,
       activeThread,
       environmentId,
+      handoffInstanceEntries,
       handoffPreview,
       handoffStarting,
+      handoffTargets,
       isServerThread,
       navigate,
+      resolveHandoffSelection,
       scopeThreadRef,
       settlePromise,
+      settings.planModeEnabled,
       startThreadTurn,
       waitForStartedServerThread,
     ],
@@ -6601,12 +6678,10 @@ export default function ChatView(props: ChatViewProps) {
     ) {
       return null;
     }
-    const suggested = handoffTargets.find((target) => target.available);
-    if (!suggested) return null;
+    if (!handoffTargets.some((target) => target.available)) return null;
     return handoffBannerItem({
       id: `handoff:${dismissKey}`,
-      sourceTitle: activeThread.title,
-      targetLabel: suggested.label,
+      sourceProviderLabel: handoffSourceLabel,
       busy: handoffStarting,
       onContinue: () => setHandoffDialogOpen(true),
       onDismiss: () => setDismissedHandoffKeys((current) => new Set(current).add(dismissKey)),
@@ -6615,6 +6690,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread,
     dismissedHandoffKeys,
     handoffSourceInstanceId,
+    handoffSourceLabel,
     handoffStarting,
     handoffTargets,
     isServerThread,
@@ -9932,8 +10008,11 @@ export default function ChatView(props: ChatViewProps) {
       <ThreadHandoffDialog
         open={handoffDialogOpen}
         sourceTitle={activeThread?.title ?? ""}
-        sourceLabel={String(handoffSourceInstanceId ?? "")}
         targets={handoffTargets}
+        instanceEntries={handoffInstanceEntries}
+        modelOptionsByInstance={handoffModelOptionsByInstance}
+        planModeEnabled={settings.planModeEnabled}
+        resolveSelection={resolveHandoffSelection}
         preview={handoffPreview}
         busy={handoffStarting}
         onOpenChange={setHandoffDialogOpen}
