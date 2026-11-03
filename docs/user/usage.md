@@ -91,7 +91,9 @@ in new thread…**. Choose the provider, model and effort for the new thread, th
 so you keep working without waiting for the limit to reset. The original thread is left untouched.
 
 The dialog starts on the first available provider with the model and effort you last used there.
-Providers that are also at their limit appear in the model list but cannot be selected.
+Providers that are also at their limit appear in the model list but cannot be selected. On mobile,
+the notice is a card above the composer: tap its model button to choose the model and effort, then
+**Continue**.
 
 The new thread gets a short handoff summary and the last several turns from the original, and it
 reuses the same branch and worktree, so no code is lost. Dismiss the notice to hide it for that

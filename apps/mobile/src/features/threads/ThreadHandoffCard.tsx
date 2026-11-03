@@ -1,49 +1,74 @@
-import type { HandoffTargetOption } from "@e6tools/client-runtime/state/thread-handoff";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import { ComposerInlineControl } from "../../components/ComposerToolbar";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import { RequestActionButton } from "./RequestActionButton";
 
 /**
  * Offered above the composer when the active thread's provider hits its usage
- * limit. Picking a target starts a linked session on that provider carrying a
- * summary of this thread; the source thread is never modified.
+ * limit. The model pill opens the model sheet for the new thread; Continue
+ * starts it with a summary of this thread, which is never modified.
  */
 export function ThreadHandoffCard(props: {
-  readonly sourceTitle: string;
-  readonly targets: ReadonlyArray<HandoffTargetOption>;
+  readonly sourceLabel: string;
+  /** Null when no other provider is available; `emptyReason` explains why. */
+  readonly selection: { readonly label: string; readonly providerDriver: string | null } | null;
+  readonly limitedNote: string | null;
+  readonly emptyReason: string;
   readonly busy: boolean;
-  readonly onContinue: (target: HandoffTargetOption) => void;
+  readonly onOpenModel: () => void;
+  readonly onContinue: () => void;
   readonly onDismiss: () => void;
 }) {
-  const available = props.targets.filter((target) => target.available);
   return (
     <View className="gap-2.5 rounded-[20px] border border-border-subtle bg-card-alt p-4">
       <Text className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-warning-foreground">
-        Provider limit reached
+        {props.sourceLabel} usage limit reached
       </Text>
-      <Text className="font-sans text-sm leading-normal text-foreground-secondary">
-        Continue &ldquo;{props.sourceTitle}&rdquo; on another provider with a summary of this
-        session.
-      </Text>
-      {available.length === 0 ? (
-        <Text className="font-sans text-xs leading-normal text-foreground-secondary">
-          No other provider is available. Add one in settings to continue.
-        </Text>
-      ) : (
-        <View className="flex-row flex-wrap gap-2">
-          {available.map((target) => (
-            <RequestActionButton
-              key={target.instanceId}
+      {props.selection ? (
+        <>
+          <Text className="font-sans text-sm leading-normal text-foreground-secondary">
+            Continue in a new thread from a summary of this one.
+          </Text>
+          <View className="flex-row">
+            <ComposerInlineControl
+              accessibilityHint="Chooses the model and effort for the new thread"
+              accessibilityLabel={`Model for the new thread: ${props.selection.label}`}
+              chevronDirection="right"
               disabled={props.busy}
-              label={props.busy ? "Starting…" : `Continue with ${target.label}`}
-              onPress={() => props.onContinue(target)}
+              emphasized
+              iconNode={<ProviderIcon provider={props.selection.providerDriver} size={16} />}
+              label={props.selection.label}
+              maxWidth="100%"
+              onPress={props.onOpenModel}
             />
-          ))}
-        </View>
+          </View>
+        </>
+      ) : (
+        <Text className="font-sans text-sm leading-normal text-foreground-secondary">
+          {props.emptyReason}
+        </Text>
       )}
-      <View className="flex-row">
-        <RequestActionButton tone="secondary" label="Dismiss" onPress={props.onDismiss} />
+      {props.limitedNote && props.selection ? (
+        <Text className="font-sans text-xs leading-normal text-foreground-secondary">
+          {props.limitedNote}
+        </Text>
+      ) : null}
+      <View className="flex-row flex-wrap gap-2">
+        {props.selection ? (
+          <RequestActionButton
+            disabled={props.busy}
+            label={props.busy ? "Starting…" : "Continue"}
+            onPress={props.onContinue}
+          />
+        ) : null}
+        <RequestActionButton
+          disabled={props.busy}
+          tone="secondary"
+          label="Dismiss"
+          onPress={props.onDismiss}
+        />
       </View>
     </View>
   );

@@ -7,6 +7,7 @@ import {
   firstAvailableHandoffTarget,
   isLimitErrorText,
   isProviderExhausted,
+  maxUsedPercent,
   shouldOfferHandoff,
 } from "./threadHandoff.ts";
 
@@ -28,6 +29,23 @@ describe("isProviderExhausted", () => {
         windows: [{ id: "five_hour", kind: "session", label: "5h", usedPercent: 100 }],
       }),
     ).toBe(true);
+  });
+});
+
+describe("maxUsedPercent", () => {
+  it("reports the fullest window, zero for none, and undefined without limits", () => {
+    const checkedAt = "2026-10-06T00:00:00.000Z";
+    expect(maxUsedPercent(undefined)).toBeUndefined();
+    expect(maxUsedPercent({ checkedAt, windows: [] })).toBe(0);
+    expect(
+      maxUsedPercent({
+        checkedAt,
+        windows: [
+          { id: "a", kind: "session", label: "5h", usedPercent: 40 },
+          { id: "b", kind: "weekly", label: "7d", usedPercent: 85 },
+        ],
+      }),
+    ).toBe(85);
   });
 });
 

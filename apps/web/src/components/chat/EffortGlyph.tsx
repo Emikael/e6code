@@ -1,4 +1,5 @@
 import type { ProviderOptionDescriptor } from "@e6tools/contracts";
+import { REASONING_SELECT_DESCRIPTOR_IDS } from "@e6tools/shared/model";
 
 import type { ComposerControlSize } from "./ComposerControl";
 
@@ -9,16 +10,7 @@ const BASELINE_INSET = 2;
 
 type SelectDescriptor = Extract<ProviderOptionDescriptor, { type: "select" }>;
 
-/** Select options that set reasoning effort, across providers. */
-export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
-  "reasoningEffort",
-  "effort",
-  "reasoning",
-  "variant",
-  "reasoning_effort",
-  "thinking_level",
-  "thinking",
-]);
+export { REASONING_SELECT_DESCRIPTOR_IDS };
 
 // Ultracode changes the workflow, not only intensity, so it keeps its name like Ultrathink.
 // Max is named too, so the full scale stops short of it.

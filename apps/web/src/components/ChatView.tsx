@@ -14,6 +14,7 @@ import {
   buildHandoffDocument,
   buildHandoffTargets,
   buildHandoffTurnInput,
+  maxUsedPercent,
   shouldOfferHandoff,
 } from "@e6tools/client-runtime/state/thread-handoff";
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
@@ -6504,15 +6505,12 @@ export default function ChatView(props: ChatViewProps) {
             null,
           );
           if (!model) return [];
-          const limits = entry.snapshot.usageLimits;
           return [
             {
               instanceId: entry.instanceId,
               model,
               label: entry.displayName,
-              usedPercent: limits
-                ? Math.max(...limits.windows.map((window) => window.usedPercent), 0)
-                : undefined,
+              usedPercent: maxUsedPercent(entry.snapshot.usageLimits),
             },
           ];
         }),

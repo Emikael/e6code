@@ -33,6 +33,12 @@ export function isProviderExhausted(limits: ServerProviderUsageLimits | undefine
   return limits.windows.some((window) => window.usedPercent >= 100);
 }
 
+/** Highest usage across a provider's limit windows, or undefined when it reports none. */
+export function maxUsedPercent(limits: ServerProviderUsageLimits | undefined): number | undefined {
+  if (!limits) return undefined;
+  return Math.max(...limits.windows.map((window) => window.usedPercent), 0);
+}
+
 export function shouldOfferHandoff(args: {
   readonly sessionLastError: string | null | undefined;
   readonly usageLimits: ServerProviderUsageLimits | undefined;
