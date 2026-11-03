@@ -26,10 +26,7 @@ import {
   ThreadId,
   type ProjectScript,
 } from "@e6tools/contracts";
-import {
-  shouldOfferHandoff,
-  type HandoffMessage,
-} from "@e6tools/client-runtime/state/thread-handoff";
+import { shouldOfferHandoff } from "@e6tools/client-runtime/state/thread-handoff";
 import { providerDisplayLabel } from "../../lib/modelOptions";
 import { ThreadHandoffContainer } from "./ThreadHandoffContainer";
 import {
@@ -222,8 +219,6 @@ type ThreadRouteScreenRouteProps = StaticScreenProps<{
   readonly environmentId: string;
   readonly threadId: string;
 }>;
-
-const EMPTY_HANDOFF_MESSAGES: ReadonlyArray<HandoffMessage> = [];
 
 interface ThreadRouteScreenProps extends ThreadRouteScreenRouteProps {
   readonly onReturnToThread?: () => void;
@@ -460,8 +455,10 @@ function ThreadRouteContent(
   const handoffSourceProvider = handoffServerConfig?.providers.find(
     (provider) => provider.instanceId === handoffSourceInstanceId,
   );
+  // Waits for thread detail so the handoff summary always carries the recent turns.
   const handoffCard: ReactNode =
     selectedThread !== null &&
+    selectedThreadDetail !== null &&
     handoffKey !== null &&
     handoffSourceInstanceId !== null &&
     dismissedHandoffKey !== handoffKey &&
@@ -472,7 +469,7 @@ function ThreadRouteContent(
       <ThreadHandoffContainer
         key={handoffKey}
         thread={selectedThread}
-        messages={selectedThreadDetail?.messages ?? EMPTY_HANDOFF_MESSAGES}
+        messages={selectedThreadDetail.messages}
         serverConfig={handoffServerConfig}
         sourceInstanceId={handoffSourceInstanceId}
         sourceLabel={

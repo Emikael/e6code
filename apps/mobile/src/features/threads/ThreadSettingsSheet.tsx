@@ -1304,8 +1304,9 @@ function ThreadSettingsChoiceScreen() {
   );
 }
 
-function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) {
-  const session = useThreadSettingsSession();
+function ThreadSettingsPickerNavigator(
+  props: ThreadSettingsPickerPresentation & { readonly title?: string | undefined },
+) {
   const theme = useUniwindTheme();
   const solidSheetBackground = theme["--color-sheet-solid"];
   const foreground = theme["--color-foreground"];
@@ -1342,7 +1343,7 @@ function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) 
         <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsModels"
           component={ThreadSettingsModelsScreen}
-          options={{ headerBackVisible: false, title: session.title }}
+          options={{ headerBackVisible: false, title: props.title ?? "Thread settings" }}
         />
         <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsChoice"
@@ -1376,7 +1377,7 @@ export function ExistingThreadSettingsRouteScreen() {
 
   return (
     <ThreadSettingsSessionProvider {...settings}>
-      <ThreadSettingsPickerNavigator onClose={() => navigation.goBack()} />
+      <ThreadSettingsPickerNavigator title={settings.title} onClose={() => navigation.goBack()} />
     </ThreadSettingsSessionProvider>
   );
 }
