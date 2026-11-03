@@ -15,7 +15,7 @@ export function handoffBannerItem(args: {
     id: args.id,
     variant: "warning",
     priority: "urgent",
-    icon: <GaugeIcon />,
+    icon: <GaugeIcon className="text-warning" />,
     title: `${args.sourceProviderLabel} usage limit reached`,
     actions: (
       <Button size="xs" variant="ghost" disabled={args.busy === true} onClick={args.onContinue}>

@@ -86,14 +86,16 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 ## Continue on another provider
 
-When the active thread's provider hits its usage limit, the composer offers **Continue with
-&lt;provider&gt;**. Choosing it starts a new thread on another provider so you keep working without
-waiting for the limit to reset. The original thread is left untouched.
+When the active thread's provider hits its usage limit, the composer shows a notice with **Continue
+in new thread…**. Choose the provider, model and effort for the new thread, then **Start thread**,
+so you keep working without waiting for the limit to reset. The original thread is left untouched.
+
+The dialog starts on the first available provider with the model and effort you last used there.
+Providers that are also at their limit appear in the model list but cannot be selected.
 
 The new thread gets a short handoff summary and the last several turns from the original, and it
-reuses the same branch and worktree, so no code is lost. Pick a different provider or model in the
-dialog first; limited providers are shown but cannot be selected. Dismiss the offer to hide it for
-that thread. The summary is built locally from the thread, so it works even while the provider is
+reuses the same branch and worktree, so no code is lost. Dismiss the notice to hide it for that
+thread. The summary is built locally from the thread, so it works even while the provider is
 blocked.
 
 ## Connect a CLIProxyAPI hub
