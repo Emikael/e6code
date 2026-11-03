@@ -284,7 +284,10 @@ import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useRemoveClonedProject } from "../hooks/useRemoveClonedProject";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { useThreadActions } from "../hooks/useThreadActions";
-import { resolveAppModelSelectionForInstance } from "../modelSelection";
+import {
+  getCustomModelOptionsByInstance,
+  resolveAppModelSelectionForInstance,
+} from "../modelSelection";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -6503,6 +6506,17 @@ export default function ChatView(props: ChatViewProps) {
       ),
     [providerStatuses, handoffSourceInstanceId],
   );
+  const handoffSourceLabel =
+    providerInstanceEntries.find((entry) => entry.instanceId === handoffSourceInstanceId)
+      ?.displayName ?? String(handoffSourceInstanceId ?? "");
+  const handoffInstanceEntries = useMemo(
+    () => providerInstanceEntries.filter((entry) => entry.instanceId !== handoffSourceInstanceId),
+    [providerInstanceEntries, handoffSourceInstanceId],
+  );
+  const handoffModelOptionsByInstance = useMemo(
+    () => getCustomModelOptionsByInstance(settings, providerStatuses),
+    [settings, providerStatuses],
+  );
   const handoffPreview = useMemo(() => {
     if (!activeThread) return "";
     return buildHandoffDocument(
@@ -6510,7 +6524,7 @@ export default function ChatView(props: ChatViewProps) {
         id: activeThread.id,
         title: activeThread.title,
         branch: activeThread.branch,
-        modelLabel: String(handoffSourceInstanceId ?? ""),
+        modelLabel: handoffSourceLabel,
         messages: activeThread.messages.map((message) => ({
           role: message.role,
           text: message.text,
@@ -6519,9 +6533,9 @@ export default function ChatView(props: ChatViewProps) {
       },
       { recentCount: 10 },
     ).markdown;
-  }, [activeThread, handoffSourceInstanceId]);
+  }, [activeThread, handoffSourceLabel]);
   const handleHandoffConfirm = useCallback(
-    async (target: { readonly instanceId: string; readonly model: string }) => {
+    async (target: ModelSelection) => {
       if (!activeThread || !activeProject || !isServerThread || handoffStarting) return;
       setHandoffStarting(true);
       try {
@@ -6537,7 +6551,7 @@ export default function ChatView(props: ChatViewProps) {
             interactionMode: activeThread.interactionMode,
           },
           handoffMarkdown: handoffPreview,
-          target: { instanceId: ProviderInstanceId.make(target.instanceId), model: target.model },
+          target,
           ids: {
             threadId: nextThreadId,
             commandId: randomUUID(),
@@ -6601,12 +6615,10 @@ export default function ChatView(props: ChatViewProps) {
     ) {
       return null;
     }
-    const suggested = handoffTargets.find((target) => target.available);
-    if (!suggested) return null;
+    if (!handoffTargets.some((target) => target.available)) return null;
     return handoffBannerItem({
       id: `handoff:${dismissKey}`,
-      sourceTitle: activeThread.title,
-      targetLabel: suggested.label,
+      sourceProviderLabel: handoffSourceLabel,
       busy: handoffStarting,
       onContinue: () => setHandoffDialogOpen(true),
       onDismiss: () => setDismissedHandoffKeys((current) => new Set(current).add(dismissKey)),
@@ -6615,6 +6627,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread,
     dismissedHandoffKeys,
     handoffSourceInstanceId,
+    handoffSourceLabel,
     handoffStarting,
     handoffTargets,
     isServerThread,
@@ -9932,8 +9945,10 @@ export default function ChatView(props: ChatViewProps) {
       <ThreadHandoffDialog
         open={handoffDialogOpen}
         sourceTitle={activeThread?.title ?? ""}
-        sourceLabel={String(handoffSourceInstanceId ?? "")}
         targets={handoffTargets}
+        instanceEntries={handoffInstanceEntries}
+        modelOptionsByInstance={handoffModelOptionsByInstance}
+        planModeEnabled={settings.planModeEnabled}
         preview={handoffPreview}
         busy={handoffStarting}
         onOpenChange={setHandoffDialogOpen}
