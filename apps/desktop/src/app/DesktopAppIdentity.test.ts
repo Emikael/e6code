@@ -117,7 +117,6 @@ const withIdentity = <A, E, R>(
     readonly calls?: ElectronAppCalls;
     readonly whenReady?: Effect.Effect<void>;
     readonly environment?: TestEnvironmentInput;
-    readonly legacyPathExists?: boolean;
     readonly existingPathIncludes?: readonly string[];
     readonly legacyPathProbeError?: unknown;
     readonly packageJson?: string;
@@ -135,12 +134,10 @@ const withIdentity = <A, E, R>(
   // while its layer builds.
   existsSyncMock.mockImplementation((path: unknown) => {
     const candidate = typeof path === "string" ? path : String(path);
-    if (input.legacyPathProbeError !== undefined && candidate.includes("E6 Code (Alpha)")) {
+    if (input.legacyPathProbeError !== undefined && candidate.includes("e6code")) {
       throw input.legacyPathProbeError;
     }
-    return (
-      input.existingPathIncludes ?? (input.legacyPathExists === true ? ["E6 Code (Alpha)"] : [])
-    ).some((part) => candidate.includes(part));
+    return (input.existingPathIncludes ?? []).some((part) => candidate.includes(part));
   });
 
   return effect.pipe(
@@ -161,18 +158,6 @@ const withIdentity = <A, E, R>(
 };
 
 describe("DesktopAppIdentity", () => {
-  it.effect("keeps using the legacy userData path when it already exists", () =>
-    withIdentity(
-      Effect.gen(function* () {
-        const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
-        const userDataPath = yield* identity.resolveUserDataPath;
-
-        assert.equal(userDataPath, "/Users/alice/Library/Application Support/E6 Code (Alpha)");
-      }),
-      { legacyPathExists: true },
-    ),
-  );
-
   it.effect("keeps using e6code userData when e6code has not been created", () =>
     withIdentity(
       Effect.gen(function* () {
@@ -186,7 +171,7 @@ describe("DesktopAppIdentity", () => {
   );
 
   it.effect("preserves failures while inspecting the legacy userData path", () => {
-    const legacyPath = "/Users/alice/Library/Application Support/E6 Code (Alpha)";
+    const legacyPath = "/Users/alice/Library/Application Support/e6code";
     // Synchronous by design: existsSync throws plain errors, not PlatformError.
     const cause = new Error("permission denied");
 
@@ -225,28 +210,25 @@ describe("DesktopAppIdentity", () => {
     );
   });
 
-  it.effect(
-    "keeps the legacy encryption identity until ready before applying visible branding",
-    () => {
-      const calls: ElectronAppCalls = { setAboutPanelOptions: [], setDockIcon: [], setName: [] };
-      let encryptionIdentity: string | undefined;
-      return withIdentity(
-        Effect.gen(function* () {
-          const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
-          yield* identity.configure;
-          assert.equal(encryptionIdentity, "E6 Code (Alpha)");
-          assert.deepEqual(calls.setName, ["E6 Code"]);
-          assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "E6 Code");
+  it.effect("applies visible branding only after ready", () => {
+    const calls: ElectronAppCalls = { setAboutPanelOptions: [], setDockIcon: [], setName: [] };
+    let namesSetBeforeReady: ReadonlyArray<string> | undefined;
+    return withIdentity(
+      Effect.gen(function* () {
+        const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+        yield* identity.configure;
+        assert.deepEqual(namesSetBeforeReady, []);
+        assert.deepEqual(calls.setName, ["E6 Code"]);
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "E6 Code");
+      }),
+      {
+        calls,
+        whenReady: Effect.sync(() => {
+          namesSetBeforeReady = [...calls.setName];
         }),
-        {
-          calls,
-          whenReady: Effect.sync(() => {
-            encryptionIdentity = calls.setName.at(-1) ?? "E6 Code (Alpha)";
-          }),
-        },
-      );
-    },
-  );
+      },
+    );
+  });
 
   it.effect("configures app identity from the environment commit override", () => {
     const calls: ElectronAppCalls = {

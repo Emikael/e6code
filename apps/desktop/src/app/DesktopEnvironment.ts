@@ -188,9 +188,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     e6Home: config.e6Home,
   });
   const userDataDirName = isDevelopment ? "e6code-dev" : "e6code";
-  const legacyUserDataDirNames = isDevelopment
-    ? ["E6 Code (Dev)", "e6code-dev"]
-    : ["E6 Code (Alpha)", "e6code"];
+  const legacyUserDataDirNames = isDevelopment ? ["E6 Code (Dev)", "e6code-dev"] : ["e6code"];
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",

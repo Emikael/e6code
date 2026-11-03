@@ -128,7 +128,7 @@ const withStore = <A, E, R>(
 
 describe("DesktopConnectionCatalogStore", () => {
   for (const [initialName, legacyIdentity] of [
-    ["E6 Code", "E6 Code (Alpha)"],
+    ["E6 Code", "E6 Code"],
     ["e6code", "e6code"],
   ] as const) {
     it.effect(`reads the existing encrypted catalog after renaming ${initialName}`, () =>

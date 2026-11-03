@@ -71,9 +71,8 @@ describe("DesktopPreReadyPlatform", () => {
 
   for (const platform of ["darwin", "linux"] as const) {
     for (const [initialName, expectedName] of [
-      ["E6 Code", "E6 Code (Alpha)"],
+      ["E6 Code", "E6 Code"],
       ["e6code", "e6code"],
-      ["E6 Code (Alpha)", "E6 Code (Alpha)"],
       ["E6 Code (Dev)", "E6 Code (Dev)"],
       ["E6 Code (Nightly)", "E6 Code (Nightly)"],
     ] as const) {
