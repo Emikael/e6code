@@ -6530,9 +6530,6 @@ export default function ChatView(props: ChatViewProps) {
         : EMPTY_HANDOFF_MODEL_OPTIONS,
     [handoffDialogOpen, settings, providerStatuses],
   );
-  const stickyModelSelections = useComposerDraftStore(
-    (store) => store.stickyModelSelectionByProvider,
-  );
   // Validates a target model and normalizes its options the way a composer send does.
   const resolveHandoffSelection = useCallback(
     (selection: {
@@ -6544,7 +6541,9 @@ export default function ChatView(props: ChatViewProps) {
         (candidate) => candidate.instanceId === selection.instanceId,
       );
       if (!entry) return null;
-      const sticky = stickyModelSelections[entry.instanceId];
+      // Read on demand so ChatView does not re-render on every composer model change.
+      const sticky =
+        useComposerDraftStore.getState().stickyModelSelectionByProvider[entry.instanceId];
       const model =
         selection.model ??
         resolveAppModelSelectionForInstance(
@@ -6564,7 +6563,7 @@ export default function ChatView(props: ChatViewProps) {
       });
       return createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
     },
-    [handoffInstanceEntries, providerStatuses, settings, stickyModelSelections],
+    [handoffInstanceEntries, providerStatuses, settings],
   );
   const handoffPreview = useMemo(() => {
     if (!activeThread) return "";
