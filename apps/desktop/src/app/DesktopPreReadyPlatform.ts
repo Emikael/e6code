@@ -56,16 +56,6 @@ export const make = Effect.gen(function* () {
       isDevelopment: Boolean(process.env.VITE_DEV_SERVER_URL?.trim()),
       appVersion: Electron.app.getVersion(),
     });
-    if (platform === "darwin" || platform === "linux") {
-      // Electron 44 snapshots app.name for safeStorage before ready. Retain the
-      // legacy product-name identity. Packaged builds already use "e6code";
-      // keep that and other channel names intact. DesktopAppIdentity applies
-      // visible branding only after ready, once the storage identity is fixed.
-      const initialName = Electron.app.getName();
-      if (initialName === branding.baseName) {
-        Electron.app.setName("E6 Code (Alpha)");
-      }
-    }
     const linuxPasswordStoreCommandLine =
       platform === "linux"
         ? readCommandLineSwitchValue(Electron.app.commandLine, "password-store")
