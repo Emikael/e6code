@@ -81,7 +81,7 @@ function ChecksBody({
           {check.url === null ? null : (
             <button
               type="button"
-              className="shrink-0 text-primary hover:underline"
+              className="shrink-0 text-primary-text hover:underline"
               onClick={() => {
                 if (!check.url) return;
                 void openLink(check.url).catch((error: unknown) => {

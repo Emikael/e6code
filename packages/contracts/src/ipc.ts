@@ -732,6 +732,8 @@ export interface DesktopPreviewAnnotationTheme {
   popoverForeground: string;
   primary: string;
   primaryForeground: string;
+  /** Primary as readable text; absent from older web builds, which use `primary`. */
+  primaryText?: string;
   muted: string;
   mutedForeground: string;
   accent: string;
@@ -753,6 +755,7 @@ export const DesktopPreviewAnnotationThemeSchema: Schema.Codec<DesktopPreviewAnn
     popoverForeground: Schema.String,
     primary: Schema.String,
     primaryForeground: Schema.String,
+    primaryText: Schema.optionalKey(Schema.String),
     muted: Schema.String,
     mutedForeground: Schema.String,
     accent: Schema.String,

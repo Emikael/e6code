@@ -252,7 +252,7 @@ export function PreviewChromeRow({
                 />
               }
             >
-              <MousePointerClick className={cn(pickActive && "text-primary")} />
+              <MousePointerClick className={cn(pickActive && "text-primary-text")} />
             </TooltipTrigger>
             <TooltipPopup>
               {pickDisabled && pickDisabledReason
@@ -305,7 +305,7 @@ export function PreviewChromeRow({
                 />
               }
             >
-              <PictureInPicture2 className={cn(pictureInPicture && "text-primary")} />
+              <PictureInPicture2 className={cn(pictureInPicture && "text-primary-text")} />
             </TooltipTrigger>
             <TooltipPopup>
               {pictureInPicture ? "Close floating preview" : "Float preview over chat"}

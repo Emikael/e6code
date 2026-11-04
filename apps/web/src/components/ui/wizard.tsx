@@ -108,9 +108,9 @@ export function WizardSteps({
               className={cn(
                 "grid size-5 shrink-0 place-items-center rounded-full text-sm font-medium ring-1",
                 index < currentStep
-                  ? "bg-primary text-primary-foreground ring-primary"
+                  ? "bg-primary text-primary-foreground ring-primary-edge"
                   : index === currentStep
-                    ? "bg-primary/10 text-primary ring-primary/30"
+                    ? "bg-primary/10 text-primary-text ring-primary/30"
                     : "bg-card text-muted-foreground ring-black/10 dark:bg-white/5 dark:ring-white/10",
               )}
               aria-hidden

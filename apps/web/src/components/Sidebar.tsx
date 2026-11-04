@@ -608,7 +608,7 @@ function SidebarSectionPlaceholder(props: {
         <div
           className={cn(
             "absolute inset-x-0 top-0 flex h-9 items-center justify-center rounded-md border border-dashed border-sidebar-foreground/25 text-xs text-sidebar-foreground/80",
-            props.isDropTarget && "border-primary/40 bg-primary/5 text-primary",
+            props.isDropTarget && "border-primary/40 bg-primary/5 text-primary-text",
           )}
         >
           {props.label}
@@ -639,7 +639,7 @@ function SidebarDragBoundary(props: {
           <span
             className={cn(
               "shrink-0 text-xs font-medium",
-              props.isDropTarget ? "text-primary" : "text-sidebar-foreground/80",
+              props.isDropTarget ? "text-primary-text" : "text-sidebar-foreground/80",
             )}
           >
             {props.label}
@@ -676,7 +676,7 @@ function SidebarSectionHeader(props: {
     "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
     snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
     props.dragging && "text-sidebar-foreground/80",
-    props.isDropTarget && "text-primary",
+    props.isDropTarget && "text-primary-text",
   );
   const content = (
     <>
@@ -1593,7 +1593,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     sortable?.isDragging && props.dropVerb !== null ? (
       <span
         role="status"
-        className="pointer-events-none ml-auto inline-flex h-5 shrink-0 items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
+        className="pointer-events-none ml-auto inline-flex h-5 shrink-0 items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-1.5 text-[11px] font-medium text-primary-text"
       >
         {dropVerbBadge[props.dropVerb]}
       </span>

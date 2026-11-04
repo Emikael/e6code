@@ -263,7 +263,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                       ) : null}
                     </div>
                     {isSelected ? (
-                      <CheckIcon className="size-3.5 shrink-0 text-primary" />
+                      <CheckIcon className="size-3.5 shrink-0 text-primary-text" />
                     ) : shortcutKey !== null ? (
                       <kbd
                         className={cn(

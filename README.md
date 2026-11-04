@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="./assets/prod/black-universal-1024.png" alt="E6 Code" width="96" height="96" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/cover-dark.png" />
+  <img src="./assets/readme/cover-light.png" alt="E6 Code" width="100%" />
+</picture>
 
 # E6 Code
 

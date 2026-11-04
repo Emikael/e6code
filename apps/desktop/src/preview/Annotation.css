@@ -9,6 +9,7 @@
   --color-popover-foreground: var(--e6-popover-foreground);
   --color-primary: var(--e6-primary);
   --color-primary-foreground: var(--e6-primary-foreground);
+  --color-primary-text: var(--e6-primary-text, var(--e6-primary));
   --color-muted: var(--e6-muted);
   --color-muted-foreground: var(--e6-muted-foreground);
   --color-accent: var(--e6-accent);
@@ -34,15 +35,16 @@
   --e6-foreground: oklch(0.269 0 0);
   --e6-popover: white;
   --e6-popover-foreground: oklch(0.269 0 0);
-  --e6-primary: oklch(0.488 0.217 264);
-  --e6-primary-foreground: white;
+  --e6-primary: #c4ee3a;
+  --e6-primary-foreground: #1b1c18;
+  --e6-primary-text: #4b6b00;
   --e6-muted: rgb(0 0 0 / 4%);
   --e6-muted-foreground: oklch(0.556 0 0);
   --e6-accent: rgb(0 0 0 / 4%);
   --e6-accent-foreground: oklch(0.269 0 0);
   --e6-border: rgb(0 0 0 / 8%);
   --e6-input: rgb(0 0 0 / 10%);
-  --e6-ring: oklch(0.488 0.217 264);
+  --e6-ring: #4b6b00;
   color: var(--e6-foreground);
   font-family: var(--e6-font-sans);
 }

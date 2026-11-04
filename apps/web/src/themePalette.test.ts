@@ -90,31 +90,31 @@ describe("theme files", () => {
     }
   });
 
-  it("keeps stock dark controls in the neutral-black surface hierarchy", () => {
+  it("keeps stock dark surfaces stepping lighter as they rise off the graphite canvas", () => {
     expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      surface: "#111111",
-      surfaceRaised: "#111111",
-      surfaceOverlay: "#111111",
-      toolbarControl: "#111111",
-      secondary: "#111111",
-      muted: "#111111",
-      accentSurface: "#141414",
+      canvas: "#0e0f0d",
+      surface: "#171815",
+      surfaceRaised: "#1b1c19",
+      surfaceOverlay: "#20211e",
+      toolbarControl: "#171815",
+      secondary: "#151614",
+      muted: "#151614",
+      accentSurface: "#242a12",
     });
   });
 
   it("keeps the stock sidebar and chat on distinct surfaces in both appearances", () => {
     expectThemeColors(getStandardThemeColors("light"), {
-      canvas: "#fcfcfc",
-      sidebar: "#fafafa",
+      canvas: "#f6f6f2",
+      sidebar: "#eeeee8",
       sidebarRowActive: "#ffffff",
-      messageSurface: "#f4f4f5",
+      messageSurface: "#e9eae2",
     });
     expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      sidebar: "#000000",
-      sidebarRowActive: "#1a1b1b",
-      messageSurface: "#141414",
+      canvas: "#0e0f0d",
+      sidebar: "#040504",
+      sidebarRowActive: "#202020",
+      messageSurface: "#1f201c",
     });
   });
 

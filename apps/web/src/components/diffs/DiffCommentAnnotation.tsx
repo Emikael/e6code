@@ -64,7 +64,10 @@ export function DiffCommentAnnotation({
         contentEditable={false}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <MessageCircle className="mt-0.5 size-3.5 shrink-0 text-primary/70" aria-hidden="true" />
+        <MessageCircle
+          className="mt-0.5 size-3.5 shrink-0 text-primary-text/70"
+          aria-hidden="true"
+        />
         <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-5">{displayedText}</p>
         {onDelete ? (
           <Button
