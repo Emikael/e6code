@@ -662,10 +662,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   }
   body {
     @apply text-foreground relative;
-    caret-color: var(--primary);
+    /* primary-text, not primary: a light accent such as Volt vanishes as a
+       1px caret or a translucent selection wash on light grounds. */
+    caret-color: var(--primary-text);
   }
   ::selection {
-    background-color: color-mix(in oklab, var(--primary) 22%, transparent);
+    background-color: color-mix(in oklab, var(--primary-text) 22%, transparent);
     color: var(--contrast-foreground);
   }
 }
@@ -1253,10 +1255,11 @@ html[data-theme-id]:not([data-theme-id=""]) {
      a distinct action color make these identical. */
   --primary: var(--app-theme-message-action);
   --primary-foreground: var(--app-theme-message-action-foreground);
-  /* Themes predate the Volt-only roles; derive them from the theme's action. */
+  /* Themes store no accent-as-text or accent-as-edge roles: themePalette.ts
+     derives readable ones from the theme's action color when it applies it. */
   --primary-hover: var(--app-theme-message-action-hover, var(--primary));
-  --primary-edge: var(--primary);
-  --primary-text: var(--primary);
+  --primary-edge: var(--app-theme-primary-edge, var(--primary));
+  --primary-text: var(--app-theme-primary-text, var(--primary));
   --primary-surface: color-mix(in srgb, var(--primary) 14%, transparent);
   --secondary: var(--app-theme-secondary);
   --secondary-foreground: var(--app-theme-secondary-foreground);

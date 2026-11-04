@@ -11,6 +11,7 @@ import {
   getThemePreferenceMode,
   isKnownThemePreference,
   getCustomThemes,
+  deriveThemeAccentVariables,
   getStandardThemeColors,
   getStoredCustomThemeCollection,
   invalidateCustomThemes,
@@ -972,6 +973,28 @@ describe("theme files", () => {
 
     vi.unstubAllGlobals();
     invalidateCustomThemes();
+  });
+});
+
+describe("derived accent roles", () => {
+  it("darkens a light action color until it reads as text and as an edge on every ground", () => {
+    // A theme seeded from the stock light palette keeps Volt as its action color.
+    const colors = getStandardThemeColors("light");
+    const derived = deriveThemeAccentVariables(colors);
+    const text = derived["--app-theme-primary-text"]!;
+    const edge = derived["--app-theme-primary-edge"]!;
+    for (const ground of [colors.canvas, colors.surface, colors.sidebar]) {
+      expect(contrastRatio(text, ground)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(edge, ground)).toBeGreaterThanOrEqual(3);
+    }
+    expect(contrastRatio(asHex(colors.messageAction), colors.canvas)).toBeLessThan(3);
+  });
+
+  it("keeps an action color that already reads on its grounds", () => {
+    const colors = getStandardThemeColors("dark");
+    const derived = deriveThemeAccentVariables(colors);
+    expect(derived["--app-theme-primary-text"]).toBe(asHex(colors.messageAction));
+    expect(derived["--app-theme-primary-edge"]).toBe(asHex(colors.messageAction));
   });
 });
 
