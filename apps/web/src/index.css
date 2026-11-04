@@ -917,7 +917,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     width: 1rem;
     height: 1rem;
     margin-top: -0.3125rem;
-    border: 2px solid var(--primary);
+    border: 2px solid var(--primary-edge);
     border-radius: 9999px;
     background: var(--background);
     box-shadow: 0 1px 2px color-mix(in srgb, var(--contrast-foreground) 12%, transparent);
@@ -929,7 +929,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   .settings-slider::-moz-range-thumb {
     width: 1rem;
     height: 1rem;
-    border: 2px solid var(--primary);
+    border: 2px solid var(--primary-edge);
     border-radius: 9999px;
     background: var(--background);
     box-shadow: 0 1px 2px color-mix(in srgb, var(--contrast-foreground) 12%, transparent);
@@ -1052,7 +1052,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   /* Volt is a light fill: it carries ink text, a darker edge on light grounds,
      a readable text variant, and a translucent wash for selections. */
   --primary-hover: #b6e021;
-  --primary-edge: #8fb514;
+  --primary-edge: #6f920a;
   --primary-text: #4b6b00;
   --primary-surface: rgb(196 238 58 / 16%);
   --secondary: #e9eae2;
