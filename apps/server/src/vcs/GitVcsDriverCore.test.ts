@@ -1471,7 +1471,9 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         yield* writeTextFile(cwd, "z-last.txt", "last file\n");
         yield* git(cwd, ["add", "."]);
         yield* git(cwd, ["commit", "-m", "large change"]);
-        yield* writeTextFile(cwd, "a-large.txt", largeContents.replaceAll("changed", "updated"));
+        // The rewrite must change the byte size: a same-size write in the commit's
+        // mtime window is "racy clean" and git's stat check skips it.
+        yield* writeTextFile(cwd, "a-large.txt", largeContents.replaceAll("changed", "rewritten"));
         yield* writeTextFile(cwd, "z-last.txt", "last file updated\n");
         yield* writeTextFile(cwd, "untracked.txt", untrackedContents);
 
