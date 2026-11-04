@@ -159,6 +159,9 @@ Full glossary with file links: `docs/internals/glossary.md`
 - Inferred types over annotations. `any` is the enemy.
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
 - People using E6 Code will notice dropped frames, lying spinners, and stale labels. No continuously repainting animations; they peg the GPU on high-refresh displays.
+- Color goes through the semantic roles in `apps/web/src/index.css` and `packages/shared/src/themePalettes.ts`, never hard-coded Tailwind palette colors. Built-in themes and mobile follow those roles; a raw `blue-500` follows nothing.
+- `primary` (Volt in the stock palette) means the next action or a live agent. Do not use it for decoration or headings. Text on a `primary` fill uses `primary-foreground`, never white. Volt is too light to read as text on light grounds, so text and icons use `text-primary-text`, and selected outlines use `primary-edge`.
+- Never show a status by color alone. Pair every status dot or tint with a word or an icon.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
 
 ## Additional tips
