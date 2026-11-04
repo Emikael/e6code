@@ -674,7 +674,7 @@ function SidebarSectionHeader(props: {
   const onMenu = props.onMenu;
   const className = cn(
     "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
-    snoozed ? "text-blue-600 dark:text-blue-400" : "text-sidebar-muted-foreground/60",
+    snoozed ? "text-info-foreground" : "text-sidebar-muted-foreground/60",
     props.dragging && "text-sidebar-foreground/80",
     props.isDropTarget && "text-primary-text",
   );
@@ -685,7 +685,7 @@ function SidebarSectionHeader(props: {
         aria-hidden
         className={cn(
           "h-px min-w-2 flex-1",
-          snoozed ? "bg-blue-500/20 dark:bg-blue-400/15" : "bg-sidebar-border/60",
+          snoozed ? "bg-info/20 dark:bg-info/15" : "bg-sidebar-border/60",
           props.dragging && "bg-sidebar-foreground/25",
           props.isDropTarget && "bg-primary/50",
         )}
@@ -1794,7 +1794,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
                     // Snoozed rows show when they come BACK, not when they were
                     // last touched — the return ticket is the row's whole story.
-                    <span className="text-xs text-blue-600 tabular-nums dark:text-blue-400">
+                    <span className="text-xs text-info-foreground tabular-nums">
                       {props.snoozeWakeLabelText}
                     </span>
                   ) : isWoke ? (

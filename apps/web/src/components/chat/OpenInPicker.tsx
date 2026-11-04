@@ -358,12 +358,17 @@ export const OpenInPicker = memo(function OpenInPicker({
         variant="outline"
         disabled={!preferredEditor || !openInCwd || remote.mode === "remote-unavailable"}
         onClick={() => openInEditor(preferredEditor)}
+        title={primaryOption ? `Open in ${primaryOption.label}` : "Open in editor"}
       >
-        {primaryOption?.Icon && (
+        {/* The label collapses to sr-only in narrow headers, so the button always
+            needs an icon: the preferred editor's, else a generic open glyph. */}
+        {primaryOption ? (
           <primaryOption.Icon
             aria-hidden="true"
             className={cn("size-3.5", getOpenInIconClass(primaryOption.kind))}
           />
+        ) : (
+          <SquareArrowOutUpRightIcon aria-hidden="true" className="size-3.5" />
         )}
         <span
           className={

@@ -3729,7 +3729,7 @@ export default function ChatView(props: ChatViewProps) {
   )
     ? activeProviderStatus
     : null;
-  const hasTimelineTopBanner = Boolean(visibleThreadError) || visibleProviderStatus !== null;
+  const hasTimelineTopBanner = visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
@@ -10096,20 +10096,13 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
             ) : null}
-            {/* Banners overlay the timeline without changing its content height. */}
+            {/* Banners overlay the timeline without changing its content height.
+                Thread errors render inline at the frontier instead (below). */}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col">
               <ProviderStatusBanner
                 status={visibleProviderStatus}
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
                 onOpenProviderSetup={openProviderSetup}
-              />
-              <ThreadErrorBanner
-                error={visibleThreadError}
-                onDismiss={() => {
-                  setThreadError(activeThread.id, null);
-                  dismissThreadErrorBannerForSession(threadErrorBannerKey);
-                  setThreadErrorBannerDismissTick((tick) => tick + 1);
-                }}
               />
             </div>
             {/* Messages Wrapper */}
@@ -10292,6 +10285,17 @@ export default function ChatView(props: ChatViewProps) {
                         )}
                       </div>
                     </div>
+                  ) : !paintOnlyDisplayedTimeline && visibleThreadError ? (
+                    <ThreadErrorBanner
+                      inline
+                      error={visibleThreadError}
+                      onContinue={() => focusComposer()}
+                      onDismiss={() => {
+                        setThreadError(activeThread.id, null);
+                        dismissThreadErrorBannerForSession(threadErrorBannerKey);
+                        setThreadErrorBannerDismissTick((tick) => tick + 1);
+                      }}
+                    />
                   ) : null
                 }
               />
