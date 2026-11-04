@@ -3748,7 +3748,10 @@ export default function ChatView(props: ChatViewProps) {
     !paintOnlyDisplayedTimeline &&
     !threadDetailLoading &&
     timelineEntries.length > 0;
-  const showThreadErrorOverlay = visibleThreadError !== null && !showThreadErrorInline;
+  // The frontier sits at the end of the list, so a reader scrolled away from
+  // the end (the scroll-to-bottom pill is showing) gets the overlay as well.
+  const showThreadErrorOverlay =
+    visibleThreadError !== null && (!showThreadErrorInline || showScrollToBottom);
   const hasTimelineTopBanner = showThreadErrorOverlay || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;

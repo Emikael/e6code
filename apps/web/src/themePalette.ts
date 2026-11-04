@@ -822,9 +822,17 @@ function readableThemeAccent(
   grounds: ReadonlyArray<ThemeRgbColor>,
   minimumRatio: number,
 ): ThemeRgbColor {
+  // Candidates are rounded to whole channels before measuring, because that
+  // is what reaches CSS: a mix that only passes before rounding can land
+  // just under the floor once written as hex.
+  const round = (color: ThemeRgbColor): ThemeRgbColor => ({
+    r: Math.round(color.r),
+    g: Math.round(color.g),
+    b: Math.round(color.b),
+  });
   const passes = (candidate: ThemeRgbColor) =>
-    grounds.every((ground) => themeContrastRatio(candidate, ground) >= minimumRatio);
-  if (passes(accent)) return accent;
+    grounds.every((ground) => themeContrastRatio(round(candidate), ground) >= minimumRatio);
+  if (passes(accent)) return round(accent);
   let lowerAmount = 0;
   let upperAmount = 1;
   for (let index = 0; index < 12; index += 1) {
@@ -832,19 +840,24 @@ function readableThemeAccent(
     if (passes(mixThemeRgbColors(accent, ink, candidateAmount))) upperAmount = candidateAmount;
     else lowerAmount = candidateAmount;
   }
-  return mixThemeRgbColors(accent, ink, upperAmount);
+  return round(mixThemeRgbColors(accent, ink, upperAmount));
 }
 
 /**
  * CSS for the accent-as-text and accent-as-edge roles that themes do not
- * store: text at 4.5:1 and edges at 3:1 on the canvas, surfaces and sidebar.
+ * store: text at 4.5:1 and edges at 3:1 on the canvas, every surface and the
+ * sidebar.
  */
 export function deriveThemeAccentVariables(colors: ThemeColors): Readonly<Record<string, string>> {
   const ink = parseThemeRgbColor(colors.text, THEME_BLACK_FOREGROUND);
   const accent = parseThemeRgbColor(colors.messageAction, ink);
-  const grounds = [colors.canvas, colors.surface, colors.sidebar].map((value) =>
-    parseThemeRgbColor(value, THEME_WHITE_FOREGROUND),
-  );
+  const grounds = [
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+    colors.sidebar,
+  ].map((value) => parseThemeRgbColor(value, THEME_WHITE_FOREGROUND));
   return {
     [THEME_PRIMARY_TEXT_VARIABLE]: themeRgbToHexColor(
       readableThemeAccent(accent, ink, grounds, 4.5),
@@ -1556,8 +1569,21 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
     // A half-typed hex keeps the last good value instead of blanking the role.
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
-  for (const [variable, value] of Object.entries(deriveThemeAccentVariables(colors))) {
-    root.style.setProperty(variable, value);
+  // Derive only from complete inputs, so a half-typed hex keeps the previous
+  // accent roles instead of snapping them to a fallback color.
+  const derivationInputs = [
+    colors.messageAction,
+    colors.text,
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+    colors.sidebar,
+  ];
+  if (derivationInputs.every(isThemeColor)) {
+    for (const [variable, value] of Object.entries(deriveThemeAccentVariables(colors))) {
+      root.style.setProperty(variable, value);
+    }
   }
 }
 

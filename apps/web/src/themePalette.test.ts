@@ -983,11 +983,39 @@ describe("derived accent roles", () => {
     const derived = deriveThemeAccentVariables(colors);
     const text = derived["--app-theme-primary-text"]!;
     const edge = derived["--app-theme-primary-edge"]!;
-    for (const ground of [colors.canvas, colors.surface, colors.sidebar]) {
+    for (const ground of [
+      colors.canvas,
+      colors.surface,
+      colors.surfaceRaised,
+      colors.surfaceOverlay,
+      colors.sidebar,
+    ]) {
       expect(contrastRatio(text, ground)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(edge, ground)).toBeGreaterThanOrEqual(3);
     }
     expect(contrastRatio(asHex(colors.messageAction), colors.canvas)).toBeLessThan(3);
+  });
+
+  it("gives every built-in theme readable accent roles on every surface", () => {
+    for (const theme of BUILT_IN_THEMES) {
+      for (const colors of [theme.colors, ...Object.values(theme.variants ?? {})]) {
+        const derived = deriveThemeAccentVariables(colors);
+        for (const ground of [
+          colors.canvas,
+          colors.surface,
+          colors.surfaceRaised,
+          colors.surfaceOverlay,
+          colors.sidebar,
+        ]) {
+          expect(
+            contrastRatio(derived["--app-theme-primary-text"]!, ground),
+          ).toBeGreaterThanOrEqual(4.5);
+          expect(
+            contrastRatio(derived["--app-theme-primary-edge"]!, ground),
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
   });
 
   it("keeps an action color that already reads on its grounds", () => {
