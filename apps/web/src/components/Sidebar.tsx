@@ -608,7 +608,7 @@ function SidebarSectionPlaceholder(props: {
         <div
           className={cn(
             "absolute inset-x-0 top-0 flex h-9 items-center justify-center rounded-md border border-dashed border-sidebar-foreground/25 text-xs text-sidebar-foreground/80",
-            props.isDropTarget && "border-primary/40 bg-primary/5 text-primary-text",
+            props.isDropTarget && "border-primary-edge bg-primary/5 text-primary-text",
           )}
         >
           {props.label}
@@ -1560,7 +1560,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           : shouldRecede
             ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
-    isFileDragOver && "ring-1 ring-inset ring-primary/70",
+    isFileDragOver && "ring-1 ring-inset ring-primary-edge",
     // The hover tint must not clobber an active/selected row's own surface.
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
     // The lifted row is an opaque card so the rows beneath it never show
@@ -1593,7 +1593,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     sortable?.isDragging && props.dropVerb !== null ? (
       <span
         role="status"
-        className="pointer-events-none ml-auto inline-flex h-5 shrink-0 items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-1.5 text-[11px] font-medium text-primary-text"
+        className="pointer-events-none ml-auto inline-flex h-5 shrink-0 items-center gap-1 rounded-sm border border-primary-edge bg-primary/10 px-1.5 text-[11px] font-medium text-primary-text"
       >
         {dropVerbBadge[props.dropVerb]}
       </span>
@@ -2262,7 +2262,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
                 props.isHighlighted || props.isRouteActive
                   ? "bg-sidebar-row-active text-sidebar-foreground"
                   : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                isFileDragOver && "ring-1 ring-inset ring-primary/70",
+                isFileDragOver && "ring-1 ring-inset ring-primary-edge",
                 isFileDragOver && !props.isRouteActive && "bg-sidebar-row-hover",
               )}
             />

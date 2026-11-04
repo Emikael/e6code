@@ -70,7 +70,7 @@ function AgentBrowserCursorEvent(props: {
         />
       ) : null}
       <MousePointer2
-        className="relative size-5 -translate-x-0.5 -translate-y-0.5 fill-background text-primary drop-shadow-sm"
+        className="relative size-5 -translate-x-0.5 -translate-y-0.5 fill-primary text-primary-foreground drop-shadow-sm"
         strokeWidth={2}
       />
     </div>

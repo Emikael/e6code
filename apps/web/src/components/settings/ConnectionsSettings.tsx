@@ -2612,7 +2612,7 @@ export function ConnectionsSettings() {
         aria-pressed={selected}
         className={cn(
           "group flex min-h-24 items-start gap-3 rounded-lg border p-4 text-left",
-          selected ? "border-primary/50 bg-primary/5" : "border-border/60 hover:bg-muted/40",
+          selected ? "border-primary-edge bg-primary/5" : "border-border/60 hover:bg-muted/40",
         )}
         disabled={isAddingSavedBackend}
         onClick={() => {
