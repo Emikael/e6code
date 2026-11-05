@@ -976,7 +976,7 @@ function RightPanelTab(
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
         props.active
           ? "bg-surface-floating text-foreground shadow-xs ring-1 ring-border/60"
-          : "text-muted-foreground hover:text-foreground",
+          : "text-sidebar-foreground hover:bg-surface-floating/50",
         isDragging && "relative z-10",
       )}
     >
@@ -1310,7 +1310,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     >
       <div
         className={cn(
-          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border bg-sidebar pl-3",
+          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border bg-sidebar surface-grain pl-3",
           props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
@@ -1328,7 +1328,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           <div className="flex h-full w-max min-w-full items-center gap-1">
             <div
               className={cn(
-                "flex h-7 items-center gap-0.5 rounded-lg bg-surface-well p-0.5",
+                "flex h-7 items-center gap-0.5 rounded-lg p-[3px]",
+                // The groove reads as a segmented control only once it holds a choice.
+                props.surfaces.length > 1 && "bg-accent",
                 props.surfaces.length === 0 && "hidden",
               )}
             >

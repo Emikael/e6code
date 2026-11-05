@@ -34,31 +34,43 @@ export const SUBAGENT_TONE_TEXT_CLASS: Readonly<Record<SubagentStatusTone, strin
   stopped: "text-muted-foreground",
 };
 
-/** Shape-distinct status glyph for dense rows (Inspector lineage). */
+/**
+ * Shape-distinct status glyph for dense rows (Inspector lineage). It names
+ * itself unless `decorative`, for places where the status word sits beside it.
+ */
 export function SubagentStatusGlyph({
   tone,
   className,
+  decorative = false,
 }: {
   tone: SubagentStatusTone;
   className?: string;
+  decorative?: boolean;
 }) {
-  const iconClassName = cn("size-3.5 shrink-0", SUBAGENT_TONE_TEXT_CLASS[tone], className);
-  const label = SUBAGENT_STATUS_LABEL[tone];
+  const props = {
+    className: cn("size-3.5 shrink-0", SUBAGENT_TONE_TEXT_CLASS[tone], className),
+    ...(decorative
+      ? { "aria-hidden": true as const }
+      : { "aria-label": SUBAGENT_STATUS_LABEL[tone], role: "img" }),
+  };
   switch (tone) {
     case "working":
-      return <CircleDashedIcon aria-label={label} role="img" className={iconClassName} />;
+      return <CircleDashedIcon {...props} />;
     case "idle":
-      return <CirclePauseIcon aria-label={label} role="img" className={iconClassName} />;
+      return <CirclePauseIcon {...props} />;
     case "done":
-      return <CircleCheckIcon aria-label={label} role="img" className={iconClassName} />;
+      return <CircleCheckIcon {...props} />;
     case "failed":
-      return <CircleXIcon aria-label={label} role="img" className={iconClassName} />;
+      return <CircleXIcon {...props} />;
     case "stopped":
-      return <SquareIcon aria-label={label} role="img" className={iconClassName} />;
+      return <SquareIcon {...props} />;
   }
 }
 
-/** Status word with its leading mark: a dot while working, a glyph once settled. */
+/**
+ * Status word with its shape-distinct glyph. The solid dot is reserved for the
+ * turn's own Volt live signal, so a working subagent uses the dashed circle.
+ */
 export function SubagentStatusWord({
   tone,
   className,
@@ -75,7 +87,7 @@ export function SubagentStatusWord({
       )}
     >
       {tone === "working" ? (
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-info" />
+        <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "done" ? (
         <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "failed" ? (
@@ -97,7 +109,7 @@ export function SubagentTile({
   className,
 }: {
   driverKind: ProviderDriverKind | null;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   className?: string;
 }) {
   const Icon = driverKind ? (PROVIDER_ICON_BY_PROVIDER[driverKind] ?? null) : null;
@@ -106,6 +118,7 @@ export function SubagentTile({
       aria-hidden
       className={cn(
         "inline-flex shrink-0 items-center justify-center border border-input bg-surface-raised text-foreground",
+        size === "xs" && "size-4 rounded-[4px]",
         size === "sm" && "size-4.5 rounded-[5px]",
         size === "md" && "size-5.5 rounded-md",
         size === "lg" && "size-7 rounded-lg",
@@ -116,7 +129,7 @@ export function SubagentTile({
         <Icon
           className={cn(
             "fill-current",
-            size === "sm" ? "size-2.5" : size === "md" ? "size-3" : "size-3.5",
+            size === "xs" || size === "sm" ? "size-2.5" : size === "md" ? "size-3" : "size-3.5",
           )}
         />
       ) : (
@@ -126,37 +139,40 @@ export function SubagentTile({
   );
 }
 
-/** Elapsed time of the current activation, ticking while the agent is live. */
+/**
+ * Elapsed time of the current activation, ticking while the agent is live.
+ * Renders a dash before the agent starts so the column keeps its width.
+ */
 export function SubagentElapsed({
   agent,
   className,
 }: {
-  agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt">;
+  agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt" | "updatedAt">;
   className?: string;
 }) {
   const textRef = useRef<HTMLSpanElement>(null);
   // Live rows rewrite their own text each second; the render only seeds it.
   const [mountedAt] = useState(Date.now);
   const live = subagentElapsedIsLive(agent.status);
-  const { status, startedAt, completedAt } = agent;
+  const { status, startedAt, completedAt, updatedAt } = agent;
 
   useEffect(() => {
     if (!live || !startedAt) return;
     const update = () => {
-      const ms = subagentElapsedMs({ status, startedAt, completedAt }, Date.now());
-      if (textRef.current)
-        textRef.current.textContent = ms === null ? "" : formatSubagentElapsed(ms);
+      const ms = subagentElapsedMs({ status, startedAt, completedAt, updatedAt }, Date.now());
+      if (textRef.current) {
+        textRef.current.textContent = ms === null ? "–" : formatSubagentElapsed(ms);
+      }
     };
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [live, status, startedAt, completedAt]);
+  }, [live, status, startedAt, completedAt, updatedAt]);
 
   const ms = subagentElapsedMs(agent, mountedAt);
-  if (ms === null) return null;
   return (
-    <span ref={textRef} className={cn("font-mono tabular-nums", className)}>
-      {formatSubagentElapsed(ms)}
+    <span ref={textRef} className={cn("tabular-nums", className)}>
+      {ms === null ? "–" : formatSubagentElapsed(ms)}
     </span>
   );
 }

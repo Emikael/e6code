@@ -3,6 +3,7 @@ import { classifyTaskAgentKind, type OrchestrationThreadActivity } from "@e6tool
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
+  describeSpawnBatchStatus,
   formatSubagentElapsed,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
@@ -922,23 +923,56 @@ describe("subagent presentation", () => {
     expect(subagentActivityText({ ...base, progress: null, status: "running" })).toBe("▸ Edit");
   });
 
-  it("freezes elapsed time once an activation settles", () => {
+  it("freezes elapsed time once an activation settles or rests", () => {
     const now = Date.parse("2026-08-01T10:05:00.000Z");
     const startedAt = "2026-08-01T10:00:00.000Z";
-    expect(subagentElapsedMs({ status: "running", startedAt, completedAt: null }, now)).toBe(
-      300_000,
-    );
+    const updatedAt = "2026-08-01T10:00:40.000Z";
+    expect(
+      subagentElapsedMs({ status: "running", startedAt, completedAt: null, updatedAt }, now),
+    ).toBe(300_000);
     expect(
       subagentElapsedMs(
-        { status: "completed", startedAt, completedAt: "2026-08-01T10:00:32.000Z" },
+        { status: "completed", startedAt, completedAt: "2026-08-01T10:00:32.000Z", updatedAt },
         now,
       ),
     ).toBe(32_000);
-    expect(subagentElapsedMs({ status: "pending", startedAt: null, completedAt: null }, now)).toBe(
-      null,
-    );
+    // Idle is resumable, not terminal: it has no completedAt but must not keep counting.
+    expect(
+      subagentElapsedMs({ status: "idle", startedAt, completedAt: null, updatedAt }, now),
+    ).toBe(40_000);
+    expect(
+      subagentElapsedMs({ status: "pending", startedAt: null, completedAt: null, updatedAt }, now),
+    ).toBe(null);
     expect(formatSubagentElapsed(19_000)).toBe("19s");
     expect(formatSubagentElapsed(65_000)).toBe("1m 05s");
     expect(formatSubagentElapsed(7_380_000)).toBe("2h 03m");
+  });
+
+  it("lets a workflow coordinator's own outcome lead the batch line", () => {
+    const done = [{ status: "completed" as const }, { status: "completed" as const }];
+    expect(
+      describeSpawnBatchStatus({ agents: done, agentCount: 2, coordinatorStatus: "failed" }),
+    ).toMatchObject({
+      text: "Workflow failed · 2 done",
+      parts: [
+        { text: "Workflow failed", tone: "failed" },
+        { text: "2 done", tone: "done" },
+      ],
+      tone: "failed",
+      live: false,
+    });
+    expect(
+      describeSpawnBatchStatus({ agents: done, agentCount: 2, coordinatorStatus: "running" }),
+    ).toMatchObject({ text: "Working · 2 done", tone: "working", live: true });
+    expect(describeSpawnBatchStatus({ agents: done, agentCount: 4 })).toMatchObject({
+      text: "2 done · 2 unavailable",
+      tone: "done",
+      live: false,
+    });
+    expect(describeSpawnBatchStatus({ agents: [], agentCount: 3 })).toMatchObject({
+      text: "3 unavailable",
+      tone: null,
+      live: false,
+    });
   });
 });

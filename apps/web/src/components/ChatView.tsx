@@ -4608,7 +4608,9 @@ export default function ChatView(props: ChatViewProps) {
       if (!activeThreadRef) return;
       // Launcher clicks pass a DOM event; only a subagent row passes its id.
       if (typeof agentId === "string") {
-        useSubagentSelectionStore.getState().select(scopedThreadKey(activeThreadRef), agentId);
+        useSubagentSelectionStore
+          .getState()
+          .select(scopedThreadKey(activeThreadRef), agentId, { reveal: true });
       }
       useRightPanelStore.getState().open(activeThreadRef, "agents");
     },
@@ -10131,6 +10133,7 @@ export default function ChatView(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
+            workspaceActionsInPanel={rightPanelOpen && activeRightPanelSurface?.kind === "agents"}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
@@ -10197,7 +10200,12 @@ export default function ChatView(props: ChatViewProps) {
                       agentPanelModel,
                       onOpenAgents: addAgentsSurface,
                       subagentProviderKind: selectedProvider ?? null,
-                      hasPendingApproval: pendingApprovals.length > 0,
+                      pendingAttention:
+                        pendingApprovals.length > 0
+                          ? "approval"
+                          : pendingUserInputs.length > 0
+                            ? "input"
+                            : null,
                       onUseArtifactTemplate: useArtifactTemplate,
                     }
                   : {})}

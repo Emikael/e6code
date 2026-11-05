@@ -114,7 +114,7 @@ describe("theme files", () => {
     expectThemeColors(getStandardThemeColors("dark"), {
       canvas: "#0e0f0d",
       sidebar: "#141512",
-      sidebarRowActive: "#252622",
+      sidebarRowActive: "#2c2d29",
       messageSurface: "#1f201c",
     });
   });

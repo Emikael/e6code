@@ -47,9 +47,9 @@ import {
   isActiveSubagentStatus,
   isTerminalSubagentStatus,
   SUBAGENT_STATUS_LABEL,
+  describeSpawnBatchStatus,
   subagentActivityText,
   subagentStatusTone,
-  summarizeSubagentStatuses,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
@@ -61,6 +61,8 @@ import {
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
+/** A turn blocked on the user: an approval to grant or a question to answer. */
+type PendingAttention = "approval" | "input" | null;
 const EMPTY_QUEUED_MESSAGES: ReadonlyArray<QueuedComposerMessage> = [];
 const NOOP_QUEUED_MESSAGE_ACTION = (_id: string) => {};
 const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
@@ -72,6 +74,7 @@ import { getProjectFaviconCacheKey } from "@e6tools/shared/projectFavicon";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
   createContext,
+  Fragment,
   memo,
   use,
   useCallback,
@@ -289,7 +292,6 @@ import { type TimestampFormat } from "@e6tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 
 import { SkillInlineText } from "./SkillInlineText";
-import { deriveAgentSpawnSummary } from "./agentSpawnSummary";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
   buildReviewCommentRenderablePatch,
@@ -357,8 +359,8 @@ interface TimelineRowActivityState {
    * list itself has already left the timeline.
    */
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
-  /** An approval blocks the turn; the working row says so instead of "Working". */
-  hasPendingApproval: boolean;
+  /** What the turn is blocked on, if anything; the working row says so instead of "Working". */
+  pendingAttention: PendingAttention;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -484,7 +486,7 @@ interface MessagesTimelineProps {
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: (agentId?: string) => void;
   subagentProviderKind?: ProviderDriverKind | null;
-  hasPendingApproval?: boolean;
+  pendingAttention?: PendingAttention;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -572,7 +574,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   agentPanelModel,
   onOpenAgents = NOOP_OPEN_AGENTS,
   subagentProviderKind = null,
-  hasPendingApproval = false,
+  pendingAttention = null,
   listRef,
   timelineEntries,
   latestTurn,
@@ -1330,11 +1332,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       // beside it can never disagree about whether a turn is still live.
       unsettledTurnId: deriveUnsettledTurnId(latestTurn ?? null, runningTurnId),
       backgroundWorktreeSetup,
-      hasPendingApproval,
+      pendingAttention,
     }),
     [
       backgroundWorktreeSetup,
-      hasPendingApproval,
+      pendingAttention,
       isCompacting,
       isRevertingCheckpoint,
       isWorking,
@@ -2686,18 +2688,22 @@ function ProposedPlanTimelineRow({
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup, hasPendingApproval } =
+  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup, pendingAttention } =
     use(TimelineRowActivityCtx);
   // One span for every label so the setup-to-working handoff swaps text in
   // place instead of remounting the row.
   const shimmer = isPreparingWorktree || isCompacting;
-  const waiting = !shimmer && hasPendingApproval;
+  const waiting = !shimmer && pendingAttention !== null;
   const label = isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />
   ) : waiting ? (
-    "Waiting on your approval"
+    pendingAttention === "approval" ? (
+      "Waiting on your approval"
+    ) : (
+      "Waiting on your answer"
+    )
   ) : (
     "Working"
   );
@@ -2711,8 +2717,11 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
           // approval is pending, the Volt moves to the Approve action instead.
           <span
             aria-hidden
-            className="size-2 shrink-0 rounded-full bg-primary ring-1 ring-primary-edge animate-status-pulse motion-reduce:animate-none"
-          />
+            className="inline-flex size-2 shrink-0 rounded-full ring-1 ring-primary-edge"
+          >
+            {/* Only the fill pulses, so the edge keeps the dot visible on Paper. */}
+            <span className="size-full rounded-full bg-primary animate-status-pulse motion-reduce:animate-none" />
+          </span>
         )}
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}
@@ -2726,7 +2735,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
           {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
         {!shimmer && row.createdAt ? (
-          <span className="font-mono text-xs">
+          <span className="text-xs">
             <WorkingTimer createdAt={row.createdAt} />
           </span>
         ) : null}
@@ -4755,11 +4764,15 @@ const stopRowToggleWhileSelectingText = (e: MouseEvent<HTMLElement>) => {
   }
 };
 
+/** A batch this large shows its first rows and folds the rest behind a toggle. */
+const SPAWN_CARD_ROW_LIMIT = 8;
+
 /**
  * One card per spawn batch. Batches spawned in the latest turn start open so
- * the fleet is visible while it works; older ones start folded. A toggle
- * flips that default and is remembered with the thread's scroll position.
- * Rows reserve three fixed lines so live updates never shift the thread.
+ * the fleet is visible while it works; older ones start folded. An explicit
+ * open or close is remembered per card (with the thread's scroll position) and
+ * outlives later turns. Rows reserve three fixed lines so live updates never
+ * shift the thread.
  */
 const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   workEntry: TimelineWorkEntry;
@@ -4774,13 +4787,17 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     subagentProviderKind,
   } = use(TimelineRowCtx);
   const { latestTurnId } = use(TimelineRowActivityCtx);
+  const [showAllRows, setShowAllRows] = useState(false);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
   }
-  const toggled = expandedSpawnEntryIds.has(workEntry.id);
-  const defaultOpen = workEntry.turnId != null && workEntry.turnId === latestTurnId;
-  const expanded = toggled ? !defaultOpen : defaultOpen;
+  const closedKey = spawnCardClosedKey(workEntry.id);
+  const expanded = expandedSpawnEntryIds.has(workEntry.id)
+    ? true
+    : expandedSpawnEntryIds.has(closedKey)
+      ? false
+      : workEntry.turnId != null && workEntry.turnId === latestTurnId;
 
   const memberIds = new Set(spawn.agentTaskIds);
   const workflowGroup = spawn.workflowId
@@ -4793,34 +4810,39 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     agents.length,
     Math.max(memberIds.size - (spawn.workflowId ? 1 : 0), 0),
   );
-  const { live, status: fallbackStatus } = deriveAgentSpawnSummary({
+  const status = describeSpawnBatchStatus({
     agents,
     agentCount,
     coordinatorStatus: workflowGroup?.workflow.status,
   });
-  const summary = summarizeSubagentStatuses(agents);
-  const summaryTone = summary.tone ?? (live ? "working" : null);
   const workflowName =
     workflowGroup?.workflow.workflowName ?? workflowGroup?.workflow.title ?? null;
   const title = workflowName ?? `${agentCount} ${agentCount === 1 ? "subagent" : "subagents"}`;
-  const stackCount = Math.max(agentCount, agents.length);
-  const stackTiles = Math.min(stackCount, stackCount > 4 ? 3 : 4);
+  const stackTiles = Math.min(agentCount, agentCount > 4 ? 3 : 4);
   const starts = agents.flatMap((agent) => (agent.startedAt ? [agent.startedAt] : []));
-  const ends = agents.flatMap((agent) => (agent.completedAt ? [agent.completedAt] : []));
+  // Resting members have no completedAt; their last update is where they stopped.
+  const ends = agents.map((agent) => agent.completedAt ?? agent.updatedAt);
   const batchSpan = {
-    status: live ? ("running" as const) : ("completed" as const),
+    status: status.live ? ("running" as const) : ("completed" as const),
     startedAt: starts.length > 0 ? starts.toSorted()[0]! : null,
     completedAt: ends.length > 0 ? ends.toSorted().at(-1)! : null,
+    updatedAt: workEntry.createdAt,
   };
+  const visibleAgents =
+    showAllRows || agents.length <= SPAWN_CARD_ROW_LIMIT + 2
+      ? agents
+      : agents.slice(0, SPAWN_CARD_ROW_LIMIT);
   const toggleExpanded = () => {
     props.onToggleEntry?.(expanded);
-    onToggleSpawnRow(workEntry.id, !toggled);
+    onToggleSpawnRow(workEntry.id, !expanded);
+    onToggleSpawnRow(closedKey, expanded);
   };
 
   return (
-    <section
+    <div
+      role="group"
       aria-label={title}
-      className="my-1 overflow-hidden rounded-xl border border-border bg-card shadow-xs"
+      className="@container/spawn my-1 overflow-hidden rounded-xl border border-border bg-card shadow-xs"
     >
       <button
         type="button"
@@ -4828,37 +4850,45 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
         onClick={toggleExpanded}
         className="flex w-full min-w-0 cursor-pointer select-none items-center gap-3 px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <span aria-hidden className="flex shrink-0 ps-1.5">
+        {/* Below ~26rem the stack yields its room to the status line. */}
+        <span aria-hidden className="hidden shrink-0 ps-1 @[26rem]/spawn:flex">
           {Array.from({ length: stackTiles }, (_, index) => (
             <SubagentTile
               key={index}
               driverKind={subagentProviderKind}
-              className="-ms-1.5 ring-2 ring-card"
+              className="-ms-1 ring-1 ring-card"
             />
           ))}
-          {stackCount > stackTiles ? (
-            <span className="-ms-1.5 inline-flex size-5.5 items-center justify-center rounded-md border border-input bg-surface-raised text-[9px] font-bold text-foreground ring-2 ring-card">
-              +{stackCount - stackTiles}
+          {agentCount > stackTiles ? (
+            <span className="-ms-1 inline-flex size-5.5 items-center justify-center rounded-md border border-input bg-surface-raised text-[9px] font-bold text-foreground ring-1 ring-card">
+              +{agentCount - stackTiles}
             </span>
           ) : null}
         </span>
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
-          <span
-            className={cn(
-              "inline-flex min-w-0 items-center gap-1.5 text-xs font-medium",
-              summaryTone ? SUBAGENT_TONE_TEXT_CLASS[summaryTone] : "text-muted-foreground",
-            )}
-          >
-            {summaryTone === "working" ? (
-              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-info" />
-            ) : summaryTone ? (
-              <SubagentStatusGlyph tone={summaryTone} className="size-3" />
+          <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+            {status.tone ? (
+              <SubagentStatusGlyph tone={status.tone} className="size-3" decorative />
             ) : null}
-            <span className="truncate">{summary.text || fallbackStatus}</span>
+            <span className="min-w-0 truncate">
+              {status.parts.map((part, index) => (
+                <Fragment key={part.text}>
+                  {index > 0 ? <span className="text-muted-foreground"> · </span> : null}
+                  <span
+                    className={
+                      part.tone ? SUBAGENT_TONE_TEXT_CLASS[part.tone] : "text-muted-foreground"
+                    }
+                  >
+                    {part.text}
+                  </span>
+                </Fragment>
+              ))}
+              <span className="text-muted-foreground"> · </span>
+              <SubagentElapsed agent={batchSpan} className="text-muted-foreground" />
+            </span>
           </span>
         </span>
-        <SubagentElapsed agent={batchSpan} className="shrink-0 text-xs text-muted-foreground" />
         <ChevronDownIcon
           aria-hidden
           className={cn(
@@ -4869,7 +4899,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
       </button>
       {expanded && agents.length > 0 ? (
         <div className="flex flex-col gap-0.5 border-t border-border p-1">
-          {agents.map((agent) => (
+          {visibleAgents.map((agent) => (
             <SubagentBatchRow
               key={agent.id}
               agent={agent}
@@ -4877,11 +4907,29 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
               onOpen={onOpenAgents}
             />
           ))}
+          {agents.length > visibleAgents.length || showAllRows ? (
+            <button
+              type="button"
+              aria-expanded={showAllRows}
+              onClick={() => {
+                props.onToggleEntry?.(showAllRows);
+                setShowAllRows((value) => !value);
+              }}
+              className="h-8 rounded-lg px-2.5 text-left text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              {showAllRows ? "Show fewer" : `Show ${agents.length - visibleAgents.length} more`}
+            </button>
+          ) : null}
         </div>
       ) : null}
-    </section>
+    </div>
   );
 });
+
+/** Disclosure key recording that the user closed a card that would start open. */
+function spawnCardClosedKey(entryId: string): string {
+  return `closed:${entryId}`;
+}
 
 /** Identity, activity and metrics on three fixed lines; opens the Inspector. */
 function SubagentBatchRow({
@@ -4900,14 +4948,12 @@ function SubagentBatchRow({
     agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : null,
     agent.usage?.toolUses !== undefined ? `${agent.usage.toolUses} tools` : null,
     agent.activationCount > 1 ? `run ${agent.activationCount}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter((segment): segment is string => segment !== null);
   return (
     <button
       type="button"
       onClick={() => onOpen(agent.id)}
-      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in the inspector`}
+      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in Overview`}
       className="flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <SubagentTile driverKind={providerKind} className="mt-px" />
@@ -4916,22 +4962,32 @@ function SubagentBatchRow({
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
             {agent.title}
           </span>
-          <SubagentStatusWord tone={tone} />
+          {/* Narrow cards keep the shape-distinct glyph; the word returns with room. */}
+          <SubagentStatusGlyph tone={tone} className="size-3 @[26rem]/spawn:hidden" />
+          <SubagentStatusWord tone={tone} className="hidden @[26rem]/spawn:inline-flex" />
           <SubagentElapsed
             agent={agent}
-            className="w-11 shrink-0 text-right text-xs text-muted-foreground"
+            className="min-w-14 shrink-0 text-right text-xs text-muted-foreground"
           />
         </span>
         <span
           className={cn(
             "truncate text-xs leading-[1.1875rem]",
-            tone === "failed" ? "text-destructive-foreground" : "text-muted-foreground",
+            tone === "failed" ? "text-destructive-foreground" : "text-secondary-foreground",
           )}
         >
           {activity ?? SUBAGENT_STATUS_LABEL[tone]}
         </span>
-        <span className="truncate font-mono text-[11px] leading-[1.0625rem] tabular-nums text-muted-foreground">
-          {metrics || "\u00a0"}
+        {/* Whole segments drop out when space runs short; none is cut mid-word. */}
+        <span className="flex h-[1.0625rem] min-w-0 flex-wrap gap-x-1.5 overflow-hidden text-[11px] leading-[1.0625rem] tabular-nums text-muted-foreground">
+          {metrics.length > 0
+            ? metrics.map((segment, index) => (
+                <span key={segment} className="whitespace-nowrap">
+                  {index > 0 ? "· " : ""}
+                  {segment}
+                </span>
+              ))
+            : "\u00a0"}
         </span>
       </span>
     </button>

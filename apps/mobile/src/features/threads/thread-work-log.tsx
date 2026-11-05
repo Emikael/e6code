@@ -1018,9 +1018,9 @@ const AGENT_SPAWN_TONE_DOT_CLASS = {
 } as const satisfies Record<AgentSpawnSummary["tone"], string>;
 
 const AGENT_SPAWN_TONE_TEXT_CLASS = {
-  working: "text-adaptive-sky-600-400",
+  working: "text-adaptive-sky-700-300",
   completed: "text-adaptive-emerald-700-300",
-  failed: "text-adaptive-rose-700-300",
+  failed: "text-danger-foreground",
   stopped: "text-foreground-muted",
 } as const satisfies Record<AgentSpawnSummary["tone"], string>;
 
@@ -1033,13 +1033,27 @@ const AGENT_SPAWN_TONE_WORD = {
 
 const AGENT_SPAWN_SUMMARY_ORDER = ["working", "failed", "stopped", "completed"] as const;
 
-/** "3 working · 1 done": live work first, then problems, then successes. */
-function agentSpawnCountsText(members: AgentSpawnSummary["members"]): string {
-  return AGENT_SPAWN_SUMMARY_ORDER.flatMap((tone) => {
+/**
+ * "3 working · 1 done": live work first, then problems, then successes. When
+ * the batch's own state disagrees with its members (a coordinator still
+ * running between launches, or one that failed after its members finished),
+ * that state leads, so the line's color and its first word always agree.
+ */
+function agentSpawnCountsText(
+  members: AgentSpawnSummary["members"],
+  batchTone: AgentSpawnSummary["tone"],
+): string {
+  const counts = AGENT_SPAWN_SUMMARY_ORDER.flatMap((tone) => {
     const count = members.filter((member) => member.tone === tone).length;
     if (count === 0) return [];
     return [`${count} ${tone === "completed" ? "done" : tone}`];
-  }).join(" · ");
+  });
+  const leads = members.some((member) => member.tone === batchTone);
+  const lead =
+    batchTone === "completed" || leads
+      ? []
+      : [batchTone === "working" ? "Working" : batchTone === "failed" ? "Failed" : "Stopped"];
+  return [...lead, ...counts].join(" · ");
 }
 
 /** Status word with its dot; the word carries the state, the dot only echoes it. */
@@ -1102,7 +1116,8 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
   const { summary, expanded } = props;
   const memberCount = summary.members.length;
   const canExpand = memberCount > 0;
-  const statusText = memberCount > 1 ? agentSpawnCountsText(summary.members) : summary.status;
+  const statusText =
+    memberCount > 1 ? agentSpawnCountsText(summary.members, summary.tone) : summary.status;
   const stackTiles = Math.min(Math.max(memberCount, 1), memberCount > 4 ? 3 : 4);
   return (
     <Animated.View layout={WORK_LOG_LAYOUT_TRANSITION} className="-mx-1 mb-1 px-1">
