@@ -811,6 +811,64 @@ function themeContrastRatio(first: ThemeRgbColor, second: ThemeRgbColor): number
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/**
+ * The theme's action color moved toward its text color only as far as needed
+ * for `minimumRatio` against every ground. A light action color such as Volt
+ * stays recognizable but readable; one that already passes is unchanged.
+ */
+function readableThemeAccent(
+  accent: ThemeRgbColor,
+  ink: ThemeRgbColor,
+  grounds: ReadonlyArray<ThemeRgbColor>,
+  minimumRatio: number,
+): ThemeRgbColor {
+  // Candidates are rounded to whole channels before measuring, because that
+  // is what reaches CSS: a mix that only passes before rounding can land
+  // just under the floor once written as hex.
+  const round = (color: ThemeRgbColor): ThemeRgbColor => ({
+    r: Math.round(color.r),
+    g: Math.round(color.g),
+    b: Math.round(color.b),
+  });
+  const passes = (candidate: ThemeRgbColor) =>
+    grounds.every((ground) => themeContrastRatio(round(candidate), ground) >= minimumRatio);
+  if (passes(accent)) return round(accent);
+  let lowerAmount = 0;
+  let upperAmount = 1;
+  for (let index = 0; index < 12; index += 1) {
+    const candidateAmount = (lowerAmount + upperAmount) / 2;
+    if (passes(mixThemeRgbColors(accent, ink, candidateAmount))) upperAmount = candidateAmount;
+    else lowerAmount = candidateAmount;
+  }
+  return round(mixThemeRgbColors(accent, ink, upperAmount));
+}
+
+/**
+ * CSS for the accent-as-text and accent-as-edge roles that themes do not
+ * store: text at 4.5:1 and edges at 3:1 on the canvas, every surface and the
+ * sidebar.
+ */
+export function deriveThemeAccentVariables(colors: ThemeColors): Readonly<Record<string, string>> {
+  const ink = parseThemeRgbColor(colors.text, THEME_BLACK_FOREGROUND);
+  const accent = parseThemeRgbColor(colors.messageAction, ink);
+  const grounds = [
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+    colors.sidebar,
+  ].map((value) => parseThemeRgbColor(value, THEME_WHITE_FOREGROUND));
+  return {
+    [THEME_PRIMARY_TEXT_VARIABLE]: themeRgbToHexColor(
+      readableThemeAccent(accent, ink, grounds, 4.5),
+    ),
+    [THEME_PRIMARY_EDGE_VARIABLE]: themeRgbToHexColor(readableThemeAccent(accent, ink, grounds, 3)),
+  };
+}
+
+const THEME_PRIMARY_TEXT_VARIABLE = "--app-theme-primary-text";
+const THEME_PRIMARY_EDGE_VARIABLE = "--app-theme-primary-edge";
+
 function readableThemeForeground(background: ThemeRgbColor): ThemeRgbColor {
   const lightContrast = themeContrastRatio(background, THEME_LIGHT_FOREGROUND);
   const darkContrast = themeContrastRatio(background, THEME_DARK_FOREGROUND);
@@ -1511,6 +1569,22 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
     // A half-typed hex keeps the last good value instead of blanking the role.
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
+  // Derive only from complete inputs, so a half-typed hex keeps the previous
+  // accent roles instead of snapping them to a fallback color.
+  const derivationInputs = [
+    colors.messageAction,
+    colors.text,
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+    colors.sidebar,
+  ];
+  if (derivationInputs.every(isThemeColor)) {
+    for (const [variable, value] of Object.entries(deriveThemeAccentVariables(colors))) {
+      root.style.setProperty(variable, value);
+    }
+  }
 }
 
 export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppearance): void {
@@ -1529,6 +1603,9 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
       root.style.setProperty(APP_THEME_VARIABLES[role], value);
     }
+    for (const [variable, value] of Object.entries(deriveThemeAccentVariables(colors))) {
+      root.style.setProperty(variable, value);
+    }
     return;
   }
 
@@ -1536,6 +1613,8 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
   for (const variable of Object.values(APP_THEME_VARIABLES)) {
     root.style.removeProperty(variable);
   }
+  root.style.removeProperty(THEME_PRIMARY_TEXT_VARIABLE);
+  root.style.removeProperty(THEME_PRIMARY_EDGE_VARIABLE);
 }
 
 export function resolveThemeAppearance(

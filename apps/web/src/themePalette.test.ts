@@ -11,6 +11,7 @@ import {
   getThemePreferenceMode,
   isKnownThemePreference,
   getCustomThemes,
+  deriveThemeAccentVariables,
   getStandardThemeColors,
   getStoredCustomThemeCollection,
   invalidateCustomThemes,
@@ -90,31 +91,31 @@ describe("theme files", () => {
     }
   });
 
-  it("keeps stock dark controls in the neutral-black surface hierarchy", () => {
+  it("keeps stock dark surfaces stepping lighter as they rise off the graphite canvas", () => {
     expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      surface: "#111111",
-      surfaceRaised: "#111111",
-      surfaceOverlay: "#111111",
-      toolbarControl: "#111111",
-      secondary: "#111111",
-      muted: "#111111",
-      accentSurface: "#141414",
+      canvas: "#0e0f0d",
+      surface: "#171815",
+      surfaceRaised: "#1b1c19",
+      surfaceOverlay: "#20211e",
+      toolbarControl: "#171815",
+      secondary: "#151614",
+      muted: "#151614",
+      accentSurface: "#242a12",
     });
   });
 
   it("keeps the stock sidebar and chat on distinct surfaces in both appearances", () => {
     expectThemeColors(getStandardThemeColors("light"), {
-      canvas: "#fcfcfc",
-      sidebar: "#fafafa",
+      canvas: "#f6f6f2",
+      sidebar: "#eeeee8",
       sidebarRowActive: "#ffffff",
-      messageSurface: "#f4f4f5",
+      messageSurface: "#e9eae2",
     });
     expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      sidebar: "#000000",
-      sidebarRowActive: "#1a1b1b",
-      messageSurface: "#141414",
+      canvas: "#0e0f0d",
+      sidebar: "#040504",
+      sidebarRowActive: "#202020",
+      messageSurface: "#1f201c",
     });
   });
 
@@ -972,6 +973,56 @@ describe("theme files", () => {
 
     vi.unstubAllGlobals();
     invalidateCustomThemes();
+  });
+});
+
+describe("derived accent roles", () => {
+  it("darkens a light action color until it reads as text and as an edge on every ground", () => {
+    // A theme seeded from the stock light palette keeps Volt as its action color.
+    const colors = getStandardThemeColors("light");
+    const derived = deriveThemeAccentVariables(colors);
+    const text = derived["--app-theme-primary-text"]!;
+    const edge = derived["--app-theme-primary-edge"]!;
+    for (const ground of [
+      colors.canvas,
+      colors.surface,
+      colors.surfaceRaised,
+      colors.surfaceOverlay,
+      colors.sidebar,
+    ]) {
+      expect(contrastRatio(text, ground)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(edge, ground)).toBeGreaterThanOrEqual(3);
+    }
+    expect(contrastRatio(asHex(colors.messageAction), colors.canvas)).toBeLessThan(3);
+  });
+
+  it("gives every built-in theme readable accent roles on every surface", () => {
+    for (const theme of BUILT_IN_THEMES) {
+      for (const colors of [theme.colors, ...Object.values(theme.variants ?? {})]) {
+        const derived = deriveThemeAccentVariables(colors);
+        for (const ground of [
+          colors.canvas,
+          colors.surface,
+          colors.surfaceRaised,
+          colors.surfaceOverlay,
+          colors.sidebar,
+        ]) {
+          expect(
+            contrastRatio(derived["--app-theme-primary-text"]!, ground),
+          ).toBeGreaterThanOrEqual(4.5);
+          expect(
+            contrastRatio(derived["--app-theme-primary-edge"]!, ground),
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+  });
+
+  it("keeps an action color that already reads on its grounds", () => {
+    const colors = getStandardThemeColors("dark");
+    const derived = deriveThemeAccentVariables(colors);
+    expect(derived["--app-theme-primary-text"]).toBe(asHex(colors.messageAction));
+    expect(derived["--app-theme-primary-edge"]).toBe(asHex(colors.messageAction));
   });
 });
 

@@ -715,7 +715,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={`${resolveThreadRowClassName({
           isActive,
           isSelected,
-        })} relative isolate${isFileDragOver ? " ring-1 ring-inset ring-primary/70" : ""}`}
+        })} relative isolate${isFileDragOver ? " ring-1 ring-inset ring-primary-edge" : ""}`}
         onClick={handleRowClick}
         onDoubleClick={handleRowDoubleClick}
         onKeyDown={handleRowKeyDown}
@@ -2857,7 +2857,7 @@ function SortableProjectItem({
       }}
       className={`group/menu-item relative rounded-md ${
         isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
+      } ${isOver && !isDragging ? "ring-1 ring-primary-edge" : ""}`}
       data-sidebar="menu-item"
       data-slot="sidebar-menu-item"
     >

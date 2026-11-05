@@ -182,7 +182,7 @@ export function SettingInheritance({
                   className={cn(
                     "[--control-icon-color:currentColor]",
                     state === "overridden"
-                      ? "text-primary hover:text-primary"
+                      ? "text-primary-text hover:text-primary-text"
                       : state === "mixed"
                         ? "text-warning hover:text-warning"
                         : state === "environment"
@@ -242,7 +242,7 @@ export function SettingInheritance({
                     >
                       <span className="max-w-32 truncate">{layer.value}</span>
                       {layer.effective ? (
-                        <CheckIcon aria-hidden className="size-3.5 shrink-0 text-primary" />
+                        <CheckIcon aria-hidden className="size-3.5 shrink-0 text-primary-text" />
                       ) : (
                         <span aria-hidden className="size-3.5 shrink-0" />
                       )}

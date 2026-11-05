@@ -877,7 +877,7 @@ function KeybindingKeyControl({
           value={isRecording ? "" : keyDraft}
           placeholder={isRecording ? "Press shortcut" : "Unassigned"}
           size="sm"
-          className={cn("w-44 font-mono", isRecording && "border-primary/70 bg-primary/5")}
+          className={cn("w-44 font-mono", isRecording && "border-primary-edge bg-primary/5")}
           onFocus={() => setDraft({ isRecording: true })}
           onBlur={() => setDraft({ isRecording: false })}
           onChange={(event) => setDraft({ keyDraft: event.currentTarget.value })}
@@ -1191,7 +1191,11 @@ function NewKeybindingKeyInput({
       value={draft.isRecording ? "" : draft.keyDraft}
       placeholder={draft.isRecording ? "Press shortcut" : "Unassigned"}
       size="sm"
-      className={cn("font-mono", draft.isRecording && "border-primary/70 bg-primary/5", className)}
+      className={cn(
+        "font-mono",
+        draft.isRecording && "border-primary-edge bg-primary/5",
+        className,
+      )}
       onFocus={() => draft.setDraft({ isRecording: true })}
       onBlur={() => draft.setDraft({ isRecording: false })}
       onChange={(event) => draft.setDraft({ keyDraft: event.currentTarget.value })}

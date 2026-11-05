@@ -1639,7 +1639,7 @@ function TimelineMinimap({
                   className={cn(
                     "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full bg-muted-foreground/40 transition-[background-color,width] duration-150 data-[in-view=true]:bg-foreground",
                     activeDistance === 0
-                      ? "w-6 bg-primary shadow-[0_0_8px_var(--primary)]"
+                      ? "w-6 bg-primary-edge shadow-[0_0_8px_var(--primary)]"
                       : activeDistance === 1
                         ? "w-4 bg-muted-foreground/70"
                         : activeDistance === 2

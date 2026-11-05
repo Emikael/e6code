@@ -1934,7 +1934,7 @@ function OpenCommandPaletteDialog(props: {
   }
 
   for (const direction of [1, -1] as const) {
-    const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
+    const title = direction === 1 ? "Focus next workspace area" : "Focus previous workspace area";
     actionItems.push({
       kind: "action",
       value: `action:workspace-focus:${direction}`,

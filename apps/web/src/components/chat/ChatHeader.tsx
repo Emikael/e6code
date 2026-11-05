@@ -36,6 +36,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useE6ProjectFileScripts } from "~/hooks/useE6ProjectFileScripts";
+import { useProjectGroupDisplayName } from "~/hooks/useProjectGroupDisplayName";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
@@ -189,6 +190,14 @@ export const ChatHeader = memo(function ChatHeader({
   if (!actionsCollapsed && actionsOpen) setActionsOpen(false);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeProjectName = activeProject?.title;
+  // The breadcrumb names the project the way the sidebar and draft hero do;
+  // when grouping renames it, the tooltip still says which checkout it is.
+  const activeProjectGroupName = useProjectGroupDisplayName(activeProject);
+  const breadcrumbProjectName = activeProjectGroupName ?? activeProjectName;
+  const breadcrumbProjectDetail =
+    activeProjectName && breadcrumbProjectName !== activeProjectName
+      ? `${breadcrumbProjectName} · ${activeProjectName}`
+      : breadcrumbProjectName;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const fileScripts = useE6ProjectFileScripts(
     activeThreadEnvironmentId,
@@ -377,7 +386,7 @@ export const ChatHeader = memo(function ChatHeader({
                   render={
                     <button
                       type="button"
-                      aria-label={`New thread in ${activeProjectName}`}
+                      aria-label={`New thread in ${breadcrumbProjectDetail}`}
                       onClick={onNewThreadInProject}
                       className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     />
@@ -385,10 +394,10 @@ export const ChatHeader = memo(function ChatHeader({
                 >
                   <ProjectFavicon project={activeProject} className="size-3.5" />
                   <WorkspaceBreadcrumbText className="max-w-40">
-                    {activeProjectName}
+                    {breadcrumbProjectName}
                   </WorkspaceBreadcrumbText>
                 </TooltipTrigger>
-                <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
+                <TooltipPopup side="top">New thread in {breadcrumbProjectDetail}</TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>
             <WorkspaceBreadcrumbSeparator>

@@ -24,6 +24,9 @@ export function ThemedSwitch(props: ThemedSwitchProps) {
       ios_backgroundColorClassName="accent-switch-inactive-track"
       trackColorOffClassName="accent-switch-inactive-track"
       trackColorOnClassName="accent-switch-active-track"
+      // The system white thumb disappears on a light accent track (Volt), so
+      // an on switch takes the theme's action foreground, as on Android.
+      thumbColorClassName={props.value ? "accent-switch-active-thumb" : undefined}
     />
   );
 }

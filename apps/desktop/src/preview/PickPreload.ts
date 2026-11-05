@@ -149,6 +149,7 @@ const applyAnnotationTheme = (
     "--e6-popover-foreground": theme.popoverForeground,
     "--e6-primary": theme.primary,
     "--e6-primary-foreground": theme.primaryForeground,
+    "--e6-primary-text": theme.primaryText ?? theme.primary,
     "--e6-muted": theme.muted,
     "--e6-muted-foreground": theme.mutedForeground,
     "--e6-accent": theme.accent,
@@ -304,6 +305,9 @@ function createBox(color: string, fill: string): HTMLDivElement {
     "position:fixed",
     "pointer-events:none",
     `border:2px solid ${color}`,
+    // A thin dark halo on both sides keeps a light accent (Volt) visible on
+    // white pages; on dark pages the accent itself carries the outline.
+    "box-shadow:0 0 0 1px rgb(0 0 0 / 45%), inset 0 0 0 1px rgb(0 0 0 / 45%)",
     `background:${fill}`,
     "border-radius:3px",
     "box-sizing:border-box",
@@ -642,7 +646,7 @@ function startAnnotation(): void {
     for (const [candidate, button] of toolButtons) {
       const active = candidate === tool;
       button.classList.toggle("bg-primary/10", active);
-      button.classList.toggle("text-primary", active);
+      button.classList.toggle("text-primary-text", active);
       button.classList.toggle("text-foreground", !active);
     }
     if (tool !== "select") hoverOutline.style.display = "none";
@@ -851,7 +855,7 @@ function startAnnotation(): void {
   aspectLock.setAttribute("aria-pressed", "true");
   aspectLock.style.cssText +=
     ";position:absolute;left:0;top:50%;transform:translateY(-50%);width:18px;height:38px;padding:0";
-  aspectLock.className += " bg-primary/10 text-primary";
+  aspectLock.className += " bg-primary/10 text-primary-text";
   dimensionControls.append(
     createUnitControl(widthInput),
     createUnitControl(heightInput),
@@ -868,7 +872,7 @@ function startAnnotation(): void {
       : '<svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="m6 6 8 8M8 6.5 9.5 5A3.5 3.5 0 0 1 14 9M12 13.5 10.5 15A3.5 3.5 0 0 1 6 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
     aspectLock.setAttribute("aria-pressed", String(aspectLocked));
     aspectLock.classList.toggle("bg-primary/10", aspectLocked);
-    aspectLock.classList.toggle("text-primary", aspectLocked);
+    aspectLock.classList.toggle("text-primary-text", aspectLocked);
     aspectLock.classList.toggle("bg-muted", !aspectLocked);
     aspectLock.classList.toggle("text-muted-foreground", !aspectLocked);
   };

@@ -459,7 +459,7 @@ function SelectableTile({
       className={cn(
         "flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         selected
-          ? "border-primary bg-primary/8"
+          ? "border-primary-edge bg-primary/8"
           : "border-border/60 hover:border-border hover:bg-muted/40",
       )}
     >
@@ -474,7 +474,7 @@ function SelectableTile({
       <span
         className={cn(
           "grid size-4 shrink-0 place-items-center rounded-full border",
-          selected ? "border-primary bg-primary text-primary-foreground" : "border-input",
+          selected ? "border-primary-edge bg-primary text-primary-foreground" : "border-input",
         )}
       >
         {selected ? <CheckIcon className="size-2.5" /> : null}

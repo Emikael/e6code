@@ -1,10 +1,9 @@
 <div align="center">
 
-<img src="./assets/prod/black-universal-1024.png" alt="E6 Code" width="96" height="96" />
-
-# E6 Code
-
-**Every coding agent. One control room.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/cover-dark.png" />
+  <img src="./assets/readme/cover-light.png" alt="E6 Code" width="100%" />
+</picture>
 
 A fast, open-source GUI for coding agents. Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and
 Antigravity side by side with the subscriptions you already have, from your desktop, a browser, or your phone.

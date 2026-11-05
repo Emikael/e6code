@@ -99,6 +99,7 @@ import { Atom } from "effect/unstable/reactivity";
 import {
   lazy,
   memo,
+  type ReactNode,
   type SetStateAction,
   Suspense,
   useCallback,
@@ -557,6 +558,16 @@ const EMPTY_HANDOFF_MODEL_OPTIONS: ReturnType<typeof getCustomModelOptionsByInst
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+/** The timeline frontier: a thread error above whatever prompt is waiting. */
+function FrontierStack({ error, children }: { error: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {error}
+      {children}
+    </div>
+  );
+}
+
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
   const transitionGroupRef = useRef<HTMLDivElement | null>(null);
   const composerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -3729,7 +3740,19 @@ export default function ChatView(props: ChatViewProps) {
   )
     ? activeProviderStatus
     : null;
-  const hasTimelineTopBanner = Boolean(visibleThreadError) || visibleProviderStatus !== null;
+  // A thread error belongs at the end of the conversation, but the timeline only
+  // renders its frontier once it has rows; until then the error keeps the top
+  // overlay so a failed first send is never invisible.
+  const showThreadErrorInline =
+    visibleThreadError !== null &&
+    !paintOnlyDisplayedTimeline &&
+    !threadDetailLoading &&
+    timelineEntries.length > 0;
+  // The frontier sits at the end of the list, so a reader scrolled away from
+  // the end (the scroll-to-bottom pill is showing) gets the overlay as well.
+  const showThreadErrorOverlay =
+    visibleThreadError !== null && (!showThreadErrorInline || showScrollToBottom);
+  const hasTimelineTopBanner = showThreadErrorOverlay || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
@@ -3978,6 +4001,11 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeServerThread, draftId, routeThreadKey, routeThreadRef],
   );
+  const dismissThreadError = useCallback(() => {
+    setThreadError(activeThread?.id ?? null, null);
+    dismissThreadErrorBannerForSession(threadErrorBannerKey);
+    setThreadErrorBannerDismissTick((tick) => tick + 1);
+  }, [activeThread?.id, setThreadError, threadErrorBannerKey]);
 
   const interruptContextRef = useRef({ activeThread, phase, setThreadError });
   interruptContextRef.current = { activeThread, phase, setThreadError };
@@ -10084,19 +10112,20 @@ export default function ChatView(props: ChatViewProps) {
           >
             {isWorkspaceFileDragActive ? (
               <div
-                className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-primary/[0.035]"
+                className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary-edge bg-primary/[0.035]"
                 data-chat-workspace-drop-overlay="true"
               >
                 <div
                   role="status"
                   className="flex items-center gap-2 rounded-full border border-primary/25 bg-background/95 px-4 py-2.5 text-sm font-medium text-foreground shadow-lg"
                 >
-                  <PaperclipIcon className="size-4 text-primary" aria-hidden="true" />
+                  <PaperclipIcon className="size-4 text-primary-text" aria-hidden="true" />
                   Drop files to attach
                 </div>
               </div>
             ) : null}
-            {/* Banners overlay the timeline without changing its content height. */}
+            {/* Banners overlay the timeline without changing its content height.
+                Thread errors move inline to the frontier once the timeline has rows. */}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col">
               <ProviderStatusBanner
                 status={visibleProviderStatus}
@@ -10104,12 +10133,9 @@ export default function ChatView(props: ChatViewProps) {
                 onOpenProviderSetup={openProviderSetup}
               />
               <ThreadErrorBanner
-                error={visibleThreadError}
-                onDismiss={() => {
-                  setThreadError(activeThread.id, null);
-                  dismissThreadErrorBannerForSession(threadErrorBannerKey);
-                  setThreadErrorBannerDismissTick((tick) => tick + 1);
-                }}
+                error={showThreadErrorOverlay ? visibleThreadError : null}
+                onContinue={() => focusComposer()}
+                onDismiss={dismissThreadError}
               />
             </div>
             {/* Messages Wrapper */}
@@ -10210,88 +10236,113 @@ export default function ChatView(props: ChatViewProps) {
                   )
                 }
                 frontierResolution={
-                  !paintOnlyDisplayedTimeline &&
-                  (activePendingApproval ||
-                    pendingUserInputs.length > 0 ||
-                    (showPlanFollowUpPrompt && activeProposedPlan)) ? (
-                    <div className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs">
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "size-2 shrink-0 rounded-full",
-                            activePendingApproval
-                              ? "animate-status-pulse bg-warning shadow-[0_0_8px_var(--warning)]"
-                              : "bg-info shadow-[0_0_8px_var(--info)]",
-                          )}
-                        />
-                        <span className="font-medium text-foreground">
-                          {activePendingApproval
-                            ? "Approval required at turn frontier"
-                            : pendingUserInputs.length > 0
-                              ? "Agent waiting for your response"
-                              : "Plan ready to implement"}
-                        </span>
-                        {activePendingApproval?.detail ? (
-                          <code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-                            {activePendingApproval.detail}
-                          </code>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {activePendingApproval ? (
-                          <>
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              disabled={respondingRequestIds.includes(
-                                activePendingApproval.requestId,
+                  showThreadErrorInline ||
+                  (!paintOnlyDisplayedTimeline &&
+                    (activePendingApproval ||
+                      pendingUserInputs.length > 0 ||
+                      (showPlanFollowUpPrompt && activeProposedPlan))) ? (
+                    <FrontierStack
+                      error={
+                        showThreadErrorInline ? (
+                          <ThreadErrorBanner
+                            inline
+                            error={visibleThreadError}
+                            onContinue={() => focusComposer()}
+                            onDismiss={dismissThreadError}
+                          />
+                        ) : null
+                      }
+                    >
+                      {!paintOnlyDisplayedTimeline &&
+                      (activePendingApproval ||
+                        pendingUserInputs.length > 0 ||
+                        (showPlanFollowUpPrompt && activeProposedPlan)) ? (
+                        <div className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs">
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                "size-2 shrink-0 rounded-full",
+                                activePendingApproval
+                                  ? "animate-status-pulse bg-warning shadow-[0_0_8px_var(--warning)]"
+                                  : "bg-info shadow-[0_0_8px_var(--info)]",
                               )}
-                              onClick={() =>
-                                void onRespondToApproval(activePendingApproval.requestId, "decline")
-                              }
-                            >
-                              Decline
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="default"
-                              disabled={respondingRequestIds.includes(
-                                activePendingApproval.requestId,
-                              )}
-                              onClick={() =>
-                                void onRespondToApproval(activePendingApproval.requestId, "accept")
-                              }
-                            >
-                              Approve
-                            </Button>
-                          </>
-                        ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-                          <>
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              disabled={isSendBusy}
-                              onClick={() => void onImplementPlanInNewThread()}
-                            >
-                              In new thread
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="default"
-                              disabled={isSendBusy}
-                              onClick={() => void onSend()}
-                            >
-                              Implement plan
-                            </Button>
-                          </>
-                        ) : (
-                          <Button size="xs" variant="outline" onClick={() => focusComposer()}>
-                            Answer below
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+                            />
+                            <span className="font-medium text-foreground">
+                              {activePendingApproval
+                                ? "Approval required at turn frontier"
+                                : pendingUserInputs.length > 0
+                                  ? "Agent waiting for your response"
+                                  : "Plan ready to implement"}
+                            </span>
+                            {activePendingApproval?.detail ? (
+                              <code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                                {activePendingApproval.detail}
+                              </code>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {activePendingApproval ? (
+                              <>
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  disabled={respondingRequestIds.includes(
+                                    activePendingApproval.requestId,
+                                  )}
+                                  onClick={() =>
+                                    void onRespondToApproval(
+                                      activePendingApproval.requestId,
+                                      "decline",
+                                    )
+                                  }
+                                >
+                                  Decline
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  disabled={respondingRequestIds.includes(
+                                    activePendingApproval.requestId,
+                                  )}
+                                  onClick={() =>
+                                    void onRespondToApproval(
+                                      activePendingApproval.requestId,
+                                      "accept",
+                                    )
+                                  }
+                                >
+                                  Approve
+                                </Button>
+                              </>
+                            ) : showPlanFollowUpPrompt && activeProposedPlan ? (
+                              <>
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  disabled={isSendBusy}
+                                  onClick={() => void onImplementPlanInNewThread()}
+                                >
+                                  In new thread
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  disabled={isSendBusy}
+                                  onClick={() => void onSend()}
+                                >
+                                  Implement plan
+                                </Button>
+                              </>
+                            ) : (
+                              <Button size="xs" variant="outline" onClick={() => focusComposer()}>
+                                Answer below
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </FrontierStack>
                   ) : null
                 }
               />

@@ -33,20 +33,35 @@ export function isThreadErrorBannerDismissedForSession(bannerKey: string | null)
   return bannerKey !== null && sessionDismissedThreadErrorBannerKeys.has(bannerKey);
 }
 
+/**
+ * The thread's last error. `inline` renders it in the timeline's frontier slot,
+ * where a failure belongs to the end of the conversation and cannot cover
+ * earlier turns; `onContinue` then offers the composer as the way forward.
+ */
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
   onDismiss,
+  onContinue,
+  inline = false,
 }: {
   error: string | null;
   onDismiss?: () => void;
+  onContinue?: () => void;
+  inline?: boolean;
 }) {
   if (!error) return null;
   return (
-    <div className="pointer-events-auto mx-auto w-fit max-w-[min(48rem,calc(100%-2rem))] pt-3">
+    <div
+      className={
+        inline
+          ? "w-full"
+          : "pointer-events-auto mx-auto w-fit max-w-[min(48rem,calc(100%-2rem))] pt-3"
+      }
+    >
       <Alert
         variant="error"
         controlAlignment="first-line"
-        className="alert-glass"
+        className={inline ? undefined : "alert-glass"}
         data-variant="error"
       >
         <CircleAlertIcon />
@@ -58,11 +73,18 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             </TooltipPopup>
           </Tooltip>
         </AlertDescription>
-        {onDismiss && (
+        {(onContinue || onDismiss) && (
           <AlertAction>
-            <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
-              <XIcon className="text-destructive" />
-            </Button>
+            {onContinue && (
+              <Button variant="outline" size="xs" onClick={onContinue}>
+                Write a follow-up
+              </Button>
+            )}
+            {onDismiss && (
+              <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
+                <XIcon className="text-destructive" />
+              </Button>
+            )}
           </AlertAction>
         )}
       </Alert>

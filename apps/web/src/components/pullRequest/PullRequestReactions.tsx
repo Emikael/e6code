@@ -103,9 +103,9 @@ export function PullRequestReactionBar({
                 className={cn(
                   PILL_CLASS,
                   reaction.viewerHasReacted
-                    ? "border-primary/60 bg-primary/10 text-foreground"
+                    ? "border-primary-edge bg-primary/10 text-foreground"
                     : "border-border/70 bg-muted/40 text-muted-foreground",
-                  canReact ? "hover:border-primary/60" : "cursor-default",
+                  canReact ? "hover:border-primary-edge" : "cursor-default",
                 )}
                 onClick={() => void toggle(reaction.content, !reaction.viewerHasReacted)}
               />
@@ -127,7 +127,7 @@ export function PullRequestReactionBar({
                 aria-label="Add a reaction"
                 className={cn(
                   PILL_CLASS,
-                  "border-border/70 px-1.5 text-muted-foreground hover:border-primary/60 hover:text-foreground",
+                  "border-border/70 px-1.5 text-muted-foreground hover:border-primary-edge hover:text-foreground",
                 )}
               />
             }
