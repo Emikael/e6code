@@ -17,6 +17,7 @@ import {
   type AssistantCitation,
   type EnvironmentId,
   type MessageId,
+  type ProviderDriverKind,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type ToolActivityIcon,
@@ -45,7 +46,18 @@ import {
   formatSubagentTokenCount,
   isActiveSubagentStatus,
   isTerminalSubagentStatus,
+  SUBAGENT_STATUS_LABEL,
+  subagentActivityText,
+  subagentStatusTone,
+  summarizeSubagentStatuses,
 } from "@e6tools/client-runtime/state/subagentRuntime";
+import {
+  SUBAGENT_TONE_TEXT_CLASS,
+  SubagentElapsed,
+  SubagentStatusGlyph,
+  SubagentStatusWord,
+  SubagentTile,
+} from "../subagents/SubagentParts";
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
@@ -128,6 +140,7 @@ import {
   SmartphoneIcon,
   SquarePenIcon,
   TerminalIcon,
+  TriangleAlertIcon,
   Undo2Icon,
   WrenchIcon,
   XIcon,
@@ -319,7 +332,10 @@ interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
   expandedSpawnEntryIds: ReadonlySet<string>;
-  onOpenAgents: () => void;
+  /** Opens the Inspector, selecting the subagent when one is named. */
+  onOpenAgents: (agentId?: string) => void;
+  /** The thread's provider; subagents run on it, so their tiles carry its mark. */
+  subagentProviderKind: ProviderDriverKind | null;
   onCancelWorktreeSetup: (() => void) | null;
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
@@ -341,6 +357,8 @@ interface TimelineRowActivityState {
    * list itself has already left the timeline.
    */
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
+  /** An approval blocks the turn; the working row says so instead of "Working". */
+  hasPendingApproval: boolean;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -464,7 +482,9 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   agentPanelModel?: AgentPanelModel;
-  onOpenAgents?: () => void;
+  onOpenAgents?: (agentId?: string) => void;
+  subagentProviderKind?: ProviderDriverKind | null;
+  hasPendingApproval?: boolean;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -551,6 +571,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnStartedAt,
   agentPanelModel,
   onOpenAgents = NOOP_OPEN_AGENTS,
+  subagentProviderKind = null,
+  hasPendingApproval = false,
   listRef,
   timelineEntries,
   latestTurn,
@@ -1245,6 +1267,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       agentPanelModel: agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL,
       expandedSpawnEntryIds: paintedExpandedSpawnEntryIds,
       onOpenAgents,
+      subagentProviderKind,
       onCancelWorktreeSetup: onCancelWorktreeSetup ?? null,
       onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
       onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
@@ -1280,6 +1303,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       agentPanelModel,
       paintedExpandedSpawnEntryIds,
       onOpenAgents,
+      subagentProviderKind,
       onCancelWorktreeSetup,
       onWorktreeSetupWorkLocally,
       onOpenWorktreeSetupTerminal,
@@ -1306,9 +1330,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       // beside it can never disagree about whether a turn is still live.
       unsettledTurnId: deriveUnsettledTurnId(latestTurn ?? null, runningTurnId),
       backgroundWorktreeSetup,
+      hasPendingApproval,
     }),
     [
       backgroundWorktreeSetup,
+      hasPendingApproval,
       isCompacting,
       isRevertingCheckpoint,
       isWorking,
@@ -2660,32 +2686,50 @@ function ProposedPlanTimelineRow({
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
+  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup, hasPendingApproval } =
     use(TimelineRowActivityCtx);
   // One span for every label so the setup-to-working handoff swaps text in
   // place instead of remounting the row.
   const shimmer = isPreparingWorktree || isCompacting;
+  const waiting = !shimmer && hasPendingApproval;
   const label = isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />
-  ) : row.createdAt ? (
-    <>
-      Working for <WorkingTimer createdAt={row.createdAt} />
-    </>
+  ) : waiting ? (
+    "Waiting on your approval"
   ) : (
-    "Working..."
+    "Working"
   );
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
+      <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
+        {shimmer ? null : waiting ? (
+          <TriangleAlertIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
+        ) : (
+          // The one live signal on screen: Volt, stepped pulse. When an
+          // approval is pending, the Volt moves to the Approve action instead.
+          <span
+            aria-hidden
+            className="size-2 shrink-0 rounded-full bg-primary ring-1 ring-primary-edge animate-status-pulse motion-reduce:animate-none"
+          />
+        )}
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}
-          className="relative shrink-0 overflow-hidden whitespace-nowrap"
+          className={cn(
+            "relative shrink-0 overflow-hidden whitespace-nowrap",
+            !shimmer && "font-medium",
+            !shimmer && (waiting ? "text-warning-foreground" : "text-foreground"),
+          )}
         >
           {label}
           {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
+        {!shimmer && row.createdAt ? (
+          <span className="font-mono text-xs">
+            <WorkingTimer createdAt={row.createdAt} />
+          </span>
+        ) : null}
         {backgroundWorktreeSetup ? (
           <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
         ) : null}
@@ -3409,7 +3453,6 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
     return (
       <AgentSpawnRow
         workEntry={row.entry}
-        active={row.active}
         onToggleEntry={(collapsed) => ctx.onToggleWorkEntry(row.id, collapsed)}
       />
     );
@@ -4712,20 +4755,32 @@ const stopRowToggleWhileSelectingText = (e: MouseEvent<HTMLElement>) => {
   }
 };
 
-/** One tool row per batch, with member results available on expansion. */
+/**
+ * One card per spawn batch. Batches spawned in the latest turn start open so
+ * the fleet is visible while it works; older ones start folded. A toggle
+ * flips that default and is remembered with the thread's scroll position.
+ * Rows reserve three fixed lines so live updates never shift the thread.
+ */
 const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   workEntry: TimelineWorkEntry;
-  active?: boolean | undefined;
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry } = props;
-  const { agentPanelModel, expandedSpawnEntryIds, onToggleSpawnRow, onOpenAgents } =
-    use(TimelineRowCtx);
+  const {
+    agentPanelModel,
+    expandedSpawnEntryIds,
+    onToggleSpawnRow,
+    onOpenAgents,
+    subagentProviderKind,
+  } = use(TimelineRowCtx);
+  const { latestTurnId } = use(TimelineRowActivityCtx);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
   }
-  const expanded = expandedSpawnEntryIds.has(workEntry.id);
+  const toggled = expandedSpawnEntryIds.has(workEntry.id);
+  const defaultOpen = workEntry.turnId != null && workEntry.turnId === latestTurnId;
+  const expanded = toggled ? !defaultOpen : defaultOpen;
 
   const memberIds = new Set(spawn.agentTaskIds);
   const workflowGroup = spawn.workflowId
@@ -4738,166 +4793,148 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     agents.length,
     Math.max(memberIds.size - (spawn.workflowId ? 1 : 0), 0),
   );
-  const summary = deriveAgentSpawnSummary({
+  const { live, status: fallbackStatus } = deriveAgentSpawnSummary({
     agents,
     agentCount,
     coordinatorStatus: workflowGroup?.workflow.status,
   });
-  const { live, lead } = summary;
-  const failed = summary.tone === "failed";
+  const summary = summarizeSubagentStatuses(agents);
+  const summaryTone = summary.tone ?? (live ? "working" : null);
   const workflowName =
     workflowGroup?.workflow.workflowName ?? workflowGroup?.workflow.title ?? null;
+  const title = workflowName ?? `${agentCount} ${agentCount === 1 ? "subagent" : "subagents"}`;
+  const stackCount = Math.max(agentCount, agents.length);
+  const stackTiles = Math.min(stackCount, stackCount > 4 ? 3 : 4);
+  const starts = agents.flatMap((agent) => (agent.startedAt ? [agent.startedAt] : []));
+  const ends = agents.flatMap((agent) => (agent.completedAt ? [agent.completedAt] : []));
+  const batchSpan = {
+    status: live ? ("running" as const) : ("completed" as const),
+    startedAt: starts.length > 0 ? starts.toSorted()[0]! : null,
+    completedAt: ends.length > 0 ? ends.toSorted().at(-1)! : null,
+  };
   const toggleExpanded = () => {
     props.onToggleEntry?.(expanded);
-    onToggleSpawnRow(workEntry.id, !expanded);
+    onToggleSpawnRow(workEntry.id, !toggled);
   };
 
   return (
-    <div className="flex flex-col">
+    <section
+      aria-label={title}
+      className="my-1 overflow-hidden rounded-xl border border-border bg-card shadow-xs"
+    >
       <button
         type="button"
         aria-expanded={expanded}
         onClick={toggleExpanded}
-        className="flex cursor-pointer select-none rounded-md text-left transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex w-full min-w-0 cursor-pointer select-none items-center gap-3 px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <LiveActivityRow
-          label={workflowName ? `${lead} · ${workflowName}` : lead}
-          iconName="bot"
-          active={live && props.active !== false}
-          failed={failed}
+        <span aria-hidden className="flex shrink-0 ps-1.5">
+          {Array.from({ length: stackTiles }, (_, index) => (
+            <SubagentTile
+              key={index}
+              driverKind={subagentProviderKind}
+              className="-ms-1.5 ring-2 ring-card"
+            />
+          ))}
+          {stackCount > stackTiles ? (
+            <span className="-ms-1.5 inline-flex size-5.5 items-center justify-center rounded-md border border-input bg-surface-raised text-[9px] font-bold text-foreground ring-2 ring-card">
+              +{stackCount - stackTiles}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col leading-tight">
+          <span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
+          <span
+            className={cn(
+              "inline-flex min-w-0 items-center gap-1.5 text-xs font-medium",
+              summaryTone ? SUBAGENT_TONE_TEXT_CLASS[summaryTone] : "text-muted-foreground",
+            )}
+          >
+            {summaryTone === "working" ? (
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-info" />
+            ) : summaryTone ? (
+              <SubagentStatusGlyph tone={summaryTone} className="size-3" />
+            ) : null}
+            <span className="truncate">{summary.text || fallbackStatus}</span>
+          </span>
+        </span>
+        <SubagentElapsed agent={batchSpan} className="shrink-0 text-xs text-muted-foreground" />
+        <ChevronDownIcon
+          aria-hidden
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+            !expanded && "-rotate-90",
+          )}
         />
       </button>
-      {expanded ? (
-        <div className="ms-7 mt-0.5 flex flex-col">
+      {expanded && agents.length > 0 ? (
+        <div className="flex flex-col gap-0.5 border-t border-border p-1">
           {agents.map((agent) => (
-            <AgentSpawnMemberRow key={agent.id} agent={agent} onToggleEntry={props.onToggleEntry} />
+            <SubagentBatchRow
+              key={agent.id}
+              agent={agent}
+              providerKind={subagentProviderKind}
+              onOpen={onOpenAgents}
+            />
           ))}
-          <button
-            type="button"
-            onClick={onOpenAgents}
-            className="mt-1 self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            Open Agents panel ›
-          </button>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 });
 
-const AGENT_MEMBER_STATUS_LABEL: Record<RuntimeSubagent["status"], string> = {
-  pending: "Working",
-  running: "Working",
-  waiting: "Working",
-  idle: "Idle",
-  completed: "Completed",
-  failed: "Failed",
-  cancelled: "Stopped",
-  interrupted: "Stopped",
-};
-
-function AgentSpawnMemberRow({
+/** Identity, activity and metrics on three fixed lines; opens the Inspector. */
+function SubagentBatchRow({
   agent,
-  onToggleEntry,
+  providerKind,
+  onOpen,
 }: {
   agent: RuntimeSubagent;
-  onToggleEntry?: ((collapsed: boolean) => void) | undefined;
+  providerKind: ProviderDriverKind | null;
+  onOpen: (agentId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const activeStatus = isActiveSubagentStatus(agent.status);
-  const activity = activeStatus
-    ? (agent.progress ?? (agent.lastToolName ? `▸ ${agent.lastToolName}` : null))
-    : (agent.error ?? agent.result ?? agent.progress ?? null);
-  const durationMs =
-    agent.startedAt && agent.completedAt
-      ? Date.parse(agent.completedAt) - Date.parse(agent.startedAt)
-      : null;
-  const meta = [
-    durationMs !== null && durationMs >= 0 ? formatDuration(durationMs) : null,
-    agent.usage && agent.usage.totalTokens > 0
-      ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok`
-      : null,
+  const tone = subagentStatusTone(agent.status);
+  const activity = subagentActivityText(agent);
+  const metrics = [
+    formatSubagentModelLabel(agent.model, agent.effort),
+    agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : null,
+    agent.usage?.toolUses !== undefined ? `${agent.usage.toolUses} tools` : null,
+    agent.activationCount > 1 ? `run ${agent.activationCount}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
-  // Settled members show their metrics; anything other than success keeps
-  // the status word so the outcome remains explicit.
-  const statusLabel =
-    activeStatus || !meta
-      ? AGENT_MEMBER_STATUS_LABEL[agent.status]
-      : agent.status === "completed"
-        ? meta
-        : `${AGENT_MEMBER_STATUS_LABEL[agent.status]} · ${meta}`;
-  const role =
-    agent.role && agent.role.trim().toLowerCase() !== agent.title.trim().toLowerCase()
-      ? agent.role
-      : null;
-  const firstLine = activity?.split("\n").find((line) => line.trim().length > 0) ?? null;
-  const body = [activity?.trim() || null, formatSubagentModelLabel(agent.model, agent.effort)]
-    .filter(Boolean)
-    .join("\n\n");
-  const canExpand = body.length > 0;
-  const toggleOpen = () => {
-    onToggleEntry?.(open);
-    setOpen((value) => !value);
-  };
-
   return (
-    <div
-      role={canExpand ? "button" : undefined}
-      tabIndex={canExpand ? 0 : undefined}
-      aria-label={canExpand ? `${agent.title}, ${statusLabel}` : undefined}
-      aria-expanded={canExpand ? open : undefined}
-      onClick={canExpand ? toggleOpen : undefined}
-      onKeyDown={
-        canExpand
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                toggleOpen();
-              }
-            }
-          : undefined
-      }
-      className={cn(
-        "flex flex-col rounded-md px-1 py-0.5 transition-colors",
-        canExpand &&
-          "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
-      )}
+    <button
+      type="button"
+      onClick={() => onOpen(agent.id)}
+      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in the inspector`}
+      className="flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      <div className="flex select-none items-center gap-1.5">
-        <p className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm leading-relaxed">
-          <span
-            className={cn(
-              "min-w-0 truncate",
-              agent.status === "failed" ? failedToolIconClassName : "text-foreground/80",
-            )}
-          >
+      <SubagentTile driverKind={providerKind} className="mt-px" />
+      <span className="grid min-w-0 flex-1 grid-rows-[1.375rem_1.1875rem_1.0625rem]">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
             {agent.title}
           </span>
-          {role ? (
-            <span className="max-w-28 shrink-0 truncate rounded-sm border border-border/60 px-1 font-mono text-[.65rem] text-muted-foreground">
-              {role}
-            </span>
-          ) : null}
-        </p>
-        <span className="shrink-0 font-mono text-[.7rem] tabular-nums text-muted-foreground">
-          {statusLabel}
+          <SubagentStatusWord tone={tone} />
+          <SubagentElapsed
+            agent={agent}
+            className="w-11 shrink-0 text-right text-xs text-muted-foreground"
+          />
         </span>
-      </div>
-      {!open && firstLine ? (
-        <p className="truncate text-xs text-muted-foreground">{firstLine}</p>
-      ) : null}
-      {open ? (
-        <div
-          className="mt-1 cursor-default rounded-md bg-muted/40 px-3 py-2"
-          onClick={stopRowToggle}
-          onPointerDown={stopRowToggle}
+        <span
+          className={cn(
+            "truncate text-xs leading-[1.1875rem]",
+            tone === "failed" ? "text-destructive-foreground" : "text-muted-foreground",
+          )}
         >
-          <pre className={toolCallExpandedBodyClassName}>{body}</pre>
-        </div>
-      ) : null}
-    </div>
+          {activity ?? SUBAGENT_STATUS_LABEL[tone]}
+        </span>
+        <span className="truncate font-mono text-[11px] leading-[1.0625rem] tabular-nums text-muted-foreground">
+          {metrics || "\u00a0"}
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -4911,13 +4948,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const { workEntry, workspaceRoot, isExpandedToolGroupEntry, displayLabel } = props;
   // Before any hooks: spawn rows render their own component.
   if (workEntry.agentSpawn) {
-    return (
-      <AgentSpawnRow
-        workEntry={workEntry}
-        active={!isExpandedToolGroupEntry}
-        onToggleEntry={props.onToggleEntry}
-      />
-    );
+    return <AgentSpawnRow workEntry={workEntry} onToggleEntry={props.onToggleEntry} />;
   }
   return (
     <PlainWorkEntryRow

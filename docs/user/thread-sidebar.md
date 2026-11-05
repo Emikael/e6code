@@ -131,7 +131,9 @@ for custom configuration.
 
 ## Inspect agent work
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
+On web and desktop, subagents appear as a card in the conversation while they work. Select a
+subagent to open it in the right panel's **Overview**, which also lists every subagent the thread
+spawned and the selected one's latest activity, tokens, and tool calls.
 
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it

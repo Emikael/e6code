@@ -96,7 +96,7 @@ describe("theme files", () => {
       canvas: "#0e0f0d",
       surface: "#171815",
       surfaceRaised: "#1b1c19",
-      surfaceOverlay: "#20211e",
+      surfaceOverlay: "#22231f",
       toolbarControl: "#171815",
       secondary: "#151614",
       muted: "#151614",
@@ -113,8 +113,8 @@ describe("theme files", () => {
     });
     expectThemeColors(getStandardThemeColors("dark"), {
       canvas: "#0e0f0d",
-      sidebar: "#040504",
-      sidebarRowActive: "#202020",
+      sidebar: "#141512",
+      sidebarRowActive: "#252622",
       messageSurface: "#1f201c",
     });
   });

@@ -228,7 +228,8 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
-import { AgentsPanel } from "./AgentsPanel";
+import { InspectorOverview, type InspectorWorkspace } from "./InspectorOverview";
+import { useSubagentSelectionStore } from "../subagentSelectionStore";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -238,6 +239,7 @@ import { WizardPopup } from "./ui/wizard";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
+  formatSubagentModelLabel,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -4601,10 +4603,17 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
-  const addAgentsSurface = useCallback(() => {
-    if (!activeThreadRef) return;
-    useRightPanelStore.getState().open(activeThreadRef, "agents");
-  }, [activeThreadRef]);
+  const addAgentsSurface = useCallback(
+    (agentId?: unknown) => {
+      if (!activeThreadRef) return;
+      // Launcher clicks pass a DOM event; only a subagent row passes its id.
+      if (typeof agentId === "string") {
+        useSubagentSelectionStore.getState().select(scopedThreadKey(activeThreadRef), agentId);
+      }
+      useRightPanelStore.getState().open(activeThreadRef, "agents");
+    },
+    [activeThreadRef],
+  );
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
@@ -9838,6 +9847,39 @@ export default function ChatView(props: ChatViewProps) {
       <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
     </div>
   );
+  const inspectorThreadModelLabel = activeThread
+    ? [
+        selectedProviderEntry?.displayName ?? null,
+        formatSubagentModelLabel(activeThread.modelSelection.model, null),
+      ]
+        .filter(Boolean)
+        .join(" · ") || null
+    : null;
+  const inspectorWorkspace: InspectorWorkspace | null = activeThread
+    ? {
+        environmentId: activeThread.environmentId,
+        threadId: activeThread.id,
+        draftId: routeKind === "draft" && draftId ? draftId : undefined,
+        activeProject,
+        openInCwd: gitCwd,
+        gitCwd,
+        keybindings,
+        availableEditors,
+        activeProjectScripts,
+        preferredScriptId: activeProject
+          ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+          : null,
+        onRunProjectScript: runProjectScript,
+        onAddProjectScript: saveProjectScript,
+        onUpdateProjectScript: updateProjectScript,
+        onDeleteProjectScript: deleteProjectScript,
+        onOpenPullRequest:
+          !supportsPullRequests || activeProjectRepository === null
+            ? undefined
+            : openProjectPullRequest,
+        onOpenDiff: isServerThread && isGitRepo ? addDiffSurface : null,
+      }
+    : null;
   const rightPanelContent = activeThreadRef ? (
     renderedRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
@@ -9935,10 +9977,12 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
-      <AgentsPanel
+      <InspectorOverview
         model={agentPanelModel}
-        environmentId={activeThreadRef?.environmentId ?? null}
-        threadId={activeThreadRef?.threadId ?? null}
+        threadKey={activeThreadRef ? scopedThreadKey(activeThreadRef) : null}
+        providerKind={selectedProvider ?? null}
+        threadModelLabel={inspectorThreadModelLabel}
+        workspace={inspectorWorkspace}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
@@ -10152,6 +10196,8 @@ export default function ChatView(props: ChatViewProps) {
                       onCiteAssistantText: citeAssistantText,
                       agentPanelModel,
                       onOpenAgents: addAgentsSurface,
+                      subagentProviderKind: selectedProvider ?? null,
+                      hasPendingApproval: pendingApprovals.length > 0,
                       onUseArtifactTemplate: useArtifactTemplate,
                     }
                   : {})}

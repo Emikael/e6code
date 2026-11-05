@@ -3,8 +3,12 @@ import { classifyTaskAgentKind, type OrchestrationThreadActivity } from "@e6tool
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
+  formatSubagentElapsed,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
+  subagentActivityText,
+  subagentElapsedMs,
+  summarizeSubagentStatuses,
 } from "./subagentRuntime.ts";
 
 let sequence = 0;
@@ -889,5 +893,52 @@ describe("nested agents vs subagent shells", () => {
       }),
     ]);
     expect(agents.map((agent) => agent.id)).toEqual(["nested-1"]);
+  });
+});
+
+describe("subagent presentation", () => {
+  it("summarizes a batch with live work first and problems before successes", () => {
+    const summary = summarizeSubagentStatuses([
+      { status: "completed" },
+      { status: "running" },
+      { status: "waiting" },
+      { status: "failed" },
+      { status: "interrupted" },
+    ]);
+    expect(summary.text).toBe("2 working · 1 failed · 1 stopped · 1 done");
+    expect(summary.tone).toBe("working");
+    expect(summarizeSubagentStatuses([{ status: "completed" }, { status: "failed" }]).tone).toBe(
+      "failed",
+    );
+    expect(summarizeSubagentStatuses([]).text).toBe("");
+  });
+
+  it("leads live rows with progress and settled rows with the outcome", () => {
+    const base = { progress: "Editing a.ts", lastToolName: "Edit", result: null, error: null };
+    expect(subagentActivityText({ ...base, status: "running" })).toBe("Editing a.ts");
+    expect(
+      subagentActivityText({ ...base, status: "failed", error: "Exited 1\nstack trace" }),
+    ).toBe("Exited 1");
+    expect(subagentActivityText({ ...base, progress: null, status: "running" })).toBe("▸ Edit");
+  });
+
+  it("freezes elapsed time once an activation settles", () => {
+    const now = Date.parse("2026-08-01T10:05:00.000Z");
+    const startedAt = "2026-08-01T10:00:00.000Z";
+    expect(subagentElapsedMs({ status: "running", startedAt, completedAt: null }, now)).toBe(
+      300_000,
+    );
+    expect(
+      subagentElapsedMs(
+        { status: "completed", startedAt, completedAt: "2026-08-01T10:00:32.000Z" },
+        now,
+      ),
+    ).toBe(32_000);
+    expect(subagentElapsedMs({ status: "pending", startedAt: null, completedAt: null }, now)).toBe(
+      null,
+    );
+    expect(formatSubagentElapsed(19_000)).toBe("19s");
+    expect(formatSubagentElapsed(65_000)).toBe("1m 05s");
+    expect(formatSubagentElapsed(7_380_000)).toBe("2h 03m");
   });
 });
