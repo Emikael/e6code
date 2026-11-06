@@ -13,8 +13,10 @@ import {
   deriveAgentPanelModel,
   foldSubagentActivities,
   formatSubagentElapsed,
+  formatSubagentFileCount,
   type RuntimeSubagent,
   type RuntimeSubagentStatus,
+  type SubagentChangedFiles,
   SUBAGENT_STATUS_LABEL,
   type SubagentStatusTone,
   subagentActivityText,
@@ -27,6 +29,7 @@ import {
   describeSubagentUserRequest,
   subagentUserRequests,
 } from "@e6tools/client-runtime/pending-requests";
+import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Option from "effect/Option";
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -209,6 +212,7 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
                 row={row}
                 selected={row.kind === "agent" && row.agent.id === selectedAgentId}
                 onSelect={onSelectAgent}
+                workspaceRoot={selectedThreadCwd}
               />
             ))}
           </View>
@@ -358,10 +362,75 @@ function SourceControlCard(props: {
   );
 }
 
+/** "+247 −9", shown only when the counts are known. */
+function LineCounts(props: {
+  readonly additions: number | null;
+  readonly deletions: number | null;
+}) {
+  if (props.additions === null || props.deletions === null) return null;
+  return (
+    <>
+      <Text className="text-sm tabular-nums text-adaptive-emerald-700-300">+{props.additions}</Text>
+      <Text className="text-sm tabular-nums text-adaptive-rose-700-300">−{props.deletions}</Text>
+    </>
+  );
+}
+
+function changedFilesLabel(changedFiles: SubagentChangedFiles): string {
+  const count = formatSubagentFileCount(changedFiles.files.length);
+  return changedFiles.additions === null || changedFiles.deletions === null
+    ? `${count} changed`
+    : `${count} changed, ${changedFiles.additions} additions, ${changedFiles.deletions} deletions`;
+}
+
+/** The files a selected subagent changed, read-only: diffs open from web. */
+function ChangedFilesList(props: {
+  readonly changedFiles: SubagentChangedFiles;
+  readonly workspaceRoot: string | null;
+  readonly indented: boolean;
+}) {
+  return (
+    <View className={cn("gap-1 pr-4 pb-2.5", props.indented ? "pl-[96px]" : "pl-14")}>
+      {props.changedFiles.files.map((file) => {
+        const path = workspaceRelativeFilePath(file.path, props.workspaceRoot) ?? file.path;
+        const name = fileBasename(path);
+        const directory = path.length > name.length ? path.slice(0, -name.length - 1) : "";
+        return (
+          <View
+            key={file.path}
+            accessible
+            accessibilityLabel={[
+              path,
+              file.additions === null ? null : `${file.additions} additions`,
+              file.deletions === null ? null : `${file.deletions} deletions`,
+            ]
+              .filter(Boolean)
+              .join(", ")}
+            className="flex-row items-center gap-2"
+          >
+            <Text className="shrink-0 font-mono text-sm text-foreground" numberOfLines={1}>
+              {name}
+            </Text>
+            <Text
+              className="min-w-0 flex-1 text-sm text-foreground-muted"
+              numberOfLines={1}
+              ellipsizeMode="head"
+            >
+              {directory}
+            </Text>
+            <LineCounts additions={file.additions} deletions={file.deletions} />
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 const LineageRow = memo(function LineageRow(props: {
   readonly row: InspectorLineageRow;
   readonly selected: boolean;
   readonly onSelect: (agentId: string) => void;
+  readonly workspaceRoot: string | null;
 }) {
   const { row } = props;
   if (row.kind === "phase") {
@@ -389,47 +458,71 @@ const LineageRow = memo(function LineageRow(props: {
     : subagentActivityText(agent);
   // A live timer would make this label stale within a second; settled time is final.
   const settledElapsedMs = subagentElapsedIsLive(agent.status) ? null : subagentElapsedMs(agent, 0);
+  const { changedFiles } = agent;
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: props.selected }}
-      accessibilityLabel={[
-        agent.title,
-        statusWord,
-        activity?.replace(/^▸ /, ""),
-        settledElapsedMs === null ? null : formatSubagentElapsed(settledElapsedMs),
-      ]
-        .filter(Boolean)
-        .join(", ")}
-      onPress={() => props.onSelect(agent.id)}
-      className={cn(
-        "min-h-14 flex-row items-center gap-3 py-2.5 pr-4 active:bg-subtle",
-        row.depth === 1 ? "pl-14" : "pl-4",
-        props.selected && "bg-subtle",
-      )}
-    >
-      <SubagentTile />
-      <View className="min-w-0 flex-1 gap-0.5">
-        <Text className="font-e6-medium text-[15px] leading-5 text-foreground" numberOfLines={1}>
-          {agent.title}
-        </Text>
-        <View className="flex-row items-center gap-1.5">
-          <View className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT_CLASS[tone])} />
-          <Text className={cn("shrink-0 font-e6-medium text-sm", STATUS_TEXT_CLASS[tone])}>
-            {statusWord}
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ selected: props.selected }}
+        accessibilityLabel={[
+          agent.title,
+          statusWord,
+          activity?.replace(/^▸ /, ""),
+          settledElapsedMs === null ? null : formatSubagentElapsed(settledElapsedMs),
+          changedFiles ? changedFilesLabel(changedFiles) : null,
+        ]
+          .filter(Boolean)
+          .join(", ")}
+        accessibilityHint={
+          changedFiles
+            ? `Double tap to ${props.selected ? "hide" : "list"} the files it changed.`
+            : undefined
+        }
+        onPress={() => props.onSelect(agent.id)}
+        className={cn(
+          "min-h-14 flex-row items-center gap-3 py-2.5 pr-4 active:bg-subtle",
+          row.depth === 1 ? "pl-14" : "pl-4",
+          props.selected && "bg-subtle",
+        )}
+      >
+        <SubagentTile />
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="font-e6-medium text-[15px] leading-5 text-foreground" numberOfLines={1}>
+            {agent.title}
           </Text>
-          <Text className="min-w-0 flex-1 text-sm text-foreground-muted" numberOfLines={1}>
-            {activity ? `· ${activity}` : ""}
-          </Text>
-          <SubagentElapsedText
-            status={agent.status}
-            startedAt={agent.startedAt}
-            completedAt={agent.completedAt}
-            updatedAt={agent.updatedAt}
-          />
+          <View className="flex-row items-center gap-1.5">
+            <View className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT_CLASS[tone])} />
+            <Text className={cn("shrink-0 font-e6-medium text-sm", STATUS_TEXT_CLASS[tone])}>
+              {statusWord}
+            </Text>
+            <Text className="min-w-0 flex-1 text-sm text-foreground-muted" numberOfLines={1}>
+              {activity ? `· ${activity}` : ""}
+            </Text>
+            <SubagentElapsedText
+              status={agent.status}
+              startedAt={agent.startedAt}
+              completedAt={agent.completedAt}
+              updatedAt={agent.updatedAt}
+            />
+          </View>
+          {changedFiles ? (
+            <View className="flex-row items-center gap-1.5">
+              <Text className="text-sm text-foreground-muted">
+                {formatSubagentFileCount(changedFiles.files.length)}
+              </Text>
+              <LineCounts additions={changedFiles.additions} deletions={changedFiles.deletions} />
+            </View>
+          ) : null}
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+      {props.selected && changedFiles ? (
+        <ChangedFilesList
+          changedFiles={changedFiles}
+          workspaceRoot={props.workspaceRoot}
+          indented={row.depth === 1}
+        />
+      ) : null}
+    </>
   );
 });
 
