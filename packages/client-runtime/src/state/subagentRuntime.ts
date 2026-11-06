@@ -916,7 +916,7 @@ export function formatSubagentTokenCount(totalTokens: number): string {
  */
 export type SubagentStatusTone = "approval" | "working" | "idle" | "done" | "failed" | "stopped";
 
-export function subagentStatusTone(status: RuntimeSubagentStatus): SubagentStatusTone {
+function subagentStatusTone(status: RuntimeSubagentStatus): SubagentStatusTone {
   switch (status) {
     case "pending":
     case "running":
