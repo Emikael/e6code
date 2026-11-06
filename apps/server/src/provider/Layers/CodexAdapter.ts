@@ -30,6 +30,7 @@ import {
   type TurnTokenUsage,
   ProviderApprovalDecision,
   ThreadId,
+  TurnId,
   ProviderSendTurnInput,
 } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
@@ -1297,10 +1298,19 @@ function mapCollabAgentEvent(
       if (!changedFiles || !childItemId) {
         return [progress];
       }
+      // The edit belongs to the parent turn running when it landed (the
+      // session runtime stamps it), not the turn that spawned the child: only
+      // that turn's diff shows it. Outside any parent turn, no turn claims it.
+      const { turnId: _spawnTurnId, ...fileChangeBase } = base;
+      const parentTurnId =
+        typeof payload.parentTurnId === "string" && payload.parentTurnId.length > 0
+          ? TurnId.make(payload.parentTurnId)
+          : undefined;
       return [
         progress,
         {
-          ...base,
+          ...fileChangeBase,
+          ...(parentTurnId ? { turnId: parentTurnId } : {}),
           eventId: EventId.make(`${event.id}:file-change`),
           itemId: RuntimeItemId.make(childItemId),
           type: "item.completed",

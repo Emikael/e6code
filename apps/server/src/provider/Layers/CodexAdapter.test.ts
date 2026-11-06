@@ -1205,6 +1205,8 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           turnId: asTurnId("turn-1"),
           payload: {
             agentThreadId: "child-patch",
+            // turn-1 spawned the child; it edits during a later parent turn.
+            parentTurnId: "turn-2",
             item: { type: "fileChange", id: "patch-1", status, changes },
           },
         });
@@ -1217,7 +1219,8 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       );
       const fileChange = events[2]!;
       NodeAssert.equal(fileChange.itemId, "patch-1");
-      NodeAssert.equal(fileChange.turnId, "turn-1");
+      // The diff that holds the edit is the parent turn's, not the spawn turn's.
+      NodeAssert.equal(fileChange.turnId, "turn-2");
       NodeAssert.notEqual(fileChange.eventId, events[1]!.eventId);
       NodeAssert.deepStrictEqual(fileChange.payload, {
         itemType: "file_change",

@@ -236,6 +236,77 @@ describe("CodexSessionRuntime collab integration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.live("stamps a child's item with the parent turn running when it lands", () =>
+    Effect.gen(function* () {
+      const firstTurnId = "019fe3e8-f908-7f31-8d51-283f4a478901";
+      const secondTurnId = "019fe3e8-f908-7f31-8d51-283f4a478902";
+      // Every parent turn replays the same notifications: the child registers
+      // (once; later rows are for a known child) and applies a patch.
+      const script = {
+        rootThreadId: ROOT,
+        // The parent turn is still running when its child's edit lands.
+        holdTurnOpen: true,
+        turnIds: [firstTurnId, secondTurnId],
+        notifications: [
+          capturedStartedActivity(),
+          {
+            method: "item/completed",
+            params: {
+              threadId: CHILD_A,
+              turnId: `${CHILD_A}-turn`,
+              completedAtMs: 1_767_225_600_000,
+              item: {
+                type: "fileChange",
+                id: "child-patch",
+                status: "completed",
+                changes: [{ path: "/repo/a.ts", kind: { type: "add" }, diff: "x\n" }],
+              },
+            },
+          },
+        ],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => NodeFS.rmSync(scriptPath, { force: true })),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-collab-child-item-turn"),
+        binaryPath: peerPath,
+        cwd: NodeOS.tmpdir(),
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const itemsFiber = yield* runtime.events.pipe(
+        Stream.filter((event) => event.method === "collabAgent/item"),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "spawn a child" });
+      yield* runtime.sendTurn({ input: "give the child more work" });
+
+      const items = Array.from(yield* Fiber.join(itemsFiber));
+      // The event keeps the spawn turn; parentTurnId names the turn whose diff
+      // holds the edit.
+      assert.deepEqual(
+        items.map((event) => [
+          event.turnId,
+          (event.payload as { parentTurnId?: string }).parentTurnId,
+        ]),
+        [
+          [firstTurnId, firstTurnId],
+          [firstTurnId, secondTurnId],
+        ],
+      );
+
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("keeps child settings and reroutes newer than the resume snapshot", () =>
     Effect.gen(function* () {
       const statusChanged = wireFixture.notifications.find(

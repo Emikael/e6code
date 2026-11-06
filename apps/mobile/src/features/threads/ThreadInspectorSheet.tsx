@@ -17,6 +17,7 @@ import {
   type RuntimeSubagent,
   type RuntimeSubagentStatus,
   type SubagentChangedFiles,
+  SUBAGENT_FILES_PREVIEW_LIMIT,
   SUBAGENT_STATUS_LABEL,
   type SubagentStatusTone,
   subagentActivityText,
@@ -370,8 +371,12 @@ function LineCounts(props: {
   if (props.additions === null || props.deletions === null) return null;
   return (
     <>
-      <Text className="text-sm tabular-nums text-adaptive-emerald-700-300">+{props.additions}</Text>
-      <Text className="text-sm tabular-nums text-adaptive-rose-700-300">−{props.deletions}</Text>
+      <Text className="shrink-0 text-sm tabular-nums text-adaptive-emerald-700-300">
+        +{props.additions}
+      </Text>
+      <Text className="shrink-0 text-sm tabular-nums text-adaptive-rose-700-300">
+        −{props.deletions}
+      </Text>
     </>
   );
 }
@@ -389,9 +394,12 @@ function ChangedFilesList(props: {
   readonly workspaceRoot: string | null;
   readonly indented: boolean;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const { files } = props.changedFiles;
+  const hidden = files.length - SUBAGENT_FILES_PREVIEW_LIMIT;
   return (
     <View className={cn("gap-1 pr-4 pb-2.5", props.indented ? "pl-[96px]" : "pl-14")}>
-      {props.changedFiles.files.map((file) => {
+      {(showAll ? files : files.slice(0, SUBAGENT_FILES_PREVIEW_LIMIT)).map((file) => {
         const path = workspaceRelativeFilePath(file.path, props.workspaceRoot) ?? file.path;
         const name = fileBasename(path);
         const directory = path.length > name.length ? path.slice(0, -name.length - 1) : "";
@@ -408,7 +416,8 @@ function ChangedFilesList(props: {
               .join(", ")}
             className="flex-row items-center gap-2"
           >
-            <Text className="shrink-0 font-mono text-sm text-foreground" numberOfLines={1}>
+            {/* Name and folder both give way; only the counts keep their width. */}
+            <Text className="min-w-0 shrink font-mono text-sm text-foreground" numberOfLines={1}>
               {name}
             </Text>
             <Text
@@ -422,6 +431,18 @@ function ChangedFilesList(props: {
           </View>
         );
       })}
+      {hidden > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showAll }}
+          onPress={() => setShowAll((value) => !value)}
+          className="min-h-11 justify-center self-start"
+        >
+          <Text className="font-e6-medium text-sm text-foreground-muted">
+            {showAll ? "Show fewer" : `Show ${hidden} more`}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

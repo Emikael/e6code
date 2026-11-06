@@ -987,6 +987,9 @@ export function formatSubagentModelLabel(
   return effort ? `${compact} · ${effort}` : compact;
 }
 
+/** Files a subagent's file list shows before "Show N more", on every client. */
+export const SUBAGENT_FILES_PREVIEW_LIMIT = 8;
+
 /** "1 file", "6 files": the lead of a subagent's changed-files line. */
 export function formatSubagentFileCount(count: number): string {
   return `${count} ${count === 1 ? "file" : "files"}`;

@@ -32,6 +32,7 @@ import {
   isActiveSubagentStatus,
   type RuntimeSubagent,
   type SubagentChangedFiles,
+  SUBAGENT_FILES_PREVIEW_LIMIT,
   SUBAGENT_STATUS_LABEL,
   isSubagentWaitingTone,
   subagentActivityText,
@@ -511,8 +512,6 @@ function moveLineageFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   ]?.focus();
 }
 
-const FILES_PREVIEW_LIMIT = 8;
-
 /**
  * The files a subagent's edits changed. Each opens the diff of the turn that
  * last touched it, at that file; counts appear only where the provider gave them.
@@ -528,7 +527,7 @@ function SubagentFilesSection({
 }) {
   const [showAll, setShowAll] = useState(false);
   const { files, additions, deletions } = changedFiles;
-  const visible = showAll ? files : files.slice(0, FILES_PREVIEW_LIMIT);
+  const visible = showAll ? files : files.slice(0, SUBAGENT_FILES_PREVIEW_LIMIT);
   return (
     <div className="flex flex-col gap-1">
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -545,7 +544,8 @@ function SubagentFilesSection({
           const directory = path.length > name.length ? path.slice(0, -name.length - 1) : "";
           const content = (
             <>
-              <span className="min-w-0 shrink-0 truncate font-mono text-[11px]">{name}</span>
+              {/* Name and folder both give way; only the counts keep their width. */}
+              <span className="min-w-0 truncate font-mono text-[11px]">{name}</span>
               <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
                 {directory}
               </span>
@@ -578,14 +578,14 @@ function SubagentFilesSection({
           );
         })}
       </ul>
-      {files.length > FILES_PREVIEW_LIMIT ? (
+      {files.length > SUBAGENT_FILES_PREVIEW_LIMIT ? (
         <button
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll((value) => !value)}
           className="self-start rounded-md text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {showAll ? "Show fewer" : `Show ${files.length - FILES_PREVIEW_LIMIT} more`}
+          {showAll ? "Show fewer" : `Show ${files.length - SUBAGENT_FILES_PREVIEW_LIMIT} more`}
         </button>
       ) : null}
     </div>
