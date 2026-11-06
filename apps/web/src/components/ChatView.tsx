@@ -323,8 +323,10 @@ import {
   markPromotedDraftThreadByRef,
   restoreFailedBackgroundDraftThread,
   useComposerDraftStore,
+  useEffectiveComposerModelState,
   DraftId,
 } from "../composerDraftStore";
+import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import {
   formatTerminalContextLabel,
   type TerminalContextDraft,
@@ -3665,6 +3667,24 @@ export default function ChatView(props: ChatViewProps) {
     attachDraftHeroComposerAnchorRef,
     captureDraftHeroComposerRect,
   ] = useDraftHeroLayoutTransition(isDraftHeroState);
+
+  // The new-thread hero names the model the composer will send to, so read
+  // the same effective selection the composer's picker shows.
+  const { selectedModel: draftHeroModelSlug } = useEffectiveComposerModelState({
+    threadRef: composerDraftTarget,
+    providers: providerStatuses,
+    selectedProvider,
+    selectedInstanceId: activeProviderInstanceId,
+    threadModelSelection: activeThread?.modelSelection,
+    projectModelSelection: activeProjectDefaultModelSelection,
+    settings,
+  });
+  const draftHeroModel = selectedProviderEntry?.snapshot?.models.find(
+    (model) => model.slug === draftHeroModelSlug,
+  );
+  const draftHeroAgentLabel = draftHeroModel
+    ? getTriggerDisplayModelName(draftHeroModel)
+    : (selectedProviderEntry?.displayName ?? null);
 
   const gitCwd = activeProject
     ? projectScriptCwd({
@@ -10487,6 +10507,9 @@ export default function ChatView(props: ChatViewProps) {
                           draftId={draftId}
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
+                          agentLabel={draftHeroAgentLabel}
+                          envMode={envMode}
+                          branch={activeThreadBranch ?? gitStatusQuery.data?.refName ?? null}
                         />
                       </div>
                     </div>
