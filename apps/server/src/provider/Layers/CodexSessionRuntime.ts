@@ -25,6 +25,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -242,7 +243,8 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimePendingUserInputNotFoundError
   | CodexSessionRuntimeInvalidUserInputAnswersError
   | CodexSessionRuntimeThreadIdMissingError
-  | CodexSessionRuntimeSubagentNotRunningError;
+  | CodexSessionRuntimeSubagentNotRunningError
+  | CodexSessionRuntimeSubagentStopTimedOutError;
 
 export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedError<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
@@ -298,6 +300,24 @@ export class CodexSessionRuntimeSubagentNotRunningError extends Schema.TaggedErr
     return `Codex subagent ${this.agentThreadId} has no running turn to stop`;
   }
 }
+
+export class CodexSessionRuntimeSubagentStopTimedOutError extends Schema.TaggedError<CodexSessionRuntimeSubagentStopTimedOutError>()(
+  "CodexSessionRuntimeSubagentStopTimedOutError",
+  {
+    agentThreadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return "Couldn't stop the subagent while another request is waiting for you. Answer it, or stop the turn.";
+  }
+}
+
+/**
+ * How long a single-subagent stop waits for Codex to acknowledge. Any parked
+ * prompt (the parent's or another child's) blocks the transport's read loop,
+ * so the reply may never arrive; the reactor must not wait on it forever.
+ */
+const SUBAGENT_INTERRUPT_TIMEOUT = "3 seconds";
 
 interface PendingApproval {
   readonly requestId: ApprovalRequestId;
@@ -2651,10 +2671,14 @@ export const makeCodexSessionRuntime = (
           yield* settlePendingApprovals("cancel", childTurnId);
           yield* settlePendingUserInputs({}, childTurnId);
           // The child's turn/completed (status interrupted) settles the row.
-          yield* client.request("turn/interrupt", {
-            threadId: agentThreadId,
-            turnId: childTurnId,
-          });
+          // Prompts from the parent or other children still block the reply,
+          // so the wait is bounded.
+          const acknowledged = yield* client
+            .request("turn/interrupt", { threadId: agentThreadId, turnId: childTurnId })
+            .pipe(Effect.timeoutOption(SUBAGENT_INTERRUPT_TIMEOUT));
+          if (Option.isNone(acknowledged)) {
+            return yield* new CodexSessionRuntimeSubagentStopTimedOutError({ agentThreadId });
+          }
         }),
       readThread: Effect.gen(function* () {
         const providerThreadId = yield* readProviderThreadId;

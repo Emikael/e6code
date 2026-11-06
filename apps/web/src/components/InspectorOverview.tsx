@@ -512,7 +512,8 @@ function LineageRow({
               >
                 <CircleStopIcon aria-hidden />
                 {stopPending ? "Stopping…" : "Stop subagent"}
-                {stopControl.shortcutLabel && !stopPending ? (
+                {/* The shortcut stops the selected subagent, so only its menu names it. */}
+                {selected && stopControl.shortcutLabel && !stopPending ? (
                   <MenuShortcut className="ms-auto">{stopControl.shortcutLabel}</MenuShortcut>
                 ) : null}
               </MenuItem>

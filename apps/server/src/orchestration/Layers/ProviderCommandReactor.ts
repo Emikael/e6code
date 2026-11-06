@@ -129,6 +129,8 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
   event.commandId !== null ? `command:${event.commandId}` : `event:${event.eventId}`;
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
+/** Upper bound on a single-subagent stop; adapters bound their own RPCs below it. */
+const SUBAGENT_STOP_TIMEOUT = Duration.seconds(10);
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
@@ -1942,9 +1944,29 @@ const make = Effect.gen(function* () {
   const processSubagentStopRequested = Effect.fn("processSubagentStopRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.subagent-stop-requested" }>,
   ) {
+    const recordFailure = (detail: string) =>
+      appendProviderFailureActivity({
+        threadId: event.payload.threadId,
+        kind: "provider.subagent.stop.failed",
+        summary: "Subagent stop failed",
+        detail,
+        turnId: null,
+        createdAt: event.payload.createdAt,
+        ...(event.commandId !== null ? { requestId: event.commandId } : {}),
+        subagentId: event.payload.subagentId,
+      });
     yield* providerService
       .stopSubagent({ threadId: event.payload.threadId, subagentId: event.payload.subagentId })
       .pipe(
+        // This worker serves every thread; no adapter may hold it hostage.
+        Effect.timeoutOption(SUBAGENT_STOP_TIMEOUT),
+        Effect.flatMap((completed) =>
+          Option.isSome(completed)
+            ? Effect.void
+            : recordFailure(
+                "The provider did not confirm the stop in time. Try again, or stop the turn.",
+              ),
+        ),
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) {
             return Effect.interrupt;
@@ -1955,16 +1977,7 @@ const make = Effect.gen(function* () {
             : isProviderAdapterSessionNotFoundError(failure)
               ? "No active provider session is bound to this thread."
               : formatFailureDetail(cause);
-          return appendProviderFailureActivity({
-            threadId: event.payload.threadId,
-            kind: "provider.subagent.stop.failed",
-            summary: "Subagent stop failed",
-            detail,
-            turnId: null,
-            createdAt: event.payload.createdAt,
-            ...(event.commandId !== null ? { requestId: event.commandId } : {}),
-            subagentId: event.payload.subagentId,
-          });
+          return recordFailure(detail);
         }),
       );
   });

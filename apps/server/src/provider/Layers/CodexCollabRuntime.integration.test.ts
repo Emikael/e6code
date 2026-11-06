@@ -686,6 +686,99 @@ describe("CodexSessionRuntime collab integration", () => {
   );
 
   // it.live: the runtime talks to a real child process.
+  it.live("a parked prompt from another child cannot hang a single-subagent stop", () =>
+    Effect.gen(function* () {
+      const byIndex = wireFixture.notifications;
+      const turnStartedB = byIndex.find(
+        (entry) =>
+          entry.method === "turn/started" &&
+          (entry.params as { threadId?: string }).threadId === CHILD_B,
+      );
+      const registrationB = byIndex.find((entry) => {
+        const item = (entry.params as { item?: { type?: string; agentThreadId?: string } }).item;
+        return item?.type === "subAgentActivity" && item.agentThreadId === CHILD_B;
+      });
+      assert.isDefined(turnStartedB);
+      assert.isDefined(registrationB);
+      // Child A's approval stays parked, so the transport never reads the
+      // interrupt reply for child B (the peer withholds it to make that certain).
+      const script = {
+        rootThreadId: ROOT,
+        holdTurnOpen: true,
+        hangInterruptFor: CHILD_B,
+        notifications: [registrationB, turnStartedB],
+        serverRequests: [
+          {
+            method: "item/permissions/requestApproval",
+            label: "perm-child-a",
+            params: {
+              cwd: "/tmp/project",
+              itemId: "app_child_a",
+              permissions: { network: { enabled: true } },
+              reason: "Fetch the share link schema",
+              startedAtMs: 1_778_000_000_000,
+              threadId: CHILD_A,
+              turnId: `${CHILD_A}-turn-1`,
+            },
+          },
+        ],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(scriptPath, { force: true });
+          NodeFS.rmSync(`${scriptPath}.interrupts`, { force: true });
+          NodeFS.rmSync(`${scriptPath}.approvalResponses`, { force: true });
+        }),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-collab-stop-one-parked"),
+        binaryPath: peerPath,
+        cwd: NodeOS.tmpdir(),
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const requestedReady = yield* Deferred.make<void>();
+      const childBReady = yield* Deferred.make<void>();
+      yield* runtime.events.pipe(
+        Stream.runForEach((event) =>
+          event.method === "item/permissions/requestApproval"
+            ? Deferred.succeed(requestedReady, undefined)
+            : event.method === "collabAgent/turnStarted" &&
+                (event.payload as { agentThreadId?: string }).agentThreadId === CHILD_B
+              ? Deferred.succeed(childBReady, undefined)
+              : Effect.void,
+        ),
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "fan out" });
+      const ready = yield* Effect.all([
+        Deferred.await(requestedReady),
+        Deferred.await(childBReady),
+      ]).pipe(Effect.timeoutOption("15 seconds"));
+      assert.isTrue(ready._tag === "Some", "child approval or child B start never arrived");
+
+      const stopped = yield* runtime
+        .interruptSubagent(CHILD_B)
+        .pipe(Effect.result, Effect.timeoutOption("10 seconds"));
+      assert.isTrue(stopped._tag === "Some", "the single-subagent stop hung");
+      if (stopped._tag === "Some") {
+        assert.equal(stopped.value._tag, "Failure");
+        if (stopped.value._tag === "Failure") {
+          assert.equal(stopped.value.failure._tag, "CodexSessionRuntimeSubagentStopTimedOutError");
+          assert.include(stopped.value.failure.message, "Answer it, or stop the turn");
+        }
+      }
+
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  // it.live: the runtime talks to a real child process.
   it.live("tags an approval raised on a child thread with that subagent", () =>
     Effect.gen(function* () {
       // A collab subagent's requests carry its own thread id, which is also
