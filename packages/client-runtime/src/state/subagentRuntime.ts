@@ -18,7 +18,7 @@
  * metadata).
  */
 import type { OrchestrationThreadActivity } from "@e6tools/contracts";
-import type { SubagentUserRequest } from "../pendingRequests";
+import type { SubagentUserRequest } from "../pendingRequests.ts";
 
 export type RuntimeSubagentStatus =
   | "pending"
