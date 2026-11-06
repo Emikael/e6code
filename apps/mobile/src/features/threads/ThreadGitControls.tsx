@@ -69,6 +69,7 @@ function compactMenuStatus(gitStatus: VcsStatusResult | null): string {
 type HeaderItem = Record<string, unknown>;
 type HeaderItems = HeaderItem[];
 type ThreadGitHeaderActionItems = {
+  readonly inspector: HeaderItem | null;
   readonly terminal: HeaderItem;
   readonly files: HeaderItem;
   readonly git: HeaderItem;
@@ -95,6 +96,14 @@ export type ThreadGitMenuProps = {
 type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly auxiliaryPaneControl?: {
     readonly accessibilityLabel: string;
+    readonly onPress: () => void;
+  };
+  /** Opens the thread Inspector sheet; the badge counts running subagents. */
+  readonly inspectorControl?: {
+    readonly accessibilityLabel: string;
+    readonly badgeCount: number;
+    /** Native badges take concrete colors: a foreground fill with screen text. */
+    readonly badgeColors: { readonly fill: string; readonly text: string };
     readonly onPress: () => void;
   };
   readonly canOpenTerminal: boolean;
@@ -253,6 +262,30 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
 
   return useMemo(
     () => ({
+      inspector: props.inspectorControl
+        ? {
+            accessibilityLabel: props.inspectorControl.accessibilityLabel,
+            // Native badges need iOS 26; the label carries the count everywhere.
+            ...(props.inspectorControl.badgeCount > 0
+              ? {
+                  badge: {
+                    value: props.inspectorControl.badgeCount,
+                    style: {
+                      backgroundColor: props.inspectorControl.badgeColors.fill,
+                      color: props.inspectorControl.badgeColors.text,
+                    },
+                  },
+                }
+              : {}),
+            icon: { name: "info.circle", type: "sfSymbol" },
+            identifier: "thread-right-overview",
+            label: "Overview",
+            onPress: props.inspectorControl.onPress,
+            sharesBackground: true,
+            type: "button",
+            variant: "plain",
+          }
+        : null,
       terminal: {
         accessibilityLabel: "Open terminal",
         disabled: !props.canOpenTerminal,
@@ -383,6 +416,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
       props.canOpenFiles,
       props.canOpenTerminal,
       props.gitStatus,
+      props.inspectorControl,
       props.onOpenNewTerminal,
       props.onOpenTerminal,
       props.onRunProjectScript,
@@ -392,10 +426,18 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
   );
 }
 
+// The first right item sits at the trailing edge, so the Inspector leads both
+// orders and stays visible when iOS collapses items that do not fit.
 export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
   return useMemo(
-    () => [actionItems.git, actionItems.files, actionItems.terminal] as HeaderItems,
+    () =>
+      [
+        ...(actionItems.inspector ? [actionItems.inspector] : []),
+        actionItems.git,
+        actionItems.files,
+        actionItems.terminal,
+      ] as HeaderItems,
     [actionItems],
   );
 }
@@ -403,7 +445,13 @@ export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): Hea
 export function useThreadGitCenterHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
   return useMemo(
-    () => [actionItems.files, actionItems.git, actionItems.terminal] as HeaderItems,
+    () =>
+      [
+        ...(actionItems.inspector ? [actionItems.inspector] : []),
+        actionItems.files,
+        actionItems.git,
+        actionItems.terminal,
+      ] as HeaderItems,
     [actionItems],
   );
 }
@@ -418,6 +466,14 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
 
   return (
     <NativeHeaderToolbar placement="right">
+      {showActionControls && props.inspectorControl ? (
+        <NativeHeaderToolbar.Button
+          accessibilityLabel={props.inspectorControl.accessibilityLabel}
+          icon="info.circle"
+          onPress={props.inspectorControl.onPress}
+          separateBackground
+        />
+      ) : null}
       {showActionControls && props.auxiliaryPaneControl ? (
         <NativeHeaderToolbar.Button
           accessibilityLabel={props.auxiliaryPaneControl.accessibilityLabel}
