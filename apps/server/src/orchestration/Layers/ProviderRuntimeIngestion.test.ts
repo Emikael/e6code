@@ -1918,6 +1918,42 @@ describe("ProviderRuntimeIngestion", () => {
     expect(rawOutput?.content).toBe('import * as Effect from "effect/Effect"\n');
   });
 
+  it("keeps a subagent's changed files on its file-change activity", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-subagent-file-change"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-file-change"),
+      itemId: asItemId("item-subagent-file-change"),
+      payload: {
+        itemType: "file_change",
+        status: "completed",
+        title: "File change",
+        agentId: "child-1",
+        changedFiles: [{ path: "/repo/a.ts", additions: 3, deletions: 1 }, { path: "/repo/b.ts" }],
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-subagent-file-change",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-subagent-file-change",
+    );
+    expect(activity?.kind).toBe("tool.completed");
+    expect(activity?.payload).toMatchObject({
+      agentId: "child-1",
+      changedFiles: [{ path: "/repo/a.ts", additions: 3, deletions: 1 }, { path: "/repo/b.ts" }],
+    });
+  });
+
   it("normalizes command execution activities to ran-command summaries", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

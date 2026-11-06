@@ -1177,6 +1177,62 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("tags a child's completed file change with the child's task id", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 3)).pipe(
+        Effect.forkChild,
+      );
+
+      const changes = [
+        {
+          path: "/repo/src/a.ts",
+          kind: { type: "update", move_path: null },
+          diff: "@@ -1,2 +1,3 @@\n-old\n+new\n+added\n keep\n",
+        },
+        { path: "/repo/src/b.ts", kind: { type: "add" }, diff: "one\ntwo\n" },
+        { path: "/repo/src/c.ts", kind: { type: "delete" }, diff: "gone\n" },
+      ];
+      // The proposal (inProgress) is progress only; the applied patch lists files.
+      for (const [index, status] of ["inProgress", "completed"].entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-child-patch-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          method: "collabAgent/item",
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("turn-1"),
+          payload: {
+            agentThreadId: "child-patch",
+            item: { type: "fileChange", id: "patch-1", status, changes },
+          },
+        });
+      }
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.deepStrictEqual(
+        events.map((event) => event.type),
+        ["task.progress", "task.progress", "item.completed"],
+      );
+      const fileChange = events[2]!;
+      NodeAssert.equal(fileChange.itemId, "patch-1");
+      NodeAssert.equal(fileChange.turnId, "turn-1");
+      NodeAssert.notEqual(fileChange.eventId, events[1]!.eventId);
+      NodeAssert.deepStrictEqual(fileChange.payload, {
+        itemType: "file_change",
+        status: "completed",
+        title: "File change",
+        agentId: "child-patch",
+        changedFiles: [
+          { path: "/repo/src/a.ts", additions: 2, deletions: 1 },
+          { path: "/repo/src/b.ts", additions: 2, deletions: 0 },
+          { path: "/repo/src/c.ts", additions: 0, deletions: 1 },
+        ],
+      });
+    }),
+  );
+
   it.effect("does not reactivate an idle child after a parent interaction", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

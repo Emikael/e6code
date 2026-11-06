@@ -429,6 +429,18 @@ export const ToolActivitySource = Schema.Struct({
 });
 export type ToolActivitySource = typeof ToolActivitySource.Type;
 
+/**
+ * One file a completed file-change item touched, as the provider reported its
+ * path. Line counts are present only when the provider's own payload yields
+ * them; clients show the file without counts otherwise.
+ */
+const ItemChangedFile = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  additions: Schema.optional(NonNegativeInt),
+  deletions: Schema.optional(NonNegativeInt),
+});
+export type ItemChangedFile = typeof ItemChangedFile.Type;
+
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
@@ -445,6 +457,12 @@ export const ItemLifecyclePayload = Schema.Struct({
    */
   agentId: Schema.optional(TrimmedNonEmptyStringSchema),
   parentToolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
+  /**
+   * Files a subagent's completed file change touched. Adapters set it only on
+   * item.completed rows that carry agentId, so clients can list each
+   * subagent's files without walking raw tool data.
+   */
+  changedFiles: Schema.optional(Schema.Array(ItemChangedFile)),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
 
