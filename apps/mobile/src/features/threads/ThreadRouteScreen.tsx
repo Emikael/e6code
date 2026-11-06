@@ -505,9 +505,13 @@ function ThreadRouteContent(
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
+  // Like web's header, the machine is named with its connection state in
+  // words: remote work makes the connection part of the thread's context.
+  const headerEnvironmentLabel = selectedEnvironmentConnection?.environmentLabel ?? null;
   const headerSubtitle = [
     selectedThreadProject?.title ?? null,
-    selectedEnvironmentConnection?.environmentLabel ?? null,
+    headerEnvironmentLabel,
+    headerEnvironmentLabel ? connectionTone(routeConnectionState).label : null,
   ]
     .filter(Boolean)
     .join(" · ");
