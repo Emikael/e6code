@@ -606,6 +606,86 @@ describe("CodexSessionRuntime collab integration", () => {
   );
 
   // it.live: the runtime talks to a real child process.
+  it.live("stopping one subagent interrupts only its child turn", () =>
+    Effect.gen(function* () {
+      const byIndex = wireFixture.notifications;
+      const turnStartedB = byIndex.find(
+        (entry) =>
+          entry.method === "turn/started" &&
+          (entry.params as { threadId?: string }).threadId === CHILD_B,
+      );
+      const registrationB = byIndex.find((entry) => {
+        const item = (entry.params as { item?: { type?: string; agentThreadId?: string } }).item;
+        return item?.type === "subAgentActivity" && item.agentThreadId === CHILD_B;
+      });
+      assert.isDefined(turnStartedB);
+      assert.isDefined(registrationB);
+      const script = {
+        rootThreadId: ROOT,
+        holdTurnOpen: true,
+        notifications: [registrationB, turnStartedB],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      const interruptsPath = `${scriptPath}.interrupts`;
+      NodeFS.rmSync(interruptsPath, { force: true });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(scriptPath, { force: true });
+          NodeFS.rmSync(interruptsPath, { force: true });
+        }),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-collab-stop-one"),
+        binaryPath: peerPath,
+        cwd: NodeOS.tmpdir(),
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const childBStartedFiber = yield* runtime.events.pipe(
+        Stream.filter(
+          (event) =>
+            event.method === "collabAgent/turnStarted" &&
+            (event.payload as { agentThreadId?: string }).agentThreadId === CHILD_B,
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "fan out" });
+      const childBStarted = yield* Fiber.join(childBStartedFiber).pipe(
+        Effect.timeoutOption("15 seconds"),
+      );
+      assert.isTrue(childBStarted._tag === "Some", "child B turnStarted never arrived");
+
+      const unknown = yield* runtime.interruptSubagent("not-a-child").pipe(Effect.result);
+      assert.equal(unknown._tag, "Failure");
+      if (unknown._tag === "Failure") {
+        assert.equal(unknown.failure._tag, "CodexSessionRuntimeSubagentNotRunningError");
+      }
+
+      yield* runtime.interruptSubagent(CHILD_B);
+
+      const interrupted = NodeFS.readFileSync(interruptsPath, "utf8")
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { threadId?: string; turnId?: string });
+      assert.deepEqual(interrupted, [
+        {
+          threadId: CHILD_B,
+          turnId: (turnStartedB.params as { turn: { id: string } }).turn.id,
+        },
+      ]);
+
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  // it.live: the runtime talks to a real child process.
   it.live("tags an approval raised on a child thread with that subagent", () =>
     Effect.gen(function* () {
       // A collab subagent's requests carry its own thread id, which is also

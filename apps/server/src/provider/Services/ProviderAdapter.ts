@@ -107,6 +107,13 @@ export interface ProviderAdapterShape<TError> {
   readonly interruptTurn: (threadId: ThreadId, turnId?: TurnId) => Effect.Effect<void, TError>;
 
   /**
+   * Stop one running subagent, by the task id clients know it by, while the
+   * turn continues. Omitted when the provider cannot stop a single subagent;
+   * keep ServerProvider.supportsSubagentStop in step so clients hide Stop.
+   */
+  readonly stopSubagent?: (threadId: ThreadId, subagentId: string) => Effect.Effect<void, TError>;
+
+  /**
    * Respond to an interactive approval request.
    */
   readonly respondToRequest: (

@@ -121,6 +121,7 @@ function createProviderServiceHarness(
     sendTurn: () => unsupported(),
     compactThread: () => unsupported(),
     interruptTurn: () => unsupported(),
+    stopSubagent: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),

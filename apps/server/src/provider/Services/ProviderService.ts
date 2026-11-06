@@ -83,6 +83,15 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**
+   * Stop one running subagent without ending the turn. Fails with a
+   * validation error when the provider cannot stop a single subagent.
+   */
+  readonly stopSubagent: (input: {
+    readonly threadId: ThreadId;
+    readonly subagentId: string;
+  }) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
    * Respond to a provider approval request.
    */
   readonly respondToRequest: (

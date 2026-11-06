@@ -213,6 +213,10 @@ export interface CodexSessionRuntimeShape {
   ) => Effect.Effect<ProviderTurnStartResult, CodexSessionRuntimeError>;
   readonly compactThread: Effect.Effect<void, CodexSessionRuntimeError>;
   readonly interruptTurn: (turnId?: TurnId) => Effect.Effect<void, CodexSessionRuntimeError>;
+  /** Interrupts one collab child's running turn; the parent turn continues. */
+  readonly interruptSubagent: (
+    agentThreadId: string,
+  ) => Effect.Effect<void, CodexSessionRuntimeError>;
   readonly readThread: Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
   readonly rollbackThread: (
     numTurns: number,
@@ -237,7 +241,8 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimePendingApprovalNotFoundError
   | CodexSessionRuntimePendingUserInputNotFoundError
   | CodexSessionRuntimeInvalidUserInputAnswersError
-  | CodexSessionRuntimeThreadIdMissingError;
+  | CodexSessionRuntimeThreadIdMissingError
+  | CodexSessionRuntimeSubagentNotRunningError;
 
 export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedError<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
@@ -280,6 +285,17 @@ export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedError<
 ) {
   override get message(): string {
     return `Codex session is missing a provider thread id for ${this.threadId}`;
+  }
+}
+
+export class CodexSessionRuntimeSubagentNotRunningError extends Schema.TaggedError<CodexSessionRuntimeSubagentNotRunningError>()(
+  "CodexSessionRuntimeSubagentNotRunningError",
+  {
+    agentThreadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Codex subagent ${this.agentThreadId} has no running turn to stop`;
   }
 }
 
@@ -1546,11 +1562,16 @@ export const makeCodexSessionRuntime = (
         );
     });
 
-    const settlePendingApprovals = (decision: ProviderApprovalDecision) =>
+    // onlyTurnId narrows settling to one turn's prompts (a child's, on a
+    // single-subagent stop); omitted, every parked prompt settles.
+    const settlePendingApprovals = (decision: ProviderApprovalDecision, onlyTurnId?: string) =>
       Ref.get(pendingApprovalsRef).pipe(
         Effect.flatMap((pendingApprovals) =>
           Effect.forEach(
-            Array.from(pendingApprovals.values()),
+            Array.from(pendingApprovals.values()).filter(
+              (pendingApproval) =>
+                onlyTurnId === undefined || pendingApproval.turnId === onlyTurnId,
+            ),
             (pendingApproval) =>
               Deferred.succeed(pendingApproval.decision, decision).pipe(Effect.ignore),
             { discard: true },
@@ -1558,11 +1579,14 @@ export const makeCodexSessionRuntime = (
         ),
       );
 
-    const settlePendingUserInputs = (answers: ProviderUserInputAnswers) =>
+    const settlePendingUserInputs = (answers: ProviderUserInputAnswers, onlyTurnId?: string) =>
       Ref.get(pendingUserInputsRef).pipe(
         Effect.flatMap((pendingUserInputs) =>
           Effect.forEach(
-            Array.from(pendingUserInputs.values()),
+            Array.from(pendingUserInputs.values()).filter(
+              (pendingUserInput) =>
+                onlyTurnId === undefined || pendingUserInput.turnId === onlyTurnId,
+            ),
             (pendingUserInput) =>
               Deferred.succeed(pendingUserInput.answers, answers).pipe(Effect.ignore),
             { discard: true },
@@ -2613,6 +2637,23 @@ export const makeCodexSessionRuntime = (
           yield* client.request("turn/interrupt", {
             threadId: providerThreadId,
             turnId: effectiveTurnId,
+          });
+        }),
+      interruptSubagent: (agentThreadId) =>
+        Effect.gen(function* () {
+          const childTurnId = (yield* Ref.get(collabChildLiveTurnsRef)).get(agentThreadId);
+          if (!childTurnId) {
+            return yield* new CodexSessionRuntimeSubagentNotRunningError({ agentThreadId });
+          }
+          // A parked prompt from this child blocks the transport's read loop,
+          // and with it the interrupt response; settle the child's first, as
+          // interruptTurn does for every prompt.
+          yield* settlePendingApprovals("cancel", childTurnId);
+          yield* settlePendingUserInputs({}, childTurnId);
+          // The child's turn/completed (status interrupted) settles the row.
+          yield* client.request("turn/interrupt", {
+            threadId: agentThreadId,
+            turnId: childTurnId,
           });
         }),
       readThread: Effect.gen(function* () {
