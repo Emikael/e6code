@@ -10831,6 +10831,7 @@ export default function ChatView(props: ChatViewProps) {
           agentsAvailable
           deviceAvailable={activeThreadRef !== null}
           liveAgentCount={agentPanelModel.liveCount}
+          changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -10899,6 +10900,7 @@ export default function ChatView(props: ChatViewProps) {
             agentsAvailable
             deviceAvailable={activeThreadRef !== null}
             liveAgentCount={agentPanelModel.liveCount}
+            changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
           >
             {rightPanelContent}
           </RightPanelTabs>

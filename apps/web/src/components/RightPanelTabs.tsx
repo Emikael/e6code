@@ -142,6 +142,8 @@ export interface RightPanelTabsProps {
   deviceAvailable: boolean;
   /** Running + waiting subagents; badges the Agents launcher row. */
   liveAgentCount: number;
+  /** Files changed in the working tree; counted on the Diff tab. */
+  changedFileCount?: number;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -848,6 +850,8 @@ function RightPanelTab(
     theme: "light" | "dark";
     environmentId: EnvironmentId | null;
     pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
+    /** Shown after the title when above zero, such as the Diff tab's file count. */
+    count: number;
     renaming: boolean;
     canRename: boolean;
     ownsDesktopTitleBar: boolean;
@@ -943,6 +947,14 @@ function RightPanelTab(
                 onClick={() => onActivate(surface)}
               >
                 <span className="truncate">{title}</span>
+                {props.count > 0 ? (
+                  <span className="ms-1 shrink-0 text-[10px] tabular-nums opacity-70">
+                    {props.count}
+                    <span className="sr-only">
+                      {props.count === 1 ? " file" : " files"} changed
+                    </span>
+                  </span>
+                ) : null}
               </button>
             }
           />
@@ -1361,6 +1373,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       theme={resolvedTheme}
                       environmentId={props.environmentId}
                       pullRequestStatusSeed={props.pullRequestStatusSeeds?.[surface.id]}
+                      count={surface.kind === "diff" ? (props.changedFileCount ?? 0) : 0}
                       renaming={renamingDevice === surface.id}
                       canRename={props.onRenameDevice !== undefined}
                       ownsDesktopTitleBar={ownsDesktopTitleBar}
