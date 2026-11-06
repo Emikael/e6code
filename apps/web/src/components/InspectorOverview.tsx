@@ -49,6 +49,7 @@ import {
   GitCommitHorizontalIcon,
   MessageSquareTextIcon,
   MonitorIcon,
+  RefreshCwIcon,
   SquareArrowOutUpRightIcon,
   WrenchIcon,
   XIcon,
@@ -105,6 +106,11 @@ export interface InspectorWorkspace {
   availableEditors: ReadonlyArray<EditorId>;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   preferredScriptId: string | null;
+  /**
+   * The project's setup script, when the thread runs in a worktree. `changed`
+   * means the worktree was set up with an older version of it.
+   */
+  worktreeSetup: { readonly script: ProjectScript; readonly changed: boolean } | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
   onUpdateProjectScript: (
@@ -223,8 +229,36 @@ function WorkspaceSection({ workspace }: { workspace: InspectorWorkspace }) {
           )}
         </InspectorMenuRow>
       ) : null}
+      {workspace.worktreeSetup ? <WorktreeSetupRow workspace={workspace} /> : null}
       <SectionDivider />
     </div>
+  );
+}
+
+/**
+ * Re-runs the setup script in the thread's worktree. Running it records the
+ * current script on the thread, which clears the Changed badge.
+ */
+function WorktreeSetupRow({ workspace }: { workspace: InspectorWorkspace }) {
+  const setup = workspace.worktreeSetup;
+  if (!setup) return null;
+  return (
+    <button
+      type="button"
+      className={ROW_CLASS_NAME}
+      onClick={() => workspace.onRunProjectScript(setup.script)}
+    >
+      <RefreshCwIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+      <span className="min-w-0 flex-1 truncate">Setup worktree</span>
+      {setup.changed ? (
+        <span className="shrink-0 rounded-sm bg-warning-surface px-1.5 py-px text-[11px] font-medium text-warning-foreground">
+          Changed
+          <span className="sr-only"> since this worktree ran it</span>
+        </span>
+      ) : (
+        <span className={cn("text-xs", MUTED)}>Run again</span>
+      )}
+    </button>
   );
 }
 

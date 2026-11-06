@@ -84,9 +84,12 @@ import {
   resolvePromptInjectedEffort,
 } from "@e6tools/shared/model";
 import {
+  isWorktreeSetupStale,
   projectScriptCwd,
+  projectScriptHash,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 import { sourceControlRepositorySelector } from "@e6tools/shared/sourceControl";
@@ -2195,6 +2198,17 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectScripts = useMemo(
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
+  );
+  const draftHeroSetupProject = useMemo(
+    () =>
+      activeProject
+        ? {
+            environmentId: activeProject.environmentId,
+            id: activeProject.id,
+            scripts: activeProjectScripts,
+          }
+        : null,
+    [activeProject, activeProjectScripts],
   );
   // A project added by cloning exists before its files do. The draft stays
   // editable throughout; only sending waits for the clone, and a failed
@@ -4365,19 +4379,37 @@ export default function ChatView(props: ChatViewProps) {
           data: `${script.command}\r`,
         },
       });
-      if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
-        const error = squashAtomCommandFailure(writeResult);
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-        );
+      if (writeResult._tag === "Failure") {
+        if (!isAtomCommandInterrupted(writeResult)) {
+          const error = squashAtomCommandFailure(writeResult);
+          setThreadError(
+            activeThreadId,
+            error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
+          );
+        }
+        return;
+      }
+      // Re-running the setup script in a worktree brings it up to date, from
+      // any entry point (Overview, scripts menu, keybinding).
+      if (
+        isServerThread &&
+        targetWorktreePath !== null &&
+        setupProjectScript(activeProjectScripts)?.id === script.id
+      ) {
+        void updateThreadMetadata({
+          environmentId,
+          input: { threadId: activeThreadId, setupScriptHash: projectScriptHash(script) },
+        });
       }
     },
     [
       activeProject,
+      activeProjectScripts,
       activeThread,
       activeThreadId,
       activeThreadRef,
+      isServerThread,
+      updateThreadMetadata,
       gitCwd,
       setTerminalOpen,
       setThreadError,
@@ -9897,6 +9929,9 @@ export default function ChatView(props: ChatViewProps) {
         .filter(Boolean)
         .join(" · ") || null
     : null;
+  const inspectorWorktreeSetupScript = activeThread?.worktreePath
+    ? setupProjectScript(activeProjectScripts)
+    : null;
   const inspectorWorkspace: InspectorWorkspace | null = activeThread
     ? {
         environmentId: activeThread.environmentId,
@@ -9910,6 +9945,14 @@ export default function ChatView(props: ChatViewProps) {
         activeProjectScripts,
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+          : null,
+        worktreeSetup: inspectorWorktreeSetupScript
+          ? {
+              script: inspectorWorktreeSetupScript,
+              changed:
+                activeThreadShell !== null &&
+                isWorktreeSetupStale(activeThreadShell, activeProjectScripts),
+            }
           : null,
         onRunProjectScript: runProjectScript,
         onAddProjectScript: saveProjectScript,
@@ -10745,6 +10788,7 @@ export default function ChatView(props: ChatViewProps) {
                       <DraftHeroFooter
                         keybindings={keybindings}
                         unpushed={selectUnpushedCommits(gitStatusQuery.data)}
+                        setupProject={draftHeroSetupProject}
                         onOpenSourceControl={addAgentsSurface}
                       />
                     </div>

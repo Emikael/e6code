@@ -4,9 +4,19 @@
  * figure on the screen.
  */
 import { scopeThreadRef } from "@e6tools/client-runtime/environment";
-import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@e6tools/contracts";
+import type {
+  EnvironmentId,
+  KeybindingCommand,
+  ResolvedKeybindingsConfig,
+  ThreadId,
+} from "@e6tools/contracts";
 import { useRouter } from "@tanstack/react-router";
-import { ChevronRightIcon, MessageCircleQuestionIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  MessageCircleQuestionIcon,
+  RefreshCwIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { shortcutLabelForCommand } from "~/keybindings";
@@ -15,7 +25,11 @@ import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Kbd } from "../ui/kbd";
-import { selectPickUpThreads, type UnpushedCommits } from "./DraftHeroFooter.logic";
+import {
+  selectPickUpThreads,
+  selectStaleSetupThread,
+  type UnpushedCommits,
+} from "./DraftHeroFooter.logic";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
@@ -30,11 +44,14 @@ const ROW_CLASS_NAME =
 export function DraftHeroFooter({
   keybindings,
   unpushed,
+  setupProject,
   onOpenSourceControl,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   /** Commits on the project's branch that its remote lacks. */
   unpushed: UnpushedCommits | null;
+  /** The draft's project and its resolved scripts, to flag worktrees set up with an older setup script. */
+  setupProject: Parameters<typeof selectStaleSetupThread>[1];
   /** Opens the Overview, where Commit pushes or opens a pull request. */
   onOpenSourceControl: () => void;
 }) {
@@ -43,6 +60,10 @@ export function DraftHeroFooter({
   const projects = useProjects();
   const [nowMs] = useState(Date.now);
   const picked = useMemo(() => selectPickUpThreads(threads, { limit: 3, nowMs }), [threads, nowMs]);
+  const staleSetup = useMemo(
+    () => selectStaleSetupThread(threads, setupProject),
+    [threads, setupProject],
+  );
   const projectTitleByKey = useMemo(
     () =>
       new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project.title])),
@@ -53,10 +74,16 @@ export function DraftHeroFooter({
     return shortcut ? [{ shortcut, label }] : [];
   });
 
-  if (picked.length === 0 && !unpushed && hints.length === 0) return null;
+  const openThread = (thread: { environmentId: EnvironmentId; id: ThreadId }) =>
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+    });
+
+  if (picked.length === 0 && !unpushed && !staleSetup && hints.length === 0) return null;
   return (
     <div className="flex flex-col gap-5">
-      {picked.length > 0 || unpushed ? (
+      {picked.length > 0 || unpushed || staleSetup ? (
         <div className="flex flex-col gap-2">
           <span className="px-1 text-[11px] font-semibold text-muted-foreground">
             Pick up where you left off
@@ -73,14 +100,7 @@ export function DraftHeroFooter({
                 >
                   <button
                     type="button"
-                    onClick={() =>
-                      void router.navigate({
-                        to: "/$environmentId/$threadId",
-                        params: buildThreadRouteParams(
-                          scopeThreadRef(thread.environmentId, thread.id),
-                        ),
-                      })
-                    }
+                    onClick={() => openThread(thread)}
                     className={ROW_CLASS_NAME}
                   >
                     <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning-surface text-warning-foreground">
@@ -110,6 +130,32 @@ export function DraftHeroFooter({
                 </li>
               );
             })}
+            {staleSetup ? (
+              // Opens the thread; its Overview re-runs the setup script there.
+              <li className="border-border not-last:border-b">
+                <button
+                  type="button"
+                  onClick={() => openThread(staleSetup)}
+                  className={ROW_CLASS_NAME}
+                >
+                  <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning-surface text-warning-foreground">
+                    <RefreshCwIcon aria-hidden className="size-3.5" />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col leading-snug">
+                    <span className="truncate text-[13px] font-medium text-foreground">
+                      Setup script changed
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      Re-run it in <span className="font-mono">{staleSetup.branch}</span>
+                    </span>
+                  </span>
+                  <ChevronRightIcon
+                    aria-hidden
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                </button>
+              </li>
+            ) : null}
             {unpushed ? (
               <li className="border-border not-last:border-b">
                 <button type="button" onClick={onOpenSourceControl} className={ROW_CLASS_NAME}>

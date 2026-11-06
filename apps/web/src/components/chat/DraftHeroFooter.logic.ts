@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
-import type { VcsStatusResult } from "@e6tools/contracts";
+import type { EnvironmentId, ProjectId, ProjectScript, VcsStatusResult } from "@e6tools/contracts";
+import { isWorktreeSetupStale } from "@e6tools/shared/projectScripts";
 
 export type PickUpReason = "approval" | "input";
 
@@ -32,6 +33,34 @@ export function selectPickUpThreads(
         b.thread.updatedAt.localeCompare(a.thread.updatedAt),
     )
     .slice(0, options.limit);
+}
+
+/**
+ * The project's most recently updated thread whose worktree ran an older
+ * setup script than the project has now, for the "Setup script changed"
+ * pick-up item. Threads in the project folder have no worktree to compare
+ * and never qualify; neither do archived threads or worktrees without a
+ * branch to name.
+ */
+export function selectStaleSetupThread(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  project: {
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+    readonly scripts: ReadonlyArray<ProjectScript>;
+  } | null,
+): (EnvironmentThreadShell & { readonly branch: string }) | null {
+  if (!project) return null;
+  let latest: (EnvironmentThreadShell & { readonly branch: string }) | null = null;
+  for (const thread of threads) {
+    if (thread.environmentId !== project.environmentId || thread.projectId !== project.id) continue;
+    if (thread.archivedAt !== null || thread.branch === null) continue;
+    if (!isWorktreeSetupStale(thread, project.scripts)) continue;
+    if (latest === null || thread.updatedAt > latest.updatedAt) {
+      latest = { ...thread, branch: thread.branch };
+    }
+  }
+  return latest;
 }
 
 export interface UnpushedCommits {
