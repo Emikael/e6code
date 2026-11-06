@@ -1702,6 +1702,30 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThread(draftId)?.startFromOrigin).toBe(false);
   });
 
+  it("keeps the split-into-subagents choice with the draft through a reload", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "refactor the parser");
+    store.setDraftThreadContext(draftId, { splitIntoSubagents: true });
+    store.setDraftThreadContext(draftId, { envMode: "worktree" });
+
+    const merge = useComposerDraftStore.persist.getOptions().merge!;
+    const reloaded = merge(
+      JSON.parse(
+        JSON.stringify(partializeComposerDraftStoreState(useComposerDraftStore.getState())),
+      ),
+      useComposerDraftStore.getInitialState(),
+    );
+    expect(
+      Object.values(reloaded.draftThreadsByThreadKey).map((draft) => draft.splitIntoSubagents),
+    ).toEqual([true]);
+
+    store.setDraftThreadContext(draftId, { splitIntoSubagents: false });
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.splitIntoSubagents).toBe(
+      undefined,
+    );
+  });
+
   it("preserves existing branch and worktree when setProjectDraftThreadId receives undefined", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {
