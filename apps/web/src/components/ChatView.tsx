@@ -17,7 +17,10 @@ import {
   maxUsedPercent,
   shouldOfferHandoff,
 } from "@e6tools/client-runtime/state/thread-handoff";
-import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import {
+  derivePendingRequests,
+  SUBAGENT_APPROVAL_PHRASE,
+} from "@e6tools/client-runtime/pending-requests";
 import {
   questionAttachmentDraftId,
   questionAttachmentDraftPrefix,
@@ -238,6 +241,7 @@ import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import {
   deriveAgentPanelModel,
+  findSubagent,
   foldSubagentActivities,
   formatSubagentModelLabel,
 } from "@e6tools/client-runtime/state/subagentRuntime";
@@ -3128,14 +3132,7 @@ export default function ChatView(props: ChatViewProps) {
   const activePendingApproval = pendingApprovals[0] ?? null;
   const activePendingApprovalAgentId = activePendingApproval?.agentId;
   const activePendingApprovalAgentTitle = activePendingApprovalAgentId
-    ? ([
-        ...agentPanelModel.directAgents,
-        ...agentPanelModel.workflows.flatMap((group) => [
-          group.workflow,
-          ...group.unphasedMembers,
-          ...group.phases.flatMap((phase) => phase.members),
-        ]),
-      ].find((agent) => agent.id === activePendingApprovalAgentId)?.title ?? null)
+    ? (findSubagent(agentPanelModel, activePendingApprovalAgentId)?.title ?? null)
     : null;
   // The open /usage-limits panel for this thread, model and turn. Only the open
   // moment is stored: the rows read live provider data, so a redeemed reset
@@ -10361,7 +10358,9 @@ export default function ChatView(props: ChatViewProps) {
                             />
                             <span className="font-medium text-foreground">
                               {activePendingApproval
-                                ? "Approval required at turn frontier"
+                                ? activePendingApprovalAgentTitle
+                                  ? `${activePendingApprovalAgentTitle} ${SUBAGENT_APPROVAL_PHRASE[activePendingApproval.requestKind]}`
+                                  : "Approval required at turn frontier"
                                 : pendingUserInputs.length > 0
                                   ? "Agent waiting for your response"
                                   : "Plan ready to implement"}

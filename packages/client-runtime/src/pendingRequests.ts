@@ -28,6 +28,18 @@ export interface PendingUserInput {
   readonly dismissible: boolean;
 }
 
+/**
+ * What a named subagent is asking for, after its title: "Share link API
+ * wants to run a command". Shared so every approval surface says the same.
+ */
+export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+  command: "wants to run a command",
+  "file-read": "wants to read a file",
+  "file-change": "wants to change files",
+  "mcp-elicitation": "wants app access",
+  permission: "wants an app permission",
+};
+
 const isRequestId = Schema.is(ApprovalRequestId);
 const isProviderRequestKind = Schema.is(ProviderRequestKind);
 const isProviderApprovalOption = Schema.is(ProviderApprovalOption);

@@ -1,3 +1,4 @@
+import { SUBAGENT_APPROVAL_PHRASE } from "@e6tools/client-runtime/pending-requests";
 import { memo } from "react";
 import { type PendingApproval } from "../../session-logic";
 import { cn } from "~/lib/utils";
@@ -9,14 +10,6 @@ interface ComposerPendingApprovalPanelProps {
   agentTitle?: string | null;
   className?: string;
 }
-
-const SUBAGENT_REQUEST_VERB: Readonly<Record<PendingApproval["requestKind"], string>> = {
-  command: "wants to run a command",
-  "file-read": "wants to read a file",
-  "file-change": "wants to change files",
-  "mcp-elicitation": "wants app access",
-  permission: "wants an app permission",
-};
 
 export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprovalPanel({
   approval,
@@ -46,7 +39,7 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
             ? "Permission request"
             : "File change";
 
-  const subagentVerb = agentTitle ? SUBAGENT_REQUEST_VERB[approval.requestKind] : null;
+  const subagentVerb = agentTitle ? SUBAGENT_APPROVAL_PHRASE[approval.requestKind] : null;
 
   return (
     <span
@@ -58,11 +51,13 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
         {agentTitle && subagentVerb ? (
           // A subagent is blocked here: name it, so the user knows which one waits.
           <span className="flex min-w-0 items-baseline gap-1">
-            <span className="min-w-0 truncate font-medium text-warning">{agentTitle}</span>
+            <span className="min-w-0 truncate font-medium text-warning-foreground">
+              {agentTitle}
+            </span>
             <span className="shrink-0">{subagentVerb}</span>
           </span>
         ) : (
-          <span className="shrink-0 font-medium text-warning">{fallbackLabel}</span>
+          <span className="shrink-0 font-medium text-warning-foreground">{fallbackLabel}</span>
         )}
         {approval.appName ? <span className="min-w-0 truncate">{approval.appName}</span> : null}
         {pendingCount > 1 ? (

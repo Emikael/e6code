@@ -1021,7 +1021,7 @@ export const AwaitingApprovalAgentIdsContext = createContext<ReadonlySet<string>
 type AgentSpawnCardTone = AgentSpawnSummary["tone"] | "approval";
 
 const AGENT_SPAWN_TONE_DOT_CLASS = {
-  approval: "bg-adaptive-amber-700-400",
+  approval: "bg-warning-foreground",
   working: "bg-adaptive-sky-600-400",
   completed: "bg-adaptive-emerald-600-400",
   failed: "bg-adaptive-rose-600-400",
@@ -1059,6 +1059,11 @@ const AGENT_SPAWN_COUNT_WORD = {
   completed: "done",
 } as const satisfies Record<AgentSpawnCardTone, string>;
 
+function agentSpawnCount(tone: AgentSpawnCardTone, count: number): string {
+  if (tone === "approval") return `${count} ${count === 1 ? "needs" : "need"} approval`;
+  return `${count} ${AGENT_SPAWN_COUNT_WORD[tone]}`;
+}
+
 /**
  * "3 working · 1 done": live work first, then problems, then successes. When
  * the batch's own state disagrees with its members (a coordinator still
@@ -1072,7 +1077,7 @@ function agentSpawnCountsText(
   const counts = AGENT_SPAWN_SUMMARY_ORDER.flatMap((tone) => {
     const count = members.filter((member) => member.tone === tone).length;
     if (count === 0) return [];
-    return [`${count} ${AGENT_SPAWN_COUNT_WORD[tone]}`];
+    return [agentSpawnCount(tone, count)];
   });
   // A blocked member is still live work, so it satisfies a working batch.
   const leads = members.some(
@@ -1145,18 +1150,12 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
 }) {
   const { summary, expanded } = props;
   const awaitingApproval = use(AwaitingApprovalAgentIdsContext);
-  // A member blocked on the user's approval says so, and lifts to the top.
-  const marked = summary.members.map((member) =>
+  // A member blocked on the user's approval says so; rows keep spawn order.
+  const members = summary.members.map((member) =>
     member.tone === "working" && awaitingApproval.has(member.id)
       ? { ...member, tone: "approval" as const }
       : member,
   );
-  const members = marked.some((member) => member.tone === "approval")
-    ? [
-        ...marked.filter((member) => member.tone === "approval"),
-        ...marked.filter((member) => member.tone !== "approval"),
-      ]
-    : marked;
   const memberCount = members.length;
   const canExpand = memberCount > 0;
   const headerTone: AgentSpawnCardTone =

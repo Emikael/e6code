@@ -4883,16 +4883,9 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   const workflowGroup = spawn.workflowId
     ? agentPanelModel.workflows.find((group) => group.workflow.id === spawn.workflowId)
     : undefined;
-  const members = workflowGroup
+  const agents = workflowGroup
     ? [...workflowGroup.phases.flatMap((phase) => phase.members), ...workflowGroup.unphasedMembers]
     : agentPanelModel.directAgents.filter((agent) => memberIds.has(agent.id));
-  // A subagent blocked on the user's approval lifts to the top of its card.
-  const agents = members.some((agent) => agent.awaitingApproval)
-    ? [
-        ...members.filter((agent) => agent.awaitingApproval),
-        ...members.filter((agent) => !agent.awaitingApproval),
-      ]
-    : members;
   const agentCount = Math.max(
     agents.length,
     Math.max(memberIds.size - (spawn.workflowId ? 1 : 0), 0),
@@ -4915,12 +4908,14 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     completedAt: ends.length > 0 ? ends.toSorted().at(-1)! : null,
     updatedAt: workEntry.createdAt,
   };
-  // A subagent the Overview asked to show stays visible past the row cap.
+  // Rows keep spawn order. One the Overview asked to show, or one blocked on
+  // the user's approval, stays visible past the row cap.
   const highlightedIndex = agents.findIndex((agent) => agent.id === highlightedSubagentId);
   const visibleAgents =
     showAllRows ||
     agents.length <= SPAWN_CARD_ROW_LIMIT + 2 ||
-    highlightedIndex >= SPAWN_CARD_ROW_LIMIT
+    highlightedIndex >= SPAWN_CARD_ROW_LIMIT ||
+    agents.slice(SPAWN_CARD_ROW_LIMIT).some((agent) => agent.awaitingApproval)
       ? agents
       : agents.slice(0, SPAWN_CARD_ROW_LIMIT);
   const toggleExpanded = () => {

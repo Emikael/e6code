@@ -954,15 +954,24 @@ export const SUBAGENT_STATUS_LABEL: Readonly<Record<SubagentStatusTone, string>>
   stopped: "Stopped",
 };
 
-/** Count words for summary lines: "1 needs approval · 3 working". */
-const SUMMARY_WORD: Readonly<Record<SubagentStatusTone, string>> = {
-  approval: "needs approval",
-  working: "working",
-  idle: "idle",
-  done: "done",
-  failed: "failed",
-  stopped: "stopped",
-};
+/** Count phrase for summary lines: "1 needs approval", "2 need approval", "3 working". */
+function summaryCount(tone: SubagentStatusTone, count: number): string {
+  if (tone === "approval") return `${count} ${count === 1 ? "needs" : "need"} approval`;
+  return `${count} ${tone}`;
+}
+
+/** The subagent with this id anywhere in the model, workflow members included. */
+export function findSubagent(model: AgentPanelModel, agentId: string): RuntimeSubagent | null {
+  for (const agent of model.directAgents) if (agent.id === agentId) return agent;
+  for (const group of model.workflows) {
+    if (group.workflow.id === agentId) return group.workflow;
+    for (const agent of group.unphasedMembers) if (agent.id === agentId) return agent;
+    for (const phase of group.phases) {
+      for (const agent of phase.members) if (agent.id === agentId) return agent;
+    }
+  }
+  return null;
+}
 
 const SUMMARY_TONE_ORDER: ReadonlyArray<SubagentStatusTone> = [
   "approval",
@@ -998,7 +1007,7 @@ export function summarizeSubagentStatuses(
   }
   const present = SUMMARY_TONE_ORDER.filter((tone) => counts[tone] > 0);
   return {
-    text: present.map((tone) => `${counts[tone]} ${SUMMARY_WORD[tone]}`).join(" · "),
+    text: present.map((tone) => summaryCount(tone, counts[tone])).join(" · "),
     tone: present[0] ?? null,
     counts,
   };
@@ -1048,7 +1057,7 @@ export function describeSpawnBatchStatus(input: {
           : null;
   const missing = Math.max(0, input.agentCount - input.agents.length);
   const counted = SUMMARY_TONE_ORDER.filter((tone) => summary.counts[tone] > 0).map((tone) => ({
-    text: `${summary.counts[tone]} ${SUMMARY_WORD[tone]}`,
+    text: summaryCount(tone, summary.counts[tone]),
     tone,
   }));
   const parts: SpawnBatchStatusPart[] = [

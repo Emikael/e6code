@@ -524,7 +524,7 @@ function SubagentDetailCard({
       ? agent.role
       : null;
   const activity = agent.awaitingApproval
-    ? "Blocked until you approve or deny in the composer."
+    ? "Waiting for your approval in the composer."
     : live
       ? (agent.progress ?? subagentActivityText(agent))
       : (agent.error ?? agent.result ?? subagentActivityText(agent));
@@ -554,7 +554,9 @@ function SubagentDetailCard({
         </div>
         <span
           className={cn(
-            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-accent px-2 text-xs font-semibold",
+            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-semibold",
+            // The warning word needs its own surface to stay readable in every theme.
+            tone === "approval" ? "bg-warning-surface" : "bg-accent",
             SUBAGENT_TONE_TEXT_CLASS[tone],
           )}
         >

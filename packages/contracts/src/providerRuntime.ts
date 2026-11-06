@@ -464,7 +464,9 @@ const RequestOpenedPayload = Schema.Struct({
   args: Schema.optional(Schema.Unknown),
   /**
    * The subagent waiting on this request: its task id, as in task.* events.
-   * Absent when the main agent asked or the provider cannot tell.
+   * Absent when the main agent asked or the provider cannot tell. It can name
+   * a subagent the client has not seen; clients then show the request as
+   * they would without it.
    */
   agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });

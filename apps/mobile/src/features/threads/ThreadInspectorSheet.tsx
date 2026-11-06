@@ -56,7 +56,7 @@ const STATUS_TEXT_CLASS = {
 } as const satisfies Record<SubagentStatusTone, string>;
 
 const STATUS_DOT_CLASS = {
-  approval: "bg-adaptive-amber-700-400",
+  approval: "bg-warning-foreground",
   working: "bg-adaptive-sky-600-400",
   idle: "bg-foreground-muted",
   done: "bg-adaptive-emerald-600-400",

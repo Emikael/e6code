@@ -948,6 +948,7 @@ describe("subagent presentation", () => {
     expect(
       describeSpawnBatchStatus({ agents: [blocked, { status: "completed" }], agentCount: 2 }),
     ).toMatchObject({ text: "1 needs approval · 1 done", tone: "approval", live: true });
+    expect(summarizeSubagentStatuses([blocked, blocked]).text).toBe("2 need approval");
   });
 
   it("leads live rows with progress and settled rows with the outcome", () => {

@@ -34,12 +34,24 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   // behind this card, so a translucent surface bleeds messages through it.
   return (
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
-      <Text
-        className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary"
-        numberOfLines={1}
-      >
-        {props.agentTitle ? `${props.agentTitle} needs approval` : "Approval needed"}
-      </Text>
+      {props.agentTitle ? (
+        // The title shrinks first, so "needs approval" survives a long name.
+        <View className="flex-row items-baseline">
+          <Text
+            className="min-w-0 shrink font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary"
+            numberOfLines={1}
+          >
+            {props.agentTitle}
+          </Text>
+          <Text className="shrink-0 font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
+            {" needs approval"}
+          </Text>
+        </View>
+      ) : (
+        <Text className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
+          Approval needed
+        </Text>
+      )}
       <Text className="font-e6-bold text-lg text-foreground">
         {props.approval.appName ?? props.approval.requestKind}
       </Text>

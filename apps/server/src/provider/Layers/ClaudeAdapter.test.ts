@@ -6258,26 +6258,53 @@ describe("ClaudeAdapterLive", () => {
       if (!canUseTool) {
         return;
       }
-      // The SDK sets agentID to the sub-agent's id, its task_id in task.* messages.
-      void canUseTool(
-        "Bash",
-        { command: "vp run typecheck --filter server" },
-        {
-          signal: new AbortController().signal,
-          requestId: "request-subagent",
-          toolUseID: "tool-use-subagent",
-          agentID: "agent-api",
-        },
-      );
+      // A workflow member reports its current attempt's id; clients know it
+      // by its stable slot.
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "wf-share",
+        description: "Share links workflow",
+        usage: { total_tokens: 10, tool_uses: 1, duration_ms: 10 },
+        workflow_progress: [
+          { type: "workflow_agent", index: 0, state: "running", agentId: "attempt-7" },
+        ],
+        uuid: "wf-share-tick",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
 
-      const requested = yield* Stream.runHead(
-        adapter.streamEvents.pipe(Stream.filter((event) => event.type === "request.opened")),
-      );
-      assert.equal(requested._tag, "Some");
-      if (requested._tag !== "Some" || requested.value.type !== "request.opened") {
-        return;
-      }
-      assert.equal(requested.value.payload.agentId, "agent-api");
+      const askAs = (agentID: string | undefined, requestId: string) =>
+        Effect.gen(function* () {
+          const decision = canUseTool(
+            "Bash",
+            { command: "vp run typecheck --filter server" },
+            {
+              signal: new AbortController().signal,
+              requestId,
+              toolUseID: `tool-${requestId}`,
+              ...(agentID !== undefined ? { agentID } : {}),
+            },
+          );
+          const opened = yield* Stream.runHead(
+            adapter.streamEvents.pipe(Stream.filter((event) => event.type === "request.opened")),
+          );
+          const event = opened._tag === "Some" ? opened.value : undefined;
+          if (event?.type !== "request.opened" || event.requestId === undefined) {
+            return "missing";
+          }
+          yield* adapter.respondToRequest(
+            session.threadId,
+            ApprovalRequestId.make(event.requestId),
+            "decline",
+          );
+          yield* Effect.promise(() => decision);
+          return event.payload.agentId;
+        });
+
+      // The SDK sets agentID to the sub-agent's id, its task_id in task.* messages.
+      assert.equal(yield* askAs("agent-api", "request-direct"), "agent-api");
+      assert.equal(yield* askAs("attempt-7", "request-member"), "wf-share:wf:0");
+      assert.equal(yield* askAs("   ", "request-blank"), undefined);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

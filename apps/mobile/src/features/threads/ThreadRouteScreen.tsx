@@ -26,6 +26,7 @@ import {
   ThreadId,
   type ProjectScript,
 } from "@e6tools/contracts";
+import { findSubagent } from "@e6tools/client-runtime/state/subagentRuntime";
 import { shouldOfferHandoff } from "@e6tools/client-runtime/state/thread-handoff";
 import { providerDisplayLabel } from "../../lib/modelOptions";
 import { ThreadHandoffContainer } from "./ThreadHandoffContainer";
@@ -532,14 +533,7 @@ function ThreadRouteContent(
   const liveSubagentCount = subagentPanel.liveCount;
   const activePendingApprovalAgentId = requests.activePendingApproval?.agentId;
   const activePendingApprovalAgentTitle = activePendingApprovalAgentId
-    ? ([
-        ...subagentPanel.directAgents,
-        ...subagentPanel.workflows.flatMap((group) => [
-          group.workflow,
-          ...group.unphasedMembers,
-          ...group.phases.flatMap((phase) => phase.members),
-        ]),
-      ].find((agent) => agent.id === activePendingApprovalAgentId)?.title ?? null)
+    ? (findSubagent(subagentPanel, activePendingApprovalAgentId)?.title ?? null)
     : null;
   const inspectorEnvironmentId = selectedThread?.environmentId ?? null;
   const inspectorThreadId = selectedThread?.id ?? null;

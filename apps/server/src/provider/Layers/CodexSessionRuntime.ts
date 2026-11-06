@@ -1403,6 +1403,14 @@ export const makeCodexSessionRuntime = (
           ? requestThreadId
           : undefined;
       });
+    // Every approval-style request goes through here, so none can skip the tag.
+    const emitRequestEvent = (
+      requestThreadId: string,
+      event: Omit<ProviderEvent, "id" | "provider" | "createdAt" | "kind" | "agentId">,
+    ) =>
+      Effect.flatMap(requestAgentId(requestThreadId), (agentId) =>
+        emitEvent({ kind: "request", ...event, ...(agentId ? { agentId } : {}) }),
+      );
     const emitSessionEvent = (method: string, message: string) =>
       emitEvent({
         kind: "session",
@@ -2094,12 +2102,9 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        const agentId = yield* requestAgentId(payload.threadId);
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/commandExecution/requestApproval",
-          ...(agentId ? { agentId } : {}),
           requestId,
           requestKind: "command",
           ...(turnId ? { turnId } : {}),
@@ -2154,12 +2159,9 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        const agentId = yield* requestAgentId(payload.threadId);
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/fileChange/requestApproval",
-          ...(agentId ? { agentId } : {}),
           requestId,
           requestKind: "file-change",
           ...(turnId ? { turnId } : {}),
@@ -2224,12 +2226,9 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        const agentId = yield* requestAgentId(payload.threadId);
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "mcpServer/elicitation/request",
-          ...(agentId ? { agentId } : {}),
           requestId,
           requestKind: "mcp-elicitation",
           ...(turnId ? { turnId } : {}),
@@ -2281,12 +2280,9 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        const agentId = yield* requestAgentId(payload.threadId);
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/permissions/requestApproval",
-          ...(agentId ? { agentId } : {}),
           requestId,
           requestKind: "permission",
           ...(turnId ? { turnId } : {}),
