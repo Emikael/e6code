@@ -9,6 +9,7 @@ import {
   type ProviderSession,
   RuntimeItemId,
   RuntimeRequestId,
+  RuntimeTaskId,
   ThreadId,
   type ToolLifecycleItemType,
   type TurnTokenUsage,
@@ -366,6 +367,92 @@ function isOpenCodeDefaultTitle(title: string): boolean {
   return OPENCODE_DEFAULT_TITLE_PATTERN.test(title);
 }
 
+/**
+ * A subagent child session surfaced to clients as task.* events. The task id
+ * is the child session id, so a permission or form raised in that session
+ * names it as `agentId`.
+ */
+interface OpenCodeChildTask {
+  readonly taskId: string;
+  title: string;
+  readonly role: string | undefined;
+  readonly model: string | undefined;
+  readonly effort: string | undefined;
+  /** Child session that launched this one, for nested subagents. */
+  readonly owningAgentId: string | undefined;
+  /**
+   * "live" while OpenCode runs it; "settled" when E6 closed it because the
+   * parent turn ended first; "done" once OpenCode reported its own outcome.
+   */
+  state: "live" | "settled" | "done";
+  summary: string | undefined;
+  lastSequence: number;
+  toolUses: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+}
+
+const OPENCODE_CHILD_SUMMARY_LIMIT = 4_000;
+
+function makeOpenCodeChildTask(
+  data: Extract<OpenCodeSubscribedEvent, { readonly type: "session.created" }>["data"],
+  owningAgentId: string | undefined,
+): OpenCodeChildTask {
+  const role = trimText(data.agent);
+  const title = trimText(data.title);
+  return {
+    taskId: data.sessionID,
+    title: title && !isOpenCodeDefaultTitle(title) ? title : role ? `${role} subagent` : "Subagent",
+    role,
+    model: data.model ? `${data.model.providerID}/${data.model.id}` : undefined,
+    effort: trimText(data.model?.variant),
+    owningAgentId,
+    state: "live",
+    summary: undefined,
+    lastSequence: 0,
+    toolUses: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+  };
+}
+
+/** Identity repeated on every task.* row so clients survive activity retention. */
+function openCodeChildTaskLinkage(task: OpenCodeChildTask) {
+  return {
+    taskType: "subagent",
+    title: task.title,
+    ...(task.role ? { role: task.role } : {}),
+    ...(task.model ? { model: task.model } : {}),
+    ...(task.effort ? { effort: task.effort } : {}),
+    ...(task.owningAgentId ? { agentId: task.owningAgentId } : {}),
+  };
+}
+
+function openCodeChildTaskUsage(task: OpenCodeChildTask) {
+  const totalTokens = task.inputTokens + task.outputTokens;
+  if (totalTokens === 0 && task.toolUses === 0) return undefined;
+  return {
+    totalTokens,
+    inputTokens: task.inputTokens,
+    cachedInputTokens: task.cachedInputTokens,
+    outputTokens: task.outputTokens,
+    reasoningOutputTokens: Math.min(task.outputTokens, task.reasoningTokens),
+    toolUses: task.toolUses,
+  };
+}
+
+/**
+ * Requests raised in a child session belong to that subagent. Its task id is
+ * the child session id (see OpenCodeChildTask), so the id maps straight over.
+ */
+function openCodeRequestAgentId(context: OpenCodeSessionContext, sessionId: string) {
+  return sessionId !== context.openCodeSessionId ? { agentId: sessionId } : {};
+}
+
 interface OpenCodeSessionContext {
   session: ProviderSession;
   readonly client: OpenCodeClient;
@@ -374,6 +461,7 @@ interface OpenCodeSessionContext {
   readonly defaultAgent: string;
   openCodeSessionId: string;
   readonly relatedSessionIds: Set<string>;
+  readonly childTasks: Map<string, OpenCodeChildTask>;
   readonly resolvedRequestIds: Set<string>;
   readonly autoRepliedRequestIds: Set<string>;
   readonly emittedTerminalRequestIds: Set<string>;
@@ -1080,6 +1168,9 @@ export function makeOpenCodeAdapter(
         yield* Fiber.interrupt(pendingIdleReconciliation.fiber);
       }
       yield* schedulePendingRequestRecovery(context);
+      // The parent's task tool waits for its subagents, so one still open
+      // here only lacks its own outcome event.
+      yield* settleOpenCodeChildTasks(context, "completed", turnId, raw);
       yield* emit({
         ...(yield* buildEventBase({
           threadId: context.session.threadId,
@@ -1238,6 +1329,12 @@ export function makeOpenCodeAdapter(
         context,
         { status: "error", lastError: detail },
         { clearActiveTurnId: true },
+      );
+      yield* settleOpenCodeChildTasks(
+        context,
+        "stopped",
+        promptAdmission.turnId,
+        promptAdmission.recoveryRaw,
       );
       yield* emit({
         ...(yield* buildEventBase({
@@ -1442,6 +1539,7 @@ export function makeOpenCodeAdapter(
         );
       }
       yield* clearPendingOpenCodeRequests(context, { type: "session.interrupt" });
+      yield* settleOpenCodeChildTasks(context, "stopped", turnId, raw);
       yield* emit({
         ...(yield* buildEventBase({
           threadId: context.session.threadId,
@@ -1529,6 +1627,181 @@ export function makeOpenCodeAdapter(
       }
     };
 
+    const emitOpenCodeChildTaskProgress = Effect.fn("emitOpenCodeChildTaskProgress")(function* (
+      context: OpenCodeSessionContext,
+      task: OpenCodeChildTask,
+      progress: { readonly status?: "running"; readonly lastToolName?: string },
+      raw: unknown,
+    ) {
+      const typedUsage = openCodeChildTaskUsage(task);
+      yield* emit({
+        ...(yield* buildEventBase({
+          threadId: context.session.threadId,
+          turnId: context.activeTurnId,
+          raw,
+        })),
+        type: "task.progress",
+        payload: {
+          taskId: RuntimeTaskId.make(task.taskId),
+          description: task.title,
+          ...progress,
+          ...(typedUsage ? { typedUsage } : {}),
+          ...openCodeChildTaskLinkage(task),
+        },
+      });
+    });
+
+    const emitOpenCodeChildTaskCompleted = Effect.fn("emitOpenCodeChildTaskCompleted")(function* (
+      context: OpenCodeSessionContext,
+      task: OpenCodeChildTask,
+      status: "completed" | "failed" | "stopped",
+      turnId: TurnId | undefined,
+      raw: unknown,
+      summary: string | undefined = task.summary,
+    ) {
+      const typedUsage = openCodeChildTaskUsage(task);
+      yield* emit({
+        ...(yield* buildEventBase({ threadId: context.session.threadId, turnId, raw })),
+        type: "task.completed",
+        payload: {
+          taskId: RuntimeTaskId.make(task.taskId),
+          status,
+          ...(summary ? { summary } : {}),
+          ...(typedUsage ? { typedUsage } : {}),
+          ...openCodeChildTaskLinkage(task),
+        },
+      });
+    });
+
+    // A subagent is a child session created while a turn runs. Replayed
+    // creations of children E6 already knows, or that arrive between turns,
+    // do not start a task.
+    const startOpenCodeChildTask = Effect.fn("startOpenCodeChildTask")(function* (
+      context: OpenCodeSessionContext,
+      event: Extract<OpenCodeSubscribedEvent, { readonly type: "session.created" }>,
+    ) {
+      const { sessionID, parentID } = event.data;
+      if (context.activeTurnId === undefined || context.childTasks.has(sessionID)) {
+        return;
+      }
+      const task = makeOpenCodeChildTask(
+        event.data,
+        parentID && parentID !== context.openCodeSessionId ? parentID : undefined,
+      );
+      context.childTasks.set(sessionID, task);
+      yield* emit({
+        ...(yield* buildEventBase({
+          threadId: context.session.threadId,
+          turnId: context.activeTurnId,
+          createdAt: isoFromEpochMs(event.created),
+          raw: event,
+        })),
+        type: "task.started",
+        payload: {
+          taskId: RuntimeTaskId.make(sessionID),
+          description: task.title,
+          ...openCodeChildTaskLinkage(task),
+        },
+      });
+    });
+
+    /** Closes subagents still running when their parent turn ends. */
+    const settleOpenCodeChildTasks = Effect.fn("settleOpenCodeChildTasks")(function* (
+      context: OpenCodeSessionContext,
+      status: "completed" | "stopped",
+      turnId: TurnId | undefined,
+      raw: unknown,
+    ) {
+      for (const task of context.childTasks.values()) {
+        if (task.state !== "live") continue;
+        task.state = "settled";
+        yield* emitOpenCodeChildTaskCompleted(context, task, status, turnId, raw);
+      }
+    });
+
+    const handleOpenCodeChildTaskEvent = Effect.fn("handleOpenCodeChildTaskEvent")(function* (
+      context: OpenCodeSessionContext,
+      task: OpenCodeChildTask,
+      event: OpenCodeSubscribedEvent,
+    ) {
+      const durable = openCodeEventSequence(event);
+      if (durable?.aggregateId === task.taskId) {
+        if (durable.sequence <= task.lastSequence) return;
+        task.lastSequence = durable.sequence;
+      }
+      // An outcome OpenCode reports after E6 settled the task still lands
+      // once: clients keep the first status and take its summary and usage.
+      const finish = (status: "completed" | "failed" | "stopped", summary?: string) => {
+        if (task.state === "done") return Effect.void;
+        task.state = "done";
+        return emitOpenCodeChildTaskCompleted(
+          context,
+          task,
+          status,
+          context.activeTurnId,
+          event,
+          summary ?? task.summary,
+        );
+      };
+      switch (event.type) {
+        case "session.execution.started": {
+          if (task.state === "live") return;
+          // The parent resumed this subagent (OpenCode's task tool can take
+          // an existing child session id).
+          task.state = "live";
+          task.summary = undefined;
+          yield* emitOpenCodeChildTaskProgress(context, task, { status: "running" }, event);
+          return;
+        }
+        case "session.tool.input.started": {
+          if (task.state !== "live") return;
+          task.toolUses += 1;
+          yield* emitOpenCodeChildTaskProgress(
+            context,
+            task,
+            { lastToolName: event.data.name },
+            event,
+          );
+          return;
+        }
+        case "session.step.ended": {
+          const tokens = event.data.tokens;
+          task.inputTokens += tokens.input + tokens.cache.read + tokens.cache.write;
+          task.cachedInputTokens += tokens.cache.read;
+          task.outputTokens += tokens.output + tokens.reasoning;
+          task.reasoningTokens += tokens.reasoning;
+          return;
+        }
+        case "session.text.ended": {
+          const text = trimText(event.data.text);
+          if (text) task.summary = text.slice(0, OPENCODE_CHILD_SUMMARY_LIMIT);
+          return;
+        }
+        case "session.renamed": {
+          const title = openCodeEventSessionTitle(event);
+          if (!title || title === task.title) return;
+          task.title = title;
+          if (task.state === "live") {
+            yield* emitOpenCodeChildTaskProgress(context, task, {}, event);
+          }
+          return;
+        }
+        case "session.execution.succeeded":
+          yield* finish("completed");
+          return;
+        case "session.execution.failed":
+          yield* finish("failed", trimText(event.data.error.message));
+          return;
+        case "session.execution.interrupted":
+          yield* finish("stopped");
+          return;
+        case "session.deleted":
+          context.childTasks.delete(task.taskId);
+          if (task.state === "live") yield* finish("stopped");
+          return;
+      }
+    });
+
     const isRelatedOpenCodeSession = Effect.fn("isRelatedOpenCodeSession")(function* (
       context: OpenCodeSessionContext,
       candidateSessionId: string,
@@ -1610,6 +1883,7 @@ export function makeOpenCodeAdapter(
           requestType: mapPermissionToRequestType(request.action),
           detail,
           args: request.metadata,
+          ...openCodeRequestAgentId(context, request.sessionID),
           options: [
             { decision: "accept", label: "Allow once" },
             {
@@ -1705,7 +1979,10 @@ export function makeOpenCodeAdapter(
       emitUnsafe({
         ...base,
         type: "user-input.requested",
-        payload: { questions: normalizeOpenCodeForm(request) },
+        payload: {
+          questions: normalizeOpenCodeForm(request),
+          ...openCodeRequestAgentId(context, request.sessionID),
+        },
       });
     });
 
@@ -2083,6 +2360,7 @@ export function makeOpenCodeAdapter(
       if (event.type === "session.created" && event.data.parentID) {
         if (context.relatedSessionIds.has(event.data.parentID)) {
           addRelatedOpenCodeSession(context, event.data.sessionID);
+          yield* startOpenCodeChildTask(context, event);
         }
       }
       if (event.type === "session.deleted") {
@@ -2100,6 +2378,12 @@ export function makeOpenCodeAdapter(
         context.lastParentEventSequence = Math.max(context.lastParentEventSequence, eventSequence);
       }
       const isRequestEvent = isOpenCodeChildRequestEvent(event);
+      const childTask =
+        sessionID !== undefined && !isParentEvent ? context.childTasks.get(sessionID) : undefined;
+      if (childTask && !isRequestEvent) {
+        yield* handleOpenCodeChildTaskEvent(context, childTask, event);
+        return;
+      }
       let isKnownPendingTerminalEvent = false;
       if (
         sessionID !== undefined &&
@@ -2401,6 +2685,7 @@ export function makeOpenCodeAdapter(
               { status: "error", lastError: message },
               { clearActiveTurnId: true },
             );
+            yield* settleOpenCodeChildTasks(context, "stopped", activeTurnId, event);
             yield* emit({
               ...(yield* buildEventBase({
                 threadId: context.session.threadId,
@@ -2717,6 +3002,7 @@ export function makeOpenCodeAdapter(
           defaultAgent: started.defaultAgent,
           openCodeSessionId: started.openCodeSession.id,
           relatedSessionIds: new Set([started.openCodeSession.id]),
+          childTasks: new Map(),
           resolvedRequestIds: new Set(),
           autoRepliedRequestIds: new Set(),
           emittedTerminalRequestIds: new Set(),
@@ -3670,6 +3956,7 @@ export function makeOpenCodeAdapter(
           context.openCodeSessionId = forkedSessionId;
           context.relatedSessionIds.clear();
           context.relatedSessionIds.add(forkedSessionId);
+          context.childTasks.clear();
           context.toolNamesById.clear();
           context.toolInputsById.clear();
           context.lastParentEventSequence = 0;
