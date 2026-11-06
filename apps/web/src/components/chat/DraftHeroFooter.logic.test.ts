@@ -147,8 +147,13 @@ describe("selectStaleSetupThread", () => {
       ],
       project,
     );
-    expect(String(stale?.id)).toBe("newer");
-    expect(stale?.branch).toBe("e6code/newer");
+    if (!stale) throw new Error("expected a stale setup thread");
+    expect(String(stale.thread.id)).toBe("newer");
+    expect(stale.branch).toBe("e6code/newer");
+    // Dismissing records the current script, which takes the thread out of the list.
+    expect(stale.currentHash).toBe(currentHash);
+    const dismissed = { ...stale.thread, setupScriptHash: stale.currentHash };
+    expect(selectStaleSetupThread([dismissed], project)).toBeNull();
   });
 
   it("has nothing to compare in the project folder, without a record, or without a setup script", () => {

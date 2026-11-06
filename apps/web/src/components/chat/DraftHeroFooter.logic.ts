@@ -1,6 +1,10 @@
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
 import type { EnvironmentId, ProjectId, ProjectScript, VcsStatusResult } from "@e6tools/contracts";
-import { isWorktreeSetupStale } from "@e6tools/shared/projectScripts";
+import {
+  isWorktreeSetupStale,
+  projectScriptHash,
+  setupProjectScript,
+} from "@e6tools/shared/projectScripts";
 
 export type PickUpReason = "approval" | "input";
 
@@ -41,6 +45,9 @@ export function selectPickUpThreads(
  * pick-up item. Threads in the project folder have no worktree to compare
  * and never qualify; neither do archived threads or worktrees without a
  * branch to name.
+ *
+ * `currentHash` is what dismissing records: the user says the worktree is
+ * fine as it is, so it now matches the current setup script.
  */
 export function selectStaleSetupThread(
   threads: ReadonlyArray<EnvironmentThreadShell>,
@@ -49,18 +56,25 @@ export function selectStaleSetupThread(
     readonly id: ProjectId;
     readonly scripts: ReadonlyArray<ProjectScript>;
   } | null,
-): (EnvironmentThreadShell & { readonly branch: string }) | null {
-  if (!project) return null;
-  let latest: (EnvironmentThreadShell & { readonly branch: string }) | null = null;
+): StaleSetupThread | null {
+  const setup = project ? setupProjectScript(project.scripts) : null;
+  if (!project || !setup) return null;
+  let latest: StaleSetupThread | null = null;
   for (const thread of threads) {
     if (thread.environmentId !== project.environmentId || thread.projectId !== project.id) continue;
     if (thread.archivedAt !== null || thread.branch === null) continue;
     if (!isWorktreeSetupStale(thread, project.scripts)) continue;
-    if (latest === null || thread.updatedAt > latest.updatedAt) {
-      latest = { ...thread, branch: thread.branch };
+    if (latest === null || thread.updatedAt > latest.thread.updatedAt) {
+      latest = { thread, branch: thread.branch, currentHash: projectScriptHash(setup) };
     }
   }
   return latest;
+}
+
+export interface StaleSetupThread {
+  readonly thread: EnvironmentThreadShell;
+  readonly branch: string;
+  readonly currentHash: string;
 }
 
 export interface UnpushedCommits {

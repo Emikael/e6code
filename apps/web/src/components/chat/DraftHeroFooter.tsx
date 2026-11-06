@@ -16,14 +16,18 @@ import {
   MessageCircleQuestionIcon,
   RefreshCwIcon,
   TriangleAlertIcon,
+  XIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { shortcutLabelForCommand } from "~/keybindings";
+import { useAtomCommand } from "~/state/use-atom-command";
 import { useProjects, useThreadShells } from "~/state/entities";
+import { threadEnvironment } from "~/state/threads";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import {
   selectPickUpThreads,
@@ -64,6 +68,9 @@ export function DraftHeroFooter({
     () => selectStaleSetupThread(threads, setupProject),
     [threads, setupProject],
   );
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const projectTitleByKey = useMemo(
     () =>
       new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project.title])),
@@ -132,10 +139,11 @@ export function DraftHeroFooter({
             })}
             {staleSetup ? (
               // Opens the thread; its Overview re-runs the setup script there.
-              <li className="border-border not-last:border-b">
+              // Dismissing marks the worktree as matching the current script.
+              <li className="flex items-center border-border not-last:border-b">
                 <button
                   type="button"
-                  onClick={() => openThread(staleSetup)}
+                  onClick={() => openThread(staleSetup.thread)}
                   className={ROW_CLASS_NAME}
                 >
                   <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning-surface text-warning-foreground">
@@ -154,6 +162,23 @@ export function DraftHeroFooter({
                     className="size-3.5 shrink-0 text-muted-foreground"
                   />
                 </button>
+                <Button
+                  size="icon-micro"
+                  variant="ghost-muted"
+                  aria-label="Dismiss: keep this worktree as it is"
+                  className="mr-2.5 shrink-0"
+                  onClick={() =>
+                    void updateThreadMetadata({
+                      environmentId: staleSetup.thread.environmentId,
+                      input: {
+                        threadId: staleSetup.thread.id,
+                        setupScriptHash: staleSetup.currentHash,
+                      },
+                    })
+                  }
+                >
+                  <XIcon aria-hidden className="size-3" />
+                </Button>
               </li>
             ) : null}
             {unpushed ? (

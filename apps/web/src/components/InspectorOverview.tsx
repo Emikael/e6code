@@ -236,8 +236,9 @@ function WorkspaceSection({ workspace }: { workspace: InspectorWorkspace }) {
 }
 
 /**
- * Re-runs the setup script in the thread's worktree. Running it records the
- * current script on the thread, which clears the Changed badge.
+ * Re-runs the setup script in the thread's worktree. When it exits cleanly the
+ * server records the current script on the thread, which clears the Changed
+ * badge; a failed run leaves it.
  */
 function WorktreeSetupRow({ workspace }: { workspace: InspectorWorkspace }) {
   const setup = workspace.worktreeSetup;

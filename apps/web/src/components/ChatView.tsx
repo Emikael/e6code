@@ -86,7 +86,6 @@ import {
 import {
   isWorktreeSetupStale,
   projectScriptCwd,
-  projectScriptHash,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
   setupProjectScript,
@@ -3662,6 +3661,9 @@ export default function ChatView(props: ChatViewProps) {
   const cancelWorktreeSetup = useAtomCommand(vcsEnvironment.cancelWorktreeSetup, {
     reportFailure: false,
   });
+  const rerunWorktreeSetup = useAtomCommand(vcsEnvironment.rerunWorktreeSetup, {
+    reportFailure: false,
+  });
   const onCancelWorktreeSetup = useCallback(() => {
     if (!worktreeSetup || worktreeSetup.phase !== "running") return;
     void cancelWorktreeSetup({
@@ -4314,6 +4316,32 @@ export default function ChatView(props: ChatViewProps) {
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
 
+      // The setup script in the thread's own worktree runs on the server, which
+      // watches its exit code and records it on the thread when it succeeds.
+      // Servers without that method fall through to a plain terminal run.
+      if (
+        isServerThread &&
+        activeThreadRef &&
+        activeThread.worktreePath !== null &&
+        options?.cwd === undefined &&
+        options?.worktreePath === undefined &&
+        options?.env === undefined &&
+        setupProjectScript(activeProjectScripts)?.id === script.id
+      ) {
+        const rerun = await rerunWorktreeSetup({
+          environmentId,
+          input: { threadId: activeThreadId },
+        });
+        if (rerun._tag === "Success" && rerun.value.terminalId !== null) {
+          storeEnsureTerminal(activeThreadRef, rerun.value.terminalId, {
+            open: true,
+            active: true,
+          });
+          setTerminalFocusRequestId((value) => value + 1);
+          return;
+        }
+      }
+
       setTerminalUiLaunchContext({
         threadId: activeThreadId,
         cwd: targetCwd,
@@ -4379,27 +4407,12 @@ export default function ChatView(props: ChatViewProps) {
           data: `${script.command}\r`,
         },
       });
-      if (writeResult._tag === "Failure") {
-        if (!isAtomCommandInterrupted(writeResult)) {
-          const error = squashAtomCommandFailure(writeResult);
-          setThreadError(
-            activeThreadId,
-            error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-          );
-        }
-        return;
-      }
-      // Re-running the setup script in a worktree brings it up to date, from
-      // any entry point (Overview, scripts menu, keybinding).
-      if (
-        isServerThread &&
-        targetWorktreePath !== null &&
-        setupProjectScript(activeProjectScripts)?.id === script.id
-      ) {
-        void updateThreadMetadata({
-          environmentId,
-          input: { threadId: activeThreadId, setupScriptHash: projectScriptHash(script) },
-        });
+      if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
+        const error = squashAtomCommandFailure(writeResult);
+        setThreadError(
+          activeThreadId,
+          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
+        );
       }
     },
     [
@@ -4409,7 +4422,8 @@ export default function ChatView(props: ChatViewProps) {
       activeThreadId,
       activeThreadRef,
       isServerThread,
-      updateThreadMetadata,
+      rerunWorktreeSetup,
+      storeEnsureTerminal,
       gitCwd,
       setTerminalOpen,
       setThreadError,
