@@ -14,7 +14,7 @@ import type {
   TurnId,
 } from "@e6tools/contracts";
 import { threadPullRequestKeysEqual } from "@e6tools/shared/threadPullRequests";
-import { isImportedAgentSessionMessageId } from "@e6tools/contracts";
+import { isImportedAgentSessionMessageId, subagentSplitAppliedMessageId } from "@e6tools/contracts";
 import { compareDateTimeStrings } from "@e6tools/shared/dateTime";
 
 export type ThreadDetailReducerResult =
@@ -406,7 +406,6 @@ export function applyThreadDetailEvent(
           ? { attachments: event.payload.attachments }
           : {}),
         ...(event.payload.context !== undefined ? { context: event.payload.context } : {}),
-        ...(event.payload.splitIntoSubagents === true ? { splitIntoSubagents: true } : {}),
         turnId: event.payload.turnId,
         streaming: event.payload.streaming,
         createdAt: event.payload.createdAt,
@@ -691,6 +690,14 @@ export function applyThreadDetailEvent(
     // ── Activities ──────────────────────────────────────────────────
     case "thread.activity-appended": {
       const activity = event.payload.activity;
+      // A recorded subagent split marks the user message it was sent with.
+      const splitMessageId = subagentSplitAppliedMessageId(activity);
+      const messages =
+        splitMessageId === null
+          ? thread.messages
+          : thread.messages.map((message) =>
+              message.id === splitMessageId ? { ...message, splitIntoSubagents: true } : message,
+            );
       // A resolvable context-window update supersedes earlier resolvable ones
       // for the same turn: consumers only read the latest value (walking the
       // array backwards), and providers stream these updates continuously, so
@@ -721,6 +728,7 @@ export function applyThreadDetailEvent(
           thread: {
             ...thread,
             activities,
+            messages,
             updatedAt: event.occurredAt,
           },
         };
@@ -743,7 +751,7 @@ export function applyThreadDetailEvent(
 
       return {
         kind: "updated",
-        thread: { ...thread, activities, updatedAt: event.occurredAt },
+        thread: { ...thread, activities, messages, updatedAt: event.occurredAt },
       };
     }
 

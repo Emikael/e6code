@@ -5,7 +5,11 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@e6tools/contracts";
+import {
+  SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+  isToolLifecycleItemType,
+} from "@e6tools/contracts";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
@@ -450,6 +454,8 @@ function deriveWorkLogEntries(
     if (activity.kind === "task.updated" && !isTerminalTaskUpdate(activity)) continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    // The user message's "Split into subagents" label already shows it.
+    if (activity.kind === SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND) continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;

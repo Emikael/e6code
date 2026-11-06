@@ -88,7 +88,7 @@ const eventsOf = <T>(planned: T | ReadonlyArray<T>): ReadonlyArray<T> =>
   Array.isArray(planned) ? planned : [planned as T];
 
 it.layer(NodeServices.layer)("thread.turn.start splitIntoSubagents", (it) => {
-  it.effect("carries the flag onto the user message and the turn request", () =>
+  it.effect("asks for the split on the turn request, not on the stored message", () =>
     Effect.gen(function* () {
       const readModel = yield* readModelWithThread;
       const events = eventsOf(
@@ -101,8 +101,10 @@ it.layer(NodeServices.layer)("thread.turn.start splitIntoSubagents", (it) => {
         "thread.message-sent",
         "thread.turn-start-requested",
       ]);
-      // The stored message keeps the text exactly as typed.
-      expect(events[0]?.payload).toMatchObject({ text: "Build it", splitIntoSubagents: true });
+      // The stored message keeps the text exactly as typed and is only marked
+      // once the reactor records that the split reached the provider.
+      expect(events[0]?.payload).toMatchObject({ text: "Build it" });
+      expect(events[0]?.payload).not.toHaveProperty("splitIntoSubagents");
       expect(events[1]?.payload).toMatchObject({ messageId, splitIntoSubagents: true });
     }),
   );
@@ -119,19 +121,12 @@ it.layer(NodeServices.layer)("thread.turn.start splitIntoSubagents", (it) => {
     }),
   );
 
-  it.effect("keeps the flag through a worktree bootstrap append", () =>
+  it.effect("carries the request after a worktree bootstrap append", () =>
     Effect.gen(function* () {
       const readModel = yield* readModelWithThread;
-      const planned = yield* decideOrchestrationCommand({
-        command: { ...appendCommand, splitIntoSubagents: true },
-        readModel,
-      });
+      const planned = yield* decideOrchestrationCommand({ command: appendCommand, readModel });
       const appended = Array.isArray(planned) ? planned[0]! : planned;
-      expect(appended.payload).toMatchObject({ splitIntoSubagents: true });
       const withMessage = yield* projectEvent(readModel, { ...appended, sequence: 3 });
-      expect(
-        withMessage.threads.find((thread) => thread.id === threadId)?.messages[0],
-      ).toMatchObject({ id: messageId, splitIntoSubagents: true });
 
       const events = eventsOf(
         yield* decideOrchestrationCommand({

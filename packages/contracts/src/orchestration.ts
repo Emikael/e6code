@@ -577,7 +577,8 @@ export const OrchestrationMessage = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
-  // Set on a user message sent with "Split into subagents" turned on.
+  // Set once the provider input for this user message carried the split
+  // instruction (from a SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND activity).
   splitIntoSubagents: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -671,6 +672,30 @@ export const OrchestrationThreadActivity = Schema.Struct({
   createdAt: IsoDateTime,
 });
 export type OrchestrationThreadActivity = typeof OrchestrationThreadActivity.Type;
+
+/**
+ * Recorded when a turn's provider input carried the "Split into subagents"
+ * instruction. Projections mark the user message from it, so the message's
+ * `splitIntoSubagents` reflects what was sent rather than what was asked.
+ */
+export const SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND = "subagent-split.applied";
+/** Recorded when a requested split was not sent, with the reason in `detail`. */
+export const SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND = "subagent-split.skipped";
+
+/** The user message an applied-split activity marks, if it is one. */
+export function subagentSplitAppliedMessageId(
+  activity: Pick<OrchestrationThreadActivity, "kind" | "payload">,
+): MessageId | null {
+  if (activity.kind !== SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND) return null;
+  const payload = activity.payload;
+  return typeof payload === "object" &&
+    payload !== null &&
+    "messageId" in payload &&
+    typeof payload.messageId === "string" &&
+    payload.messageId.length > 0
+    ? MessageId.make(payload.messageId)
+    : null;
+}
 
 const OrchestrationLatestTurnState = Schema.Literals([
   "running",
@@ -1562,7 +1587,6 @@ const ThreadMessageUserAppendCommand = Schema.Struct({
     attachments: Schema.Array(ChatAttachment),
     context: Schema.optional(OrchestrationMessageContext),
   }),
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1919,7 +1943,6 @@ export const ThreadMessageSentPayload = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,

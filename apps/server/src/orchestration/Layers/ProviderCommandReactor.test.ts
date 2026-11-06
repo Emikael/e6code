@@ -21,6 +21,9 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
+  SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
 } from "@e6tools/contracts";
@@ -3117,11 +3120,16 @@ describe("ProviderCommandReactor", () => {
   });
 
   it.each([
-    { supportsSubagentSplit: true, expectInstruction: true },
-    { supportsSubagentSplit: false, expectInstruction: false },
-  ])(
-    "split into subagents reaches the provider input only when supported ($supportsSubagentSplit)",
-    async ({ supportsSubagentSplit, expectInstruction }) => {
+    { name: "applied", supportsSubagentSplit: true, text: "refactor the parser" },
+    { name: "unsupported", supportsSubagentSplit: false, text: "refactor the parser" },
+    {
+      name: "too-long",
+      supportsSubagentSplit: true,
+      text: "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 10),
+    },
+  ] as const)(
+    "records whether the subagent split reached the provider ($name)",
+    async ({ name, supportsSubagentSplit, text }) => {
       const harness = await createHarness({ supportsSubagentSplit });
       const now = "2026-01-01T00:00:00.000Z";
       const messageId = asMessageId("user-message-split");
@@ -3131,7 +3139,7 @@ describe("ProviderCommandReactor", () => {
           type: "thread.turn.start",
           commandId: CommandId.make("cmd-turn-start-split"),
           threadId: ThreadId.make("thread-1"),
-          message: { messageId, role: "user", text: "refactor the parser", attachments: [] },
+          message: { messageId, role: "user", text, attachments: [] },
           interactionMode: "default",
           runtimeMode: "approval-required",
           splitIntoSubagents: true,
@@ -3140,18 +3148,30 @@ describe("ProviderCommandReactor", () => {
       );
 
       await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      const applied = name === "applied";
       expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
-        input: expectInstruction
-          ? `refactor the parser\n\n${SUBAGENT_SPLIT_INSTRUCTION}`
-          : "refactor the parser",
+        input: applied ? `${text}\n\n${SUBAGENT_SPLIT_INSTRUCTION}` : text,
       });
       const thread = (await harness.readModel()).threads.find(
         (entry) => entry.id === ThreadId.make("thread-1"),
       );
-      expect(thread?.messages.find((message) => message.id === messageId)).toMatchObject({
-        text: "refactor the parser",
-        splitIntoSubagents: true,
-      });
+      const message = thread?.messages.find((entry) => entry.id === messageId);
+      // The stored text never carries the instruction; the mark follows what was sent.
+      expect(message?.text).toBe(text);
+      expect(message?.splitIntoSubagents).toBe(applied ? true : undefined);
+      const splitActivities = (thread?.activities ?? []).filter((activity) =>
+        activity.kind.startsWith("subagent-split."),
+      );
+      expect(splitActivities).toEqual([
+        expect.objectContaining(
+          applied
+            ? { kind: SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND, payload: { messageId } }
+            : {
+                kind: SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND,
+                payload: expect.objectContaining({ messageId, reason: name }),
+              },
+        ),
+      ]);
     },
   );
 

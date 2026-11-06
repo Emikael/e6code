@@ -13,6 +13,7 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  subagentSplitAppliedMessageId,
   WORKTREE_SETUP_ACTIVITY_KIND,
 } from "@e6tools/contracts";
 import {
@@ -768,7 +769,6 @@ export function projectEvent(
             text: payload.text,
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             ...(payload.context !== undefined ? { context: payload.context } : {}),
-            ...(payload.splitIntoSubagents === true ? { splitIntoSubagents: true } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,
@@ -1083,10 +1083,20 @@ export function projectEvent(
             ].toSorted(compareThreadActivities),
           );
 
+          const splitMessageId = subagentSplitAppliedMessageId(payload.activity);
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               activities,
+              ...(splitMessageId !== null
+                ? {
+                    messages: thread.messages.map((message) =>
+                      message.id === splitMessageId
+                        ? { ...message, splitIntoSubagents: true }
+                        : message,
+                    ),
+                  }
+                : {}),
               updatedAt: event.occurredAt,
             }),
           };
