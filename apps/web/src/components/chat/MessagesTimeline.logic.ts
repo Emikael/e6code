@@ -976,7 +976,7 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt: string | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   supportsConversationRollback: boolean;
-  /** Task ids of subagents still working, used by the active tool indicator. */
+  /** Task ids of subagents still working: their batch keeps its own card while any is live. */
   liveAgentTaskIds?: ReadonlySet<string> | undefined;
   /** Live bootstrap progress. Renders a stage card under the first user message. */
   worktreeSetup?: WorktreeSetupSnapshot | null;
@@ -1040,12 +1040,20 @@ export function deriveMessagesTimelineRows(input: {
     unsettledTurnId !== null &&
     entry.toolLifecycleStatus === "inProgress" &&
     entry.turnId === unsettledTurnId;
+  const spawnHasLiveAgents = (spawn: NonNullable<WorkLogEntry["agentSpawn"]>) =>
+    (spawn.workflowId !== null && input.liveAgentTaskIds?.has(spawn.workflowId) === true) ||
+    spawn.agentTaskIds.some((taskId) => input.liveAgentTaskIds?.has(taskId) === true);
+  // The live row folds the active run's tool calls into one line. A batch
+  // whose subagents are still working ends that run instead: it keeps its own
+  // card, so the agents stay in view while the coordinator calls more tools.
+  // Once they settle, the batch folds with the run like any other tool call.
   const activeToolEntries: Array<Extract<TimelineEntry, { kind: "work" }>> = [];
   for (let index = input.timelineEntries.length - 1; index >= activeTurnHeaderIndex; index -= 1) {
     const entry = input.timelineEntries[index]!;
     if (
       !entryBelongsToActiveTurn(entry, index) ||
       entry.kind !== "work" ||
+      (entry.entry.agentSpawn !== undefined && spawnHasLiveAgents(entry.entry.agentSpawn)) ||
       entry.entry.questionAnswer !== undefined ||
       entry.entry.sourceActivityKind === "context-compaction" ||
       entry.entry.tone === "error"
@@ -1061,14 +1069,10 @@ export function deriveMessagesTimelineRows(input: {
   );
   const activeWorkAnchor = activeToolEntries[0];
   const latestVisibleToolEntry = visibleActiveToolEntries.at(-1);
-  const latestRunningToolEntry = visibleActiveToolEntries.findLast((entry) => {
-    const spawn = entry.entry.agentSpawn;
-    return spawn
-      ? entry === latestVisibleToolEntry &&
-          ((spawn.workflowId !== null && input.liveAgentTaskIds?.has(spawn.workflowId)) ||
-            spawn.agentTaskIds.some((taskId) => input.liveAgentTaskIds?.has(taskId)))
-      : workEntryIsActiveTurnActivity(entry.entry);
-  });
+  // Batches in the run have settled (see above), so none of them is running.
+  const latestRunningToolEntry = visibleActiveToolEntries.findLast(
+    (entry) => entry.entry.agentSpawn === undefined && workEntryIsActiveTurnActivity(entry.entry),
+  );
   const latestToolFailed =
     latestRunningToolEntry === undefined &&
     latestVisibleToolEntry !== undefined &&
@@ -1232,9 +1236,7 @@ export function deriveMessagesTimelineRows(input: {
       ) {
         const spawn = timelineEntry.entry.agentSpawn;
         if (spawn && entryBelongsToActiveTurn(timelineEntry, index)) {
-          hasActivityRow ||=
-            (spawn.workflowId !== null && input.liveAgentTaskIds?.has(spawn.workflowId)) ||
-            spawn.agentTaskIds.some((taskId) => input.liveAgentTaskIds?.has(taskId));
+          hasActivityRow ||= spawnHasLiveAgents(spawn);
         }
         nextRows.push({
           kind: "work",
