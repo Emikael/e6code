@@ -1777,3 +1777,40 @@ export function buildToolCallExpandedBody(
   const result = results.length > 0 ? results.join("\n\n") : null;
   return call || result ? { call, result } : null;
 }
+
+/**
+ * The row that shows a subagent's spawn batch, for the Overview's "Show in
+ * thread". A batch is its own row, or one of the entries a live row folded in
+ * after its agents settled; then `foldedGroupId` names the group to open.
+ * `agentIds` holds the subagent and its workflow coordinator, if it has one.
+ */
+export function findSubagentSpawnRow(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  agentIds: ReadonlySet<string>,
+): {
+  readonly index: number;
+  readonly entryId: string;
+  readonly foldedGroupId: string | null;
+} | null {
+  const holdsAgent = (entry: WorkLogEntry) => {
+    const spawn = entry.agentSpawn;
+    return (
+      spawn !== undefined &&
+      ((spawn.workflowId !== null && agentIds.has(spawn.workflowId)) ||
+        spawn.agentTaskIds.some((taskId) => agentIds.has(taskId)))
+    );
+  };
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "work") {
+      const entry = row.groupedEntries.find(holdsAgent);
+      if (entry) return { index, entryId: entry.id, foldedGroupId: null };
+    } else if (row.kind === "work-live") {
+      if (holdsAgent(row.entry)) return { index, entryId: row.entry.id, foldedGroupId: null };
+      const entry = row.groupedEntries.find(holdsAgent);
+      // An open group lists its entries in the details row after this one.
+      if (entry && !row.expanded) return { index, entryId: entry.id, foldedGroupId: row.groupId };
+    }
+  }
+  return null;
+}

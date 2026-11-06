@@ -79,6 +79,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useEffectEvent,
   useId,
   useLayoutEffect,
   useMemo,
@@ -195,6 +196,7 @@ import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssis
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
+  findSubagentSpawnRow,
   deriveUnsettledTurnId,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
@@ -270,6 +272,8 @@ import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { type SubagentThreadTarget, useSubagentSelectionStore } from "~/subagentSelectionStore";
+import { toastManager } from "../ui/toast";
 import { cn } from "~/lib/utils";
 import {
   canAnimate,
@@ -336,6 +340,8 @@ interface TimelineRowSharedState {
   expandedSpawnEntryIds: ReadonlySet<string>;
   /** Opens the Inspector, selecting the subagent when one is named. */
   onOpenAgents: (agentId?: string) => void;
+  /** The subagent the Overview just asked to show in the thread; lit briefly. */
+  highlightedSubagentId: string | null;
   /** The thread's provider; subagents run on it, so their tiles carry its mark. */
   subagentProviderKind: ProviderDriverKind | null;
   onCancelWorktreeSetup: (() => void) | null;
@@ -892,6 +898,72 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+
+  // "Show in thread" from the Overview: open the subagent's card, scroll to
+  // it and light its row for a moment. Only requests made while this list is
+  // mounted count; an older one is not replayed.
+  const [highlight, setHighlight] = useState<SubagentThreadTarget | null>(null);
+  const highlightedSubagentId = highlight?.agentId ?? null;
+  const showSubagentInThread = useEffectEvent((target: SubagentThreadTarget) => {
+    if (target.threadKey !== listIdentityKey) return;
+    const { agentId } = target;
+    const model = agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL;
+    const agent = [
+      ...model.directAgents,
+      ...model.workflows.flatMap((group) => [
+        group.workflow,
+        ...group.unphasedMembers,
+        ...group.phases.flatMap((phase) => phase.members),
+      ]),
+    ].find((candidate) => candidate.id === agentId);
+    const match = findSubagentSpawnRow(
+      rows,
+      new Set(agent?.parentAgentId ? [agentId, agent.parentAgentId] : [agentId]),
+    );
+    if (!match) {
+      toastManager.add({
+        type: "info",
+        title: "Not in the loaded part of the thread",
+        description: "Load earlier messages to find this subagent's card.",
+      });
+      return;
+    }
+    if (match.foldedGroupId !== null) {
+      const groupId = match.foldedGroupId;
+      setExpandedWorkGroupIds((current) =>
+        current.has(groupId) ? current : new Set([...current, groupId]),
+      );
+    }
+    onToggleSpawnRow(match.entryId, true);
+    onToggleSpawnRow(spawnCardClosedKey(match.entryId), false);
+    onManualNavigation();
+    setHighlight(target);
+    void listRef.current
+      ?.scrollToIndex({ index: match.index, animated: !prefersReducedMotion, viewOffset: 24 })
+      .then(() => {
+        requestAnimationFrame(() => {
+          const row = document.querySelector<HTMLElement>(
+            `[data-subagent-row="${CSS.escape(agentId)}"]`,
+          );
+          row?.scrollIntoView({ block: "nearest" });
+          row?.focus({ preventScroll: true });
+        });
+      });
+  });
+  useEffect(
+    () =>
+      useSubagentSelectionStore.subscribe((state, previous) => {
+        if (state.threadTarget && state.threadTarget !== previous.threadTarget) {
+          showSubagentInThread(state.threadTarget);
+        }
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (highlight === null) return;
+    const timer = window.setTimeout(() => setHighlight(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [highlight]);
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
       ? rows.findIndex((row) => row.id === rememberedPosition.rowId)
@@ -1269,6 +1341,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       agentPanelModel: agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL,
       expandedSpawnEntryIds: paintedExpandedSpawnEntryIds,
       onOpenAgents,
+      highlightedSubagentId,
       subagentProviderKind,
       onCancelWorktreeSetup: onCancelWorktreeSetup ?? null,
       onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
@@ -1305,6 +1378,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       agentPanelModel,
       paintedExpandedSpawnEntryIds,
       onOpenAgents,
+      highlightedSubagentId,
       subagentProviderKind,
       onCancelWorktreeSetup,
       onWorktreeSetupWorkLocally,
@@ -4784,6 +4858,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     expandedSpawnEntryIds,
     onToggleSpawnRow,
     onOpenAgents,
+    highlightedSubagentId,
     subagentProviderKind,
   } = use(TimelineRowCtx);
   const { latestTurnId } = use(TimelineRowActivityCtx);
@@ -4828,8 +4903,12 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     completedAt: ends.length > 0 ? ends.toSorted().at(-1)! : null,
     updatedAt: workEntry.createdAt,
   };
+  // A subagent the Overview asked to show stays visible past the row cap.
+  const highlightedIndex = agents.findIndex((agent) => agent.id === highlightedSubagentId);
   const visibleAgents =
-    showAllRows || agents.length <= SPAWN_CARD_ROW_LIMIT + 2
+    showAllRows ||
+    agents.length <= SPAWN_CARD_ROW_LIMIT + 2 ||
+    highlightedIndex >= SPAWN_CARD_ROW_LIMIT
       ? agents
       : agents.slice(0, SPAWN_CARD_ROW_LIMIT);
   const toggleExpanded = () => {
@@ -4837,6 +4916,19 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     onToggleSpawnRow(workEntry.id, !expanded);
     onToggleSpawnRow(closedKey, expanded);
   };
+
+  // One direct subagent has nothing to batch; it reads as a single row.
+  const soleAgent = !workflowGroup && agentCount === 1 ? agents[0] : undefined;
+  if (soleAgent) {
+    return (
+      <SubagentInlineRow
+        agent={soleAgent}
+        providerKind={subagentProviderKind}
+        highlighted={soleAgent.id === highlightedSubagentId}
+        onOpen={onOpenAgents}
+      />
+    );
+  }
 
   return (
     <div
@@ -4904,6 +4996,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
               key={agent.id}
               agent={agent}
               providerKind={subagentProviderKind}
+              highlighted={agent.id === highlightedSubagentId}
               onOpen={onOpenAgents}
             />
           ))}
@@ -4931,14 +5024,63 @@ function spawnCardClosedKey(entryId: string): string {
   return `closed:${entryId}`;
 }
 
-/** Identity, activity and metrics on three fixed lines; opens the Inspector. */
-function SubagentBatchRow({
+/** A spawn of one subagent: identity and activity on two lines; opens the Inspector. */
+function SubagentInlineRow({
   agent,
   providerKind,
+  highlighted,
   onOpen,
 }: {
   agent: RuntimeSubagent;
   providerKind: ProviderDriverKind | null;
+  highlighted: boolean;
+  onOpen: (agentId: string) => void;
+}) {
+  const tone = subagentStatusTone(agent.status);
+  const activity = subagentActivityText(agent);
+  return (
+    <button
+      type="button"
+      data-subagent-row={agent.id}
+      onClick={() => onOpen(agent.id)}
+      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in Overview`}
+      className={cn(
+        "my-1 flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-left outline-none transition-colors duration-500 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+        highlighted && "bg-accent",
+      )}
+    >
+      <SubagentTile driverKind={providerKind} className="mt-px" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex h-5.5 min-w-0 items-center gap-2.5">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+            {agent.title}
+          </span>
+          <SubagentStatusWord tone={tone} />
+          <SubagentElapsed agent={agent} className="shrink-0 text-xs text-muted-foreground" />
+        </span>
+        <span
+          className={cn(
+            "truncate text-xs leading-[1.1875rem]",
+            tone === "failed" ? "text-destructive-foreground" : "text-secondary-foreground",
+          )}
+        >
+          {activity ?? SUBAGENT_STATUS_LABEL[tone]}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** Identity, activity and metrics on three fixed lines; opens the Inspector. */
+function SubagentBatchRow({
+  agent,
+  providerKind,
+  highlighted,
+  onOpen,
+}: {
+  agent: RuntimeSubagent;
+  providerKind: ProviderDriverKind | null;
+  highlighted: boolean;
   onOpen: (agentId: string) => void;
 }) {
   const tone = subagentStatusTone(agent.status);
@@ -4952,9 +5094,13 @@ function SubagentBatchRow({
   return (
     <button
       type="button"
+      data-subagent-row={agent.id}
       onClick={() => onOpen(agent.id)}
       aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in Overview`}
-      className="flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className={cn(
+        "flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors duration-500 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none",
+        highlighted && "bg-accent",
+      )}
     >
       <SubagentTile driverKind={providerKind} className="mt-px" />
       <span className="grid min-w-0 flex-1 grid-rows-[1.375rem_1.1875rem_1.0625rem]">

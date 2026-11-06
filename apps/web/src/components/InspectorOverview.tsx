@@ -39,10 +39,13 @@ import {
   BracesIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CopyIcon,
+  EllipsisIcon,
   ExternalLinkIcon,
   FileDiffIcon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
+  MessageSquareTextIcon,
   MonitorIcon,
   SquareArrowOutUpRightIcon,
   WrenchIcon,
@@ -61,6 +64,7 @@ import {
 } from "react";
 
 import type { DraftId } from "~/composerDraftStore";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useE6ProjectFileScripts } from "~/hooks/useE6ProjectFileScripts";
 import { cn } from "~/lib/utils";
 import { primaryProjectScript } from "~/projectScripts";
@@ -84,8 +88,9 @@ import {
   SubagentTile,
 } from "./subagents/SubagentParts";
 import { Button } from "./ui/button";
-import { Menu, MenuPopup, MenuTrigger } from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
+import { toastManager } from "./ui/toast";
 
 export interface InspectorWorkspace {
   environmentId: EnvironmentId;
@@ -394,40 +399,93 @@ const PHASE_STATE_WORD: Readonly<Record<LineagePhase["state"], string>> = {
   done: "Done",
 };
 
+/**
+ * One subagent in the lineage. Hover or focus trades the elapsed time for a
+ * menu with the ways back out: the thread card, the task text and the session.
+ */
 function LineageRow({
   agent,
   providerKind,
   selected,
   onSelect,
+  onShowInThread,
 }: {
   agent: RuntimeSubagent;
   providerKind: ProviderDriverKind | null;
   selected: boolean;
   onSelect: (agentId: string) => void;
+  onShowInThread: ((agentId: string) => void) | null;
 }) {
   const tone = subagentStatusTone(agent.status);
+  const sessionUrl = agent.runHandles?.sessionUrl;
+  const { copyToClipboard } = useCopyToClipboard({
+    onCopy: () =>
+      toastManager.add({ type: "success", title: "Task copied", description: agent.title }),
+    onError: (error) =>
+      toastManager.add({
+        type: "error",
+        title: "Couldn't copy the task",
+        description: error.message,
+      }),
+  });
   return (
-    <button
-      type="button"
-      data-lineage-row
-      data-agent-id={agent.id}
-      aria-current={selected ? "true" : undefined}
-      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}`}
-      onClick={() => onSelect(agent.id)}
-      className={cn(
-        "flex h-7 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-        // Selection takes the primary edge, the system's selected-outline role.
-        selected ? "bg-accent ring-1 ring-inset ring-primary-edge" : "hover:bg-accent/60",
-      )}
-    >
-      <SubagentTile driverKind={providerKind} size="sm" />
-      <span className="min-w-0 flex-1 truncate">{agent.title}</span>
-      <SubagentStatusGlyph tone={tone} decorative />
-      <SubagentElapsed
-        agent={agent}
-        className={cn("min-w-14 shrink-0 text-right text-xs", MUTED)}
-      />
-    </button>
+    <div className="group/lineage relative flex min-w-0">
+      <button
+        type="button"
+        data-lineage-row
+        data-agent-id={agent.id}
+        aria-current={selected ? "true" : undefined}
+        aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}`}
+        onClick={() => onSelect(agent.id)}
+        className={cn(
+          "flex h-7 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          // Selection takes the primary edge, the system's selected-outline role.
+          selected
+            ? "bg-accent ring-1 ring-inset ring-primary-edge"
+            : "group-hover/lineage:bg-accent/60",
+        )}
+      >
+        <SubagentTile driverKind={providerKind} size="sm" />
+        <span className="min-w-0 flex-1 truncate">{agent.title}</span>
+        <SubagentStatusGlyph tone={tone} decorative />
+        <SubagentElapsed
+          agent={agent}
+          className={cn(
+            "min-w-14 shrink-0 text-right text-xs group-focus-within/lineage:invisible group-hover/lineage:invisible group-has-[[data-popup-open]]/lineage:invisible",
+            MUTED,
+          )}
+        />
+      </button>
+      <Menu>
+        <MenuTrigger
+          aria-label={`More for ${agent.title}`}
+          className={cn(
+            "absolute inset-y-0.5 end-0.5 inline-flex w-7 items-center justify-center rounded-[5px] opacity-0 outline-none transition-colors hover:bg-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-focus-within/lineage:opacity-100 group-hover/lineage:opacity-100 data-popup-open:bg-accent data-popup-open:opacity-100 pointer-coarse:opacity-100",
+            MUTED,
+          )}
+        >
+          <EllipsisIcon aria-hidden className="size-3.5" />
+        </MenuTrigger>
+        <MenuPopup align="end" className="min-w-44">
+          {onShowInThread ? (
+            <MenuItem onClick={() => onShowInThread(agent.id)}>
+              <MessageSquareTextIcon aria-hidden />
+              Show in thread
+            </MenuItem>
+          ) : null}
+          <MenuItem onClick={() => copyToClipboard(agent.title)}>
+            <CopyIcon aria-hidden />
+            Copy task
+          </MenuItem>
+          {sessionUrl ? (
+            <MenuItem render={<a href={sessionUrl} target="_blank" rel="noreferrer" />}>
+              <ExternalLinkIcon aria-hidden />
+              Open session
+            </MenuItem>
+          ) : null}
+        </MenuPopup>
+      </Menu>
+    </div>
   );
 }
 
@@ -622,6 +680,7 @@ function LineageSection({
     threadKey ? (state.revealByThreadKey[threadKey] ?? 0) : 0,
   );
   const select = useSubagentSelectionStore((state) => state.select);
+  const showInThread = useSubagentSelectionStore((state) => state.showInThread);
   const lineage = useMemo(() => deriveLineage(model), [model]);
   const allAgents = useMemo(
     () => lineage.flatMap((node) => [node.agent, ...nodeMembers(node)]),
@@ -637,6 +696,14 @@ function LineageSection({
       if (threadKey) select(threadKey, agentId);
     },
     [select, threadKey],
+  );
+  const onShowInThread = useCallback(
+    (agentId: string) => {
+      if (!threadKey) return;
+      select(threadKey, agentId);
+      showInThread(threadKey, agentId);
+    },
+    [select, showInThread, threadKey],
   );
 
   // Pin the default pick once shown, so the card does not jump to another
@@ -696,6 +763,7 @@ function LineageSection({
       providerKind={providerKind}
       selected={agent.id === selectedId}
       onSelect={onSelect}
+      onShowInThread={threadKey ? onShowInThread : null}
     />
   );
 

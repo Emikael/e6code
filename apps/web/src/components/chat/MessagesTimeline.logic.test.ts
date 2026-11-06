@@ -23,6 +23,7 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  findSubagentSpawnRow,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
@@ -1495,6 +1496,20 @@ describe("deriveMessagesTimelineRows", () => {
         },
       ]);
       expect(settled.some((row) => row.kind === "work")).toBe(false);
+
+      // "Show in thread" finds the card, and the group to open once it folded.
+      expect(findSubagentSpawnRow(working, new Set(["agent-b"]))).toEqual({
+        index: working.findIndex((row) => row.id === "spawn-entry"),
+        entryId: "spawn-entry",
+        foldedGroupId: null,
+      });
+      const settledLive = settled.find((row) => row.kind === "work-live");
+      expect(findSubagentSpawnRow(settled, new Set(["agent-a"]))).toEqual({
+        index: settled.indexOf(settledLive!),
+        entryId: "spawn-entry",
+        foldedGroupId: settledLive?.kind === "work-live" ? settledLive.groupId : "missing",
+      });
+      expect(findSubagentSpawnRow(working, new Set(["someone-else"]))).toBeNull();
     }
 
     // A live batch with nothing after it is its own card, and the turn shows
