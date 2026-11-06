@@ -10,7 +10,7 @@ import { cn } from "~/lib/utils";
 import { useEnvironment } from "~/state/environments";
 import { connectionPhaseDotClassName } from "./ConnectionStatusDot";
 
-export function connectionPhaseWord(phase: EnvironmentConnectionPhase): string {
+function connectionPhaseWord(phase: EnvironmentConnectionPhase): string {
   switch (phase) {
     case "connected":
       return "Connected";
