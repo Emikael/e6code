@@ -56,6 +56,7 @@ import {
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import { SUBAGENT_SPLIT_INSTRUCTION } from "../subagentSplit.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { RuntimeReceiptBusTest } from "./RuntimeReceiptBus.ts";
@@ -181,6 +182,7 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
+    readonly supportsSubagentSplit?: boolean;
     readonly unreadableHistory?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
@@ -360,6 +362,7 @@ describe("ProviderCommandReactor", () => {
         ...(input?.requiresNewThreadForModelChange === true
           ? { requiresNewThreadForModelChange: true }
           : {}),
+        ...(input?.supportsSubagentSplit === true ? { supportsSubagentSplit: true } : {}),
       },
     ];
 
@@ -3112,6 +3115,45 @@ describe("ProviderCommandReactor", () => {
       interactionMode: "plan",
     });
   });
+
+  it.each([
+    { supportsSubagentSplit: true, expectInstruction: true },
+    { supportsSubagentSplit: false, expectInstruction: false },
+  ])(
+    "split into subagents reaches the provider input only when supported ($supportsSubagentSplit)",
+    async ({ supportsSubagentSplit, expectInstruction }) => {
+      const harness = await createHarness({ supportsSubagentSplit });
+      const now = "2026-01-01T00:00:00.000Z";
+      const messageId = asMessageId("user-message-split");
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-split"),
+          threadId: ThreadId.make("thread-1"),
+          message: { messageId, role: "user", text: "refactor the parser", attachments: [] },
+          interactionMode: "default",
+          runtimeMode: "approval-required",
+          splitIntoSubagents: true,
+          createdAt: now,
+        }),
+      );
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+        input: expectInstruction
+          ? `refactor the parser\n\n${SUBAGENT_SPLIT_INSTRUCTION}`
+          : "refactor the parser",
+      });
+      const thread = (await harness.readModel()).threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      );
+      expect(thread?.messages.find((message) => message.id === messageId)).toMatchObject({
+        text: "refactor the parser",
+        splitIntoSubagents: true,
+      });
+    },
+  );
 
   it("preserves the active session model when in-session model switching is unsupported", async () => {
     const harness = await createHarness({ sessionModelSwitch: "unsupported" });

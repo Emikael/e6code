@@ -577,6 +577,8 @@ export const OrchestrationMessage = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
+  // Set on a user message sent with "Split into subagents" turned on.
+  splitIntoSubagents: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -1327,6 +1329,8 @@ export const ThreadTurnStartCommand = Schema.Struct({
   ),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  // Asks a provider that supports it to fan the turn out to parallel subagents.
+  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1347,6 +1351,8 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  // Asks a provider that supports it to fan the turn out to parallel subagents.
+  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1556,6 +1562,7 @@ const ThreadMessageUserAppendCommand = Schema.Struct({
     attachments: Schema.Array(ChatAttachment),
     context: Schema.optional(OrchestrationMessageContext),
   }),
+  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1912,6 +1919,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
+  splitIntoSubagents: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -1928,6 +1936,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 

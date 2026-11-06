@@ -1427,6 +1427,7 @@ const makeWsRpcLayer = (
                     ? { context: command.message.context }
                     : {}),
                 },
+                ...(command.splitIntoSubagents === true ? { splitIntoSubagents: true } : {}),
                 createdAt: command.createdAt,
               });
               if (tracked) {

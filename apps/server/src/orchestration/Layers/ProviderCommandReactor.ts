@@ -64,6 +64,7 @@ import {
   type ThreadTitleMessage,
 } from "../../textGeneration/ThreadTitleContext.ts";
 import { canReplaceThreadTitle, DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
+import { withSubagentSplitInstruction } from "../subagentSplit.ts";
 import {
   resolveSourceControlWriterModelSelection,
   ServerSettingsService,
@@ -983,6 +984,7 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
+    readonly splitIntoSubagents?: boolean;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThreadShell(input.threadId);
@@ -998,7 +1000,6 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
       .listSessions()
@@ -1027,6 +1028,21 @@ const make = Effect.gen(function* () {
             }
           : requestedModelSelection
         : input.modelSelection;
+    const providerInstanceId =
+      activeSession?.providerInstanceId ?? requestedModelSelection.instanceId;
+    const providerSupportsSplit =
+      input.splitIntoSubagents === true &&
+      (yield* providerRegistry.getProviders).some(
+        (provider) =>
+          provider.instanceId === providerInstanceId && provider.supportsSubagentSplit === true,
+      );
+    const normalizedInput = toNonEmptyProviderInput(
+      withSubagentSplitInstruction({
+        text: input.messageText,
+        splitIntoSubagents: input.splitIntoSubagents === true,
+        providerSupportsSplit,
+      }),
+    );
 
     return {
       threadId: input.threadId,
@@ -1603,7 +1619,8 @@ const make = Effect.gen(function* () {
       thread.session?.status === "starting" ||
       thread.hasPendingApprovals ||
       thread.hasPendingUserInput ||
-      event.payload.sourceProposedPlan !== undefined;
+      event.payload.sourceProposedPlan !== undefined ||
+      event.payload.splitIntoSubagents === true;
     const preRoute = providerNeedsTurn
       ? null
       : yield* routeSystemOneTurn({
@@ -1715,6 +1732,7 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
+      ...(event.payload.splitIntoSubagents === true ? { splitIntoSubagents: true } : {}),
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.map(Option.some),

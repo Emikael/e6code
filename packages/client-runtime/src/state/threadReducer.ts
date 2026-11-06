@@ -406,6 +406,7 @@ export function applyThreadDetailEvent(
           ? { attachments: event.payload.attachments }
           : {}),
         ...(event.payload.context !== undefined ? { context: event.payload.context } : {}),
+        ...(event.payload.splitIntoSubagents === true ? { splitIntoSubagents: true } : {}),
         turnId: event.payload.turnId,
         streaming: event.payload.streaming,
         createdAt: event.payload.createdAt,
