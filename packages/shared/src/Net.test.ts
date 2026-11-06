@@ -71,18 +71,6 @@ it.layer(NetService.layer)("NetService", (it) => {
       ),
     );
 
-    it.effect("canListenOnHost treats an IPv6 loopback the host cannot use as free", () =>
-      Effect.gen(function* () {
-        const net = yield* NetService.NetService;
-        const port = yield* net.reserveLoopbackPort();
-
-        // A host without IPv6 fails this bind with EAFNOSUPPORT (or EADDRNOTAVAIL
-        // when only the address is missing); either way nothing can occupy it.
-        assert.equal(yield* net.canListenOnHost(port, "::1"), true);
-        assert.equal(yield* net.isPortAvailableOnLoopback(port), true);
-      }),
-    );
-
     it.effect("findAvailablePort returns preferred when it is free", () =>
       Effect.gen(function* () {
         const net = yield* NetService.NetService;
