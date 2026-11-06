@@ -2440,6 +2440,51 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
+  it.effect("opens a question while the turn that asked it is still running", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-live-form");
+      const asked = promiseWithResolvers<unknown>();
+      runtimeMock.state.subscribedEvents = [asked.promise];
+      // Only the live event may open it, not a pending-request recovery pass.
+      runtimeMock.state.questionListImplementation = async () => [];
+
+      const requestedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) => event.threadId === threadId && event.type === "user-input.requested",
+        ),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId,
+        input: "Ask me first",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "opencode/kimi-k3",
+        ),
+      });
+      asked.resolve({
+        id: "evt-live-form",
+        type: "form.created",
+        created: 0,
+        data: { form: formRequest("form_live", "http://127.0.0.1:9999/session") },
+      });
+
+      const requested = Option.getOrThrow(
+        yield* Fiber.join(requestedFiber).pipe(Effect.timeout("1 second")),
+      );
+      NodeAssert.equal(requested.requestId, "form_live");
+      NodeAssert.equal(requested.turnId, turn.turnId);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("surfaces the approval when the full-access auto-reply fails", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
