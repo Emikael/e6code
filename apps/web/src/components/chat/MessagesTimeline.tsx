@@ -79,7 +79,6 @@ import {
   use,
   useCallback,
   useEffect,
-  useEffectEvent,
   useId,
   useLayoutEffect,
   useMemo,
@@ -904,57 +903,63 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // mounted count; an older one is not replayed.
   const [highlight, setHighlight] = useState<SubagentThreadTarget | null>(null);
   const highlightedSubagentId = highlight?.agentId ?? null;
-  const showSubagentInThread = useEffectEvent((target: SubagentThreadTarget) => {
-    if (target.threadKey !== listIdentityKey) return;
-    const { agentId } = target;
-    const model = agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL;
-    const agent = [
-      ...model.directAgents,
-      ...model.workflows.flatMap((group) => [
-        group.workflow,
-        ...group.unphasedMembers,
-        ...group.phases.flatMap((phase) => phase.members),
-      ]),
-    ].find((candidate) => candidate.id === agentId);
-    const match = findSubagentSpawnRow(
-      rows,
-      new Set(agent?.parentAgentId ? [agentId, agent.parentAgentId] : [agentId]),
-    );
-    if (!match) {
-      toastManager.add({
-        type: "info",
-        title: "Not in the loaded part of the thread",
-        description: "Load earlier messages to find this subagent's card.",
-      });
-      return;
-    }
-    if (match.foldedGroupId !== null) {
-      const groupId = match.foldedGroupId;
-      setExpandedWorkGroupIds((current) =>
-        current.has(groupId) ? current : new Set([...current, groupId]),
+  // A ref, refreshed after every commit, so the store callback below always
+  // reads this render's rows. (useEffectEvent kept the first render's rows
+  // under the React Compiler.)
+  const showSubagentInThreadRef = useRef<(target: SubagentThreadTarget) => void>(() => {});
+  useLayoutEffect(() => {
+    showSubagentInThreadRef.current = (target: SubagentThreadTarget) => {
+      if (target.threadKey !== listIdentityKey) return;
+      const { agentId } = target;
+      const model = agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL;
+      const agent = [
+        ...model.directAgents,
+        ...model.workflows.flatMap((group) => [
+          group.workflow,
+          ...group.unphasedMembers,
+          ...group.phases.flatMap((phase) => phase.members),
+        ]),
+      ].find((candidate) => candidate.id === agentId);
+      const match = findSubagentSpawnRow(
+        rows,
+        new Set(agent?.parentAgentId ? [agentId, agent.parentAgentId] : [agentId]),
       );
-    }
-    onToggleSpawnRow(match.entryId, true);
-    onToggleSpawnRow(spawnCardClosedKey(match.entryId), false);
-    onManualNavigation();
-    setHighlight(target);
-    void listRef.current
-      ?.scrollToIndex({ index: match.index, animated: !prefersReducedMotion, viewOffset: 24 })
-      .then(() => {
-        requestAnimationFrame(() => {
-          const row = document.querySelector<HTMLElement>(
-            `[data-subagent-row="${CSS.escape(agentId)}"]`,
-          );
-          row?.scrollIntoView({ block: "nearest" });
-          row?.focus({ preventScroll: true });
+      if (!match) {
+        toastManager.add({
+          type: "info",
+          title: "Not in the loaded part of the thread",
+          description: "Load earlier messages to find this subagent's card.",
         });
-      });
+        return;
+      }
+      if (match.foldedGroupId !== null) {
+        const groupId = match.foldedGroupId;
+        setExpandedWorkGroupIds((current) =>
+          current.has(groupId) ? current : new Set([...current, groupId]),
+        );
+      }
+      onToggleSpawnRow(match.entryId, true);
+      onToggleSpawnRow(spawnCardClosedKey(match.entryId), false);
+      onManualNavigation();
+      setHighlight(target);
+      void listRef.current
+        ?.scrollToIndex({ index: match.index, animated: !prefersReducedMotion, viewOffset: 24 })
+        .then(() => {
+          requestAnimationFrame(() => {
+            const row = document.querySelector<HTMLElement>(
+              `[data-subagent-row="${CSS.escape(agentId)}"]`,
+            );
+            row?.scrollIntoView({ block: "nearest" });
+            row?.focus({ preventScroll: true });
+          });
+        });
+    };
   });
   useEffect(
     () =>
       useSubagentSelectionStore.subscribe((state, previous) => {
         if (state.threadTarget && state.threadTarget !== previous.threadTarget) {
-          showSubagentInThread(state.threadTarget);
+          showSubagentInThreadRef.current(state.threadTarget);
         }
       }),
     [],
