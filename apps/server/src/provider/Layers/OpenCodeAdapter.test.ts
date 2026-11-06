@@ -22,6 +22,7 @@ import {
   OpenCodeSettings,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ProviderRuntimeEvent,
   ThreadId,
 } from "@e6tools/contracts";
 import { createModelSelection } from "@e6tools/shared/model";
@@ -119,6 +120,7 @@ const runtimeMock = {
     transientErrorSessionIds: new Set<string>(),
     sessionDirectoryById: new Map<string, string>(),
     sessionParentById: new Map<string, string>(),
+    sessionOutcomeById: new Map<string, "succeeded" | "failed" | "interrupted">(),
     pendingPermissions: [] as Array<PermissionRequest>,
     pendingQuestions: [] as Array<FormDetail>,
     permissionListCalls: 0,
@@ -182,6 +184,7 @@ const runtimeMock = {
     this.state.transientErrorSessionIds.clear();
     this.state.sessionDirectoryById.clear();
     this.state.sessionParentById.clear();
+    this.state.sessionOutcomeById.clear();
     this.state.pendingPermissions = [];
     this.state.pendingQuestions = [];
     this.state.permissionListCalls = 0;
@@ -286,6 +289,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
           }
           const directory = runtimeMock.state.sessionDirectoryById.get(sessionID);
           const parentID = runtimeMock.state.sessionParentById.get(sessionID);
+          const outcome = runtimeMock.state.sessionOutcomeById.get(sessionID);
           return {
             id: sessionID,
             ...(runtimeMock.state.revertMessageID &&
@@ -294,6 +298,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
               : {}),
             location: { directory: directory ?? process.cwd() },
             ...(parentID ? { parentID } : {}),
+            ...(outcome ? { outcome } : {}),
           };
         },
         update: async ({ sessionID, permissions }: { sessionID: string; permissions: unknown }) => {
@@ -2736,6 +2741,159 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
+  const childCreated = (sessionID: string, agent: string) => ({
+    id: `evt-created-${sessionID}`,
+    type: "session.created",
+    created: 0,
+    durable: { aggregateID: sessionID, seq: 1, version: 1 },
+    data: {
+      sessionID,
+      projectID: "project",
+      location: { directory: process.cwd() },
+      parentID: "http://127.0.0.1:9999/session",
+      slug: sessionID,
+      agent,
+      version: "2",
+    },
+  });
+
+  // Runs one turn that delegates to `children`; the parent goes idle while
+  // they are still open. Returns once turn.completed is out.
+  const runTurnLeavingChildrenOpen = (
+    threadId: ThreadId,
+    children: ReadonlyArray<unknown>,
+    after: ReadonlyArray<unknown | Promise<unknown>>,
+    expectedEvents: number,
+  ) =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      runtimeMock.state.sessionStatus = "busy";
+      const busy = promiseWithResolvers<unknown>();
+      const delegated = promiseWithResolvers<unknown>();
+      const turnCompleted = promiseWithResolvers<void>();
+      runtimeMock.state.subscribedEvents = [
+        busy.promise,
+        delegated.promise,
+        ...children.slice(1),
+        {
+          id: `evt-root-idle-${threadId}`,
+          type: "session.execution.succeeded",
+          created: 0,
+          data: { sessionID: "http://127.0.0.1:9999/session" },
+        },
+        ...after,
+      ];
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            (event.type.startsWith("task.") || event.type === "turn.completed"),
+        ),
+        Stream.tap((event) =>
+          Effect.sync(() => {
+            if (event.type === "turn.completed") turnCompleted.resolve(undefined);
+          }),
+        ),
+        Stream.take(expectedEvents),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const sendFiber = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "Delegate",
+          modelSelection: createModelSelection(
+            ProviderInstanceId.make("opencode"),
+            "opencode/kimi-k3",
+          ),
+        })
+        .pipe(Effect.forkChild);
+      busy.resolve({
+        id: `evt-root-busy-${threadId}`,
+        type: "session.execution.started",
+        created: 0,
+        data: { sessionID: "http://127.0.0.1:9999/session" },
+      });
+      yield* Fiber.join(sendFiber);
+      runtimeMock.state.sessionStatus = "idle";
+      delegated.resolve(children[0]);
+      yield* Effect.promise(() => turnCompleted.promise);
+      return eventsFiber;
+    });
+
+  const completedStatuses = (events: ReadonlyArray<ProviderRuntimeEvent>) =>
+    events
+      .flatMap((event) =>
+        event.type === "task.completed"
+          ? [[event.payload.taskId, event.payload.status, event.payload.summary] as const]
+          : [],
+      )
+      .toSorted(([left], [right]) => left.localeCompare(right));
+
+  it.effect("reports a subagent's own outcome when it ends after its parent turn", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-child-fails-late");
+      const childFailed = promiseWithResolvers<unknown>();
+      const eventsFiber = yield* runTurnLeavingChildrenOpen(
+        threadId,
+        [childCreated("ses_late", "explore")],
+        [childFailed.promise],
+        3,
+      );
+      childFailed.resolve({
+        id: "evt-late-child-failed",
+        type: "session.execution.failed",
+        created: 0,
+        durable: { aggregateID: "ses_late", seq: 2, version: 1 },
+        data: { sessionID: "ses_late", error: { message: "Rate limited" } },
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      NodeAssert.deepEqual(
+        events.map((event) => event.type),
+        ["task.started", "turn.completed", "task.completed"],
+      );
+      NodeAssert.deepEqual(completedStatuses(events), [["ses_late", "failed", "Rate limited"]]);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect(
+    "closes subagents left open by their parent with their recorded outcome, else as stopped",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const threadId = asThreadId("thread-child-settle");
+        runtimeMock.state.sessionOutcomeById.set("ses_recorded", "failed");
+        const eventsFiber = yield* runTurnLeavingChildrenOpen(
+          threadId,
+          [childCreated("ses_recorded", "explore"), childCreated("ses_silent", "general")],
+          [],
+          5,
+        );
+        // The silent child never reports: only the grace period closes it.
+        // Its outcome lookup settles on the microtask queue before the grace
+        // sleep starts, so keep advancing until the sleep has seen the clock.
+        for (let attempt = 0; attempt < 200 && !eventsFiber.pollUnsafe(); attempt += 1) {
+          yield* advanceTestClock(30_000);
+          yield* Effect.promise(() => Promise.resolve());
+        }
+
+        const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+        NodeAssert.deepEqual(completedStatuses(events), [
+          ["ses_recorded", "failed", undefined],
+          ["ses_silent", "stopped", undefined],
+        ]);
+        yield* adapter.stopSession(threadId);
+      }),
+  );
+
   it.effect("stops a running subagent task when its parent turn is interrupted", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
@@ -2788,17 +2946,23 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         },
       });
       yield* Effect.promise(() => taskStarted.promise);
+      // OpenCode aborts descendants on Stop and records the outcome.
+      runtimeMock.state.sessionOutcomeById.set("ses_child_interrupt", "interrupted");
       yield* adapter.interruptTurn(threadId, turn.turnId);
 
       const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
       NodeAssert.deepEqual(
-        events.map((event) => [
-          event.type,
-          event.type === "task.completed" ? event.payload.status : undefined,
-        ]),
+        // Settling reads the child's outcome off the event pump, so its row
+        // may land on either side of turn.aborted.
+        events
+          .map((event) => [
+            event.type,
+            event.type === "task.completed" ? event.payload.status : undefined,
+          ])
+          .toSorted(([left], [right]) => String(left).localeCompare(String(right))),
         [
-          ["task.started", undefined],
           ["task.completed", "stopped"],
+          ["task.started", undefined],
           ["turn.aborted", undefined],
         ],
       );

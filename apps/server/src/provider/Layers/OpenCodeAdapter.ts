@@ -381,10 +381,10 @@ interface OpenCodeChildTask {
   /** Child session that launched this one, for nested subagents. */
   readonly owningAgentId: string | undefined;
   /**
-   * "live" while OpenCode runs it; "settled" when E6 closed it because the
-   * parent turn ended first; "done" once OpenCode reported its own outcome.
+   * "live" while OpenCode runs it; "settling" when its parent turn ended
+   * before it reported an outcome; "done" once task.completed went out.
    */
-  state: "live" | "settled" | "done";
+  state: "live" | "settling" | "done";
   summary: string | undefined;
   lastSequence: number;
   toolUses: number;
@@ -395,6 +395,20 @@ interface OpenCodeChildTask {
 }
 
 const OPENCODE_CHILD_SUMMARY_LIMIT = 4_000;
+
+/**
+ * How long a subagent its parent turn left open may take to report an outcome
+ * before E6 closes it as stopped. OpenCode normally reports within moments;
+ * this only bounds a child whose outcome never arrives (a lost event, a
+ * server gone quiet), so no row reads as working forever.
+ */
+const OPENCODE_CHILD_SETTLE_GRACE = "30 seconds";
+
+const OPENCODE_CHILD_OUTCOME_STATUS = {
+  succeeded: "completed",
+  failed: "failed",
+  interrupted: "stopped",
+} as const;
 
 function makeOpenCodeChildTask(
   data: Extract<OpenCodeSubscribedEvent, { readonly type: "session.created" }>["data"],
@@ -1168,9 +1182,7 @@ export function makeOpenCodeAdapter(
         yield* Fiber.interrupt(pendingIdleReconciliation.fiber);
       }
       yield* schedulePendingRequestRecovery(context);
-      // The parent's task tool waits for its subagents, so one still open
-      // here only lacks its own outcome event.
-      yield* settleOpenCodeChildTasks(context, "completed", turnId, raw);
+      yield* settleOpenCodeChildTasks(context, turnId, raw);
       yield* emit({
         ...(yield* buildEventBase({
           threadId: context.session.threadId,
@@ -1330,12 +1342,7 @@ export function makeOpenCodeAdapter(
         { status: "error", lastError: detail },
         { clearActiveTurnId: true },
       );
-      yield* settleOpenCodeChildTasks(
-        context,
-        "stopped",
-        promptAdmission.turnId,
-        promptAdmission.recoveryRaw,
-      );
+      yield* settleOpenCodeChildTasks(context, promptAdmission.turnId, promptAdmission.recoveryRaw);
       yield* emit({
         ...(yield* buildEventBase({
           threadId: context.session.threadId,
@@ -1539,7 +1546,7 @@ export function makeOpenCodeAdapter(
         );
       }
       yield* clearPendingOpenCodeRequests(context, { type: "session.interrupt" });
-      yield* settleOpenCodeChildTasks(context, "stopped", turnId, raw);
+      yield* settleOpenCodeChildTasks(context, turnId, raw);
       yield* emit({
         ...(yield* buildEventBase({
           threadId: context.session.threadId,
@@ -1705,17 +1712,56 @@ export function makeOpenCodeAdapter(
       });
     });
 
-    /** Closes subagents still running when their parent turn ends. */
+    /**
+     * Closes a subagent its parent turn left open with the child's real
+     * outcome. The child's own outcome event wins whenever it lands (it moves
+     * the task out of "settling"). Otherwise the outcome OpenCode recorded on
+     * the child session is used, read now and again after the grace period;
+     * only a child with no known outcome by then closes as stopped. A child
+     * still open here has normally just finished, so a recorded outcome is
+     * taken to be this run's.
+     */
+    const settleOpenCodeChildTask = Effect.fn("settleOpenCodeChildTask")(function* (
+      context: OpenCodeSessionContext,
+      task: OpenCodeChildTask,
+      turnId: TurnId | undefined,
+      raw: unknown,
+    ) {
+      const readOutcome = runOpenCodeSdk("session.get", (signal) =>
+        context.client.session.get({ sessionID: task.taskId }, { signal }),
+      ).pipe(
+        Effect.timeout("10 seconds"),
+        Effect.map((info) => info?.outcome),
+        Effect.orElseSucceed(() => undefined),
+      );
+      let outcome = yield* readOutcome;
+      if (outcome === undefined && task.state === "settling") {
+        yield* Effect.sleep(OPENCODE_CHILD_SETTLE_GRACE);
+        if (task.state === "settling") outcome = yield* readOutcome;
+      }
+      if (task.state !== "settling") return;
+      task.state = "done";
+      yield* emitOpenCodeChildTaskCompleted(
+        context,
+        task,
+        outcome ? OPENCODE_CHILD_OUTCOME_STATUS[outcome] : "stopped",
+        turnId,
+        raw,
+      );
+    });
+
+    /** Settles, off the event pump, subagents still open when their parent turn ends. */
     const settleOpenCodeChildTasks = Effect.fn("settleOpenCodeChildTasks")(function* (
       context: OpenCodeSessionContext,
-      status: "completed" | "stopped",
       turnId: TurnId | undefined,
       raw: unknown,
     ) {
       for (const task of context.childTasks.values()) {
         if (task.state !== "live") continue;
-        task.state = "settled";
-        yield* emitOpenCodeChildTaskCompleted(context, task, status, turnId, raw);
+        task.state = "settling";
+        yield* settleOpenCodeChildTask(context, task, turnId, raw).pipe(
+          Effect.forkIn(context.sessionScope),
+        );
       }
     });
 
@@ -1729,8 +1775,8 @@ export function makeOpenCodeAdapter(
         if (durable.sequence <= task.lastSequence) return;
         task.lastSequence = durable.sequence;
       }
-      // An outcome OpenCode reports after E6 settled the task still lands
-      // once: clients keep the first status and take its summary and usage.
+      // Exactly one task.completed per run, so clients never hold a stale
+      // first status: a settling task takes its real outcome from here.
       const finish = (status: "completed" | "failed" | "stopped", summary?: string) => {
         if (task.state === "done") return Effect.void;
         task.state = "done";
@@ -1797,7 +1843,7 @@ export function makeOpenCodeAdapter(
           return;
         case "session.deleted":
           context.childTasks.delete(task.taskId);
-          if (task.state === "live") yield* finish("stopped");
+          if (task.state !== "done") yield* finish("stopped");
           return;
       }
     });
@@ -2685,7 +2731,7 @@ export function makeOpenCodeAdapter(
               { status: "error", lastError: message },
               { clearActiveTurnId: true },
             );
-            yield* settleOpenCodeChildTasks(context, "stopped", activeTurnId, event);
+            yield* settleOpenCodeChildTasks(context, activeTurnId, event);
             yield* emit({
               ...(yield* buildEventBase({
                 threadId: context.session.threadId,
