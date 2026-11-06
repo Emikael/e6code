@@ -8121,6 +8121,55 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("names the sub-agent that asked a question", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+
+      const question = "Which base branch?";
+      const permissionPromise = canUseTool(
+        "AskUserQuestion",
+        { questions: [{ question, header: "Branch", options: [], multiSelect: false }] },
+        {
+          signal: new AbortController().signal,
+          requestId: "request-subagent-question",
+          toolUseID: "tool-subagent-question",
+          agentID: "agent-api",
+        },
+      );
+
+      const requested = yield* Stream.runHead(adapter.streamEvents);
+      if (requested._tag !== "Some" || requested.value.type !== "user-input.requested") {
+        assert.fail("Expected user-input.requested event");
+        return;
+      }
+      assert.equal(requested.value.payload.agentId, "agent-api");
+
+      yield* adapter.respondToUserInput(
+        session.threadId,
+        ApprovalRequestId.make(requested.value.requestId!),
+        { [question]: "main" },
+      );
+      yield* Stream.runHead(adapter.streamEvents);
+      yield* Effect.promise(() => permissionPromise);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("denies AskUserQuestion when the waiting turn is aborted", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

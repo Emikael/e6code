@@ -501,6 +501,8 @@ export type UserInputQuestion = typeof UserInputQuestion.Type;
 export const UserInputRequestedPayload = Schema.Struct({
   questions: Schema.Array(UserInputQuestion),
   responseMode: Schema.optional(Schema.Literal("message")),
+  /** The subagent asking, as in RequestOpenedPayload.agentId. */
+  agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 

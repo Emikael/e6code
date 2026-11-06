@@ -4468,6 +4468,18 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
 
       /**
+       * The SDK passes the asking sub-agent's id: its task_id in task.* events,
+       * or for a workflow member the current attempt's id, known by its slot.
+       */
+      const requestAgentIdField = (
+        context: ClaudeSessionContext,
+        sdkAgentId: string | undefined,
+      ): { agentId?: string } => {
+        const agentId = sdkAgentId?.trim();
+        return agentId ? { agentId: context.workflowSlotByAgentId.get(agentId) ?? agentId } : {};
+      };
+
+      /**
        * Handle AskUserQuestion tool calls by emitting a `user-input.requested`
        * runtime event and waiting for the user to respond via `respondToUserInput`.
        */
@@ -4477,6 +4489,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         callbackOptions: {
           readonly signal: AbortSignal;
           readonly toolUseID?: string;
+          readonly agentID?: string;
         },
       ) {
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
@@ -4534,7 +4547,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               }
             : {}),
           requestId: asRuntimeRequestId(requestId),
-          payload: { questions },
+          payload: { questions, ...requestAgentIdField(context, callbackOptions.agentID) },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,
           }),
@@ -4759,15 +4772,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               input: toolInput,
               ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
             },
-            // The SDK passes the sub-agent's id: its task_id in task.* events, or
-            // for a workflow member the current attempt's id, known by its slot.
-            ...(callbackOptions.agentID?.trim()
-              ? {
-                  agentId:
-                    context.workflowSlotByAgentId.get(callbackOptions.agentID.trim()) ??
-                    callbackOptions.agentID.trim(),
-                }
-              : {}),
+            ...requestAgentIdField(context, callbackOptions.agentID),
           },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,

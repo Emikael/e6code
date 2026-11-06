@@ -1403,7 +1403,7 @@ export const makeCodexSessionRuntime = (
           ? requestThreadId
           : undefined;
       });
-    // Every approval-style request goes through here, so none can skip the tag.
+    // Every approval and question request goes through here, so none can skip the tag.
     const emitRequestEvent = (
       requestThreadId: string,
       event: Omit<ProviderEvent, "id" | "provider" | "createdAt" | "kind" | "agentId">,
@@ -2328,8 +2328,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/tool/requestUserInput",
           requestId,
