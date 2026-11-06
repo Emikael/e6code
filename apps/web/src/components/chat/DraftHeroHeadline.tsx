@@ -251,35 +251,31 @@ export function DraftHeroHeadline({
   // in the h1; without an explicit label its widget state bleeds into the
   // announced phrase.
   const headingLabel = hasResolvedProject
-    ? `What should we build in ${activeProjectDisplayName}?`
+    ? `What should we work on in ${activeProjectDisplayName}?`
     : canChooseProject
       ? `${activeProjectDisplayName ?? "Choose a project"} to start`
       : "Add a project to start";
 
   return (
-    <div className="relative flex flex-col items-center gap-5">
-      {/* Static backlight in the two brand hues, meeting behind the name. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-[28rem] w-[min(52rem,100vw)] -translate-1/2 opacity-45 dark:opacity-30"
-        style={{
-          background:
-            "radial-gradient(42% 50% at 34% 56%, color-mix(in oklab, var(--brand-cyan) 55%, transparent), transparent 70%), radial-gradient(42% 50% at 68% 52%, color-mix(in oklab, var(--brand-orange) 50%, transparent), transparent 70%)",
-        }}
-      />
-      <E6Monogram assemble className="size-11 shadow-[0_8px_24px_-8px_rgb(0_0_0/0.45)]" />
+    <div className="relative flex flex-col items-center gap-3">
+      <E6Monogram assemble className="mb-1 size-10 shadow-xs" />
       <h1
         aria-label={headingLabel}
-        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.15] font-medium tracking-[-0.03em] text-balance text-muted-foreground sm:text-[2.5rem]"
+        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-[2rem]"
       >
         {hasResolvedProject ? (
-          <>What should we build in {projectSelector}?</>
+          <>What should we work on in {projectSelector}?</>
         ) : canChooseProject ? (
           <>{projectSelector} to start</>
         ) : (
           <>Add a project to start</>
         )}
       </h1>
+      {hasResolvedProject ? (
+        <p className="max-w-xl text-center text-sm text-balance text-muted-foreground">
+          Describe a task to start. You can steer, approve and stop the agent at any time.
+        </p>
+      ) : null}
     </div>
   );
 }
