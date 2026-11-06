@@ -18,6 +18,7 @@
  * metadata).
  */
 import type { OrchestrationThreadActivity } from "@e6tools/contracts";
+import type { SubagentUserRequest } from "../pendingRequests";
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -81,10 +82,10 @@ export interface RuntimeSubagent {
   readonly runHandles: SubagentRunHandles | null;
   readonly recentActivity: ReadonlyArray<SubagentActivityEntry>;
   /**
-   * A pending approval names this subagent: it is blocked on the user. Set
-   * by deriveAgentPanelModel from the thread's pending approvals.
+   * A pending approval or question names this subagent: it is blocked on the
+   * user. Set by deriveAgentPanelModel from the thread's pending requests.
    */
-  readonly awaitingApproval?: boolean;
+  readonly waitingOn?: SubagentUserRequest;
   /** First retained observation, used as the roster's stable display order. */
   readonly firstSeenAt: string;
   readonly startedAt: string | null;
@@ -737,12 +738,12 @@ export function emptyAgentPanelModel(): AgentPanelModel {
 export function deriveAgentPanelModel({
   agents,
   v2Projection,
-  awaitingApprovalAgentIds,
+  waitingOn,
 }: {
   readonly agents: ReadonlyArray<RuntimeSubagent>;
   readonly v2Projection?: ReadonlyArray<RuntimeSubagent> | null;
-  /** Subagents named by a pending approval (PendingApproval.agentId). */
-  readonly awaitingApprovalAgentIds?: ReadonlySet<string>;
+  /** Pending requests by the subagent that made them (subagentUserRequests). */
+  readonly waitingOn?: ReadonlyMap<string, SubagentUserRequest>;
 }): AgentPanelModel {
   const unmarked = v2Projection ?? agents;
   if (unmarked.length === 0) {
@@ -750,12 +751,13 @@ export function deriveAgentPanelModel({
   }
   // Only a live subagent can be blocked; a settled one keeps its outcome.
   const source =
-    awaitingApprovalAgentIds && awaitingApprovalAgentIds.size > 0
-      ? unmarked.map((agent) =>
-          awaitingApprovalAgentIds.has(agent.id) && isActiveSubagentStatus(agent.status)
-            ? { ...agent, awaitingApproval: true }
-            : agent,
-        )
+    waitingOn && waitingOn.size > 0
+      ? unmarked.map((agent) => {
+          const request = waitingOn.get(agent.id);
+          return request && isActiveSubagentStatus(agent.status)
+            ? { ...agent, waitingOn: request }
+            : agent;
+        })
       : unmarked;
 
   const workflows = source
@@ -914,7 +916,14 @@ export function formatSubagentTokenCount(totalTokens: number): string {
  * the detail belongs on the activity line, not in a separate state. The one
  * exception is a subagent blocked on the user, which subagentTone reports.
  */
-export type SubagentStatusTone = "approval" | "working" | "idle" | "done" | "failed" | "stopped";
+export type SubagentStatusTone =
+  | "approval"
+  | "question"
+  | "working"
+  | "idle"
+  | "done"
+  | "failed"
+  | "stopped";
 
 function subagentStatusTone(status: RuntimeSubagentStatus): SubagentStatusTone {
   switch (status) {
@@ -935,18 +944,26 @@ function subagentStatusTone(status: RuntimeSubagentStatus): SubagentStatusTone {
 }
 
 /**
- * A row's word: a live subagent that a pending approval names reads "Needs
- * approval", because it is blocked on the user; otherwise its status decides.
+ * A row's word: a live subagent that a pending request names reads "Needs
+ * approval" or "Needs your answer", because it is blocked on the user;
+ * otherwise its status decides.
  */
 export function subagentTone(
-  agent: Pick<RuntimeSubagent, "status" | "awaitingApproval">,
+  agent: Pick<RuntimeSubagent, "status" | "waitingOn">,
 ): SubagentStatusTone {
   const tone = subagentStatusTone(agent.status);
-  return agent.awaitingApproval === true && tone === "working" ? "approval" : tone;
+  if (tone !== "working" || !agent.waitingOn) return tone;
+  return agent.waitingOn.kind === "approval" ? "approval" : "question";
+}
+
+/** Tones where the subagent waits on the user. */
+export function isSubagentWaitingTone(tone: SubagentStatusTone): boolean {
+  return tone === "approval" || tone === "question";
 }
 
 export const SUBAGENT_STATUS_LABEL: Readonly<Record<SubagentStatusTone, string>> = {
   approval: "Needs approval",
+  question: "Needs your answer",
   working: "Working",
   idle: "Idle",
   done: "Done",
@@ -954,9 +971,11 @@ export const SUBAGENT_STATUS_LABEL: Readonly<Record<SubagentStatusTone, string>>
   stopped: "Stopped",
 };
 
-/** Count phrase for summary lines: "1 needs approval", "2 need approval", "3 working". */
+/** Count phrase for summary lines: "1 needs approval", "2 need your answer", "3 working". */
 function summaryCount(tone: SubagentStatusTone, count: number): string {
-  if (tone === "approval") return `${count} ${count === 1 ? "needs" : "need"} approval`;
+  const needs = count === 1 ? "needs" : "need";
+  if (tone === "approval") return `${count} ${needs} approval`;
+  if (tone === "question") return `${count} ${needs} your answer`;
   return `${count} ${tone}`;
 }
 
@@ -975,6 +994,7 @@ export function findSubagent(model: AgentPanelModel, agentId: string): RuntimeSu
 
 const SUMMARY_TONE_ORDER: ReadonlyArray<SubagentStatusTone> = [
   "approval",
+  "question",
   "working",
   "failed",
   "stopped",
@@ -992,10 +1012,11 @@ export interface SubagentStatusSummary {
 
 /** Spawn-card header line: counts per status word, live and failing first. */
 export function summarizeSubagentStatuses(
-  agents: ReadonlyArray<Pick<RuntimeSubagent, "status" | "awaitingApproval">>,
+  agents: ReadonlyArray<Pick<RuntimeSubagent, "status" | "waitingOn">>,
 ): SubagentStatusSummary {
   const counts: Record<SubagentStatusTone, number> = {
     approval: 0,
+    question: 0,
     working: 0,
     idle: 0,
     done: 0,
@@ -1035,14 +1056,14 @@ export interface SpawnBatchStatus {
  * the roster are counted as unavailable instead of silently dropped.
  */
 export function describeSpawnBatchStatus(input: {
-  readonly agents: ReadonlyArray<Pick<RuntimeSubagent, "status" | "awaitingApproval">>;
+  readonly agents: ReadonlyArray<Pick<RuntimeSubagent, "status" | "waitingOn">>;
   readonly agentCount: number;
   readonly coordinatorStatus?: RuntimeSubagentStatus | undefined;
 }): SpawnBatchStatus {
   const summary = summarizeSubagentStatuses(input.agents);
   const coordinator =
     input.coordinatorStatus === undefined ? null : subagentStatusTone(input.coordinatorStatus);
-  const inFlight = summary.counts.working + summary.counts.approval;
+  const inFlight = summary.counts.working + summary.counts.approval + summary.counts.question;
   const live =
     input.coordinatorStatus !== undefined
       ? !isTerminalSubagentStatus(input.coordinatorStatus)

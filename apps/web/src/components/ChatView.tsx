@@ -20,6 +20,7 @@ import {
 import {
   derivePendingRequests,
   SUBAGENT_APPROVAL_PHRASE,
+  subagentUserRequests,
 } from "@e6tools/client-runtime/pending-requests";
 import {
   questionAttachmentDraftId,
@@ -2969,12 +2970,13 @@ export default function ChatView(props: ChatViewProps) {
     () =>
       deriveAgentPanelModel({
         agents: foldSubagentActivities(threadActivities, { sessionLive: agentSessionLive }),
-        // A subagent a pending approval names reads "Needs approval".
-        awaitingApprovalAgentIds: new Set(
-          pendingApprovals.flatMap((approval) => (approval.agentId ? [approval.agentId] : [])),
-        ),
+        // A subagent a pending request names reads "Needs approval" or "Needs your answer".
+        waitingOn: subagentUserRequests({
+          approvals: pendingApprovals,
+          userInputs: pendingUserInputs,
+        }),
       }),
-    [agentSessionLive, pendingApprovals, threadActivities],
+    [agentSessionLive, pendingApprovals, pendingUserInputs, threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingRequestKey = JSON.stringify([
@@ -3133,6 +3135,10 @@ export default function ChatView(props: ChatViewProps) {
   const activePendingApprovalAgentId = activePendingApproval?.agentId;
   const activePendingApprovalAgentTitle = activePendingApprovalAgentId
     ? (findSubagent(agentPanelModel, activePendingApprovalAgentId)?.title ?? null)
+    : null;
+  const activePendingUserInputAgentId = activePendingUserInput?.agentId;
+  const activePendingUserInputAgentTitle = activePendingUserInputAgentId
+    ? (findSubagent(agentPanelModel, activePendingUserInputAgentId)?.title ?? null)
     : null;
   // The open /usage-limits panel for this thread, model and turn. Only the open
   // moment is stored: the rows read live provider data, so a redeemed reset
@@ -10362,7 +10368,9 @@ export default function ChatView(props: ChatViewProps) {
                                   ? `${activePendingApprovalAgentTitle} ${SUBAGENT_APPROVAL_PHRASE[activePendingApproval.requestKind]}`
                                   : "Approval required at turn frontier"
                                 : pendingUserInputs.length > 0
-                                  ? "Agent waiting for your response"
+                                  ? activePendingUserInputAgentTitle
+                                    ? `${activePendingUserInputAgentTitle} needs your answer`
+                                    : "Agent waiting for your response"
                                   : "Plan ready to implement"}
                             </span>
                             {activePendingApproval?.detail ? (
@@ -10594,6 +10602,7 @@ export default function ChatView(props: ChatViewProps) {
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
                             activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
+                            activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
                             pendingApprovals={pendingApprovals}
                             pendingUserInputs={pendingUserInputs}
                             activePendingProgress={activePendingProgress}

@@ -85,6 +85,7 @@ import type {
   PendingUserInputDraftAnswer,
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
+import type { SubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
@@ -114,9 +115,9 @@ import {
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
-import { AwaitingApprovalAgentIdsContext } from "./thread-work-log";
+import { SubagentRequestsContext } from "./thread-work-log";
 
-const NO_AWAITING_APPROVAL_AGENT_IDS: ReadonlySet<string> = new Set();
+const NO_SUBAGENT_REQUESTS: ReadonlyMap<string, SubagentUserRequest> = new Map();
 
 export interface ThreadDetailScreenProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
@@ -143,8 +144,10 @@ export interface ThreadDetailScreenProps {
   readonly activePendingApproval: PendingApproval | null;
   /** Title of the subagent behind activePendingApproval, when one asked. */
   readonly activePendingApprovalAgentTitle?: string | null;
-  /** Subagents a pending approval names; their spawn-card rows read "Needs approval". */
-  readonly pendingApprovalAgentIds?: ReadonlySet<string>;
+  /** Pending requests by the subagent that made them; their spawn-card rows say so. */
+  readonly subagentRequests?: ReadonlyMap<string, SubagentUserRequest>;
+  /** Title of the subagent behind activePendingUserInput, when one asked. */
+  readonly activePendingUserInputAgentTitle?: string | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
@@ -912,9 +915,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 : "absolute inset-0 bg-screen"
             }
           />
-          <AwaitingApprovalAgentIdsContext
-            value={props.pendingApprovalAgentIds ?? NO_AWAITING_APPROVAL_AGENT_IDS}
-          >
+          <SubagentRequestsContext value={props.subagentRequests ?? NO_SUBAGENT_REQUESTS}>
             <ThreadFeed
               key={selectedThreadKey}
               environmentId={props.environmentId}
@@ -949,7 +950,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               onUseArtifactTemplate={handleUseArtifactTemplate}
               loadEarlier={props.loadEarlier ?? null}
             />
-          </AwaitingApprovalAgentIdsContext>
+          </SubagentRequestsContext>
         </View>
       ) : (
         <View className="flex-1" />
@@ -1056,6 +1057,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     {props.activePendingUserInput ? (
                       <PendingUserInputCard
                         pendingUserInput={props.activePendingUserInput}
+                        agentTitle={props.activePendingUserInputAgentTitle ?? null}
                         maxHeight={pendingUserInputMaxHeight}
                         collapsed={userInputCollapsed}
                         onToggleCollapsed={handleToggleUserInputCollapsed}

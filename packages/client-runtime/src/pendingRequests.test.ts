@@ -1,6 +1,10 @@
 import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { derivePendingRequests } from "./pendingRequests.ts";
+import {
+  derivePendingRequests,
+  describeSubagentUserRequest,
+  subagentUserRequests,
+} from "./pendingRequests.ts";
 
 let nextActivityId = 0;
 
@@ -117,6 +121,56 @@ describe("pending approvals", () => {
       }),
     ];
     expect(derivePendingRequests(activities).approvals[0]?.agentId).toBe("agent-api");
+  });
+
+  it("gives each subagent its oldest pending request", () => {
+    const pending = derivePendingRequests([
+      makeActivity({
+        createdAt: "2026-11-06T00:00:02.000Z",
+        kind: "approval.requested",
+        payload: {
+          requestId: "req-api",
+          requestKind: "command",
+          detail: "vp run typecheck --filter server",
+          agentId: "agent-api",
+        },
+      }),
+      makeActivity({
+        createdAt: "2026-11-06T00:00:01.000Z",
+        kind: "user-input.requested",
+        payload: {
+          requestId: "req-api-question",
+          agentId: "agent-api",
+          questions: [{ id: "q", header: "Branch", question: "Which branch?", options: [] }],
+        },
+      }),
+      makeActivity({
+        createdAt: "2026-11-06T00:00:03.000Z",
+        kind: "approval.requested",
+        payload: { requestId: "req-docs", requestKind: "file-change", agentId: "agent-docs" },
+      }),
+      makeActivity({
+        kind: "approval.requested",
+        payload: { requestId: "req-main", requestKind: "command", detail: "pwd" },
+      }),
+    ]);
+    expect(pending.userInputs[0]?.agentId).toBe("agent-api");
+    const requests = subagentUserRequests(pending);
+    expect([...requests]).toEqual([
+      ["agent-api", { kind: "question", question: "Which branch?" }],
+      ["agent-docs", { kind: "approval", requestKind: "file-change" }],
+    ]);
+    expect(describeSubagentUserRequest(requests.get("agent-api")!)).toEqual({
+      text: "asks: Which branch?",
+      code: null,
+    });
+    expect(
+      describeSubagentUserRequest({ kind: "approval", requestKind: "command", detail: "vp test" }),
+    ).toEqual({ text: "wants to run", code: "vp test" });
+    expect(describeSubagentUserRequest(requests.get("agent-docs")!)).toEqual({
+      text: "wants to change files",
+      code: null,
+    });
   });
 
   it("maps canonical requestType payloads into pending approvals", () => {

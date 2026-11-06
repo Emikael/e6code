@@ -57,6 +57,10 @@ import {
   workEntryViewedImagePath,
 } from "@e6tools/client-runtime/work-log/presentation";
 import { resolveWorkGroupScrollAnchor } from "@e6tools/client-runtime/work-log/scroll-anchor";
+import {
+  describeSubagentUserRequest,
+  type SubagentUserRequest,
+} from "@e6tools/client-runtime/pending-requests";
 import type { MarkdownImageRenderer } from "../../native/SelectableMarkdownText";
 import Animated, {
   cancelAnimation,
@@ -1013,15 +1017,22 @@ export function ThreadWorkGroupToggle(props: {
 }
 
 /**
- * Task ids of subagents a pending approval names. The thread screen provides
- * them; a spawn card shows those members as "Needs approval", first.
+ * Pending requests by the subagent that made them. The thread screen provides
+ * them; a spawn card shows those members as blocked, with what they want.
  */
-export const AwaitingApprovalAgentIdsContext = createContext<ReadonlySet<string>>(new Set());
+export const SubagentRequestsContext = createContext<ReadonlyMap<string, SubagentUserRequest>>(
+  new Map(),
+);
 
-type AgentSpawnCardTone = AgentSpawnSummary["tone"] | "approval";
+type AgentSpawnCardTone = AgentSpawnSummary["tone"] | "approval" | "question";
+
+function isWaitingTone(tone: AgentSpawnCardTone): boolean {
+  return tone === "approval" || tone === "question";
+}
 
 const AGENT_SPAWN_TONE_DOT_CLASS = {
   approval: "bg-warning-foreground",
+  question: "bg-warning-foreground",
   working: "bg-adaptive-sky-600-400",
   completed: "bg-adaptive-emerald-600-400",
   failed: "bg-adaptive-rose-600-400",
@@ -1030,6 +1041,7 @@ const AGENT_SPAWN_TONE_DOT_CLASS = {
 
 const AGENT_SPAWN_TONE_TEXT_CLASS = {
   approval: "text-warning-foreground",
+  question: "text-warning-foreground",
   working: "text-adaptive-sky-700-300",
   completed: "text-adaptive-emerald-700-300",
   failed: "text-danger-foreground",
@@ -1038,6 +1050,7 @@ const AGENT_SPAWN_TONE_TEXT_CLASS = {
 
 const AGENT_SPAWN_TONE_WORD = {
   approval: "Needs approval",
+  question: "Needs your answer",
   working: "Working",
   completed: "Done",
   failed: "Failed",
@@ -1046,6 +1059,7 @@ const AGENT_SPAWN_TONE_WORD = {
 
 const AGENT_SPAWN_SUMMARY_ORDER = [
   "approval",
+  "question",
   "working",
   "failed",
   "stopped",
@@ -1053,6 +1067,7 @@ const AGENT_SPAWN_SUMMARY_ORDER = [
 ] as const;
 const AGENT_SPAWN_COUNT_WORD = {
   approval: "needs approval",
+  question: "needs your answer",
   working: "working",
   failed: "failed",
   stopped: "stopped",
@@ -1060,7 +1075,9 @@ const AGENT_SPAWN_COUNT_WORD = {
 } as const satisfies Record<AgentSpawnCardTone, string>;
 
 function agentSpawnCount(tone: AgentSpawnCardTone, count: number): string {
-  if (tone === "approval") return `${count} ${count === 1 ? "needs" : "need"} approval`;
+  const needs = count === 1 ? "needs" : "need";
+  if (tone === "approval") return `${count} ${needs} approval`;
+  if (tone === "question") return `${count} ${needs} your answer`;
   return `${count} ${AGENT_SPAWN_COUNT_WORD[tone]}`;
 }
 
@@ -1082,7 +1099,7 @@ function agentSpawnCountsText(
   // A blocked member is still live work, so it satisfies a working batch.
   const leads = members.some(
     (member) =>
-      member.tone === batchTone || (batchTone === "working" && member.tone === "approval"),
+      member.tone === batchTone || (batchTone === "working" && isWaitingTone(member.tone)),
   );
   const lead =
     batchTone === "completed" || leads
@@ -1149,24 +1166,33 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
   readonly onCopy: () => void;
 }) {
   const { summary, expanded } = props;
-  const awaitingApproval = use(AwaitingApprovalAgentIdsContext);
-  // A member blocked on the user's approval says so; rows keep spawn order.
-  const members = summary.members.map((member) =>
-    member.tone === "working" && awaitingApproval.has(member.id)
-      ? { ...member, tone: "approval" as const }
-      : member,
-  );
+  const subagentRequests = use(SubagentRequestsContext);
+  // A member blocked on the user says so, and what it wants; rows keep spawn order.
+  const members = summary.members.map((member) => {
+    const request = member.tone === "working" ? subagentRequests.get(member.id) : undefined;
+    if (!request) return member;
+    const { text, code } = describeSubagentUserRequest(request);
+    return {
+      ...member,
+      tone: request.kind === "approval" ? ("approval" as const) : ("question" as const),
+      detail: code ? `${text} ${code}` : text,
+    };
+  });
   const memberCount = members.length;
   const canExpand = memberCount > 0;
+  // Approval outranks a question, as in the counts line.
+  const waitingTone = members.some((member) => member.tone === "approval")
+    ? ("approval" as const)
+    : members.some((member) => member.tone === "question")
+      ? ("question" as const)
+      : null;
   const headerTone: AgentSpawnCardTone =
-    summary.tone === "working" && members.some((member) => member.tone === "approval")
-      ? "approval"
-      : summary.tone;
+    summary.tone === "working" && waitingTone ? waitingTone : summary.tone;
   const statusText =
     memberCount > 1
       ? agentSpawnCountsText(members, summary.tone)
-      : headerTone === "approval"
-        ? AGENT_SPAWN_TONE_WORD.approval
+      : isWaitingTone(headerTone)
+        ? AGENT_SPAWN_TONE_WORD[headerTone]
         : summary.status;
   const stackTiles = Math.min(Math.max(memberCount, 1), memberCount > 4 ? 3 : 4);
   return (

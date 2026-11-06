@@ -379,24 +379,29 @@ describe("foldSubagentActivities", () => {
   });
 });
 
-describe("deriveAgentPanelModel approvals", () => {
-  it("marks the live subagents a pending approval names", () => {
+describe("deriveAgentPanelModel requests", () => {
+  it("marks the live subagents a pending request names", () => {
     const agents = fold([
       activity("task.started", { taskId: "agent-api", title: "Share link API" }),
       activity("task.started", { taskId: "agent-docs", title: "Share link docs" }),
       activity("task.completed", { taskId: "agent-docs", status: "completed" }),
     ]);
+    const approval = { kind: "approval", requestKind: "command", detail: "vp test" } as const;
     const model = deriveAgentPanelModel({
       agents,
-      awaitingApprovalAgentIds: new Set(["agent-api", "agent-docs", "agent-unknown"]),
+      waitingOn: new Map([
+        ["agent-api", approval],
+        ["agent-docs", approval],
+        ["agent-unknown", approval],
+      ]),
     });
-    expect(model.directAgents.map((agent) => [agent.id, agent.awaitingApproval === true])).toEqual([
-      ["agent-api", true],
-      ["agent-docs", false],
+    expect(model.directAgents.map((agent) => [agent.id, agent.waitingOn])).toEqual([
+      ["agent-api", approval],
+      ["agent-docs", undefined],
     ]);
-    expect(
-      deriveAgentPanelModel({ agents }).directAgents.some((agent) => agent.awaitingApproval),
-    ).toBe(false);
+    expect(deriveAgentPanelModel({ agents }).directAgents.some((agent) => agent.waitingOn)).toBe(
+      false,
+    );
   });
 });
 
@@ -936,18 +941,29 @@ describe("subagent presentation", () => {
     expect(summarizeSubagentStatuses([]).text).toBe("");
   });
 
-  it("puts a subagent blocked on the user's approval first, and only while it is live", () => {
-    const blocked = { status: "running" as const, awaitingApproval: true };
+  it("puts a subagent blocked on the user first, and only while it is live", () => {
+    const blocked = {
+      status: "running" as const,
+      waitingOn: { kind: "approval", requestKind: "command" } as const,
+    };
+    const asking = {
+      status: "running" as const,
+      waitingOn: { kind: "question", question: "Which branch?" } as const,
+    };
     expect(subagentTone(blocked)).toBe("approval");
-    // A settled subagent keeps its outcome even if a stale approval names it.
-    expect(subagentTone({ status: "completed", awaitingApproval: true })).toBe("done");
+    expect(subagentTone(asking)).toBe("question");
+    // A settled subagent keeps its outcome even if a stale request names it.
+    expect(subagentTone({ ...blocked, status: "completed" })).toBe("done");
     expect(
-      summarizeSubagentStatuses([blocked, { status: "running" }, { status: "completed" }]),
-    ).toMatchObject({ text: "1 needs approval · 1 working · 1 done", tone: "approval" });
+      summarizeSubagentStatuses([asking, blocked, { status: "running" }, { status: "completed" }]),
+    ).toMatchObject({
+      text: "1 needs approval · 1 needs your answer · 1 working · 1 done",
+      tone: "approval",
+    });
     // A batch whose only live member is blocked is still live.
     expect(
-      describeSpawnBatchStatus({ agents: [blocked, { status: "completed" }], agentCount: 2 }),
-    ).toMatchObject({ text: "1 needs approval · 1 done", tone: "approval", live: true });
+      describeSpawnBatchStatus({ agents: [asking, { status: "completed" }], agentCount: 2 }),
+    ).toMatchObject({ text: "1 needs your answer · 1 done", tone: "question", live: true });
     expect(summarizeSubagentStatuses([blocked, blocked]).text).toBe("2 need approval");
   });
 

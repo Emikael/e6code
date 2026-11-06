@@ -1364,6 +1364,8 @@ export interface ChatComposerProps {
   activePendingApproval: PendingApproval | null;
   /** Title of the subagent behind activePendingApproval, when one asked. */
   activePendingApprovalAgentTitle?: string | null;
+  /** Title of the subagent behind the active question, when one asked. */
+  activePendingUserInputAgentTitle?: string | null;
   pendingApprovals: PendingApproval[];
   pendingUserInputs: PendingUserInput[];
   activePendingProgress: {
@@ -1512,6 +1514,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentUnavailable,
     activePendingApproval,
     activePendingApprovalAgentTitle = null,
+    activePendingUserInputAgentTitle = null,
     pendingApprovals,
     pendingUserInputs,
     activePendingProgress,
@@ -6008,6 +6011,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleOption={onSelectActivePendingUserInputOption}
                     onAdvance={onAdvanceActivePendingUserInput}
                     onDismiss={onDismissActivePendingUserInput}
+                    agentTitle={activePendingUserInputAgentTitle}
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
                   <ComposerPlanFollowUpBanner
@@ -6028,6 +6032,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleOption={onSelectActivePendingUserInputOption}
                       onAdvance={onAdvanceActivePendingUserInput}
                       onDismiss={onDismissActivePendingUserInput}
+                      agentTitle={activePendingUserInputAgentTitle}
                     />
                     {!isChoiceOnlyPendingQuestion ||
                     activePendingProgress?.activeQuestion?.multiSelect ? (

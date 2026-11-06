@@ -535,6 +535,10 @@ function ThreadRouteContent(
   const activePendingApprovalAgentTitle = activePendingApprovalAgentId
     ? (findSubagent(subagentPanel, activePendingApprovalAgentId)?.title ?? null)
     : null;
+  const activePendingUserInputAgentId = requests.activePendingUserInput?.agentId;
+  const activePendingUserInputAgentTitle = activePendingUserInputAgentId
+    ? (findSubagent(subagentPanel, activePendingUserInputAgentId)?.title ?? null)
+    : null;
   const inspectorEnvironmentId = selectedThread?.environmentId ?? null;
   const inspectorThreadId = selectedThread?.id ?? null;
   const inspectorControl = useMemo(
@@ -1105,7 +1109,8 @@ function ThreadRouteContent(
           }
           activePendingApproval={requests.activePendingApproval}
           activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
-          pendingApprovalAgentIds={requests.pendingApprovalAgentIds}
+          subagentRequests={requests.subagentRequests}
+          activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
