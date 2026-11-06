@@ -232,7 +232,12 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
-import { InspectorOverview, type InspectorWorkspace } from "./InspectorOverview";
+import {
+  InspectorOverview,
+  type InspectorSubagentStop,
+  type InspectorWorkspace,
+} from "./InspectorOverview";
+import { useSubagentStop } from "~/hooks/useSubagentStop";
 import { useSubagentSelectionStore } from "../subagentSelectionStore";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
@@ -241,6 +246,7 @@ import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import {
+  canStopSubagent,
   deriveAgentPanelModel,
   findSubagent,
   foldSubagentActivities,
@@ -3727,6 +3733,47 @@ export default function ChatView(props: ChatViewProps) {
   });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const subagentStopControl = useSubagentStop({
+    environmentId: activeThreadEnvironmentId,
+    threadId: activeThread?.id ?? null,
+    threadKey: activeThreadKey,
+    activities: threadActivities,
+    model: agentPanelModel,
+  });
+  // Only providers that can stop one subagent offer Stop at all.
+  const supportsSubagentStop = conversationProviderStatus?.supportsSubagentStop === true;
+  const stopSubagentShortcutLabel = shortcutLabelForCommand(keybindings, "thread.stopSubagent");
+  const inspectorSubagentStop = useMemo<InspectorSubagentStop | null>(
+    () =>
+      supportsSubagentStop
+        ? {
+            canStop: (agent) => canStopSubagent(agentPanelModel, agent, true),
+            isPending: subagentStopControl.isPending,
+            stop: subagentStopControl.stop,
+            shortcutLabel: stopSubagentShortcutLabel,
+          }
+        : null,
+    [agentPanelModel, stopSubagentShortcutLabel, subagentStopControl, supportsSubagentStop],
+  );
+  // thread.stopSubagent acts on the subagent selected in an open Overview.
+  const stopSelectedSubagentRef = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    stopSelectedSubagentRef.current = () => {
+      if (!inspectorSubagentStop || !activeThreadKey) return false;
+      if (!rightPanelOpen || activeRightPanelSurface?.kind !== "agents") return false;
+      const selectedId = useSubagentSelectionStore.getState().selectedByThreadKey[activeThreadKey];
+      const agent = selectedId ? findSubagent(agentPanelModel, selectedId) : null;
+      if (!agent || !inspectorSubagentStop.canStop(agent)) return false;
+      inspectorSubagentStop.stop(agent.id);
+      return true;
+    };
+  }, [
+    activeRightPanelSurface?.kind,
+    activeThreadKey,
+    agentPanelModel,
+    inspectorSubagentStop,
+    rightPanelOpen,
+  ]);
   const manualCompactionProviderAvailable = useMemo(
     () =>
       hasAvailableCompactionProvider({
@@ -7188,6 +7235,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "thread.stopSubagent") {
+        // A repeat finds the stop already pending and does nothing.
+        if (!stopSelectedSubagentRef.current()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       if (command === "thread.stop") {
         // An unavailable command should not shadow contextual shortcuts such as Escape to close a dialog.
         if (!canInterruptRunningThread) return;
@@ -10025,6 +10080,7 @@ export default function ChatView(props: ChatViewProps) {
         providerKind={selectedProvider ?? null}
         threadModelLabel={inspectorThreadModelLabel}
         workspace={inspectorWorkspace}
+        subagentStop={inspectorSubagentStop}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>

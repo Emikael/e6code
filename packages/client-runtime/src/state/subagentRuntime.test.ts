@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import { classifyTaskAgentKind, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import {
+  canStopSubagent,
   deriveAgentPanelModel,
+  findSubagentStopFailure,
   foldSubagentActivities,
   describeSpawnBatchStatus,
   formatSubagentElapsed,
@@ -582,6 +584,43 @@ describe("deriveAgentPanelModel", () => {
     const model = deriveAgentPanelModel({ agents: orphans });
     expect(model.workflows).toHaveLength(0);
     expect(model.directAgents.map((agent) => agent.id)).toEqual(["gone:wf:0"]);
+  });
+});
+
+describe("subagent stop", () => {
+  const roster = fold([
+    activity("task.started", { taskId: "wf-1", taskType: "local_workflow", title: "audit" }),
+    activity("task.progress", {
+      taskId: "wf-1:wf:0",
+      title: "audit:a",
+      status: "running",
+      parentAgentId: "wf-1",
+      agentIndex: 0,
+    }),
+    activity("task.started", { taskId: "child-1", title: "Marlow", parentAgentId: "root" }),
+    activity("task.started", { taskId: "done-1", title: "Finished" }),
+    activity("task.completed", { taskId: "done-1", status: "completed" }),
+  ]);
+  const model = deriveAgentPanelModel({ agents: roster });
+  const byId = (id: string) => roster.find((agent) => agent.id === id)!;
+
+  it("offers Stop only for a live subagent on a provider that supports it", () => {
+    expect(canStopSubagent(model, byId("child-1"), true)).toBe(true);
+    expect(canStopSubagent(model, byId("child-1"), false)).toBe(false);
+    expect(canStopSubagent(model, byId("done-1"), true)).toBe(false);
+  });
+
+  it("stops a workflow as a whole, not member by member", () => {
+    expect(canStopSubagent(model, byId("wf-1"), true)).toBe(true);
+    expect(canStopSubagent(model, byId("wf-1:wf:0"), true)).toBe(false);
+  });
+
+  it("finds the failure recorded for one stop request", () => {
+    const failed = (requestId: string, detail: string) =>
+      activity("provider.subagent.stop.failed", { requestId, detail, subagentId: "child-1" });
+    const activities = [failed("cmd-1", "first"), failed("cmd-2", "Subagent is not running.")];
+    expect(findSubagentStopFailure(activities, "cmd-2")).toBe("Subagent is not running.");
+    expect(findSubagentStopFailure(activities, "cmd-3")).toBeNull();
   });
 });
 

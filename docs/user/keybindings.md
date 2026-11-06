@@ -111,6 +111,9 @@ a shortcut.
 `thread.stop` interrupts the running turn in the focused thread. It has no default
 shortcut; assign one in **Settings → Keybindings**.
 
+`thread.stopSubagent` (`mod+.` by default) stops the subagent selected in the open
+**Overview** and lets the rest of the turn continue.
+
 `thread.undo` (`mod+z` by default) reverses the most recent thread action that is
 still offering **Undo** in a notification, such as an unpin, settle, snooze, or
 archive. Its default rule skips text fields and terminals so native undo keeps
