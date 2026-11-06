@@ -53,7 +53,7 @@ describe("generate mobile Uniwind themes", () => {
     expect(variables.light["--color-screen"]).toBe("#f6f6f2");
     expect(variables.light["--color-drawer"]).toBe("#eeeee8");
     expect(variables.dark["--color-screen"]).toBe("#0e0f0d");
-    expect(variables.dark["--color-drawer"]).toBe("#141512");
+    expect(variables.dark["--color-drawer"]).toBe("#040504");
     expect(Object.keys(variables.light)).toEqual(Object.keys(variables.dark));
   });
 

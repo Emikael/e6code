@@ -2,6 +2,7 @@ import {
   BUILT_IN_THEMES,
   E6_CHAT_THEME,
   E6_CODE_LIGHT_THEME_COLORS,
+  E6_CODE_DARK_MOBILE_PANE_COLORS,
   E6_CODE_DARK_THEME_COLORS,
   getThemeColorsForAppearance,
   MOBILE_DEFAULT_THEME_ID,
@@ -355,7 +356,9 @@ export function getMobileThemeColors(
   appearance: MobileThemeAppearance,
 ): ThemeColors {
   if (themeId === DEFAULT_MOBILE_THEME_ID) {
-    return appearance === "dark" ? E6_CODE_DARK_THEME_COLORS : E6_CODE_LIGHT_THEME_COLORS;
+    return appearance === "dark"
+      ? { ...E6_CODE_DARK_THEME_COLORS, ...E6_CODE_DARK_MOBILE_PANE_COLORS }
+      : E6_CODE_LIGHT_THEME_COLORS;
   }
   const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? E6_CHAT_THEME;
   return getThemeColorsForAppearance(theme, appearance) ?? theme.colors;

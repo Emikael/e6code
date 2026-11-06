@@ -248,6 +248,21 @@ export const E6_CODE_DARK_THEME_COLORS: ThemeColors = {
   terminalScrollbarHover: "#363636",
 };
 
+/**
+ * Mobile keeps Graphite's black pane under the near-black chat canvas: its
+ * drawer and row fills stay darker than the thread, where desktop's chrome
+ * sits one step above it. Mobile's default dark theme layers these over
+ * E6_CODE_DARK_THEME_COLORS.
+ */
+export const E6_CODE_DARK_MOBILE_PANE_COLORS = {
+  sidebar: "#040504",
+  sidebarControlSurface: "#171815",
+  sidebarRowHover: "#181918",
+  sidebarRowActive: "#202020",
+  sidebarRowSelected: "#161616",
+  sidebarBorder: "#1b1c1b",
+} as const satisfies Partial<ThemeColors>;
+
 export const E6_CHAT_THEME: ThemeDefinition = {
   id: "e6-chat",
   label: "E6 Chat",
