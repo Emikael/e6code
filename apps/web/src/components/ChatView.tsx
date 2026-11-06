@@ -386,6 +386,7 @@ import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { DraftHeroFooter } from "./chat/DraftHeroFooter";
+import { selectUnpushedCommits } from "./chat/DraftHeroFooter.logic";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -10694,7 +10695,11 @@ export default function ChatView(props: ChatViewProps) {
                     // Hangs below the centered composer so the hero never shifts it;
                     // short windows and phones keep just the composer.
                     <div className="absolute inset-x-0 top-full z-0 hidden pt-2 sm:block [@media(max-height:760px)]:hidden">
-                      <DraftHeroFooter keybindings={keybindings} />
+                      <DraftHeroFooter
+                        keybindings={keybindings}
+                        unpushed={selectUnpushedCommits(gitStatusQuery.data)}
+                        onOpenSourceControl={addAgentsSurface}
+                      />
                     </div>
                   ) : null}
                 </div>

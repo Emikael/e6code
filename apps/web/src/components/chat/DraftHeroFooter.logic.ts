@@ -1,4 +1,5 @@
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
+import type { VcsStatusResult } from "@e6tools/contracts";
 
 export type PickUpReason = "approval" | "input";
 
@@ -31,4 +32,46 @@ export function selectPickUpThreads(
         b.thread.updatedAt.localeCompare(a.thread.updatedAt),
     )
     .slice(0, options.limit);
+}
+
+export interface UnpushedCommits {
+  readonly count: number;
+  readonly refName: string;
+  /** An open pull request already tracks the branch; pushing updates it. */
+  readonly hasOpenPullRequest: boolean;
+}
+
+/**
+ * Commits on the checked-out branch that its remote does not have yet: the
+ * count ahead of the upstream, or, for a branch never pushed, ahead of the
+ * default branch. Null when there is nothing to push or nowhere to push it.
+ */
+export function selectUnpushedCommits(
+  status:
+    | Pick<
+        VcsStatusResult,
+        | "isRepo"
+        | "refName"
+        | "hasPrimaryRemote"
+        | "isDefaultRef"
+        | "hasUpstream"
+        | "aheadCount"
+        | "aheadOfDefaultCount"
+        | "pr"
+      >
+    | null
+    | undefined,
+): UnpushedCommits | null {
+  if (!status?.isRepo || !status.refName || !status.hasPrimaryRemote) return null;
+  const count = status.hasUpstream
+    ? status.aheadCount
+    : status.isDefaultRef
+      ? 0
+      : (status.aheadOfDefaultCount ?? 0);
+  if (count === 0) return null;
+  return {
+    count,
+    refName: status.refName,
+    hasOpenPullRequest: status.pr?.state === "open",
+  };
 }

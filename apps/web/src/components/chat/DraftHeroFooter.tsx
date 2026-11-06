@@ -1,6 +1,6 @@
 /**
- * Below the new-thread composer: threads that are waiting on you, then the
- * shortcuts that start most work. Both are quiet; the composer stays the
+ * Below the new-thread composer: threads that are waiting on you and commits
+ * still to push, then the shortcuts that start most work. Both are quiet; the composer stays the
  * figure on the screen.
  */
 import { scopeThreadRef } from "@e6tools/client-runtime/environment";
@@ -13,8 +13,9 @@ import { shortcutLabelForCommand } from "~/keybindings";
 import { useProjects, useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Kbd } from "../ui/kbd";
-import { selectPickUpThreads } from "./DraftHeroFooter.logic";
+import { selectPickUpThreads, type UnpushedCommits } from "./DraftHeroFooter.logic";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
@@ -23,7 +24,20 @@ const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["terminal.toggle", "Terminal"],
 ];
 
-export function DraftHeroFooter({ keybindings }: { keybindings: ResolvedKeybindingsConfig }) {
+const ROW_CLASS_NAME =
+  "flex w-full min-w-0 cursor-pointer items-center gap-3 px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+
+export function DraftHeroFooter({
+  keybindings,
+  unpushed,
+  onOpenSourceControl,
+}: {
+  keybindings: ResolvedKeybindingsConfig;
+  /** Commits on the project's branch that its remote lacks. */
+  unpushed: UnpushedCommits | null;
+  /** Opens the Overview, where Commit pushes or opens a pull request. */
+  onOpenSourceControl: () => void;
+}) {
   const router = useRouter();
   const threads = useThreadShells();
   const projects = useProjects();
@@ -39,10 +53,10 @@ export function DraftHeroFooter({ keybindings }: { keybindings: ResolvedKeybindi
     return shortcut ? [{ shortcut, label }] : [];
   });
 
-  if (picked.length === 0 && hints.length === 0) return null;
+  if (picked.length === 0 && !unpushed && hints.length === 0) return null;
   return (
     <div className="flex flex-col gap-5">
-      {picked.length > 0 ? (
+      {picked.length > 0 || unpushed ? (
         <div className="flex flex-col gap-2">
           <span className="px-1 text-[11px] font-semibold text-muted-foreground">
             Pick up where you left off
@@ -67,7 +81,7 @@ export function DraftHeroFooter({ keybindings }: { keybindings: ResolvedKeybindi
                         ),
                       })
                     }
-                    className="flex w-full min-w-0 cursor-pointer items-center gap-3 px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className={ROW_CLASS_NAME}
                   >
                     <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning-surface text-warning-foreground">
                       {reason === "approval" ? (
@@ -96,6 +110,30 @@ export function DraftHeroFooter({ keybindings }: { keybindings: ResolvedKeybindi
                 </li>
               );
             })}
+            {unpushed ? (
+              <li className="border-border not-last:border-b">
+                <button type="button" onClick={onOpenSourceControl} className={ROW_CLASS_NAME}>
+                  <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent text-muted-foreground">
+                    <PullRequestGlyph.pullRequest aria-hidden className="size-3.5" />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col leading-snug">
+                    <span className="truncate text-[13px] font-medium text-foreground">
+                      {unpushed.count} unpushed {unpushed.count === 1 ? "commit" : "commits"} on{" "}
+                      <span className="font-mono text-xs">{unpushed.refName}</span>
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {unpushed.hasOpenPullRequest
+                        ? "Push them to update the pull request"
+                        : "Push them or open a pull request"}
+                    </span>
+                  </span>
+                  <ChevronRightIcon
+                    aria-hidden
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                </button>
+              </li>
+            ) : null}
           </ul>
         </div>
       ) : null}

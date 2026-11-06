@@ -1,7 +1,7 @@
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
 import { describe, expect, it } from "vite-plus/test";
 
-import { selectPickUpThreads } from "./DraftHeroFooter.logic";
+import { selectPickUpThreads, selectUnpushedCommits } from "./DraftHeroFooter.logic";
 
 function shell(
   id: string,
@@ -60,5 +60,45 @@ describe("selectPickUpThreads", () => {
       shell(`t${index}`, { hasPendingUserInput: true }),
     );
     expect(selectPickUpThreads(threads, { limit: 3, nowMs })).toHaveLength(3);
+  });
+});
+
+describe("selectUnpushedCommits", () => {
+  const status = {
+    isRepo: true,
+    refName: "main",
+    hasPrimaryRemote: true,
+    isDefaultRef: true,
+    hasUpstream: true,
+    aheadCount: 2,
+    pr: null,
+  } as const;
+
+  it("counts commits ahead of the upstream", () => {
+    expect(selectUnpushedCommits(status)).toEqual({
+      count: 2,
+      refName: "main",
+      hasOpenPullRequest: false,
+    });
+    expect(selectUnpushedCommits({ ...status, aheadCount: 0 })).toBeNull();
+  });
+
+  it("counts a branch that was never pushed against the default branch", () => {
+    const unpublished = {
+      ...status,
+      refName: "e6/share-links",
+      isDefaultRef: false,
+      hasUpstream: false,
+      aheadCount: 0,
+    };
+    expect(selectUnpushedCommits({ ...unpublished, aheadOfDefaultCount: 3 })?.count).toBe(3);
+    expect(selectUnpushedCommits(unpublished)).toBeNull();
+  });
+
+  it("has nothing to say without a remote, a branch or a repository", () => {
+    expect(selectUnpushedCommits({ ...status, hasPrimaryRemote: false })).toBeNull();
+    expect(selectUnpushedCommits({ ...status, refName: null })).toBeNull();
+    expect(selectUnpushedCommits({ ...status, isRepo: false })).toBeNull();
+    expect(selectUnpushedCommits(null)).toBeNull();
   });
 });
