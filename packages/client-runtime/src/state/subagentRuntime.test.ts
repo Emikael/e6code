@@ -10,6 +10,7 @@ import {
   subagentActivityText,
   subagentElapsedMs,
   summarizeSubagentStatuses,
+  subagentTone,
 } from "./subagentRuntime.ts";
 
 let sequence = 0;
@@ -375,6 +376,27 @@ describe("foldSubagentActivities", () => {
     ]);
     expect(agents[0]!.runHandles?.sessionUrl).toBeUndefined();
     expect(agents[0]!.runHandles?.runId).toBe("run-1");
+  });
+});
+
+describe("deriveAgentPanelModel approvals", () => {
+  it("marks the live subagents a pending approval names", () => {
+    const agents = fold([
+      activity("task.started", { taskId: "agent-api", title: "Share link API" }),
+      activity("task.started", { taskId: "agent-docs", title: "Share link docs" }),
+      activity("task.completed", { taskId: "agent-docs", status: "completed" }),
+    ]);
+    const model = deriveAgentPanelModel({
+      agents,
+      awaitingApprovalAgentIds: new Set(["agent-api", "agent-docs", "agent-unknown"]),
+    });
+    expect(model.directAgents.map((agent) => [agent.id, agent.awaitingApproval === true])).toEqual([
+      ["agent-api", true],
+      ["agent-docs", false],
+    ]);
+    expect(
+      deriveAgentPanelModel({ agents }).directAgents.some((agent) => agent.awaitingApproval),
+    ).toBe(false);
   });
 });
 
@@ -912,6 +934,20 @@ describe("subagent presentation", () => {
       "failed",
     );
     expect(summarizeSubagentStatuses([]).text).toBe("");
+  });
+
+  it("puts a subagent blocked on the user's approval first, and only while it is live", () => {
+    const blocked = { status: "running" as const, awaitingApproval: true };
+    expect(subagentTone(blocked)).toBe("approval");
+    // A settled subagent keeps its outcome even if a stale approval names it.
+    expect(subagentTone({ status: "completed", awaitingApproval: true })).toBe("done");
+    expect(
+      summarizeSubagentStatuses([blocked, { status: "running" }, { status: "completed" }]),
+    ).toMatchObject({ text: "1 needs approval · 1 working · 1 done", tone: "approval" });
+    // A batch whose only live member is blocked is still live.
+    expect(
+      describeSpawnBatchStatus({ agents: [blocked, { status: "completed" }], agentCount: 2 }),
+    ).toMatchObject({ text: "1 needs approval · 1 done", tone: "approval", live: true });
   });
 
   it("leads live rows with progress and settled rows with the outcome", () => {

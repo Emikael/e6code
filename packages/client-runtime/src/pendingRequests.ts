@@ -16,6 +16,8 @@ export interface PendingApproval {
   readonly detail?: string;
   readonly appName?: string;
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
+  /** The subagent that asked: its task id. Absent for the main agent. */
+  readonly agentId?: string;
 }
 
 export interface PendingUserInput {
@@ -159,6 +161,9 @@ export function derivePendingRequests(activities: ReadonlyArray<OrchestrationThr
           ? { appName: payload.appName }
           : {}),
         ...(options.length > 0 ? { options } : {}),
+        ...(typeof payload.agentId === "string" && payload.agentId
+          ? { agentId: payload.agentId }
+          : {}),
       });
     } else if (activity.kind === "user-input.requested") {
       if (closedUserInputs.has(requestId)) continue;

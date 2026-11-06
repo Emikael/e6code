@@ -100,6 +100,25 @@ describe("pending approvals", () => {
     ]);
   });
 
+  it("keeps the subagent that asked for an approval", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-from-subagent",
+        createdAt: "2026-11-06T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Command approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-subagent",
+          requestKind: "command",
+          detail: "vp run typecheck --filter server",
+          agentId: "agent-api",
+        },
+      }),
+    ];
+    expect(derivePendingRequests(activities).approvals[0]?.agentId).toBe("agent-api");
+  });
+
   it("maps canonical requestType payloads into pending approvals", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

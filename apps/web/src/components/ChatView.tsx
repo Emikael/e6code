@@ -2957,16 +2957,20 @@ export default function ChatView(props: ChatViewProps) {
   // until orchestration-v2 lands (source precedence lives in the derive).
   // sessionLive derives interruption for agents orphaned by session death.
   const agentSessionLive = phase !== "disconnected";
+  const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
+    () => derivePendingRequests(threadActivities),
+    [threadActivities],
+  );
   const agentPanelModel = useMemo(
     () =>
       deriveAgentPanelModel({
         agents: foldSubagentActivities(threadActivities, { sessionLive: agentSessionLive }),
+        // A subagent a pending approval names reads "Needs approval".
+        awaitingApprovalAgentIds: new Set(
+          pendingApprovals.flatMap((approval) => (approval.agentId ? [approval.agentId] : [])),
+        ),
       }),
-    [agentSessionLive, threadActivities],
-  );
-  const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
-    () => derivePendingRequests(threadActivities),
-    [threadActivities],
+    [agentSessionLive, pendingApprovals, threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingRequestKey = JSON.stringify([
@@ -3122,6 +3126,17 @@ export default function ChatView(props: ChatViewProps) {
     hasComposerAttachments: composerHasAttachments,
   });
   const activePendingApproval = pendingApprovals[0] ?? null;
+  const activePendingApprovalAgentId = activePendingApproval?.agentId;
+  const activePendingApprovalAgentTitle = activePendingApprovalAgentId
+    ? ([
+        ...agentPanelModel.directAgents,
+        ...agentPanelModel.workflows.flatMap((group) => [
+          group.workflow,
+          ...group.unphasedMembers,
+          ...group.phases.flatMap((phase) => phase.members),
+        ]),
+      ].find((agent) => agent.id === activePendingApprovalAgentId)?.title ?? null)
+    : null;
   // The open /usage-limits panel for this thread, model and turn. Only the open
   // moment is stored: the rows read live provider data, so a redeemed reset
   // credit or refreshed probe shows through. Anything that spends quota closes
@@ -10579,6 +10594,7 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
+                            activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
                             pendingApprovals={pendingApprovals}
                             pendingUserInputs={pendingUserInputs}
                             activePendingProgress={activePendingProgress}

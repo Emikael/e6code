@@ -1362,6 +1362,8 @@ export interface ChatComposerProps {
 
   // Pending approvals / inputs
   activePendingApproval: PendingApproval | null;
+  /** Title of the subagent behind activePendingApproval, when one asked. */
+  activePendingApprovalAgentTitle?: string | null;
   pendingApprovals: PendingApproval[];
   pendingUserInputs: PendingUserInput[];
   activePendingProgress: {
@@ -1509,6 +1511,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isPreparingWorktree,
     environmentUnavailable,
     activePendingApproval,
+    activePendingApprovalAgentTitle = null,
     pendingApprovals,
     pendingUserInputs,
     activePendingProgress,
@@ -5978,6 +5981,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       <ComposerPendingApprovalPanel
                         approval={activePendingApproval}
                         pendingCount={pendingApprovals.length}
+                        agentTitle={activePendingApprovalAgentTitle}
                       />
                     </ComposerBanner.Content>
                     <ComposerBanner.Actions>

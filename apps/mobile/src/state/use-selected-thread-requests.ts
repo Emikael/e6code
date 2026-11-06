@@ -104,6 +104,13 @@ export function useSelectedThreadRequests() {
     [selectedThread?.activities],
   );
   const activePendingApproval = activePendingApprovals[0] ?? null;
+  const pendingApprovalAgentIds = useMemo<ReadonlySet<string>>(
+    () =>
+      new Set(
+        activePendingApprovals.flatMap((approval) => (approval.agentId ? [approval.agentId] : [])),
+      ),
+    [activePendingApprovals],
+  );
   const activePendingUserInput = activePendingUserInputs[0] ?? null;
   const questionServerConfigs = useServerConfigs();
   const attachmentDrafts = useAtomValue(composerDraftsAtom);
@@ -330,6 +337,7 @@ export function useSelectedThreadRequests() {
 
   return {
     activePendingApproval,
+    pendingApprovalAgentIds,
     activePendingUserInput,
     activePendingUserInputDrafts,
     activePendingUserInputAnswers,

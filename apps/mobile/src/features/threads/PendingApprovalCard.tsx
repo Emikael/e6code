@@ -11,6 +11,8 @@ import type { PendingApproval } from "../../lib/threadActivity";
 
 export interface PendingApprovalCardProps {
   readonly approval: PendingApproval;
+  /** Title of the subagent that asked; null when the main agent asked. */
+  readonly agentTitle?: string | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly onRespond: (
     requestId: ApprovalRequestId,
@@ -32,8 +34,11 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   // behind this card, so a translucent surface bleeds messages through it.
   return (
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
-      <Text className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-        Approval needed
+      <Text
+        className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary"
+        numberOfLines={1}
+      >
+        {props.agentTitle ? `${props.agentTitle} needs approval` : "Approval needed"}
       </Text>
       <Text className="font-e6-bold text-lg text-foreground">
         {props.approval.appName ?? props.approval.requestKind}

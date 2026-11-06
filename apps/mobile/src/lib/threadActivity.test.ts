@@ -3386,6 +3386,12 @@ describe("quiet timeline: nested agents", () => {
       type: "agent-spawn",
       summary: { title: "2 subagents", status: "1 failed", tone: "failed" },
     });
+    // Members keep their task ids, so the card can match a pending approval.
+    expect(
+      settled[0]?.type === "agent-spawn"
+        ? settled[0].summary.members.map((member) => member.id)
+        : [],
+    ).toEqual(["a", "b"]);
     expect(settled.map((row) => row.type)).toEqual(["agent-spawn", "thinking"]);
   });
 

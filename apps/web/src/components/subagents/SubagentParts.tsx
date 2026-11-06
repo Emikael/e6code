@@ -20,6 +20,7 @@ import {
   CirclePauseIcon,
   CircleXIcon,
   SquareIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -27,6 +28,7 @@ import { cn } from "~/lib/utils";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 
 export const SUBAGENT_TONE_TEXT_CLASS: Readonly<Record<SubagentStatusTone, string>> = {
+  approval: "text-warning-foreground",
   working: "text-info-foreground",
   idle: "text-muted-foreground",
   done: "text-success-foreground",
@@ -54,6 +56,8 @@ export function SubagentStatusGlyph({
       : { "aria-label": SUBAGENT_STATUS_LABEL[tone], role: "img" }),
   };
   switch (tone) {
+    case "approval":
+      return <TriangleAlertIcon {...props} />;
     case "working":
       return <CircleDashedIcon {...props} />;
     case "idle":
@@ -86,7 +90,9 @@ export function SubagentStatusWord({
         className,
       )}
     >
-      {tone === "working" ? (
+      {tone === "approval" ? (
+        <TriangleAlertIcon aria-hidden className="size-3 shrink-0" />
+      ) : tone === "working" ? (
         <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "done" ? (
         <CircleCheckIcon aria-hidden className="size-3 shrink-0" />

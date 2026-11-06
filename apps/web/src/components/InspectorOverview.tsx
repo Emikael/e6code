@@ -31,7 +31,7 @@ import {
   type RuntimeSubagent,
   SUBAGENT_STATUS_LABEL,
   subagentActivityText,
-  subagentStatusTone,
+  subagentTone,
   summarizeSubagentStatuses,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import {
@@ -416,7 +416,7 @@ function LineageRow({
   onSelect: (agentId: string) => void;
   onShowInThread: ((agentId: string) => void) | null;
 }) {
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const sessionUrl = agent.runHandles?.sessionUrl;
   const { copyToClipboard } = useCopyToClipboard({
     onCopy: () =>
@@ -516,16 +516,18 @@ function SubagentDetailCard({
   cardRef: Ref<HTMLDivElement>;
 }) {
   const [scriptOpen, setScriptOpen] = useState(false);
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const live = isActiveSubagentStatus(agent.status);
   const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
   const role =
     agent.role && agent.role.trim().toLowerCase() !== agent.title.trim().toLowerCase()
       ? agent.role
       : null;
-  const activity = live
-    ? (agent.progress ?? subagentActivityText(agent))
-    : (agent.error ?? agent.result ?? subagentActivityText(agent));
+  const activity = agent.awaitingApproval
+    ? "Blocked until you approve or deny in the composer."
+    : live
+      ? (agent.progress ?? subagentActivityText(agent))
+      : (agent.error ?? agent.result ?? subagentActivityText(agent));
   const scriptPath = agent.runHandles?.scriptPath;
   const canShowScript = scriptPath !== undefined && environmentId !== null && threadId !== null;
   const sessionUrl = agent.runHandles?.sessionUrl;

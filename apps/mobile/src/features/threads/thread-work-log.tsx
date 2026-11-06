@@ -11,7 +11,9 @@ import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import {
+  createContext,
   memo,
+  use,
   useCallback,
   useEffect,
   useId,
@@ -1010,28 +1012,52 @@ export function ThreadWorkGroupToggle(props: {
   );
 }
 
+/**
+ * Task ids of subagents a pending approval names. The thread screen provides
+ * them; a spawn card shows those members as "Needs approval", first.
+ */
+export const AwaitingApprovalAgentIdsContext = createContext<ReadonlySet<string>>(new Set());
+
+type AgentSpawnCardTone = AgentSpawnSummary["tone"] | "approval";
+
 const AGENT_SPAWN_TONE_DOT_CLASS = {
+  approval: "bg-adaptive-amber-700-400",
   working: "bg-adaptive-sky-600-400",
   completed: "bg-adaptive-emerald-600-400",
   failed: "bg-adaptive-rose-600-400",
   stopped: "bg-foreground-muted",
-} as const satisfies Record<AgentSpawnSummary["tone"], string>;
+} as const satisfies Record<AgentSpawnCardTone, string>;
 
 const AGENT_SPAWN_TONE_TEXT_CLASS = {
+  approval: "text-warning-foreground",
   working: "text-adaptive-sky-700-300",
   completed: "text-adaptive-emerald-700-300",
   failed: "text-danger-foreground",
   stopped: "text-foreground-muted",
-} as const satisfies Record<AgentSpawnSummary["tone"], string>;
+} as const satisfies Record<AgentSpawnCardTone, string>;
 
 const AGENT_SPAWN_TONE_WORD = {
+  approval: "Needs approval",
   working: "Working",
   completed: "Done",
   failed: "Failed",
   stopped: "Stopped",
-} as const satisfies Record<AgentSpawnSummary["tone"], string>;
+} as const satisfies Record<AgentSpawnCardTone, string>;
 
-const AGENT_SPAWN_SUMMARY_ORDER = ["working", "failed", "stopped", "completed"] as const;
+const AGENT_SPAWN_SUMMARY_ORDER = [
+  "approval",
+  "working",
+  "failed",
+  "stopped",
+  "completed",
+] as const;
+const AGENT_SPAWN_COUNT_WORD = {
+  approval: "needs approval",
+  working: "working",
+  failed: "failed",
+  stopped: "stopped",
+  completed: "done",
+} as const satisfies Record<AgentSpawnCardTone, string>;
 
 /**
  * "3 working · 1 done": live work first, then problems, then successes. When
@@ -1040,15 +1066,19 @@ const AGENT_SPAWN_SUMMARY_ORDER = ["working", "failed", "stopped", "completed"] 
  * that state leads, so the line's color and its first word always agree.
  */
 function agentSpawnCountsText(
-  members: AgentSpawnSummary["members"],
+  members: ReadonlyArray<{ readonly tone: AgentSpawnCardTone }>,
   batchTone: AgentSpawnSummary["tone"],
 ): string {
   const counts = AGENT_SPAWN_SUMMARY_ORDER.flatMap((tone) => {
     const count = members.filter((member) => member.tone === tone).length;
     if (count === 0) return [];
-    return [`${count} ${tone === "completed" ? "done" : tone}`];
+    return [`${count} ${AGENT_SPAWN_COUNT_WORD[tone]}`];
   });
-  const leads = members.some((member) => member.tone === batchTone);
+  // A blocked member is still live work, so it satisfies a working batch.
+  const leads = members.some(
+    (member) =>
+      member.tone === batchTone || (batchTone === "working" && member.tone === "approval"),
+  );
   const lead =
     batchTone === "completed" || leads
       ? []
@@ -1057,7 +1087,7 @@ function agentSpawnCountsText(
 }
 
 /** Status word with its dot; the word carries the state, the dot only echoes it. */
-function AgentSpawnStatusWord(props: { readonly tone: AgentSpawnSummary["tone"] }) {
+function AgentSpawnStatusWord(props: { readonly tone: AgentSpawnCardTone }) {
   return (
     <View className="shrink-0 flex-row items-center gap-1.5">
       <View className={cn("h-1.5 w-1.5 rounded-full", AGENT_SPAWN_TONE_DOT_CLASS[props.tone])} />
@@ -1114,10 +1144,31 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
   readonly onCopy: () => void;
 }) {
   const { summary, expanded } = props;
-  const memberCount = summary.members.length;
+  const awaitingApproval = use(AwaitingApprovalAgentIdsContext);
+  // A member blocked on the user's approval says so, and lifts to the top.
+  const marked = summary.members.map((member) =>
+    member.tone === "working" && awaitingApproval.has(member.id)
+      ? { ...member, tone: "approval" as const }
+      : member,
+  );
+  const members = marked.some((member) => member.tone === "approval")
+    ? [
+        ...marked.filter((member) => member.tone === "approval"),
+        ...marked.filter((member) => member.tone !== "approval"),
+      ]
+    : marked;
+  const memberCount = members.length;
   const canExpand = memberCount > 0;
+  const headerTone: AgentSpawnCardTone =
+    summary.tone === "working" && members.some((member) => member.tone === "approval")
+      ? "approval"
+      : summary.tone;
   const statusText =
-    memberCount > 1 ? agentSpawnCountsText(summary.members, summary.tone) : summary.status;
+    memberCount > 1
+      ? agentSpawnCountsText(members, summary.tone)
+      : headerTone === "approval"
+        ? AGENT_SPAWN_TONE_WORD.approval
+        : summary.status;
   const stackTiles = Math.min(Math.max(memberCount, 1), memberCount > 4 ? 3 : 4);
   return (
     <Animated.View layout={WORK_LOG_LAYOUT_TRANSITION} className="-mx-1 mb-1 px-1">
@@ -1170,13 +1221,13 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
               <View
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full",
-                  AGENT_SPAWN_TONE_DOT_CLASS[summary.tone],
+                  AGENT_SPAWN_TONE_DOT_CLASS[headerTone],
                 )}
               />
               <Text
                 className={cn(
                   "min-w-0 flex-1 font-e6-medium text-sm",
-                  AGENT_SPAWN_TONE_TEXT_CLASS[summary.tone],
+                  AGENT_SPAWN_TONE_TEXT_CLASS[headerTone],
                 )}
                 numberOfLines={1}
               >
@@ -1200,8 +1251,8 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
             layout={WORK_LOG_LAYOUT_TRANSITION}
             className="border-t border-border-subtle p-1"
           >
-            {summary.members.map((member) => (
-              <View key={member.title} className="flex-row items-start gap-3 rounded-xl p-2.5">
+            {members.map((member) => (
+              <View key={member.id} className="flex-row items-start gap-3 rounded-xl p-2.5">
                 <AgentSpawnTile size="row" iconSubtleColor={props.iconSubtleColor} />
                 <View className="min-w-0 flex-1 gap-px">
                   <View className="flex-row items-center gap-2">

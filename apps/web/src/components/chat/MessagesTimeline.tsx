@@ -49,7 +49,7 @@ import {
   SUBAGENT_STATUS_LABEL,
   describeSpawnBatchStatus,
   subagentActivityText,
-  subagentStatusTone,
+  subagentTone,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
@@ -4883,9 +4883,16 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   const workflowGroup = spawn.workflowId
     ? agentPanelModel.workflows.find((group) => group.workflow.id === spawn.workflowId)
     : undefined;
-  const agents = workflowGroup
+  const members = workflowGroup
     ? [...workflowGroup.phases.flatMap((phase) => phase.members), ...workflowGroup.unphasedMembers]
     : agentPanelModel.directAgents.filter((agent) => memberIds.has(agent.id));
+  // A subagent blocked on the user's approval lifts to the top of its card.
+  const agents = members.some((agent) => agent.awaitingApproval)
+    ? [
+        ...members.filter((agent) => agent.awaitingApproval),
+        ...members.filter((agent) => !agent.awaitingApproval),
+      ]
+    : members;
   const agentCount = Math.max(
     agents.length,
     Math.max(memberIds.size - (spawn.workflowId ? 1 : 0), 0),
@@ -5041,7 +5048,7 @@ function SubagentInlineRow({
   highlighted: boolean;
   onOpen: (agentId: string) => void;
 }) {
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const activity = subagentActivityText(agent);
   return (
     <button
@@ -5088,7 +5095,7 @@ function SubagentBatchRow({
   highlighted: boolean;
   onOpen: (agentId: string) => void;
 }) {
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const activity = subagentActivityText(agent);
   const metrics = [
     formatSubagentModelLabel(agent.model, agent.effort),

@@ -530,6 +530,17 @@ function ThreadRouteContent(
     selectedThread?.session ?? null,
   );
   const liveSubagentCount = subagentPanel.liveCount;
+  const activePendingApprovalAgentId = requests.activePendingApproval?.agentId;
+  const activePendingApprovalAgentTitle = activePendingApprovalAgentId
+    ? ([
+        ...subagentPanel.directAgents,
+        ...subagentPanel.workflows.flatMap((group) => [
+          group.workflow,
+          ...group.unphasedMembers,
+          ...group.phases.flatMap((phase) => phase.members),
+        ]),
+      ].find((agent) => agent.id === activePendingApprovalAgentId)?.title ?? null)
+    : null;
   const inspectorEnvironmentId = selectedThread?.environmentId ?? null;
   const inspectorThreadId = selectedThread?.id ?? null;
   const inspectorControl = useMemo(
@@ -1099,6 +1110,8 @@ function ThreadRouteContent(
               : null
           }
           activePendingApproval={requests.activePendingApproval}
+          activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
+          pendingApprovalAgentIds={requests.pendingApprovalAgentIds}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
