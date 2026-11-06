@@ -42,6 +42,7 @@ import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
+import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   WorkspaceBreadcrumb,
@@ -485,6 +486,11 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {/* Which machine runs this thread, and whether it is reachable, in words. */}
+      <EnvironmentConnectionChip
+        environmentId={activeThreadEnvironmentId}
+        className="hidden @2xl/header-actions:inline-flex"
+      />
       <div
         ref={headerActionsRef}
         data-chat-header-actions
