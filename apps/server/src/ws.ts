@@ -750,6 +750,73 @@ const makeWsRpcLayer = (
           ),
         );
 
+      // Waits for a setup script run to finish and, on a clean exit only,
+      // records which script the worktree now matches so clients can say when
+      // the project's setup script changes later. A failed or interrupted run
+      // leaves the worktree as out of date as it was. Never fails.
+      const recordSetupScriptOnSuccess = (input: {
+        readonly threadId: ThreadId;
+        readonly scriptCommand: string;
+        readonly completion: Effect.Effect<ProjectSetupScriptRunner.ProjectSetupScriptCompletion>;
+      }) =>
+        input.completion.pipe(
+          Effect.flatMap((completion) =>
+            completion.exitCode !== 0
+              ? Effect.void
+              : serverCommandId("setup-script-hash").pipe(
+                  Effect.flatMap((commandId) =>
+                    dispatchFromClient({
+                      type: "thread.meta.update",
+                      commandId,
+                      threadId: input.threadId,
+                      setupScriptHash: projectScriptHash({ command: input.scriptCommand }),
+                    }),
+                  ),
+                  Effect.asVoid,
+                ),
+          ),
+          // The thread may be gone by now, after a failed bootstrap.
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to record the setup script a worktree ran", {
+              threadId: input.threadId,
+              cause,
+            }),
+          ),
+        );
+
+      const rerunWorktreeSetup = (threadId: ThreadId) =>
+        Effect.gen(function* () {
+          const thread = yield* projectionSnapshotQuery.getThreadShellById(threadId).pipe(
+            Effect.map(Option.getOrNull),
+            Effect.orElseSucceed(() => null),
+          );
+          if (!thread?.worktreePath) return { terminalId: null };
+          const result = yield* projectSetupScriptRunner
+            .runForThread({
+              threadId,
+              projectId: thread.projectId,
+              worktreePath: thread.worktreePath,
+              observeCompletion: {},
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("worktree setup re-run failed to start", {
+                  threadId,
+                  detail: error.message,
+                }).pipe(Effect.as(null)),
+              ),
+            );
+          if (result?.status !== "started") return { terminalId: null };
+          if (result.completion) {
+            yield* recordSetupScriptOnSuccess({
+              threadId,
+              scriptCommand: result.scriptCommand,
+              completion: result.completion,
+            }).pipe(Effect.forkDetach);
+          }
+          return { terminalId: result.terminalId };
+        });
+
       const appendSetupScriptActivity = (input: {
         readonly threadId: ThreadId;
         readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
@@ -1132,7 +1199,6 @@ const makeWsRpcLayer = (
             readonly worktreePath: string;
             readonly scriptId: string;
             readonly scriptName: string;
-            readonly scriptCommand: string;
             readonly terminalId: string;
           }) =>
             Effect.gen(function* () {
@@ -1160,18 +1226,6 @@ const makeWsRpcLayer = (
                   payload,
                   tone: "info",
                 }),
-                // What the worktree was set up with, so clients can say when
-                // the project's setup script has changed since.
-                serverCommandId("setup-script-hash").pipe(
-                  Effect.flatMap((commandId) =>
-                    dispatchFromClient({
-                      type: "thread.meta.update",
-                      commandId,
-                      threadId: command.threadId,
-                      setupScriptHash: projectScriptHash({ command: input.scriptCommand }),
-                    }),
-                  ),
-                ),
               ]).pipe(
                 Effect.asVoid,
                 Effect.catch((error) =>
@@ -1259,7 +1313,6 @@ const makeWsRpcLayer = (
                         worktreePath,
                         scriptId: setupResult.scriptId,
                         scriptName: setupResult.scriptName,
-                        scriptCommand: setupResult.scriptCommand,
                         terminalId: setupResult.terminalId,
                       }).pipe(
                         Effect.andThen(
@@ -1289,7 +1342,15 @@ const makeWsRpcLayer = (
               // is always consumed, even when the turn dispatch fails before
               // anyone would otherwise wait on it. The tracker update is a
               // no-op once the snapshot has been dropped.
+              const scriptCommand = setupResult.scriptCommand;
               const completionFiber = yield* setupResult.completion.pipe(
+                Effect.tap((completion) =>
+                  recordSetupScriptOnSuccess({
+                    threadId,
+                    scriptCommand,
+                    completion: Effect.succeed(completion),
+                  }),
+                ),
                 Effect.flatMap((completion) => {
                   if (completion.exitCode === 0) {
                     return worktreeSetupTracker.stageStatus(threadId, "setup-script", "done");
@@ -3237,6 +3298,10 @@ const makeWsRpcLayer = (
               .pipe(Effect.map((cancelled) => ({ cancelled }))),
             { "rpc.aggregate": "vcs" },
           ),
+        [WS_METHODS.worktreeSetupRerun]: (input) =>
+          observeRpcEffect(WS_METHODS.worktreeSetupRerun, rerunWorktreeSetup(input.threadId), {
+            "rpc.aggregate": "vcs",
+          }),
         [WS_METHODS.vcsRefreshStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRefreshStatus,
