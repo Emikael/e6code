@@ -4,6 +4,7 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeCrypto from "node:crypto";
 import { HostProcessEnvironment, HostProcessPlatform } from "@e6tools/shared/hostProcess";
+import { projectScriptHash } from "@e6tools/shared/projectScripts";
 
 import {
   type DeviceServiceState,
@@ -11102,7 +11103,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ),
         );
 
-        assert.equal(response.sequence, 8);
+        assert.equal(response.sequence, 9);
         assert.deepEqual(
           dispatchedCommands.map((command) => command.type),
           [
@@ -11113,10 +11114,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             "thread.meta.update",
             "thread.activity.append",
             "thread.activity.append",
+            "thread.meta.update",
             "thread.turn.start",
             "thread.activity.append",
           ],
         );
+        // The worktree records which setup script it ran, so a later edit to
+        // the project's setup script can be flagged on this thread.
+        const setupHashCommand = dispatchedCommands[7];
+        assertTrue(setupHashCommand?.type === "thread.meta.update");
+        if (setupHashCommand?.type === "thread.meta.update") {
+          assert.equal(
+            setupHashCommand.setupScriptHash,
+            projectScriptHash({ command: "npm install" }),
+          );
+        }
         // The checkout can take minutes, so the thread reads as working from
         // the moment setup starts rather than only once the turn is dispatched.
         const preparingCommand = dispatchedCommands[3];
@@ -11201,7 +11213,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           assert.equal(settledActivity.payload.phase, "done");
           assert.equal(settledActivity.payload.threadId, ThreadId.make("thread-bootstrap"));
         }
-        const finalCommand = dispatchedCommands[7];
+        const finalCommand = dispatchedCommands[8];
         assertTrue(finalCommand?.type === "thread.turn.start");
         if (finalCommand?.type === "thread.turn.start") {
           assert.equal(finalCommand.bootstrap, undefined);

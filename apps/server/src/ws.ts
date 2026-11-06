@@ -81,6 +81,7 @@ import {
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@e6tools/shared/backgroundActivitySettings";
+import { projectScriptHash } from "@e6tools/shared/projectScripts";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
@@ -1131,6 +1132,7 @@ const makeWsRpcLayer = (
             readonly worktreePath: string;
             readonly scriptId: string;
             readonly scriptName: string;
+            readonly scriptCommand: string;
             readonly terminalId: string;
           }) =>
             Effect.gen(function* () {
@@ -1158,6 +1160,18 @@ const makeWsRpcLayer = (
                   payload,
                   tone: "info",
                 }),
+                // What the worktree was set up with, so clients can say when
+                // the project's setup script has changed since.
+                serverCommandId("setup-script-hash").pipe(
+                  Effect.flatMap((commandId) =>
+                    dispatchFromClient({
+                      type: "thread.meta.update",
+                      commandId,
+                      threadId: command.threadId,
+                      setupScriptHash: projectScriptHash({ command: input.scriptCommand }),
+                    }),
+                  ),
+                ),
               ]).pipe(
                 Effect.asVoid,
                 Effect.catch((error) =>
@@ -1245,6 +1259,7 @@ const makeWsRpcLayer = (
                         worktreePath,
                         scriptId: setupResult.scriptId,
                         scriptName: setupResult.scriptName,
+                        scriptCommand: setupResult.scriptCommand,
                         terminalId: setupResult.terminalId,
                       }).pipe(
                         Effect.andThen(
