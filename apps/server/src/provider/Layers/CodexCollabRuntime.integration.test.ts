@@ -605,6 +605,70 @@ describe("CodexSessionRuntime collab integration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  // it.live: the runtime talks to a real child process.
+  it.live("tags an approval raised on a child thread with that subagent", () =>
+    Effect.gen(function* () {
+      // A collab subagent's requests carry its own thread id, which is also
+      // its task id; the runtime passes it on so the UI can name the agent.
+      const script = {
+        rootThreadId: ROOT,
+        holdTurnOpen: true,
+        notifications: [],
+        serverRequests: [
+          {
+            method: "item/permissions/requestApproval",
+            label: "perm-child",
+            params: {
+              cwd: "/tmp/project",
+              itemId: "app_child",
+              permissions: { network: { enabled: true } },
+              reason: "Fetch the share link schema",
+              startedAtMs: 1_778_000_000_000,
+              threadId: CHILD_A,
+              turnId: `${CHILD_A}-turn-1`,
+            },
+          },
+        ],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(scriptPath, { force: true });
+          NodeFS.rmSync(`${scriptPath}.approvalResponses`, { force: true });
+        }),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-codex-child-approval"),
+        binaryPath: peerPath,
+        cwd: "/tmp",
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const requestedReady = yield* Deferred.make<ProviderEvent>();
+      yield* runtime.events.pipe(
+        Stream.runForEach((event) =>
+          event.method === "item/permissions/requestApproval"
+            ? Deferred.succeed(requestedReady, event)
+            : Effect.void,
+        ),
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "fan out" });
+      const requested = yield* Deferred.await(requestedReady).pipe(
+        Effect.timeoutOption("15 seconds"),
+      );
+      assert.isTrue(requested._tag === "Some", "child approval request never arrived");
+      assert.equal(requested._tag === "Some" ? requested.value.agentId : undefined, CHILD_A);
+
+      yield* runtime.interruptTurn();
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   // it.live: the runtime talks to a real child process; under it.effect's
   // TestClock the internal timers freeze and the join never completes.
   it.live("Stop answers a parked app-permission approval with a withheld grant", () =>
@@ -675,6 +739,7 @@ describe("CodexSessionRuntime collab integration", () => {
         Effect.timeoutOption("15 seconds"),
       );
       assert.isTrue(requested._tag === "Some", "permission approval request never arrived");
+      assert.isUndefined(requested._tag === "Some" ? requested.value.agentId : "missing");
 
       yield* runtime.interruptTurn();
 

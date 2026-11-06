@@ -462,6 +462,11 @@ const RequestOpenedPayload = Schema.Struct({
   appName: Schema.optional(TrimmedNonEmptyStringSchema),
   options: Schema.optional(Schema.Array(ProviderApprovalOption)),
   args: Schema.optional(Schema.Unknown),
+  /**
+   * The subagent waiting on this request: its task id, as in task.* events.
+   * Absent when the main agent asked or the provider cannot tell.
+   */
+  agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type RequestOpenedPayload = typeof RequestOpenedPayload.Type;
 

@@ -6204,6 +6204,7 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(requested.value.providerRefs, {
         providerItemId: ProviderItemId.make("tool-use-1"),
       });
+      assert.equal(requested.value.payload.agentId, undefined);
       const runtimeRequestId = requested.value.requestId;
       assert.equal(typeof runtimeRequestId, "string");
       if (runtimeRequestId === undefined) {
@@ -6233,6 +6234,50 @@ describe("ClaudeAdapterLive", () => {
 
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.equal((permissionResult as PermissionResult).behavior, "allow");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("names the sub-agent that asked for approval", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "fan out", attachments: [] });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+      // The SDK sets agentID to the sub-agent's id, its task_id in task.* messages.
+      void canUseTool(
+        "Bash",
+        { command: "vp run typecheck --filter server" },
+        {
+          signal: new AbortController().signal,
+          requestId: "request-subagent",
+          toolUseID: "tool-use-subagent",
+          agentID: "agent-api",
+        },
+      );
+
+      const requested = yield* Stream.runHead(
+        adapter.streamEvents.pipe(Stream.filter((event) => event.type === "request.opened")),
+      );
+      assert.equal(requested._tag, "Some");
+      if (requested._tag !== "Some" || requested.value.type !== "request.opened") {
+        return;
+      }
+      assert.equal(requested.value.payload.agentId, "agent-api");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

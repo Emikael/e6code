@@ -1428,6 +1428,7 @@ function mapToRuntimeEvents(
               }
             : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
+          ...(event.agentId ? { agentId: event.agentId } : {}),
         },
       },
     ];

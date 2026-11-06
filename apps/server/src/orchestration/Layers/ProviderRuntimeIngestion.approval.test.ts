@@ -66,5 +66,29 @@ describe("runtimeEventToActivities approval details", () => {
         options,
       },
     });
+    expect(activity?.payload).not.toHaveProperty("agentId");
+  });
+
+  it("keeps the subagent that asked, so clients can name it", () => {
+    const event = {
+      type: "request.opened",
+      eventId: EventId.make("evt-subagent-approval"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: "2026-11-06T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      requestId: RuntimeRequestId.make("approval-subagent"),
+      payload: {
+        requestType: "command_execution_approval",
+        detail: "vp run typecheck --filter server",
+        agentId: "agent-api",
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    const [activity] = runtimeEventToActivities(event);
+
+    expect(activity?.payload).toMatchObject({
+      requestId: "approval-subagent",
+      agentId: "agent-api",
+    });
   });
 });

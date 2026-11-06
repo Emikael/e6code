@@ -156,6 +156,8 @@ export const ProviderEvent = Schema.Struct({
   itemId: Schema.optional(ProviderItemId),
   requestId: Schema.optional(ApprovalRequestId),
   requestKind: Schema.optional(ProviderRequestKind),
+  /** For a request raised inside a subagent: that subagent's task id. */
+  agentId: Schema.optional(TrimmedNonEmptyString),
   textDelta: Schema.optional(Schema.String),
   payload: Schema.optional(Schema.Unknown),
 });

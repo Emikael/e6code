@@ -4748,6 +4748,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               input: toolInput,
               ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
             },
+            // The SDK passes the sub-agent's id, which is its task_id in task.* events.
+            ...(callbackOptions.agentID?.trim() ? { agentId: callbackOptions.agentID.trim() } : {}),
           },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,
