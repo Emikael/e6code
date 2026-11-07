@@ -3469,6 +3469,122 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(" after approval");
   });
 
+  it("keeps the main reply streaming when a subagent asks for approval or input", async () => {
+    const harness = await createHarness({ serverSettings: { responseStreamingMode: "token" } });
+    const startedAt = "2026-03-28T07:00:00.000Z";
+    const pausedAt = "2026-03-28T07:00:01.000Z";
+    const resumedAt = "2026-03-28T07:00:02.000Z";
+    const completedAt = "2026-03-28T07:00:03.000Z";
+    const turnId = asTurnId("turn-subagent-request");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.readModel,
+      (thread) => thread.session?.status === "running" && thread.session?.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-subagent-request-initial"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-subagent-request"),
+      payload: { streamKind: "assistant_text", delta: "while the subagent works" },
+    });
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-request-opened-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: pausedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      requestId: ApprovalRequestId.make("req-subagent-request"),
+      payload: { requestType: "command_execution_approval", detail: "pwd", agentId: "task-1" },
+    });
+    harness.emit({
+      type: "user-input.requested",
+      eventId: asEventId("evt-user-input-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: pausedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      requestId: ApprovalRequestId.make("req-subagent-input"),
+      payload: {
+        questions: [
+          {
+            id: "Which branch?",
+            header: "Branch",
+            question: "Which branch?",
+            options: [{ label: "main", description: "" }],
+          },
+        ],
+        agentId: "task-1",
+      },
+    });
+
+    const paused = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-user-input-subagent-request",
+      ),
+    );
+    expect(
+      paused.activities.find(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-user-input-subagent-request",
+      )?.payload,
+    ).toMatchObject({ agentId: "task-1" });
+    expect(
+      paused.messages.find(
+        (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-subagent-request",
+      )?.streaming,
+    ).toBe(true);
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-subagent-request-followup"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: resumedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-subagent-request"),
+      payload: { streamKind: "assistant_text", delta: ", it keeps going" },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: completedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-subagent-request"),
+      payload: { itemType: "assistant_message", status: "completed" },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-subagent-request" && !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages
+        .filter((message: ProviderRuntimeTestMessage) =>
+          message.id.startsWith("assistant:item-subagent-request"),
+        )
+        .map((message: ProviderRuntimeTestMessage) => message.text),
+    ).toEqual(["while the subagent works, it keeps going"]);
+  });
+
   it("streams assistant deltas when thread.turn.start requests streaming mode", async () => {
     const harness = await createHarness({ serverSettings: { responseStreamingMode: "token" } });
     const now = "2026-01-01T00:00:00.000Z";

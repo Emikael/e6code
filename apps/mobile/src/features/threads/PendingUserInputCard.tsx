@@ -26,8 +26,26 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../../lib/threadActivity";
 
+const EYEBROW_CLASS_NAME =
+  "font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary";
+
+/** "User input needed", or the asking subagent's name; the name shrinks first. */
+function UserInputEyebrow(props: { readonly agentTitle: string | null }) {
+  if (!props.agentTitle) return <Text className={EYEBROW_CLASS_NAME}>User input needed</Text>;
+  return (
+    <View className="min-w-0 shrink flex-row items-baseline">
+      <Text className={cn("min-w-0 shrink", EYEBROW_CLASS_NAME)} numberOfLines={1}>
+        {props.agentTitle}
+      </Text>
+      <Text className={cn("shrink-0", EYEBROW_CLASS_NAME)}>{" needs your answer"}</Text>
+    </View>
+  );
+}
+
 export interface PendingUserInputCardProps {
   readonly pendingUserInput: PendingUserInput;
+  /** Title of the subagent that asked; null when the main agent asked. */
+  readonly agentTitle?: string | null;
   /**
    * Constant while a request is pending (it reserves keyboard space), so the
    * keyboard transition is pure translation; changes only on rare discrete
@@ -175,9 +193,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         onPress={props.onToggleCollapsed}
         className="min-h-10 flex-1 flex-row items-center gap-2 active:opacity-70"
       >
-        <Text className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-          User input needed
-        </Text>
+        <UserInputEyebrow agentTitle={props.agentTitle ?? null} />
         <Text className="font-sans text-xs text-foreground-muted">
           {questionCount} question{questionCount === 1 ? "" : "s"}
         </Text>
@@ -234,9 +250,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         className="flex-row items-start gap-2"
       >
         <View className="flex-1 gap-2.5">
-          <Text className="font-e6-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-            User input needed
-          </Text>
+          <UserInputEyebrow agentTitle={props.agentTitle ?? null} />
           <Text className="font-e6-bold text-lg text-foreground">Fill in the pending answers</Text>
         </View>
         <View className="h-8 w-8 items-center justify-center rounded-full bg-subtle-strong">

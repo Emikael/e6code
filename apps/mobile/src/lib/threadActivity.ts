@@ -225,6 +225,8 @@ export interface AgentSpawnSummary {
   readonly status: string;
   readonly tone: "working" | "completed" | "failed" | "stopped";
   readonly members: ReadonlyArray<{
+    /** Task id, matching PendingApproval.agentId when this member asks. */
+    readonly id: string;
     readonly title: string;
     readonly status: string;
     readonly tone: "working" | "completed" | "failed" | "stopped";
@@ -1149,7 +1151,10 @@ export function agentSpawnLabel(spawn: NonNullable<WorkLogEntry["agentSpawn"]>):
 
 /** Workflow coordinators sit in their own batch but are not a member. */
 function agentSpawnMembers(spawn: NonNullable<WorkLogEntry["agentSpawn"]>) {
-  return spawn.agents.filter((_, index) => spawn.agentTaskIds[index] !== spawn.workflowId);
+  return spawn.agents.flatMap((agent, index) => {
+    const id = spawn.agentTaskIds[index];
+    return id === undefined || id === spawn.workflowId ? [] : [{ ...agent, id }];
+  });
 }
 
 function agentSpawnTone(status: WorkLogToolLifecycleStatus | undefined): AgentSpawnSummary["tone"] {
@@ -1180,6 +1185,7 @@ export function agentSpawnSummary(
   const members = agentSpawnMembers(spawn).map((agent) => {
     const tone = agentSpawnTone(agent.status);
     return {
+      id: agent.id,
       title: agent.title,
       status: tone === "working" ? "working" : (agent.status ?? tone),
       tone,

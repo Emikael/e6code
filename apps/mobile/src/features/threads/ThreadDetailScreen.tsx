@@ -85,6 +85,7 @@ import type {
   PendingUserInputDraftAnswer,
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
+import type { SubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
@@ -114,6 +115,9 @@ import {
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
+import { SubagentRequestsContext } from "./thread-work-log";
+
+const NO_SUBAGENT_REQUESTS: ReadonlyMap<string, SubagentUserRequest> = new Map();
 
 export interface ThreadDetailScreenProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
@@ -138,6 +142,12 @@ export interface ThreadDetailScreenProps {
     | { readonly kind: "failed"; readonly reason: string; readonly onEditTask: () => void }
     | null;
   readonly activePendingApproval: PendingApproval | null;
+  /** Title of the subagent behind activePendingApproval, when one asked. */
+  readonly activePendingApprovalAgentTitle?: string | null;
+  /** Pending requests by the subagent that made them; their spawn-card rows say so. */
+  readonly subagentRequests?: ReadonlyMap<string, SubagentUserRequest>;
+  /** Title of the subagent behind activePendingUserInput, when one asked. */
+  readonly activePendingUserInputAgentTitle?: string | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
@@ -905,39 +915,42 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 : "absolute inset-0 bg-screen"
             }
           />
-          <ThreadFeed
-            key={selectedThreadKey}
-            environmentId={props.environmentId}
-            threadId={props.selectedThread.id}
-            workspaceRoot={props.threadCwd}
-            feed={props.selectedThreadFeed}
-            worktreeSetup={props.worktreeSetup}
-            setupWorkingStartedAt={props.setupWorkingStartedAt}
-            queuedMessages={props.queuedMessages}
-            dispatchingMessageId={props.dispatchingMessageId}
-            onEditPendingMessage={handleEditPendingMessage}
-            contentPresentation={props.contentPresentation}
-            agentLabel={agentLabel}
-            latestTurn={props.selectedThread.latestTurn}
-            activeWorkStartedAt={props.activeWorkStartedAt}
-            listRef={listRef}
-            freeze={freeze}
-            anchorMessageId={anchorMessageId}
-            submittedMessageId={submittedMessageId}
-            contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
-            contentTopInset={0}
-            contentBottomInset={
-              estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
-            }
-            contentMaxWidth={contentMaxWidth}
-            layoutVariant={layoutVariant}
-            usesAutomaticContentInsets={props.usesAutomaticContentInsets}
-            onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
-            onEndFollowEnabledChange={setEndFollowEnabled}
-            skills={selectedProviderSkills}
-            onUseArtifactTemplate={handleUseArtifactTemplate}
-            loadEarlier={props.loadEarlier ?? null}
-          />
+          <SubagentRequestsContext value={props.subagentRequests ?? NO_SUBAGENT_REQUESTS}>
+            <ThreadFeed
+              key={selectedThreadKey}
+              environmentId={props.environmentId}
+              threadId={props.selectedThread.id}
+              workspaceRoot={props.threadCwd}
+              feed={props.selectedThreadFeed}
+              worktreeSetup={props.worktreeSetup}
+              setupWorkingStartedAt={props.setupWorkingStartedAt}
+              queuedMessages={props.queuedMessages}
+              dispatchingMessageId={props.dispatchingMessageId}
+              onEditPendingMessage={handleEditPendingMessage}
+              contentPresentation={props.contentPresentation}
+              agentLabel={agentLabel}
+              latestTurn={props.selectedThread.latestTurn}
+              activeWorkStartedAt={props.activeWorkStartedAt}
+              listRef={listRef}
+              freeze={freeze}
+              anchorMessageId={anchorMessageId}
+              submittedMessageId={submittedMessageId}
+              contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
+              contentTopInset={0}
+              contentBottomInset={
+                estimatedOverlayHeight +
+                (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
+              }
+              contentMaxWidth={contentMaxWidth}
+              layoutVariant={layoutVariant}
+              usesAutomaticContentInsets={props.usesAutomaticContentInsets}
+              onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
+              onEndFollowEnabledChange={setEndFollowEnabled}
+              skills={selectedProviderSkills}
+              onUseArtifactTemplate={handleUseArtifactTemplate}
+              loadEarlier={props.loadEarlier ?? null}
+            />
+          </SubagentRequestsContext>
         </View>
       ) : (
         <View className="flex-1" />
@@ -1036,6 +1049,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     {props.activePendingApproval ? (
                       <PendingApprovalCard
                         approval={props.activePendingApproval}
+                        agentTitle={props.activePendingApprovalAgentTitle ?? null}
                         respondingApprovalId={props.respondingApprovalId}
                         onRespond={props.onRespondToApproval}
                       />
@@ -1043,6 +1057,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     {props.activePendingUserInput ? (
                       <PendingUserInputCard
                         pendingUserInput={props.activePendingUserInput}
+                        agentTitle={props.activePendingUserInputAgentTitle ?? null}
                         maxHeight={pendingUserInputMaxHeight}
                         collapsed={userInputCollapsed}
                         onToggleCollapsed={handleToggleUserInputCollapsed}

@@ -6204,6 +6204,7 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(requested.value.providerRefs, {
         providerItemId: ProviderItemId.make("tool-use-1"),
       });
+      assert.equal(requested.value.payload.agentId, undefined);
       const runtimeRequestId = requested.value.requestId;
       assert.equal(typeof runtimeRequestId, "string");
       if (runtimeRequestId === undefined) {
@@ -6233,6 +6234,77 @@ describe("ClaudeAdapterLive", () => {
 
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.equal((permissionResult as PermissionResult).behavior, "allow");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("names the sub-agent that asked for approval", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "fan out", attachments: [] });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+      // A workflow member reports its current attempt's id; clients know it
+      // by its stable slot.
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "wf-share",
+        description: "Share links workflow",
+        usage: { total_tokens: 10, tool_uses: 1, duration_ms: 10 },
+        workflow_progress: [
+          { type: "workflow_agent", index: 0, state: "running", agentId: "attempt-7" },
+        ],
+        uuid: "wf-share-tick",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+
+      const askAs = (agentID: string | undefined, requestId: string) =>
+        Effect.gen(function* () {
+          const decision = canUseTool(
+            "Bash",
+            { command: "vp run typecheck --filter server" },
+            {
+              signal: new AbortController().signal,
+              requestId,
+              toolUseID: `tool-${requestId}`,
+              ...(agentID !== undefined ? { agentID } : {}),
+            },
+          );
+          const opened = yield* Stream.runHead(
+            adapter.streamEvents.pipe(Stream.filter((event) => event.type === "request.opened")),
+          );
+          const event = opened._tag === "Some" ? opened.value : undefined;
+          if (event?.type !== "request.opened" || event.requestId === undefined) {
+            return "missing";
+          }
+          yield* adapter.respondToRequest(
+            session.threadId,
+            ApprovalRequestId.make(event.requestId),
+            "decline",
+          );
+          yield* Effect.promise(() => decision);
+          return event.payload.agentId;
+        });
+
+      // The SDK sets agentID to the sub-agent's id, its task_id in task.* messages.
+      assert.equal(yield* askAs("agent-api", "request-direct"), "agent-api");
+      assert.equal(yield* askAs("attempt-7", "request-member"), "wf-share:wf:0");
+      assert.equal(yield* askAs("   ", "request-blank"), undefined);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -8043,6 +8115,55 @@ describe("ClaudeAdapterLive", () => {
       const updatedInput = (permissionResult as { updatedInput: Record<string, unknown> })
         .updatedInput;
       assert.deepEqual(updatedInput.answers, { "Deploy to which env?": "Staging" });
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("names the sub-agent that asked a question", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+
+      const question = "Which base branch?";
+      const permissionPromise = canUseTool(
+        "AskUserQuestion",
+        { questions: [{ question, header: "Branch", options: [], multiSelect: false }] },
+        {
+          signal: new AbortController().signal,
+          requestId: "request-subagent-question",
+          toolUseID: "tool-subagent-question",
+          agentID: "agent-api",
+        },
+      );
+
+      const requested = yield* Stream.runHead(adapter.streamEvents);
+      if (requested._tag !== "Some" || requested.value.type !== "user-input.requested") {
+        assert.fail("Expected user-input.requested event");
+        return;
+      }
+      assert.equal(requested.value.payload.agentId, "agent-api");
+
+      yield* adapter.respondToUserInput(
+        session.threadId,
+        ApprovalRequestId.make(requested.value.requestId!),
+        { [question]: "main" },
+      );
+      yield* Stream.runHead(adapter.streamEvents);
+      yield* Effect.promise(() => permissionPromise);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

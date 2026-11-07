@@ -26,6 +26,7 @@ import {
   ThreadId,
   type ProjectScript,
 } from "@e6tools/contracts";
+import { findSubagent } from "@e6tools/client-runtime/state/subagentRuntime";
 import { shouldOfferHandoff } from "@e6tools/client-runtime/state/thread-handoff";
 import { providerDisplayLabel } from "../../lib/modelOptions";
 import { ThreadHandoffContainer } from "./ThreadHandoffContainer";
@@ -530,6 +531,14 @@ function ThreadRouteContent(
     selectedThread?.session ?? null,
   );
   const liveSubagentCount = subagentPanel.liveCount;
+  const activePendingApprovalAgentId = requests.activePendingApproval?.agentId;
+  const activePendingApprovalAgentTitle = activePendingApprovalAgentId
+    ? (findSubagent(subagentPanel, activePendingApprovalAgentId)?.title ?? null)
+    : null;
+  const activePendingUserInputAgentId = requests.activePendingUserInput?.agentId;
+  const activePendingUserInputAgentTitle = activePendingUserInputAgentId
+    ? (findSubagent(subagentPanel, activePendingUserInputAgentId)?.title ?? null)
+    : null;
   const inspectorEnvironmentId = selectedThread?.environmentId ?? null;
   const inspectorThreadId = selectedThread?.id ?? null;
   const inspectorControl = useMemo(
@@ -1099,6 +1108,9 @@ function ThreadRouteContent(
               : null
           }
           activePendingApproval={requests.activePendingApproval}
+          activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
+          subagentRequests={requests.subagentRequests}
+          activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}

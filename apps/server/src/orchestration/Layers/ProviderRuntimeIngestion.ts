@@ -508,6 +508,7 @@ export function runtimeEventToActivities(
             ...(event.payload.detail ? { detail: event.payload.detail } : {}),
             ...(event.payload.appName ? { appName: event.payload.appName } : {}),
             ...(event.payload.options ? { options: event.payload.options } : {}),
+            ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -628,6 +629,7 @@ export function runtimeEventToActivities(
             ...(event.requestId ? { requestId: event.requestId } : {}),
             questions: event.payload.questions,
             ...(event.payload.responseMode ? { responseMode: event.payload.responseMode } : {}),
+            ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -2090,9 +2092,13 @@ const make = Effect.gen(function* () {
         }
       }
 
+      // A subagent's request blocks only that subagent; the main agent may still
+      // be streaming its reply, so leave that message open.
       const pauseForUserTurnId =
-        event.type === "request.opened" ||
-        (event.type === "user-input.requested" && event.payload.responseMode !== "message")
+        (event.type === "request.opened" && !event.payload.agentId) ||
+        (event.type === "user-input.requested" &&
+          event.payload.responseMode !== "message" &&
+          !event.payload.agentId)
           ? toTurnId(event.turnId)
           : undefined;
       if (pauseForUserTurnId) {

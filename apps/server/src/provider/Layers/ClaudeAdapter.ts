@@ -446,6 +446,12 @@ interface ClaudeSessionContext {
    * even when nothing changed for most members.
    */
   readonly workflowMemberFingerprints: Map<string, string>;
+  /**
+   * A workflow member's current attempt agent id -> its stable slot task id
+   * (`<coordinatorTaskId>:wf:<index>`). canUseTool reports the attempt id;
+   * clients know the member by its slot.
+   */
+  readonly workflowSlotByAgentId: Map<string, string>;
   /** Task ids that have started and not yet reached a terminal state. */
   readonly liveTaskIds: Set<string>;
   turnState: ClaudeTurnState | undefined;
@@ -1388,6 +1394,8 @@ const WORKFLOW_AGENT_CAP = 100;
 interface ClaudeWorkflowAgentEntry {
   readonly index: number;
   readonly state: string;
+  /** The current attempt's agent id; canUseTool names the member by it. */
+  readonly agentId: string | undefined;
   readonly label: string | undefined;
   readonly phaseIndex: number | undefined;
   readonly phaseTitle: string | undefined;
@@ -1443,6 +1451,7 @@ function parseWorkflowProgress(value: unknown): ClaudeWorkflowProgress | undefin
     agentsByIndex.set(index, {
       index,
       state,
+      agentId: trimmedString(record.agentId),
       label: trimmedString(record.label),
       phaseIndex: nonNegativeInt(record.phaseIndex),
       phaseTitle: trimmedString(record.phaseTitle),
@@ -3532,6 +3541,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     const coordinatorId = message.task_id;
     for (const entry of progress.agents) {
       const memberTaskId = `${coordinatorId}:wf:${entry.index}`;
+      if (entry.agentId) context.workflowSlotByAgentId.set(entry.agentId, memberTaskId);
       const status = workflowAgentStatus(entry);
       // Material-transition filter: the wire repeats every member each tick.
       // Emit only when something the client renders actually changed, so a
@@ -4452,9 +4462,22 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const pendingTaskModels = new Map<string, string>();
       const workflowMemberFingerprints = new Map<string, string>();
+      const workflowSlotByAgentId = new Map<string, string>();
       const liveTaskIds = new Set<string>();
 
       const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
+
+      /**
+       * The SDK passes the asking sub-agent's id: its task_id in task.* events,
+       * or for a workflow member the current attempt's id, known by its slot.
+       */
+      const requestAgentIdField = (
+        context: ClaudeSessionContext,
+        sdkAgentId: string | undefined,
+      ): { agentId?: string } => {
+        const agentId = sdkAgentId?.trim();
+        return agentId ? { agentId: context.workflowSlotByAgentId.get(agentId) ?? agentId } : {};
+      };
 
       /**
        * Handle AskUserQuestion tool calls by emitting a `user-input.requested`
@@ -4466,6 +4489,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         callbackOptions: {
           readonly signal: AbortSignal;
           readonly toolUseID?: string;
+          readonly agentID?: string;
         },
       ) {
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
@@ -4523,7 +4547,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               }
             : {}),
           requestId: asRuntimeRequestId(requestId),
-          payload: { questions },
+          payload: { questions, ...requestAgentIdField(context, callbackOptions.agentID) },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,
           }),
@@ -4748,6 +4772,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               input: toolInput,
               ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
             },
+            ...requestAgentIdField(context, callbackOptions.agentID),
           },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,
@@ -5059,6 +5084,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         taskAgents,
         pendingTaskModels,
         workflowMemberFingerprints,
+        workflowSlotByAgentId,
         liveTaskIds,
         turnState: undefined,
         lastKnownContextWindow: initialContextWindow,

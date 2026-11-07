@@ -1,4 +1,7 @@
-import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import {
+  derivePendingRequests,
+  subagentUserRequests,
+} from "@e6tools/client-runtime/pending-requests";
 import { useServerConfigs } from "./entities";
 import { Alert } from "react-native";
 import {
@@ -104,6 +107,14 @@ export function useSelectedThreadRequests() {
     [selectedThread?.activities],
   );
   const activePendingApproval = activePendingApprovals[0] ?? null;
+  const subagentRequests = useMemo(
+    () =>
+      subagentUserRequests({
+        approvals: activePendingApprovals,
+        userInputs: activePendingUserInputs,
+      }),
+    [activePendingApprovals, activePendingUserInputs],
+  );
   const activePendingUserInput = activePendingUserInputs[0] ?? null;
   const questionServerConfigs = useServerConfigs();
   const attachmentDrafts = useAtomValue(composerDraftsAtom);
@@ -330,6 +341,7 @@ export function useSelectedThreadRequests() {
 
   return {
     activePendingApproval,
+    subagentRequests,
     activePendingUserInput,
     activePendingUserInputDrafts,
     activePendingUserInputAnswers,

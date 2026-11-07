@@ -30,10 +30,12 @@ import {
   isActiveSubagentStatus,
   type RuntimeSubagent,
   SUBAGENT_STATUS_LABEL,
+  isSubagentWaitingTone,
   subagentActivityText,
-  subagentStatusTone,
+  subagentTone,
   summarizeSubagentStatuses,
 } from "@e6tools/client-runtime/state/subagentRuntime";
+import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import {
   BotIcon,
   BracesIcon,
@@ -416,7 +418,7 @@ function LineageRow({
   onSelect: (agentId: string) => void;
   onShowInThread: ((agentId: string) => void) | null;
 }) {
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const sessionUrl = agent.runHandles?.sessionUrl;
   const { copyToClipboard } = useCopyToClipboard({
     onCopy: () =>
@@ -516,16 +518,21 @@ function SubagentDetailCard({
   cardRef: Ref<HTMLDivElement>;
 }) {
   const [scriptOpen, setScriptOpen] = useState(false);
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const live = isActiveSubagentStatus(agent.status);
   const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
   const role =
     agent.role && agent.role.trim().toLowerCase() !== agent.title.trim().toLowerCase()
       ? agent.role
       : null;
-  const activity = live
-    ? (agent.progress ?? subagentActivityText(agent))
-    : (agent.error ?? agent.result ?? subagentActivityText(agent));
+  const request = agent.waitingOn ? describeSubagentUserRequest(agent.waitingOn) : null;
+  const activity = agent.waitingOn
+    ? agent.waitingOn.kind === "approval"
+      ? "Waiting for your approval in the composer."
+      : "Waiting for your answer in the composer."
+    : live
+      ? (agent.progress ?? subagentActivityText(agent))
+      : (agent.error ?? agent.result ?? subagentActivityText(agent));
   const scriptPath = agent.runHandles?.scriptPath;
   const canShowScript = scriptPath !== undefined && environmentId !== null && threadId !== null;
   const sessionUrl = agent.runHandles?.sessionUrl;
@@ -552,7 +559,9 @@ function SubagentDetailCard({
         </div>
         <span
           className={cn(
-            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-accent px-2 text-xs font-semibold",
+            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-semibold",
+            // The warning word needs its own surface to stay readable in every theme.
+            isSubagentWaitingTone(tone) ? "bg-warning-surface" : "bg-accent",
             SUBAGENT_TONE_TEXT_CLASS[tone],
           )}
         >
@@ -571,7 +580,20 @@ function SubagentDetailCard({
               agent.status === "failed" && "text-destructive-foreground",
             )}
           >
-            {activity}
+            {request ? (
+              <>
+                {request.text}
+                {request.code ? (
+                  <>
+                    {" "}
+                    <code className="break-all font-mono text-[11px]">{request.code}</code>
+                  </>
+                ) : null}
+                <span className={cn("block", MUTED)}>{activity}</span>
+              </>
+            ) : (
+              activity
+            )}
           </p>
         </div>
       ) : null}

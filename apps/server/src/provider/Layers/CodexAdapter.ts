@@ -1340,6 +1340,7 @@ function mapToRuntimeEvents(
           type: "user-input.requested",
           payload: {
             questions,
+            ...(event.agentId ? { agentId: event.agentId } : {}),
           },
         },
       ];
@@ -1428,6 +1429,7 @@ function mapToRuntimeEvents(
               }
             : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
+          ...(event.agentId ? { agentId: event.agentId } : {}),
         },
       },
     ];

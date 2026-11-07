@@ -48,13 +48,13 @@ import {
   isTerminalSubagentStatus,
   SUBAGENT_STATUS_LABEL,
   describeSpawnBatchStatus,
-  subagentActivityText,
-  subagentStatusTone,
+  subagentTone,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
   SubagentStatusGlyph,
+  SubagentActivityLine,
   SubagentStatusWord,
   SubagentTile,
 } from "../subagents/SubagentParts";
@@ -4908,12 +4908,14 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     completedAt: ends.length > 0 ? ends.toSorted().at(-1)! : null,
     updatedAt: workEntry.createdAt,
   };
-  // A subagent the Overview asked to show stays visible past the row cap.
+  // Rows keep spawn order. One the Overview asked to show, or one blocked on
+  // the user, stays visible past the row cap.
   const highlightedIndex = agents.findIndex((agent) => agent.id === highlightedSubagentId);
   const visibleAgents =
     showAllRows ||
     agents.length <= SPAWN_CARD_ROW_LIMIT + 2 ||
-    highlightedIndex >= SPAWN_CARD_ROW_LIMIT
+    highlightedIndex >= SPAWN_CARD_ROW_LIMIT ||
+    agents.slice(SPAWN_CARD_ROW_LIMIT).some((agent) => agent.waitingOn)
       ? agents
       : agents.slice(0, SPAWN_CARD_ROW_LIMIT);
   const toggleExpanded = () => {
@@ -5041,8 +5043,7 @@ function SubagentInlineRow({
   highlighted: boolean;
   onOpen: (agentId: string) => void;
 }) {
-  const tone = subagentStatusTone(agent.status);
-  const activity = subagentActivityText(agent);
+  const tone = subagentTone(agent);
   return (
     <button
       type="button"
@@ -5063,14 +5064,7 @@ function SubagentInlineRow({
           <SubagentStatusWord tone={tone} />
           <SubagentElapsed agent={agent} className="shrink-0 text-xs text-muted-foreground" />
         </span>
-        <span
-          className={cn(
-            "truncate text-xs leading-[1.1875rem]",
-            tone === "failed" ? "text-destructive-foreground" : "text-secondary-foreground",
-          )}
-        >
-          {activity ?? SUBAGENT_STATUS_LABEL[tone]}
-        </span>
+        <SubagentActivityLine agent={agent} tone={tone} />
       </span>
     </button>
   );
@@ -5088,8 +5082,7 @@ function SubagentBatchRow({
   highlighted: boolean;
   onOpen: (agentId: string) => void;
 }) {
-  const tone = subagentStatusTone(agent.status);
-  const activity = subagentActivityText(agent);
+  const tone = subagentTone(agent);
   const metrics = [
     formatSubagentModelLabel(agent.model, agent.effort),
     agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : null,
@@ -5121,14 +5114,7 @@ function SubagentBatchRow({
             className="min-w-14 shrink-0 text-right text-xs text-muted-foreground"
           />
         </span>
-        <span
-          className={cn(
-            "truncate text-xs leading-[1.1875rem]",
-            tone === "failed" ? "text-destructive-foreground" : "text-secondary-foreground",
-          )}
-        >
-          {activity ?? SUBAGENT_STATUS_LABEL[tone]}
-        </span>
+        <SubagentActivityLine agent={agent} tone={tone} />
         {/* Whole segments drop out when space runs short; none is cut mid-word. */}
         <span className="flex h-[1.0625rem] min-w-0 flex-wrap gap-x-1.5 overflow-hidden text-[11px] leading-[1.0625rem] tabular-nums text-muted-foreground">
           {metrics.length > 0

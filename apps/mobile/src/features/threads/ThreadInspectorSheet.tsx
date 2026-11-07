@@ -20,8 +20,13 @@ import {
   subagentActivityText,
   subagentElapsedIsLive,
   subagentElapsedMs,
-  subagentStatusTone,
+  subagentTone,
 } from "@e6tools/client-runtime/state/subagentRuntime";
+import {
+  derivePendingRequests,
+  describeSubagentUserRequest,
+  subagentUserRequests,
+} from "@e6tools/client-runtime/pending-requests";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Option from "effect/Option";
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -46,6 +51,8 @@ const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 
 /** The spawn card's status colors, keyed by the shared status words. */
 const STATUS_TEXT_CLASS = {
+  approval: "text-warning-foreground",
+  question: "text-warning-foreground",
   working: "text-adaptive-sky-700-300",
   idle: "text-foreground-muted",
   done: "text-adaptive-emerald-700-300",
@@ -54,6 +61,8 @@ const STATUS_TEXT_CLASS = {
 } as const satisfies Record<SubagentStatusTone, string>;
 
 const STATUS_DOT_CLASS = {
+  approval: "bg-warning-foreground",
+  question: "bg-warning-foreground",
   working: "bg-adaptive-sky-600-400",
   idle: "bg-foreground-muted",
   done: "bg-adaptive-emerald-600-400",
@@ -80,7 +89,12 @@ export function useThreadSubagentPanelModel(
   const sessionLive = subagentSessionIsLive(session);
   const source = activities ?? EMPTY_ACTIVITIES;
   return useMemo(
-    () => deriveAgentPanelModel({ agents: foldSubagentActivities(source, { sessionLive }) }),
+    () =>
+      deriveAgentPanelModel({
+        agents: foldSubagentActivities(source, { sessionLive }),
+        // A subagent a pending request names reads "Needs approval" or "Needs your answer".
+        waitingOn: subagentUserRequests(derivePendingRequests(source)),
+      }),
     [sessionLive, source],
   );
 }
@@ -367,9 +381,12 @@ const LineageRow = memo(function LineageRow(props: {
   }
 
   const { agent } = row;
-  const tone = subagentStatusTone(agent.status);
+  const tone = subagentTone(agent);
   const statusWord = SUBAGENT_STATUS_LABEL[tone];
-  const activity = subagentActivityText(agent);
+  const request = agent.waitingOn ? describeSubagentUserRequest(agent.waitingOn) : null;
+  const activity = request
+    ? [request.text, request.code].filter(Boolean).join(" ")
+    : subagentActivityText(agent);
   // A live timer would make this label stale within a second; settled time is final.
   const settledElapsedMs = subagentElapsedIsLive(agent.status) ? null : subagentElapsedMs(agent, 0);
   return (

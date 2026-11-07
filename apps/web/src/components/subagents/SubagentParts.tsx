@@ -5,9 +5,11 @@
  * node once a second, so a live fleet causes no React commits.
  */
 import type { ProviderDriverKind } from "@e6tools/contracts";
+import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import {
   formatSubagentElapsed,
   type RuntimeSubagent,
+  subagentActivityText,
   SUBAGENT_STATUS_LABEL,
   subagentElapsedIsLive,
   subagentElapsedMs,
@@ -19,7 +21,9 @@ import {
   CircleDashedIcon,
   CirclePauseIcon,
   CircleXIcon,
+  MessageCircleQuestionIcon,
   SquareIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -27,6 +31,8 @@ import { cn } from "~/lib/utils";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 
 export const SUBAGENT_TONE_TEXT_CLASS: Readonly<Record<SubagentStatusTone, string>> = {
+  approval: "text-warning-foreground",
+  question: "text-warning-foreground",
   working: "text-info-foreground",
   idle: "text-muted-foreground",
   done: "text-success-foreground",
@@ -54,6 +60,10 @@ export function SubagentStatusGlyph({
       : { "aria-label": SUBAGENT_STATUS_LABEL[tone], role: "img" }),
   };
   switch (tone) {
+    case "approval":
+      return <TriangleAlertIcon {...props} />;
+    case "question":
+      return <MessageCircleQuestionIcon {...props} />;
     case "working":
       return <CircleDashedIcon {...props} />;
     case "idle":
@@ -86,7 +96,11 @@ export function SubagentStatusWord({
         className,
       )}
     >
-      {tone === "working" ? (
+      {tone === "approval" ? (
+        <TriangleAlertIcon aria-hidden className="size-3 shrink-0" />
+      ) : tone === "question" ? (
+        <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />
+      ) : tone === "working" ? (
         <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "done" ? (
         <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
@@ -98,6 +112,46 @@ export function SubagentStatusWord({
         <SquareIcon aria-hidden className="size-3 shrink-0" />
       )}
       {SUBAGENT_STATUS_LABEL[tone]}
+    </span>
+  );
+}
+
+/**
+ * A row's second line. A subagent blocked on the user says what it wants
+ * ("wants to run `vp test`", "asks: Which branch?"); otherwise its latest
+ * activity, falling back to the status word.
+ */
+export function SubagentActivityLine({
+  agent,
+  tone,
+  className,
+}: {
+  agent: RuntimeSubagent;
+  tone: SubagentStatusTone;
+  className?: string;
+}) {
+  const request = agent.waitingOn ? describeSubagentUserRequest(agent.waitingOn) : null;
+  return (
+    <span
+      className={cn(
+        "truncate text-xs leading-[1.1875rem]",
+        tone === "failed" ? "text-destructive-foreground" : "text-secondary-foreground",
+        className,
+      )}
+    >
+      {request ? (
+        <>
+          {request.text}
+          {request.code ? (
+            <>
+              {" "}
+              <code className="font-mono text-[11px] text-foreground">{request.code}</code>
+            </>
+          ) : null}
+        </>
+      ) : (
+        (subagentActivityText(agent) ?? SUBAGENT_STATUS_LABEL[tone])
+      )}
     </span>
   );
 }

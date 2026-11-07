@@ -17,7 +17,11 @@ import {
   maxUsedPercent,
   shouldOfferHandoff,
 } from "@e6tools/client-runtime/state/thread-handoff";
-import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import {
+  derivePendingRequests,
+  SUBAGENT_APPROVAL_PHRASE,
+  subagentUserRequests,
+} from "@e6tools/client-runtime/pending-requests";
 import {
   questionAttachmentDraftId,
   questionAttachmentDraftPrefix,
@@ -238,6 +242,7 @@ import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import {
   deriveAgentPanelModel,
+  findSubagent,
   foldSubagentActivities,
   formatSubagentModelLabel,
 } from "@e6tools/client-runtime/state/subagentRuntime";
@@ -2957,16 +2962,21 @@ export default function ChatView(props: ChatViewProps) {
   // until orchestration-v2 lands (source precedence lives in the derive).
   // sessionLive derives interruption for agents orphaned by session death.
   const agentSessionLive = phase !== "disconnected";
+  const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
+    () => derivePendingRequests(threadActivities),
+    [threadActivities],
+  );
   const agentPanelModel = useMemo(
     () =>
       deriveAgentPanelModel({
         agents: foldSubagentActivities(threadActivities, { sessionLive: agentSessionLive }),
+        // A subagent a pending request names reads "Needs approval" or "Needs your answer".
+        waitingOn: subagentUserRequests({
+          approvals: pendingApprovals,
+          userInputs: pendingUserInputs,
+        }),
       }),
-    [agentSessionLive, threadActivities],
-  );
-  const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
-    () => derivePendingRequests(threadActivities),
-    [threadActivities],
+    [agentSessionLive, pendingApprovals, pendingUserInputs, threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingRequestKey = JSON.stringify([
@@ -3122,6 +3132,14 @@ export default function ChatView(props: ChatViewProps) {
     hasComposerAttachments: composerHasAttachments,
   });
   const activePendingApproval = pendingApprovals[0] ?? null;
+  const activePendingApprovalAgentId = activePendingApproval?.agentId;
+  const activePendingApprovalAgentTitle = activePendingApprovalAgentId
+    ? (findSubagent(agentPanelModel, activePendingApprovalAgentId)?.title ?? null)
+    : null;
+  const activePendingUserInputAgentId = activePendingUserInput?.agentId;
+  const activePendingUserInputAgentTitle = activePendingUserInputAgentId
+    ? (findSubagent(agentPanelModel, activePendingUserInputAgentId)?.title ?? null)
+    : null;
   // The open /usage-limits panel for this thread, model and turn. Only the open
   // moment is stored: the rows read live provider data, so a redeemed reset
   // credit or refreshed probe shows through. Anything that spends quota closes
@@ -10346,9 +10364,13 @@ export default function ChatView(props: ChatViewProps) {
                             />
                             <span className="font-medium text-foreground">
                               {activePendingApproval
-                                ? "Approval required at turn frontier"
+                                ? activePendingApprovalAgentTitle
+                                  ? `${activePendingApprovalAgentTitle} ${SUBAGENT_APPROVAL_PHRASE[activePendingApproval.requestKind]}`
+                                  : "Approval required at turn frontier"
                                 : pendingUserInputs.length > 0
-                                  ? "Agent waiting for your response"
+                                  ? activePendingUserInputAgentTitle
+                                    ? `${activePendingUserInputAgentTitle} needs your answer`
+                                    : "Agent waiting for your response"
                                   : "Plan ready to implement"}
                             </span>
                             {activePendingApproval?.detail ? (
@@ -10579,6 +10601,8 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
+                            activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
+                            activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
                             pendingApprovals={pendingApprovals}
                             pendingUserInputs={pendingUserInputs}
                             activePendingProgress={activePendingProgress}

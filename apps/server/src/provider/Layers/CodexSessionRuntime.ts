@@ -1392,6 +1392,25 @@ export const makeCodexSessionRuntime = (
           ...event,
         });
       });
+    // A collab subagent runs on its own app-server thread, and its task id is
+    // that thread id. Requests from any thread but the root come from one.
+    const requestAgentId = (requestThreadId: string) =>
+      Effect.map(Ref.get(sessionRef), (session) => {
+        const rootThreadId = currentProviderThreadId(session);
+        return rootThreadId !== undefined &&
+          requestThreadId.length > 0 &&
+          requestThreadId !== rootThreadId
+          ? requestThreadId
+          : undefined;
+      });
+    // Every approval and question request goes through here, so none can skip the tag.
+    const emitRequestEvent = (
+      requestThreadId: string,
+      event: Omit<ProviderEvent, "id" | "provider" | "createdAt" | "kind" | "agentId">,
+    ) =>
+      Effect.flatMap(requestAgentId(requestThreadId), (agentId) =>
+        emitEvent({ kind: "request", ...event, ...(agentId ? { agentId } : {}) }),
+      );
     const emitSessionEvent = (method: string, message: string) =>
       emitEvent({
         kind: "session",
@@ -2083,8 +2102,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/commandExecution/requestApproval",
           requestId,
@@ -2141,8 +2159,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/fileChange/requestApproval",
           requestId,
@@ -2209,8 +2226,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "mcpServer/elicitation/request",
           requestId,
@@ -2264,8 +2280,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/permissions/requestApproval",
           requestId,
@@ -2313,8 +2328,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/tool/requestUserInput",
           requestId,

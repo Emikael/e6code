@@ -2073,6 +2073,72 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       NodeAssert.equal(firstEvent.value.payload.requestType, "file_change_approval");
       NodeAssert.equal(firstEvent.value.payload.detail, "/tmp/workspace");
+      NodeAssert.equal(firstEvent.value.payload.agentId, undefined);
+    }),
+  );
+
+  it.effect("names the collab subagent whose thread asked for approval or input", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      // The session runtime tags requests from a child thread with that
+      // thread id, which is also the subagent's task id.
+      yield* runtime.emit({
+        id: asEventId("evt-child-command"),
+        kind: "request",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-08-24T00:00:00.000Z",
+        method: "item/commandExecution/requestApproval",
+        requestKind: "command",
+        requestId: ApprovalRequestId.make("req-child-command"),
+        turnId: asTurnId("turn-1"),
+        agentId: "provider-child-thread",
+        payload: {
+          itemId: "item-child",
+          command: "vp run typecheck --filter server",
+          threadId: "provider-child-thread",
+          turnId: "child-turn-1",
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "request.opened") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.payload.agentId, "provider-child-thread");
+
+      const questionFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      yield* runtime.emit({
+        id: asEventId("evt-child-question"),
+        kind: "request",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-08-24T00:00:01.000Z",
+        method: "item/tool/requestUserInput",
+        requestId: ApprovalRequestId.make("req-child-question"),
+        agentId: "provider-child-thread",
+        payload: {
+          itemId: "item-child-question",
+          threadId: "provider-child-thread",
+          turnId: "child-turn-1",
+          questions: [
+            {
+              id: "base",
+              header: "Branch",
+              question: "Which base branch?",
+              options: [{ label: "main", description: "The default branch" }],
+            },
+          ],
+        },
+      } satisfies ProviderEvent);
+      const question = yield* Fiber.join(questionFiber);
+      if (question._tag !== "Some" || question.value.type !== "user-input.requested") {
+        NodeAssert.fail("Expected user-input.requested event");
+      }
+      NodeAssert.equal(question.value.payload.agentId, "provider-child-thread");
     }),
   );
 
