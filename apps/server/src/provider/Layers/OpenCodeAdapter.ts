@@ -311,6 +311,8 @@ function trimText(value: string | undefined | null): string | undefined {
 }
 
 function openCodeEventSessionId(event: OpenCodeSubscribedEvent): string | undefined {
+  // A form names its session inside the form, not beside it.
+  if (event.type === "form.created") return event.data.form.sessionID;
   const data = event.data;
   if (typeof data !== "object" || data === null) return undefined;
   const sessionID = (data as { readonly sessionID?: unknown }).sessionID;
