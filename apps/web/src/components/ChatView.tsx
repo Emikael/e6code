@@ -84,9 +84,11 @@ import {
   resolvePromptInjectedEffort,
 } from "@e6tools/shared/model";
 import {
+  isWorktreeSetupStale,
   projectScriptCwd,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 import { sourceControlRepositorySelector } from "@e6tools/shared/sourceControl";
@@ -2202,6 +2204,17 @@ export default function ChatView(props: ChatViewProps) {
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
   );
+  const draftHeroSetupProject = useMemo(
+    () =>
+      activeProject
+        ? {
+            environmentId: activeProject.environmentId,
+            id: activeProject.id,
+            scripts: activeProjectScripts,
+          }
+        : null,
+    [activeProject, activeProjectScripts],
+  );
   // A project added by cloning exists before its files do. The draft stays
   // editable throughout; only sending waits for the clone, and a failed
   // clone offers its retry right where the user is looking.
@@ -3654,6 +3667,9 @@ export default function ChatView(props: ChatViewProps) {
   const cancelWorktreeSetup = useAtomCommand(vcsEnvironment.cancelWorktreeSetup, {
     reportFailure: false,
   });
+  const rerunWorktreeSetup = useAtomCommand(vcsEnvironment.rerunWorktreeSetup, {
+    reportFailure: false,
+  });
   const onCancelWorktreeSetup = useCallback(() => {
     if (!worktreeSetup || worktreeSetup.phase !== "running") return;
     void cancelWorktreeSetup({
@@ -4347,6 +4363,32 @@ export default function ChatView(props: ChatViewProps) {
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
 
+      // The setup script in the thread's own worktree runs on the server, which
+      // watches its exit code and records it on the thread when it succeeds.
+      // Servers without that method fall through to a plain terminal run.
+      if (
+        isServerThread &&
+        activeThreadRef &&
+        activeThread.worktreePath !== null &&
+        options?.cwd === undefined &&
+        options?.worktreePath === undefined &&
+        options?.env === undefined &&
+        setupProjectScript(activeProjectScripts)?.id === script.id
+      ) {
+        const rerun = await rerunWorktreeSetup({
+          environmentId,
+          input: { threadId: activeThreadId },
+        });
+        if (rerun._tag === "Success" && rerun.value.terminalId !== null) {
+          storeEnsureTerminal(activeThreadRef, rerun.value.terminalId, {
+            open: true,
+            active: true,
+          });
+          setTerminalFocusRequestId((value) => value + 1);
+          return;
+        }
+      }
+
       setTerminalUiLaunchContext({
         threadId: activeThreadId,
         cwd: targetCwd,
@@ -4422,9 +4464,13 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeProject,
+      activeProjectScripts,
       activeThread,
       activeThreadId,
       activeThreadRef,
+      isServerThread,
+      rerunWorktreeSetup,
+      storeEnsureTerminal,
       gitCwd,
       setTerminalOpen,
       setThreadError,
@@ -9952,6 +9998,9 @@ export default function ChatView(props: ChatViewProps) {
         .filter(Boolean)
         .join(" · ") || null
     : null;
+  const inspectorWorktreeSetupScript = activeThread?.worktreePath
+    ? setupProjectScript(activeProjectScripts)
+    : null;
   const inspectorWorkspace: InspectorWorkspace | null = activeThread
     ? {
         environmentId: activeThread.environmentId,
@@ -9965,6 +10014,14 @@ export default function ChatView(props: ChatViewProps) {
         activeProjectScripts,
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+          : null,
+        worktreeSetup: inspectorWorktreeSetupScript
+          ? {
+              script: inspectorWorktreeSetupScript,
+              changed:
+                activeThreadShell !== null &&
+                isWorktreeSetupStale(activeThreadShell, activeProjectScripts),
+            }
           : null,
         onRunProjectScript: runProjectScript,
         onAddProjectScript: saveProjectScript,
@@ -10801,6 +10858,7 @@ export default function ChatView(props: ChatViewProps) {
                       <DraftHeroFooter
                         keybindings={keybindings}
                         unpushed={selectUnpushedCommits(gitStatusQuery.data)}
+                        setupProject={draftHeroSetupProject}
                         onOpenSourceControl={addAgentsSurface}
                       />
                     </div>

@@ -38,6 +38,7 @@ import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -790,6 +791,19 @@ function ThreadRouteContent(
     });
   }, [navigation, selectedThread, selectedThreadProject?.workspaceRoot, terminalMenuSessions]);
 
+  const selectedThreadProjectScripts = useMemo(
+    () =>
+      selectedThreadProject
+        ? resolveProjectScripts(
+            routeEnvironmentRuntime?.serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
+            selectedThreadProject,
+          )
+        : [],
+    [routeEnvironmentRuntime?.serverConfig?.settings, selectedThreadProject],
+  );
+  const rerunWorktreeSetup = useAtomCommand(vcsEnvironment.rerunWorktreeSetup, {
+    reportFailure: false,
+  });
   const handleRunProjectScript = useCallback(
     async (script: ProjectScript) => {
       terminalDebugLog("project-script:press", {
@@ -805,6 +819,27 @@ function ThreadRouteContent(
           reason: "no-thread-or-workspace",
         });
         return;
+      }
+
+      // The setup script in the thread's worktree runs on the server, which
+      // records it on the thread once it exits cleanly. Older servers lack
+      // the method, so fall through to a plain terminal run.
+      if (
+        selectedThread.worktreePath &&
+        setupProjectScript(selectedThreadProjectScripts)?.id === script.id
+      ) {
+        const rerun = await rerunWorktreeSetup({
+          environmentId: selectedThread.environmentId,
+          input: { threadId: selectedThread.id },
+        });
+        if (rerun._tag === "Success" && rerun.value.terminalId !== null) {
+          void navigation.navigate("ThreadTerminal", {
+            environmentId: String(selectedThread.environmentId),
+            threadId: String(selectedThread.id),
+            terminalId: rerun.value.terminalId,
+          });
+          return;
+        }
       }
 
       const targetTerminalId = resolveProjectScriptTerminalId({
@@ -853,9 +888,11 @@ function ThreadRouteContent(
     },
     [
       navigation,
+      rerunWorktreeSetup,
       selectedThread,
       selectedThreadDetailWorktreePath,
       selectedThreadProject,
+      selectedThreadProjectScripts,
       terminalMenuSessions,
     ],
   );
@@ -878,12 +915,7 @@ function ThreadRouteContent(
     gitOperationLabel: gitState.gitOperationLabel,
     canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),
-    projectScripts: selectedThreadProject
-      ? resolveProjectScripts(
-          routeEnvironmentRuntime?.serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
-          selectedThreadProject,
-        )
-      : [],
+    projectScripts: selectedThreadProjectScripts,
     terminalSessions: terminalMenuSessions,
     showDirectFileControl: layout.usesSplitView,
     onOpenTerminal: handleOpenTerminal,
