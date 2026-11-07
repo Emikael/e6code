@@ -10032,6 +10032,7 @@ export default function ChatView(props: ChatViewProps) {
             ? undefined
             : openProjectPullRequest,
         onOpenDiff: isServerThread && isGitRepo ? addDiffSurface : null,
+        onOpenTurnDiff: isServerThread && isGitRepo ? onOpenTurnDiff : null,
       }
     : null;
   const rightPanelContent = activeThreadRef ? (

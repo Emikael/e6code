@@ -119,6 +119,7 @@ import {
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
+import { claudeChangedFiles } from "../subagentChangedFiles.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
@@ -3268,6 +3269,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
       }
 
+      // A subagent's edits are listed per subagent; the main agent's live in
+      // the turn diff already.
+      const changedFiles =
+        tool.agentId && tool.itemType === "file_change" && itemStatus === "completed"
+          ? claudeChangedFiles(tool.toolName, tool.input, toolUseResult)
+          : undefined;
       const completedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "item.completed",
@@ -3284,6 +3291,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ...(tool.detail ? { detail: tool.detail } : {}),
           ...(tool.agentId ? { agentId: tool.agentId } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
+          ...(changedFiles ? { changedFiles } : {}),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, {

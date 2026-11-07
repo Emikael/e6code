@@ -17,7 +17,7 @@
  * folding (completion can create an agent; a late start only fills
  * metadata).
  */
-import type { OrchestrationThreadActivity } from "@e6tools/contracts";
+import type { OrchestrationThreadActivity, TurnId } from "@e6tools/contracts";
 import type { SubagentUserRequest } from "../pendingRequests.ts";
 
 export type RuntimeSubagentStatus =
@@ -57,6 +57,25 @@ export interface SubagentRunHandles {
   readonly sessionUrl?: string;
 }
 
+/** One file a subagent changed, summed over every edit it made to that file. */
+export interface SubagentChangedFile {
+  /** As the provider reported it, usually absolute; clients relativize for display. */
+  readonly path: string;
+  /** Null when any edit to the file came without line counts. */
+  readonly additions: number | null;
+  readonly deletions: number | null;
+  /** Turn of the latest edit, whose diff shows this file; null outside a turn. */
+  readonly turnId: TurnId | null;
+}
+
+export interface SubagentChangedFiles {
+  /** In order of first change. */
+  readonly files: ReadonlyArray<SubagentChangedFile>;
+  /** Totals, null unless every file's counts are known. */
+  readonly additions: number | null;
+  readonly deletions: number | null;
+}
+
 export interface RuntimeSubagent {
   readonly id: string;
   readonly kind: "subagent" | "subagent_batch" | "workflow" | "workflow_agent";
@@ -86,6 +105,11 @@ export interface RuntimeSubagent {
    * user. Set by deriveAgentPanelModel from the thread's pending requests.
    */
   readonly waitingOn?: SubagentUserRequest;
+  /**
+   * Files this subagent's completed edits changed, across all its runs.
+   * Absent when it changed none or its provider does not attribute edits.
+   */
+  readonly changedFiles?: SubagentChangedFiles;
   /** First retained observation, used as the roster's stable display order. */
   readonly firstSeenAt: string;
   readonly startedAt: string | null;
@@ -455,6 +479,61 @@ function asRuntimeStatus(value: unknown): RuntimeSubagentStatus | undefined {
     : undefined;
 }
 
+interface MutableChangedFile {
+  path: string;
+  additions: number | null;
+  deletions: number | null;
+  turnId: TurnId | null;
+}
+
+/**
+ * Adds one completed file change (tool.completed with agentId and
+ * changedFiles) to its subagent's per-path tally. Repeated edits to a path sum.
+ */
+function recordChangedFiles(
+  byAgent: Map<string, Map<string, MutableChangedFile>>,
+  activity: OrchestrationThreadActivity,
+  payload: Record<string, unknown>,
+): void {
+  const agentId = asString(payload.agentId);
+  if (!agentId || !Array.isArray(payload.changedFiles)) return;
+  if (payload.status !== undefined && payload.status !== "completed") return;
+  let files = byAgent.get(agentId);
+  for (const entry of payload.changedFiles) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const path = asString(record.path);
+    if (!path) continue;
+    const additions = asCount(record.additions) ?? null;
+    const deletions = asCount(record.deletions) ?? null;
+    if (!files) {
+      files = new Map();
+      byAgent.set(agentId, files);
+    }
+    const existing = files.get(path);
+    if (!existing) {
+      files.set(path, { path, additions, deletions, turnId: activity.turnId });
+      continue;
+    }
+    existing.additions =
+      existing.additions === null || additions === null ? null : existing.additions + additions;
+    existing.deletions =
+      existing.deletions === null || deletions === null ? null : existing.deletions + deletions;
+    existing.turnId = activity.turnId ?? existing.turnId;
+  }
+}
+
+function toChangedFiles(files: Map<string, MutableChangedFile>): SubagentChangedFiles {
+  const list = Array.from(files.values(), (file) => ({ ...file }));
+  let additions: number | null = 0;
+  let deletions: number | null = 0;
+  for (const file of list) {
+    additions = additions === null || file.additions === null ? null : additions + file.additions;
+    deletions = deletions === null || file.deletions === null ? null : deletions + file.deletions;
+  }
+  return { files: list, additions, deletions };
+}
+
 /**
  * Folds a thread's persisted activities into subagent state. Tolerant by
  * construction: malformed rows are skipped individually; unknown kinds are
@@ -471,6 +550,9 @@ export function foldSubagentActivities(
   options?: { readonly sessionLive?: boolean },
 ): ReadonlyArray<RuntimeSubagent> {
   const agents = new Map<string, MutableAgent>();
+  // Kept apart from the roster: an edit can land before its agent's start row,
+  // and tool rows must never create an agent.
+  const changedFilesByAgent = new Map<string, Map<string, MutableChangedFile>>();
 
   for (const activity of activities) {
     if (typeof activity.payload !== "object" || activity.payload === null) {
@@ -619,6 +701,9 @@ export function foldSubagentActivities(
         agent.updatedAt = at;
         break;
       }
+      case "tool.completed":
+        recordChangedFiles(changedFilesByAgent, activity, payload);
+        break;
       case "tool.progress": {
         // Agent-owned heartbeat: "what it's doing right now".
         const taskId = asString(payload.taskId);
@@ -683,7 +768,10 @@ export function foldSubagentActivities(
       .slice(0, ROSTER_LIMIT);
   }
 
-  return roster.map((agent) => ({ ...agent }));
+  return roster.map((agent) => {
+    const files = changedFilesByAgent.get(agent.id);
+    return files ? { ...agent, changedFiles: toChangedFiles(files) } : { ...agent };
+  });
 }
 
 export interface AgentPanelWorkflowGroup {
@@ -897,6 +985,14 @@ export function formatSubagentModelLabel(
     .replace(/-\d{8}$/, "")
     .replace(/-latest$/, "");
   return effort ? `${compact} · ${effort}` : compact;
+}
+
+/** Files a subagent's file list shows before "Show N more", on every client. */
+export const SUBAGENT_FILES_PREVIEW_LIMIT = 8;
+
+/** "1 file", "6 files": the lead of a subagent's changed-files line. */
+export function formatSubagentFileCount(count: number): string {
+  return `${count} ${count === 1 ? "file" : "files"}`;
 }
 
 export function formatSubagentTokenCount(totalTokens: number): string {

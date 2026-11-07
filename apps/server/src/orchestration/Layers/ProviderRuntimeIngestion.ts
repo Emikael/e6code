@@ -973,6 +973,7 @@ export function runtimeEventToActivities(
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
+            ...(event.payload.changedFiles ? { changedFiles: event.payload.changedFiles } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

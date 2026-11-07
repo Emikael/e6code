@@ -1854,7 +1854,10 @@ export const makeCodexSessionRuntime = (
             });
             return true;
           case "item/started":
-          case "item/completed":
+          case "item/completed": {
+            // A child can keep working in later parent turns; its edits belong
+            // to the parent turn running now, whose diff will show them.
+            const parentTurnId = (yield* Ref.get(sessionRef)).activeTurnId;
             yield* emitEvent({
               kind: "notification",
               threadId: options.threadId,
@@ -1862,10 +1865,12 @@ export const makeCodexSessionRuntime = (
               method: "collabAgent/item",
               payload: {
                 ...childIdentity,
+                ...(parentTurnId ? { parentTurnId } : {}),
                 item: notification.params.item,
               },
             });
             return true;
+          }
           case "thread/closed":
             // The child is gone: drop its live-turn entry so a later Stop
             // doesn't waste a turn/interrupt RPC on a closed thread before

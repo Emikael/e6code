@@ -21,16 +21,20 @@ import type {
   ProviderDriverKind,
   ResolvedKeybindingsConfig,
   ThreadId,
+  TurnId,
 } from "@e6tools/contracts";
 import { scopeThreadRef } from "@e6tools/client-runtime/environment";
 import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
 import {
   type AgentPanelModel,
   type AgentPanelWorkflowGroup,
+  formatSubagentFileCount,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
   isActiveSubagentStatus,
   type RuntimeSubagent,
+  type SubagentChangedFiles,
+  SUBAGENT_FILES_PREVIEW_LIMIT,
   SUBAGENT_STATUS_LABEL,
   isSubagentWaitingTone,
   subagentActivityText,
@@ -38,6 +42,7 @@ import {
   summarizeSubagentStatuses,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
+import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import {
   BotIcon,
   BracesIcon,
@@ -85,6 +90,7 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "./ProjectScriptsControl";
+import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { OpenInPicker } from "./chat/OpenInPicker";
 import { shouldShowOpenInPicker } from "./chat/ChatHeader";
 import {
@@ -124,6 +130,8 @@ export interface InspectorWorkspace {
   onOpenPullRequest?: ((number: number) => void) | undefined;
   /** Opens the Diff surface; null when the thread has no diff to show. */
   onOpenDiff: (() => void) | null;
+  /** Opens one turn's diff, optionally at a file; null when there is none to show. */
+  onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
 }
 
 /** Stopping one subagent; null when the thread offers no Stop at all. */
@@ -573,11 +581,93 @@ function moveLineageFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   ]?.focus();
 }
 
+/**
+ * The files a subagent's edits changed. Each opens the diff of the turn that
+ * last touched it, at that file; counts appear only where the provider gave them.
+ */
+function SubagentFilesSection({
+  changedFiles,
+  workspaceRoot,
+  onOpenTurnDiff,
+}: {
+  changedFiles: SubagentChangedFiles;
+  workspaceRoot: string | null;
+  onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const { files, additions, deletions } = changedFiles;
+  const visible = showAll ? files : files.slice(0, SUBAGENT_FILES_PREVIEW_LIMIT);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="font-semibold">Files</span>
+        <span>{formatSubagentFileCount(files.length)}</span>
+        {additions !== null && deletions !== null ? (
+          <DiffStatLabel additions={additions} deletions={deletions} layout="inline" />
+        ) : null}
+      </span>
+      <ul className="-mx-1 flex flex-col">
+        {visible.map((file) => {
+          const path = workspaceRelativeFilePath(file.path, workspaceRoot) ?? file.path;
+          const name = fileBasename(path);
+          const directory = path.length > name.length ? path.slice(0, -name.length - 1) : "";
+          const content = (
+            <>
+              {/* Name and folder both give way; only the counts keep their width. */}
+              <span className="min-w-0 truncate font-mono text-[11px]">{name}</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                {directory}
+              </span>
+              {file.additions !== null && file.deletions !== null ? (
+                <DiffStatLabel
+                  additions={file.additions}
+                  deletions={file.deletions}
+                  layout="inline"
+                  className="shrink-0 text-[11px]"
+                />
+              ) : null}
+            </>
+          );
+          const turnId = file.turnId;
+          return (
+            <li key={file.path}>
+              {onOpenTurnDiff && turnId ? (
+                <button
+                  type="button"
+                  aria-label={`Open diff of ${path}`}
+                  onClick={() => onOpenTurnDiff(turnId, path)}
+                  className="flex h-6 w-full min-w-0 items-center gap-2 rounded-md px-1 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {content}
+                </button>
+              ) : (
+                <div className="flex h-6 min-w-0 items-center gap-2 px-1">{content}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {files.length > SUBAGENT_FILES_PREVIEW_LIMIT ? (
+        <button
+          type="button"
+          aria-expanded={showAll}
+          onClick={() => setShowAll((value) => !value)}
+          className="self-start rounded-md text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {showAll ? "Show fewer" : `Show ${files.length - SUBAGENT_FILES_PREVIEW_LIMIT} more`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function SubagentDetailCard({
   agent,
   providerKind,
   environmentId,
   threadId,
+  workspaceRoot,
+  onOpenTurnDiff,
   cardRef,
   stopControl,
 }: {
@@ -585,6 +675,8 @@ function SubagentDetailCard({
   providerKind: ProviderDriverKind | null;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
+  workspaceRoot: string | null;
+  onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
   cardRef: Ref<HTMLDivElement>;
   stopControl: InspectorSubagentStop | null;
 }) {
@@ -685,6 +777,13 @@ function SubagentDetailCard({
           </ul>
         </div>
       ) : null}
+      {agent.changedFiles ? (
+        <SubagentFilesSection
+          changedFiles={agent.changedFiles}
+          workspaceRoot={workspaceRoot}
+          onOpenTurnDiff={onOpenTurnDiff}
+        />
+      ) : null}
       <dl className="grid grid-cols-3 gap-2 border-t border-border pt-2.5">
         <div className="flex min-w-0 flex-col gap-0.5">
           <dt className="text-xs text-muted-foreground">Elapsed</dt>
@@ -774,6 +873,8 @@ function LineageSection({
   threadModelLabel,
   environmentId,
   threadId,
+  workspaceRoot,
+  onOpenTurnDiff,
   stopControl,
 }: {
   model: AgentPanelModel;
@@ -782,6 +883,8 @@ function LineageSection({
   threadModelLabel: string | null;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
+  workspaceRoot: string | null;
+  onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
   stopControl: InspectorSubagentStop | null;
 }) {
   const [showFolded, setShowFolded] = useState(false);
@@ -951,6 +1054,8 @@ function LineageSection({
               providerKind={providerKind}
               environmentId={environmentId}
               threadId={threadId}
+              workspaceRoot={workspaceRoot}
+              onOpenTurnDiff={onOpenTurnDiff}
               cardRef={cardRef}
               stopControl={stopControl}
             />
@@ -1005,6 +1110,8 @@ function InspectorOverviewView({
             threadModelLabel={threadModelLabel}
             environmentId={workspace?.environmentId ?? null}
             threadId={workspace?.threadId ?? null}
+            workspaceRoot={gitCwd}
+            onOpenTurnDiff={workspace?.onOpenTurnDiff ?? null}
             stopControl={subagentStop}
           />
         </div>

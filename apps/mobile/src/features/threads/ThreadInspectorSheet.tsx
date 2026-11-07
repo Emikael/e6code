@@ -21,8 +21,11 @@ import {
   isActiveSubagentStatus,
   foldSubagentActivities,
   formatSubagentElapsed,
+  formatSubagentFileCount,
   type RuntimeSubagent,
   type RuntimeSubagentStatus,
+  type SubagentChangedFiles,
+  SUBAGENT_FILES_PREVIEW_LIMIT,
   SUBAGENT_STATUS_LABEL,
   type SubagentStatusTone,
   subagentActivityText,
@@ -35,6 +38,7 @@ import {
   describeSubagentUserRequest,
   subagentUserRequests,
 } from "@e6tools/client-runtime/pending-requests";
+import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Option from "effect/Option";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -231,6 +235,7 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
                 row={row}
                 selected={row.kind === "agent" && row.agent.id === selectedAgentId}
                 onSelect={onSelectAgent}
+                workspaceRoot={selectedThreadCwd}
                 stop={
                   row.kind === "agent" &&
                   row.agent.id === selectedAgentId &&
@@ -470,10 +475,95 @@ function SourceControlCard(props: {
   );
 }
 
+/** "+247 −9", shown only when the counts are known. */
+function LineCounts(props: {
+  readonly additions: number | null;
+  readonly deletions: number | null;
+}) {
+  if (props.additions === null || props.deletions === null) return null;
+  return (
+    <>
+      <Text className="shrink-0 text-sm tabular-nums text-adaptive-emerald-700-300">
+        +{props.additions}
+      </Text>
+      <Text className="shrink-0 text-sm tabular-nums text-adaptive-rose-700-300">
+        −{props.deletions}
+      </Text>
+    </>
+  );
+}
+
+function changedFilesLabel(changedFiles: SubagentChangedFiles): string {
+  const count = formatSubagentFileCount(changedFiles.files.length);
+  return changedFiles.additions === null || changedFiles.deletions === null
+    ? `${count} changed`
+    : `${count} changed, ${changedFiles.additions} additions, ${changedFiles.deletions} deletions`;
+}
+
+/** The files a selected subagent changed, read-only: diffs open from web. */
+function ChangedFilesList(props: {
+  readonly changedFiles: SubagentChangedFiles;
+  readonly workspaceRoot: string | null;
+  readonly indented: boolean;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const { files } = props.changedFiles;
+  const hidden = files.length - SUBAGENT_FILES_PREVIEW_LIMIT;
+  return (
+    <View className={cn("gap-1 pr-4 pb-2.5", props.indented ? "pl-[96px]" : "pl-14")}>
+      {(showAll ? files : files.slice(0, SUBAGENT_FILES_PREVIEW_LIMIT)).map((file) => {
+        const path = workspaceRelativeFilePath(file.path, props.workspaceRoot) ?? file.path;
+        const name = fileBasename(path);
+        const directory = path.length > name.length ? path.slice(0, -name.length - 1) : "";
+        return (
+          <View
+            key={file.path}
+            accessible
+            accessibilityLabel={[
+              path,
+              file.additions === null ? null : `${file.additions} additions`,
+              file.deletions === null ? null : `${file.deletions} deletions`,
+            ]
+              .filter(Boolean)
+              .join(", ")}
+            className="flex-row items-center gap-2"
+          >
+            {/* Name and folder both give way; only the counts keep their width. */}
+            <Text className="min-w-0 shrink font-mono text-sm text-foreground" numberOfLines={1}>
+              {name}
+            </Text>
+            <Text
+              className="min-w-0 flex-1 text-sm text-foreground-muted"
+              numberOfLines={1}
+              ellipsizeMode="head"
+            >
+              {directory}
+            </Text>
+            <LineCounts additions={file.additions} deletions={file.deletions} />
+          </View>
+        );
+      })}
+      {hidden > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showAll }}
+          onPress={() => setShowAll((value) => !value)}
+          className="min-h-11 justify-center self-start"
+        >
+          <Text className="font-e6-medium text-sm text-foreground-muted">
+            {showAll ? "Show fewer" : `Show ${hidden} more`}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 const LineageRow = memo(function LineageRow(props: {
   readonly row: InspectorLineageRow;
   readonly selected: boolean;
   readonly onSelect: (agentId: string) => void;
+  readonly workspaceRoot: string | null;
   /** Present while this row is selected and its subagent can be stopped. */
   readonly stop: { readonly pending: boolean; readonly onStop: (agentId: string) => void } | null;
 }) {
@@ -503,6 +593,7 @@ const LineageRow = memo(function LineageRow(props: {
     : subagentActivityText(agent);
   // A live timer would make this label stale within a second; settled time is final.
   const settledElapsedMs = subagentElapsedIsLive(agent.status) ? null : subagentElapsedMs(agent, 0);
+  const { changedFiles } = agent;
   const rowButton = (
     <Pressable
       accessibilityRole="button"
@@ -512,9 +603,15 @@ const LineageRow = memo(function LineageRow(props: {
         statusWord,
         activity?.replace(/^▸ /, ""),
         settledElapsedMs === null ? null : formatSubagentElapsed(settledElapsedMs),
+        changedFiles ? changedFilesLabel(changedFiles) : null,
       ]
         .filter(Boolean)
         .join(", ")}
+      accessibilityHint={
+        changedFiles
+          ? `Double tap to ${props.selected ? "hide" : "list"} the files it changed.`
+          : undefined
+      }
       onPress={() => props.onSelect(agent.id)}
       className={cn(
         "min-h-14 flex-row items-center gap-3 py-2.5 pr-4 active:bg-subtle",
@@ -542,37 +639,63 @@ const LineageRow = memo(function LineageRow(props: {
             updatedAt={agent.updatedAt}
           />
         </View>
+        {changedFiles ? (
+          <View className="flex-row items-center gap-1.5">
+            <Text className="text-sm text-foreground-muted">
+              {formatSubagentFileCount(changedFiles.files.length)}
+            </Text>
+            <LineCounts additions={changedFiles.additions} deletions={changedFiles.deletions} />
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
+  const filesList =
+    props.selected && changedFiles ? (
+      <ChangedFilesList
+        changedFiles={changedFiles}
+        workspaceRoot={props.workspaceRoot}
+        indented={row.depth === 1}
+      />
+    ) : null;
   const { stop } = props;
-  if (!stop) return rowButton;
+  if (!stop) {
+    return (
+      <>
+        {rowButton}
+        {filesList}
+      </>
+    );
+  }
   return (
-    <View className="bg-subtle">
-      {rowButton}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={stop.pending ? `Stopping ${agent.title}` : `Stop ${agent.title}`}
-        accessibilityState={{ disabled: stop.pending }}
-        disabled={stop.pending}
-        onPress={() => stop.onStop(agent.id)}
-        className={cn(
-          "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
-          row.depth === 1 ? "pl-24" : "pl-14",
-          stop.pending && "opacity-60",
-        )}
-      >
-        <SymbolView
-          name="stop.fill"
-          size={13}
-          tintColorClassName="accent-danger-foreground"
-          type="monochrome"
-        />
-        <Text className="font-e6-medium text-sm text-danger-foreground">
-          {stop.pending ? "Stopping…" : "Stop subagent"}
-        </Text>
-      </Pressable>
-    </View>
+    <>
+      <View className="bg-subtle">
+        {rowButton}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={stop.pending ? `Stopping ${agent.title}` : `Stop ${agent.title}`}
+          accessibilityState={{ disabled: stop.pending }}
+          disabled={stop.pending}
+          onPress={() => stop.onStop(agent.id)}
+          className={cn(
+            "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
+            row.depth === 1 ? "pl-24" : "pl-14",
+            stop.pending && "opacity-60",
+          )}
+        >
+          <SymbolView
+            name="stop.fill"
+            size={13}
+            tintColorClassName="accent-danger-foreground"
+            type="monochrome"
+          />
+          <Text className="font-e6-medium text-sm text-danger-foreground">
+            {stop.pending ? "Stopping…" : "Stop subagent"}
+          </Text>
+        </Pressable>
+      </View>
+      {filesList}
+    </>
   );
 });
 

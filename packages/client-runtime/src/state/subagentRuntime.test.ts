@@ -7,6 +7,7 @@ import {
   foldSubagentActivities,
   describeSpawnBatchStatus,
   formatSubagentElapsed,
+  formatSubagentFileCount,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
   subagentActivityText,
@@ -378,6 +379,75 @@ describe("foldSubagentActivities", () => {
     ]);
     expect(agents[0]!.runHandles?.sessionUrl).toBeUndefined();
     expect(agents[0]!.runHandles?.runId).toBe("run-1");
+  });
+});
+
+describe("subagent changed files", () => {
+  function fileChange(
+    agentId: string | undefined,
+    changedFiles: ReadonlyArray<Record<string, unknown>>,
+    turnId: string | null,
+    status = "completed",
+  ): OrchestrationThreadActivity {
+    const row = activity("tool.completed", {
+      itemType: "file_change",
+      status,
+      ...(agentId ? { agentId } : {}),
+      changedFiles,
+    });
+    return { ...row, turnId } as OrchestrationThreadActivity;
+  }
+
+  it("sums each subagent's edits per file and keeps the latest edit's turn", () => {
+    const agents = fold([
+      // An edit can arrive before the start row; it still lands on the agent.
+      fileChange("task-1", [{ path: "/repo/a.ts", additions: 3, deletions: 1 }], "turn-1"),
+      activity("task.started", { taskId: "task-1", title: "Refactor" }),
+      activity("task.started", { taskId: "task-2", title: "Docs" }),
+      fileChange(
+        "task-1",
+        [
+          { path: "/repo/b.ts", additions: 10, deletions: 0 },
+          { path: "/repo/a.ts", additions: 2, deletions: 2 },
+        ],
+        "turn-2",
+      ),
+      fileChange("task-2", [{ path: "/repo/README.md" }], "turn-2"),
+      // Not counted: the main agent's edit, a declined patch, and an unknown agent.
+      fileChange(undefined, [{ path: "/repo/main.ts", additions: 1, deletions: 0 }], "turn-2"),
+      fileChange(
+        "task-1",
+        [{ path: "/repo/c.ts", additions: 1, deletions: 0 }],
+        "turn-2",
+        "declined",
+      ),
+      fileChange("task-9", [{ path: "/repo/d.ts", additions: 1, deletions: 0 }], "turn-2"),
+    ]);
+    expect(agents).toHaveLength(2);
+    expect(agents.find((agent) => agent.id === "task-1")?.changedFiles).toEqual({
+      files: [
+        { path: "/repo/a.ts", additions: 5, deletions: 3, turnId: "turn-2" },
+        { path: "/repo/b.ts", additions: 10, deletions: 0, turnId: "turn-2" },
+      ],
+      additions: 15,
+      deletions: 3,
+    });
+    // Counts the provider did not report stay unknown instead of reading as zero.
+    expect(agents.find((agent) => agent.id === "task-2")?.changedFiles).toEqual({
+      files: [{ path: "/repo/README.md", additions: null, deletions: null, turnId: "turn-2" }],
+      additions: null,
+      deletions: null,
+    });
+  });
+
+  it("an agent that changed nothing has no file list", () => {
+    const agents = fold([activity("task.started", { taskId: "task-1", title: "Read only" })]);
+    expect(agents[0]!.changedFiles).toBeUndefined();
+  });
+
+  it("formats the file count", () => {
+    expect(formatSubagentFileCount(1)).toBe("1 file");
+    expect(formatSubagentFileCount(6)).toBe("6 files");
   });
 });
 

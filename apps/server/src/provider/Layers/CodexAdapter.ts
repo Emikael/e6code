@@ -30,6 +30,7 @@ import {
   type TurnTokenUsage,
   ProviderApprovalDecision,
   ThreadId,
+  TurnId,
   ProviderSendTurnInput,
 } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
@@ -71,6 +72,7 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import { codexChangedFiles } from "../subagentChangedFiles.ts";
 import {
   type CodexRateLimitSnapshot,
   codexRateLimitsToUpdate,
@@ -1275,15 +1277,49 @@ function mapCollabAgentEvent(
         (typeof item?.query === "string" ? item.query : undefined);
       const canonical = toCanonicalItemType(itemTypeRaw);
       const summary = looseSummary ?? canonical.replaceAll("_", " ");
+      const progress: ProviderRuntimeEvent = {
+        ...base,
+        type: "task.progress",
+        payload: {
+          taskId,
+          description: title,
+          ...linkage,
+          summary,
+        },
+      };
+      // A child's applied patch also lands as the child's own file-change
+      // item, so clients can list the files each subagent changed. Only the
+      // completed item counts: the started one is a proposal.
+      const changedFiles =
+        itemTypeRaw === "fileChange" && item?.status === "completed"
+          ? codexChangedFiles(item.changes)
+          : undefined;
+      const childItemId = typeof item?.id === "string" ? item.id : undefined;
+      if (!changedFiles || !childItemId) {
+        return [progress];
+      }
+      // The edit belongs to the parent turn running when it landed (the
+      // session runtime stamps it), not the turn that spawned the child: only
+      // that turn's diff shows it. Outside any parent turn, no turn claims it.
+      const { turnId: _spawnTurnId, ...fileChangeBase } = base;
+      const parentTurnId =
+        typeof payload.parentTurnId === "string" && payload.parentTurnId.length > 0
+          ? TurnId.make(payload.parentTurnId)
+          : undefined;
       return [
+        progress,
         {
-          ...base,
-          type: "task.progress",
+          ...fileChangeBase,
+          ...(parentTurnId ? { turnId: parentTurnId } : {}),
+          eventId: EventId.make(`${event.id}:file-change`),
+          itemId: RuntimeItemId.make(childItemId),
+          type: "item.completed",
           payload: {
-            taskId,
-            description: title,
-            ...linkage,
-            summary,
+            itemType: "file_change",
+            status: "completed",
+            title: "File change",
+            agentId: taskId,
+            changedFiles,
           },
         },
       ];

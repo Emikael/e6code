@@ -42,6 +42,7 @@ import type {
 import { formatAttachmentSize } from "@e6tools/client-runtime/state/attachments";
 import {
   emptyAgentPanelModel,
+  formatSubagentFileCount,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
   isActiveSubagentStatus,
@@ -50,6 +51,7 @@ import {
   describeSpawnBatchStatus,
   subagentTone,
 } from "@e6tools/client-runtime/state/subagentRuntime";
+import { DiffStatLabel } from "./DiffStatLabel";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
@@ -5083,18 +5085,23 @@ function SubagentBatchRow({
   onOpen: (agentId: string) => void;
 }) {
   const tone = subagentTone(agent);
-  const metrics = [
+  const files = agent.changedFiles;
+  const metrics: Array<{ key: string; node: ReactNode }> = [
     formatSubagentModelLabel(agent.model, agent.effort),
+    files ? formatSubagentFileCount(files.files.length) : null,
+    files && files.additions !== null && files.deletions !== null ? (
+      <DiffStatLabel additions={files.additions} deletions={files.deletions} layout="inline" />
+    ) : null,
     agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : null,
     agent.usage?.toolUses !== undefined ? `${agent.usage.toolUses} tools` : null,
     agent.activationCount > 1 ? `run ${agent.activationCount}` : null,
-  ].filter((segment): segment is string => segment !== null);
+  ].flatMap((node, index) => (node === null ? [] : [{ key: String(index), node }]));
   return (
     <button
       type="button"
       data-subagent-row={agent.id}
       onClick={() => onOpen(agent.id)}
-      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in Overview`}
+      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}${files ? `, ${formatSubagentFileCount(files.files.length)} changed` : ""}. Show in Overview`}
       className={cn(
         "flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors duration-500 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none",
         highlighted && "bg-accent",
@@ -5119,9 +5126,9 @@ function SubagentBatchRow({
         <span className="flex h-[1.0625rem] min-w-0 flex-wrap gap-x-1.5 overflow-hidden text-[11px] leading-[1.0625rem] tabular-nums text-muted-foreground">
           {metrics.length > 0
             ? metrics.map((segment, index) => (
-                <span key={segment} className="whitespace-nowrap">
+                <span key={segment.key} className="whitespace-nowrap">
                   {index > 0 ? "· " : ""}
-                  {segment}
+                  {segment.node}
                 </span>
               ))
             : "\u00a0"}
