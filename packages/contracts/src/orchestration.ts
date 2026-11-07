@@ -1358,6 +1358,17 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// Stops one running subagent without ending the turn. subagentId is the id
+// clients know the subagent by (its task id). Providers that cannot stop a
+// single subagent advertise it through ServerProvider.supportsSubagentStop.
+const ThreadSubagentStopCommand = Schema.Struct({
+  type: Schema.Literal("thread.subagent.stop"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  subagentId: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
 const ThreadApprovalRespondCommand = Schema.Struct({
   type: Schema.Literal("thread.approval.respond"),
   commandId: CommandId,
@@ -1439,6 +1450,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
+  ThreadSubagentStopCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadUserInputDismissCommand,
@@ -1472,6 +1484,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
+  ThreadSubagentStopCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadUserInputDismissCommand,
@@ -1715,6 +1728,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-start-requested",
   "thread.turn-completed",
   "thread.turn-interrupt-requested",
+  "thread.subagent-stop-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.checkpoint-revert-requested",
@@ -1934,6 +1948,12 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
 export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
+  createdAt: IsoDateTime,
+});
+
+const ThreadSubagentStopRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  subagentId: TrimmedNonEmptyString,
   createdAt: IsoDateTime,
 });
 
@@ -2165,6 +2185,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-interrupt-requested"),
     payload: ThreadTurnInterruptRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.subagent-stop-requested"),
+    payload: ThreadSubagentStopRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

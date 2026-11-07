@@ -70,6 +70,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setModelCalls: Array<string | undefined> = [];
   public readonly setPermissionModeCalls: Array<string> = [];
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
+  public readonly stopTaskCalls: Array<string> = [];
   public closeCalls = 0;
   public closeError: unknown | undefined;
 
@@ -117,6 +118,10 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   readonly setMaxThinkingTokens = async (maxThinkingTokens: number | null): Promise<void> => {
     this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
+  };
+
+  readonly stopTask = async (taskId: string): Promise<void> => {
+    this.stopTaskCalls.push(taskId);
   };
 
   readonly close = (): void => {
@@ -3364,6 +3369,63 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(stoppedTaskEvent.payload.taskType, "local_agent");
         assert.equal(stoppedTaskEvent.payload.title, "Agent A");
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("stopSubagent stops one live task and leaves the session running", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const taskEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type.startsWith("task.")),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "spawn agents",
+        attachments: [],
+      });
+      for (const taskId of ["task-a", "task-b"]) {
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: taskId,
+          description: taskId,
+          task_type: "local_agent",
+          uuid: `${taskId}-uuid`,
+          session_id: "sdk-session",
+        } as unknown as SDKMessage);
+      }
+      yield* Fiber.join(taskEventsFiber);
+
+      yield* adapter.stopSubagent!(session.threadId, "task-b");
+
+      assert.deepEqual(harness.query.stopTaskCalls, ["task-b"]);
+      assert.equal(harness.query.closeCalls, 0);
+      assert.equal(yield* adapter.hasSession(session.threadId), true);
+
+      const notRunning = yield* adapter.stopSubagent!(session.threadId, "task-missing").pipe(
+        Effect.result,
+      );
+      assert.equal(notRunning._tag, "Failure");
+      if (notRunning._tag === "Failure") {
+        assert.equal(notRunning.failure._tag, "ProviderAdapterValidationError");
+      }
+      const member = yield* adapter.stopSubagent!(session.threadId, "task-a:wf:0").pipe(
+        Effect.result,
+      );
+      assert.equal(member._tag, "Failure");
+      assert.deepEqual(harness.query.stopTaskCalls, ["task-b"]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

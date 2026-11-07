@@ -138,6 +138,11 @@ Select a file to open its diff. On mobile, tap the **Overview** button in a thre
 see each subagent's status and running time, plus the branch and its changes; tap a subagent to
 list its files. Files are listed for Claude and Codex subagents.
 
+To stop one running subagent without stopping the turn, choose **Stop** on its card or in its
+row's menu, or press `mod+.` while it is selected. On mobile, select the subagent and tap
+**Stop subagent**. Stop is available for Claude and Codex threads. A Claude workflow stops as a
+whole, so its individual members do not offer Stop.
+
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.

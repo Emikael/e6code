@@ -470,6 +470,8 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setModel: (model?: string) => Promise<void>;
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
+  /** SDK stop_task; a task_notification with status "stopped" follows. */
+  readonly stopTask: (taskId: string) => Promise<void>;
   readonly close: () => void;
 }
 
@@ -5347,6 +5349,36 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
   );
 
+  /**
+   * Stops one running task through the SDK's stop_task, leaving the turn and
+   * every other task running. The "stopped" task_notification that follows
+   * settles the subagent. A workflow member is known by its slot id, and the
+   * SDK only stops whole tasks, so members stop with their workflow.
+   */
+  const stopSubagent: NonNullable<ClaudeAdapterShape["stopSubagent"]> = Effect.fn("stopSubagent")(
+    function* (threadId, subagentId) {
+      const context = yield* requireSession(threadId);
+      if (subagentId.includes(":wf:")) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "stopSubagent",
+          issue: "Claude stops a workflow as a whole; stop the workflow to stop its members.",
+        });
+      }
+      if (!context.liveTaskIds.has(subagentId)) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "stopSubagent",
+          issue: `Subagent '${subagentId}' is not running.`,
+        });
+      }
+      yield* Effect.tryPromise({
+        try: () => context.query.stopTask(subagentId),
+        catch: (cause) => toRequestError(threadId, "task/stop", cause),
+      });
+    },
+  );
+
   const readThread: ClaudeAdapterShape["readThread"] = Effect.fn("readThread")(
     function* (threadId) {
       const context = yield* requireSession(threadId);
@@ -5625,6 +5657,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    stopSubagent,
     readThread,
     rollbackThread,
     respondToRequest,

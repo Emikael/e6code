@@ -272,6 +272,11 @@ function makeFakeCodexAdapter(
     }),
   );
 
+  const stopSubagent = vi.fn(
+    (_threadId: ThreadId, _subagentId: string): Effect.Effect<void, ProviderAdapterError> =>
+      Effect.void,
+  );
+
   const adapter: ProviderAdapterShape<ProviderAdapterError> = {
     provider,
     capabilities: {
@@ -296,7 +301,7 @@ function makeFakeCodexAdapter(
     hasSession,
     readThread,
     rollbackThread,
-    ...(provider === CODEX_DRIVER ? { uploadFeedback } : {}),
+    ...(provider === CODEX_DRIVER ? { uploadFeedback, stopSubagent } : {}),
     stopAll,
     runtimeEventSequence: runtimeEventStream.runtimeEventSequence,
     subscribeRuntimeEvents: runtimeEventStream.subscribeRuntimeEvents.pipe(
@@ -339,6 +344,7 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     uploadFeedback,
+    stopSubagent,
     stopAll,
   };
 }
@@ -2103,6 +2109,46 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.deepStrictEqual(routing.codex.uploadFeedback.mock.calls, [
         [{ threadId, reason: "The agent stopped early." }],
       ]);
+    }),
+  );
+
+  it.effect("routes a subagent stop to an adapter that supports it", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-stop-subagent-codex");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      routing.codex.stopSubagent.mockClear();
+
+      yield* provider.stopSubagent({ threadId, subagentId: "child-thread-1" });
+
+      assert.deepStrictEqual(routing.codex.stopSubagent.mock.calls, [[threadId, "child-thread-1"]]);
+      assert.strictEqual(routing.codex.interruptTurn.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("rejects a subagent stop for providers that cannot stop one subagent", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-stop-subagent-unsupported");
+      yield* provider.startSession(threadId, {
+        provider: CLAUDE_AGENT_DRIVER,
+        providerInstanceId: claudeAgentInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      const error = yield* provider
+        .stopSubagent({ threadId, subagentId: "task-1" })
+        .pipe(Effect.flip);
+
+      assert.instanceOf(error, ProviderValidationError);
+      assert.include(error.issue, "cannot stop a single subagent");
+      assert.strictEqual(routing.claude.interruptTurn.mock.calls.length, 0);
     }),
   );
 

@@ -1,16 +1,24 @@
 /**
  * Thread Overview: a sheet over the thread with source control at a glance
- * and the lineage of every subagent the thread spawned. Read-only apart from
- * closing; the web Overview is the full surface.
+ * and the lineage of every subagent the thread spawned. Selecting a live
+ * subagent offers Stop, which ends that subagent and not the turn; otherwise
+ * read-only apart from closing. The web Overview is the full surface.
  */
-import type {
-  OrchestrationSession,
-  OrchestrationThreadActivity,
-  VcsStatusResult,
+import {
+  CommandId,
+  type EnvironmentId,
+  type OrchestrationSession,
+  type OrchestrationThreadActivity,
+  type ThreadId,
+  type VcsStatusResult,
 } from "@e6tools/contracts";
 import {
   type AgentPanelModel,
+  canStopSubagent,
   deriveAgentPanelModel,
+  findSubagent,
+  findSubagentStopFailure,
+  isActiveSubagentStatus,
   foldSubagentActivities,
   formatSubagentElapsed,
   formatSubagentFileCount,
@@ -33,15 +41,19 @@ import {
 import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Option from "effect/Option";
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
+import { uuidv4 } from "../../lib/uuid";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
+import { threadEnvironment } from "../../state/threads";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { vcsEnvironment } from "../../state/vcs";
@@ -129,6 +141,16 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
     (agentId: string) => setSelectedAgentId((current) => (current === agentId ? null : agentId)),
     [],
   );
+  const subagentStop = useSubagentStop({
+    environmentId: selectedThread?.environmentId ?? null,
+    threadId: selectedThread?.id ?? null,
+    providerInstanceId:
+      selectedThread?.session?.providerInstanceId ??
+      selectedThread?.modelSelection.instanceId ??
+      null,
+    activities: detail?.activities ?? EMPTY_ACTIVITIES,
+    model,
+  });
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
@@ -214,6 +236,16 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
                 selected={row.kind === "agent" && row.agent.id === selectedAgentId}
                 onSelect={onSelectAgent}
                 workspaceRoot={selectedThreadCwd}
+                stop={
+                  row.kind === "agent" &&
+                  row.agent.id === selectedAgentId &&
+                  subagentStop.canStop(row.agent)
+                    ? {
+                        pending: subagentStop.pendingIds.has(row.agent.id),
+                        onStop: subagentStop.stop,
+                      }
+                    : null
+                }
               />
             ))}
           </View>
@@ -221,6 +253,86 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
       </ScrollView>
     </View>
   );
+}
+
+/**
+ * Stop for one subagent. A stop stays pending until the provider settles the
+ * subagent; a failure the server records for the request opens an alert.
+ */
+function useSubagentStop(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly threadId: ThreadId | null;
+  readonly providerInstanceId: string | null;
+  readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly model: AgentPanelModel;
+}) {
+  const { environmentId, threadId, activities, model } = input;
+  const serverConfig = useEnvironmentServerConfig(environmentId);
+  const supportsStop =
+    serverConfig?.providers.find((provider) => provider.instanceId === input.providerInstanceId)
+      ?.supportsSubagentStop === true;
+  const stopSubagent = useAtomCommand(threadEnvironment.stopSubagent, { reportFailure: false });
+  // The latest stop request per subagent, with the run it targeted.
+  const [requests, setRequests] = useState<
+    ReadonlyMap<string, { readonly commandId: string; readonly activationCount: number }>
+  >(() => new Map());
+  const alertedCommandIds = useRef(new Set<string>());
+
+  // A request is pending while its run is still live and no failure is recorded.
+  const pendingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [agentId, request] of requests) {
+      const agent = findSubagent(model, agentId);
+      if (
+        agent !== null &&
+        isActiveSubagentStatus(agent.status) &&
+        agent.activationCount === request.activationCount &&
+        findSubagentStopFailure(activities, request.commandId) === null
+      ) {
+        ids.add(agentId);
+      }
+    }
+    return ids;
+  }, [activities, model, requests]);
+
+  useEffect(() => {
+    for (const { commandId } of requests.values()) {
+      if (alertedCommandIds.current.has(commandId)) continue;
+      const failure = findSubagentStopFailure(activities, commandId);
+      if (failure === null) continue;
+      alertedCommandIds.current.add(commandId);
+      Alert.alert("Couldn't stop the subagent", failure);
+    }
+  }, [activities, requests]);
+
+  const stop = useCallback(
+    (agentId: string) => {
+      if (!environmentId || !threadId || pendingIds.has(agentId)) return;
+      const commandId = CommandId.make(uuidv4());
+      const activationCount = findSubagent(model, agentId)?.activationCount ?? 0;
+      setRequests((current) => new Map(current).set(agentId, { commandId, activationCount }));
+      void stopSubagent({
+        environmentId,
+        input: { threadId, subagentId: agentId, commandId },
+      }).then((result) => {
+        if (result._tag !== "Failure") return;
+        setRequests((current) => {
+          if (current.get(agentId)?.commandId !== commandId) return current;
+          const next = new Map(current);
+          next.delete(agentId);
+          return next;
+        });
+        Alert.alert("Couldn't stop the subagent", "The server did not accept the stop.");
+      });
+    },
+    [environmentId, model, pendingIds, stopSubagent, threadId],
+  );
+
+  return {
+    canStop: (agent: RuntimeSubagent) => canStopSubagent(model, agent, supportsStop),
+    pendingIds,
+    stop,
+  };
 }
 
 function InfoRow(props: {
@@ -452,6 +564,8 @@ const LineageRow = memo(function LineageRow(props: {
   readonly selected: boolean;
   readonly onSelect: (agentId: string) => void;
   readonly workspaceRoot: string | null;
+  /** Present while this row is selected and its subagent can be stopped. */
+  readonly stop: { readonly pending: boolean; readonly onStop: (agentId: string) => void } | null;
 }) {
   const { row } = props;
   if (row.kind === "phase") {
@@ -480,69 +594,107 @@ const LineageRow = memo(function LineageRow(props: {
   // A live timer would make this label stale within a second; settled time is final.
   const settledElapsedMs = subagentElapsedIsLive(agent.status) ? null : subagentElapsedMs(agent, 0);
   const { changedFiles } = agent;
+  const rowButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: props.selected }}
+      accessibilityLabel={[
+        agent.title,
+        statusWord,
+        activity?.replace(/^▸ /, ""),
+        settledElapsedMs === null ? null : formatSubagentElapsed(settledElapsedMs),
+        changedFiles ? changedFilesLabel(changedFiles) : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      accessibilityHint={
+        changedFiles
+          ? `Double tap to ${props.selected ? "hide" : "list"} the files it changed.`
+          : undefined
+      }
+      onPress={() => props.onSelect(agent.id)}
+      className={cn(
+        "min-h-14 flex-row items-center gap-3 py-2.5 pr-4 active:bg-subtle",
+        row.depth === 1 ? "pl-14" : "pl-4",
+        props.selected && "bg-subtle",
+      )}
+    >
+      <SubagentTile />
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="font-e6-medium text-[15px] leading-5 text-foreground" numberOfLines={1}>
+          {agent.title}
+        </Text>
+        <View className="flex-row items-center gap-1.5">
+          <View className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT_CLASS[tone])} />
+          <Text className={cn("shrink-0 font-e6-medium text-sm", STATUS_TEXT_CLASS[tone])}>
+            {statusWord}
+          </Text>
+          <Text className="min-w-0 flex-1 text-sm text-foreground-muted" numberOfLines={1}>
+            {activity ? `· ${activity}` : ""}
+          </Text>
+          <SubagentElapsedText
+            status={agent.status}
+            startedAt={agent.startedAt}
+            completedAt={agent.completedAt}
+            updatedAt={agent.updatedAt}
+          />
+        </View>
+        {changedFiles ? (
+          <View className="flex-row items-center gap-1.5">
+            <Text className="text-sm text-foreground-muted">
+              {formatSubagentFileCount(changedFiles.files.length)}
+            </Text>
+            <LineCounts additions={changedFiles.additions} deletions={changedFiles.deletions} />
+          </View>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+  const filesList =
+    props.selected && changedFiles ? (
+      <ChangedFilesList
+        changedFiles={changedFiles}
+        workspaceRoot={props.workspaceRoot}
+        indented={row.depth === 1}
+      />
+    ) : null;
+  const { stop } = props;
+  if (!stop) {
+    return (
+      <>
+        {rowButton}
+        {filesList}
+      </>
+    );
+  }
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ selected: props.selected }}
-        accessibilityLabel={[
-          agent.title,
-          statusWord,
-          activity?.replace(/^▸ /, ""),
-          settledElapsedMs === null ? null : formatSubagentElapsed(settledElapsedMs),
-          changedFiles ? changedFilesLabel(changedFiles) : null,
-        ]
-          .filter(Boolean)
-          .join(", ")}
-        accessibilityHint={
-          changedFiles
-            ? `Double tap to ${props.selected ? "hide" : "list"} the files it changed.`
-            : undefined
-        }
-        onPress={() => props.onSelect(agent.id)}
-        className={cn(
-          "min-h-14 flex-row items-center gap-3 py-2.5 pr-4 active:bg-subtle",
-          row.depth === 1 ? "pl-14" : "pl-4",
-          props.selected && "bg-subtle",
-        )}
-      >
-        <SubagentTile />
-        <View className="min-w-0 flex-1 gap-0.5">
-          <Text className="font-e6-medium text-[15px] leading-5 text-foreground" numberOfLines={1}>
-            {agent.title}
+      <View className="bg-subtle">
+        {rowButton}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={stop.pending ? `Stopping ${agent.title}` : `Stop ${agent.title}`}
+          accessibilityState={{ disabled: stop.pending }}
+          disabled={stop.pending}
+          onPress={() => stop.onStop(agent.id)}
+          className={cn(
+            "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
+            row.depth === 1 ? "pl-24" : "pl-14",
+            stop.pending && "opacity-60",
+          )}
+        >
+          <SymbolView
+            name="stop.fill"
+            size={13}
+            tintColorClassName="accent-danger-foreground"
+            type="monochrome"
+          />
+          <Text className="font-e6-medium text-sm text-danger-foreground">
+            {stop.pending ? "Stopping…" : "Stop subagent"}
           </Text>
-          <View className="flex-row items-center gap-1.5">
-            <View className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT_CLASS[tone])} />
-            <Text className={cn("shrink-0 font-e6-medium text-sm", STATUS_TEXT_CLASS[tone])}>
-              {statusWord}
-            </Text>
-            <Text className="min-w-0 flex-1 text-sm text-foreground-muted" numberOfLines={1}>
-              {activity ? `· ${activity}` : ""}
-            </Text>
-            <SubagentElapsedText
-              status={agent.status}
-              startedAt={agent.startedAt}
-              completedAt={agent.completedAt}
-              updatedAt={agent.updatedAt}
-            />
-          </View>
-          {changedFiles ? (
-            <View className="flex-row items-center gap-1.5">
-              <Text className="text-sm text-foreground-muted">
-                {formatSubagentFileCount(changedFiles.files.length)}
-              </Text>
-              <LineCounts additions={changedFiles.additions} deletions={changedFiles.deletions} />
-            </View>
-          ) : null}
-        </View>
-      </Pressable>
-      {props.selected && changedFiles ? (
-        <ChangedFilesList
-          changedFiles={changedFiles}
-          workspaceRoot={props.workspaceRoot}
-          indented={row.depth === 1}
-        />
-      ) : null}
+        </Pressable>
+      </View>
+      {filesList}
     </>
   );
 });

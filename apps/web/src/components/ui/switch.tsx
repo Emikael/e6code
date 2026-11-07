@@ -30,7 +30,9 @@ function Switch({
       data-size={size}
       data-slot="switch"
       data-mixed={mixed ? "" : undefined}
-      aria-checked={mixed ? "mixed" : undefined}
+      // Only override for mixed: an explicit undefined would replace the
+      // aria-checked Base UI sets, so screen readers never hear on or off.
+      {...(mixed ? { "aria-checked": "mixed" as const } : {})}
       {...props}
     >
       <SwitchPrimitive.Thumb

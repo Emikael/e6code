@@ -288,6 +288,29 @@ describe("thread undo shortcut", () => {
   });
 });
 
+describe("stop subagent shortcut", () => {
+  it("resolves Cmd+. on macOS and Ctrl+. elsewhere, outside terminals", () => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: ".", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+      }),
+      "thread.stopSubagent",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: ".", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Win32",
+      }),
+      "thread.stopSubagent",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: ".", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Win32",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+});
+
 describe("copy thread reference shortcut", () => {
   it("resolves Cmd+Shift+C on macOS and Ctrl+Shift+C elsewhere", () => {
     assert.equal(

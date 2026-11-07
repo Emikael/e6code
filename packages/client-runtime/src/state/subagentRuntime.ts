@@ -1075,6 +1075,43 @@ function summaryCount(tone: SubagentStatusTone, count: number): string {
   return `${count} ${tone}`;
 }
 
+/**
+ * Whether the user can stop this one subagent while the turn runs on: the
+ * provider must support it (ServerProvider.supportsSubagentStop) and the
+ * subagent must still be live. A workflow's members stop with their workflow,
+ * so only the coordinator offers Stop.
+ */
+export function canStopSubagent(
+  model: AgentPanelModel,
+  agent: Pick<RuntimeSubagent, "status" | "parentAgentId">,
+  providerSupportsStop: boolean,
+): boolean {
+  if (!providerSupportsStop || !isActiveSubagentStatus(agent.status)) return false;
+  const parentId = agent.parentAgentId;
+  return parentId === null || !model.workflows.some((group) => group.workflow.id === parentId);
+}
+
+/**
+ * What went wrong with one stop request, matched by the command id the client
+ * sent; null while the server has recorded no failure for it.
+ */
+export function findSubagentStopFailure(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  requestId: string,
+): string | null {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind !== "provider.subagent.stop.failed") continue;
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as Record<string, unknown>)
+        : {};
+    if (payload.requestId !== requestId) continue;
+    return asString(payload.detail) ?? activity.summary;
+  }
+  return null;
+}
+
 /** The subagent with this id anywhere in the model, workflow members included. */
 export function findSubagent(model: AgentPanelModel, agentId: string): RuntimeSubagent | null {
   for (const agent of model.directAgents) if (agent.id === agentId) return agent;

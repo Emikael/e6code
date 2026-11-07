@@ -7,6 +7,8 @@
  * - Spawn order is stable. Activity and completion update rows in place;
  *   finished rows fold only when the panel opens, never under the pointer.
  * - Status is a glyph plus a word or label, never color alone.
+ * - Stop ends one live subagent, not the turn. It shows its pending state on
+ *   the control until the provider confirms, and a failure arrives as a toast.
  * - Elapsed timers tick by DOM writes; nothing repaints continuously.
  * - The panel sits on the sidebar ground, so metadata uses the sidebar's
  *   muted role, which every theme tunes for that ground.
@@ -46,6 +48,7 @@ import {
   BracesIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CircleStopIcon,
   CopyIcon,
   EllipsisIcon,
   ExternalLinkIcon,
@@ -96,7 +99,7 @@ import {
   SubagentTile,
 } from "./subagents/SubagentParts";
 import { Button } from "./ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { toastManager } from "./ui/toast";
 
@@ -123,6 +126,15 @@ export interface InspectorWorkspace {
   onOpenDiff: (() => void) | null;
   /** Opens one turn's diff, optionally at a file; null when there is none to show. */
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
+}
+
+/** Stopping one subagent; null when the thread offers no Stop at all. */
+export interface InspectorSubagentStop {
+  /** Live, on a provider that can stop one subagent, and not a workflow member. */
+  readonly canStop: (agent: RuntimeSubagent) => boolean;
+  readonly isPending: (agentId: string) => boolean;
+  readonly stop: (agentId: string) => void;
+  readonly shortcutLabel: string | null;
 }
 
 const MUTED = "text-sidebar-muted-foreground";
@@ -411,7 +423,8 @@ const PHASE_STATE_WORD: Readonly<Record<LineagePhase["state"], string>> = {
 
 /**
  * One subagent in the lineage. Hover or focus trades the elapsed time for a
- * menu with the ways back out: the thread card, the task text and the session.
+ * menu with the ways back out: the thread card, the task text and the session,
+ * and Stop while it runs.
  */
 function LineageRow({
   agent,
@@ -419,14 +432,18 @@ function LineageRow({
   selected,
   onSelect,
   onShowInThread,
+  stopControl,
 }: {
   agent: RuntimeSubagent;
   providerKind: ProviderDriverKind | null;
   selected: boolean;
   onSelect: (agentId: string) => void;
   onShowInThread: ((agentId: string) => void) | null;
+  stopControl: InspectorSubagentStop | null;
 }) {
   const tone = subagentTone(agent);
+  const canStop = stopControl?.canStop(agent) === true;
+  const stopPending = canStop && stopControl.isPending(agent.id);
   const sessionUrl = agent.runHandles?.sessionUrl;
   const { copyToClipboard } = useCopyToClipboard({
     onCopy: () =>
@@ -492,6 +509,23 @@ function LineageRow({
               <ExternalLinkIcon aria-hidden />
               Open session
             </MenuItem>
+          ) : null}
+          {canStop ? (
+            <>
+              <MenuSeparator />
+              <MenuItem
+                variant="destructive"
+                disabled={stopPending}
+                onClick={() => stopControl.stop(agent.id)}
+              >
+                <CircleStopIcon aria-hidden />
+                {stopPending ? "Stopping…" : "Stop subagent"}
+                {/* The shortcut stops the selected subagent, so only its menu names it. */}
+                {selected && stopControl.shortcutLabel && !stopPending ? (
+                  <MenuShortcut className="ms-auto">{stopControl.shortcutLabel}</MenuShortcut>
+                ) : null}
+              </MenuItem>
+            </>
           ) : null}
         </MenuPopup>
       </Menu>
@@ -600,6 +634,7 @@ function SubagentDetailCard({
   workspaceRoot,
   onOpenTurnDiff,
   cardRef,
+  stopControl,
 }: {
   agent: RuntimeSubagent;
   providerKind: ProviderDriverKind | null;
@@ -608,8 +643,11 @@ function SubagentDetailCard({
   workspaceRoot: string | null;
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
   cardRef: Ref<HTMLDivElement>;
+  stopControl: InspectorSubagentStop | null;
 }) {
   const [scriptOpen, setScriptOpen] = useState(false);
+  const canStop = stopControl?.canStop(agent) === true;
+  const stopPending = canStop && stopControl.isPending(agent.id);
   const tone = subagentTone(agent);
   const live = isActiveSubagentStatus(agent.status);
   const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
@@ -737,7 +775,7 @@ function SubagentDetailCard({
           </dd>
         </div>
       </dl>
-      {canShowScript || sessionUrl ? (
+      {canShowScript || sessionUrl || canStop ? (
         <div className="flex gap-2">
           {canShowScript ? (
             <Button
@@ -760,6 +798,23 @@ function SubagentDetailCard({
             >
               <ExternalLinkIcon aria-hidden />
               Open session
+            </Button>
+          ) : null}
+          {canStop ? (
+            <Button
+              size="sm"
+              variant="destructive-outline"
+              className="flex-1"
+              disabled={stopPending}
+              title={
+                stopControl.shortcutLabel
+                  ? `Stop subagent (${stopControl.shortcutLabel})`
+                  : "Stop subagent"
+              }
+              onClick={() => stopControl.stop(agent.id)}
+            >
+              <CircleStopIcon aria-hidden />
+              {stopPending ? "Stopping…" : "Stop"}
             </Button>
           ) : null}
         </div>
@@ -785,6 +840,7 @@ function LineageSection({
   threadId,
   workspaceRoot,
   onOpenTurnDiff,
+  stopControl,
 }: {
   model: AgentPanelModel;
   threadKey: string | null;
@@ -794,6 +850,7 @@ function LineageSection({
   threadId: ThreadId | null;
   workspaceRoot: string | null;
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
+  stopControl: InspectorSubagentStop | null;
 }) {
   const [showFolded, setShowFolded] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -889,6 +946,7 @@ function LineageSection({
       selected={agent.id === selectedId}
       onSelect={onSelect}
       onShowInThread={threadKey ? onShowInThread : null}
+      stopControl={stopControl}
     />
   );
 
@@ -964,6 +1022,7 @@ function LineageSection({
               workspaceRoot={workspaceRoot}
               onOpenTurnDiff={onOpenTurnDiff}
               cardRef={cardRef}
+              stopControl={stopControl}
             />
           ) : null}
         </>
@@ -986,6 +1045,7 @@ interface InspectorOverviewProps {
   providerKind: ProviderDriverKind | null;
   threadModelLabel: string | null;
   workspace: InspectorWorkspace | null;
+  subagentStop: InspectorSubagentStop | null;
 }
 
 function InspectorOverviewView({
@@ -994,6 +1054,7 @@ function InspectorOverviewView({
   providerKind,
   threadModelLabel,
   workspace,
+  subagentStop,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
   return (
@@ -1016,6 +1077,7 @@ function InspectorOverviewView({
             threadId={workspace?.threadId ?? null}
             workspaceRoot={gitCwd}
             onOpenTurnDiff={workspace?.onOpenTurnDiff ?? null}
+            stopControl={subagentStop}
           />
         </div>
       </ScrollArea>
@@ -1047,5 +1109,6 @@ export const InspectorOverview = memo(
     previous.threadKey === next.threadKey &&
     previous.providerKind === next.providerKind &&
     previous.threadModelLabel === next.threadModelLabel &&
+    previous.subagentStop === next.subagentStop &&
     shallowEqualWorkspace(previous.workspace, next.workspace),
 );
