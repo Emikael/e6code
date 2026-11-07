@@ -212,9 +212,9 @@
       --color-header: rgba(14, 15, 13, 0.97);
       --color-header-foreground: #ecede5;
       --color-header-border: #242523;
-      --color-glass-surface: rgba(32, 33, 30, 0.74);
+      --color-glass-surface: rgba(34, 35, 31, 0.74);
       --color-glass-fallback: rgba(32, 32, 32, 0.9);
-      --color-glass-tint: rgba(32, 33, 30, 0.22);
+      --color-glass-tint: rgba(34, 35, 31, 0.22);
       --color-status-bar: #0e0f0d;
       --color-md-body: #ecede5;
       --color-md-strong: #ecede5;

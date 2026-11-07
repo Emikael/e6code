@@ -94,6 +94,8 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { useThreadSubagentPanelModel } from "./ThreadInspectorSheet";
+import { inspectorButtonAccessibilityLabel } from "./thread-inspector-lineage";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -108,7 +110,7 @@ function ThreadHeader(
 ) {
   const navigation = useNavigation();
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
-  const { onOpenTerminal } = props.gitControls;
+  const { inspectorControl, onOpenTerminal } = props.gitControls;
   const native = useThreadHeaderOptions(props);
   const androidHeaderActions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const actions: ScreenHeaderAction[] = [];
@@ -117,6 +119,17 @@ function ThreadHeader(
         accessibilityLabel: "Return to chat",
         icon: "chevron.left",
         onPress: props.onReturnToThread,
+      });
+    }
+    // First so a phone's single direct slot shows the running-subagent badge;
+    // the other actions stay reachable from the overflow menu.
+    if (inspectorControl) {
+      actions.push({
+        id: "inspector",
+        accessibilityLabel: inspectorControl.accessibilityLabel,
+        badge: inspectorControl.badgeCount,
+        icon: "info.circle",
+        onPress: inspectorControl.onPress,
       });
     }
     if (props.hasThreadCwd) {
@@ -142,6 +155,7 @@ function ThreadHeader(
     });
     return actions;
   }, [
+    inspectorControl,
     props.inspectorMode,
     panes.auxiliaryPaneVisible,
     props.onOpenFilesInspector,
@@ -160,7 +174,13 @@ function ThreadHeader(
         subtitle={props.subtitle}
         sidebar={native.sidebar}
         options={native.options}
-        optionsVersion={props.gitControls.projectScripts}
+        // Native header factories are stabilized, so changing item content
+        // (the Inspector badge) must be named here to be reapplied.
+        optionsVersion={[
+          props.gitControls.projectScripts,
+          inspectorControl?.accessibilityLabel,
+          inspectorControl?.badgeColors,
+        ]}
         trailing={
           props.fileInspectorSupported && props.hasThreadCwd ? (
             <ScreenHeaderButton
@@ -327,6 +347,8 @@ function ThreadRouteContent(
 ) {
   const { themeVariables } = useAppearancePreferences();
   const headerColor = themeVariables["--color-header"];
+  const inspectorBadgeFill = themeVariables["--color-foreground"];
+  const inspectorBadgeText = themeVariables["--color-screen"];
   const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
@@ -483,9 +505,13 @@ function ThreadRouteContent(
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
+  // Like web's header, the machine is named with its connection state in
+  // words: remote work makes the connection part of the thread's context.
+  const headerEnvironmentLabel = selectedEnvironmentConnection?.environmentLabel ?? null;
   const headerSubtitle = [
     selectedThreadProject?.title ?? null,
-    selectedEnvironmentConnection?.environmentLabel ?? null,
+    headerEnvironmentLabel,
+    headerEnvironmentLabel ? connectionTone(routeConnectionState).label : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -497,6 +523,37 @@ function ThreadRouteContent(
           input: { cwd: selectedThreadCwd },
         })
       : null,
+  );
+  /* ─── Inspector sheet trigger (running-subagent badge) ───────────── */
+  const subagentPanel = useThreadSubagentPanelModel(
+    selectedThreadDetail?.activities,
+    selectedThread?.session ?? null,
+  );
+  const liveSubagentCount = subagentPanel.liveCount;
+  const inspectorEnvironmentId = selectedThread?.environmentId ?? null;
+  const inspectorThreadId = selectedThread?.id ?? null;
+  const inspectorControl = useMemo(
+    () =>
+      inspectorEnvironmentId === null || inspectorThreadId === null
+        ? undefined
+        : {
+            accessibilityLabel: inspectorButtonAccessibilityLabel(liveSubagentCount),
+            badgeCount: liveSubagentCount,
+            badgeColors: { fill: inspectorBadgeFill, text: inspectorBadgeText },
+            onPress: () =>
+              navigation.navigate("ThreadInspector", {
+                environmentId: String(inspectorEnvironmentId),
+                threadId: String(inspectorThreadId),
+              }),
+          },
+    [
+      inspectorBadgeFill,
+      inspectorBadgeText,
+      inspectorEnvironmentId,
+      inspectorThreadId,
+      liveSubagentCount,
+      navigation,
+    ],
   );
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
@@ -806,6 +863,7 @@ function ThreadRouteContent(
     onOpenFilesInspector:
       fileInspector.supported && selectedThreadCwd !== null ? handleOpenFilesInspector : undefined,
     onOpenGitInspector: fileInspector.supported ? handleOpenGitInspector : undefined,
+    inspectorControl,
     currentBranch: selectedThread?.branch ?? null,
     gitStatus: gitStatus.data,
     gitOperationLabel: gitState.gitOperationLabel,

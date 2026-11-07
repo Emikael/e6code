@@ -26,7 +26,7 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Bot,
+  ListTree,
   Smartphone,
   ChevronDown,
   ChevronLeft,
@@ -142,6 +142,8 @@ export interface RightPanelTabsProps {
   deviceAvailable: boolean;
   /** Running + waiting subagents; badges the Agents launcher row. */
   liveAgentCount: number;
+  /** Files changed in the working tree; counted on the Diff tab. */
+  changedFileCount?: number;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -169,7 +171,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
-  agents: "Agents are only available from a thread.",
+  agents: "Overview is only available from a thread.",
   device: "Devices are only available from a thread.",
 } as const;
 
@@ -382,9 +384,9 @@ function RightPanelEmptyState(props: {
       onClick: props.onAddPullRequests,
     },
     {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
+      label: "Overview",
+      icon: ListTree,
+      shortcut: "O",
       available: props.agentsAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
       onClick: props.onAddAgents,
@@ -456,7 +458,7 @@ function RightPanelEmptyState(props: {
     return (
       <span className="relative inline-flex shrink-0">
         <Icon className={iconClassName} />
-        {action.label === "Agents" && props.liveAgentCount > 0 ? (
+        {action.label === "Overview" && props.liveAgentCount > 0 ? (
           <span
             aria-hidden
             className="absolute -top-1.5 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-info px-1 text-[9px] font-semibold tabular-nums text-white"
@@ -589,7 +591,7 @@ function surfaceTitle(
     case "pull-requests":
       return "Pull requests";
     case "agents":
-      return "Agents";
+      return "Overview";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -681,7 +683,7 @@ function SurfaceIcon({
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "agents":
-      return <Bot className="size-3 shrink-0" />;
+      return <ListTree className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -848,6 +850,8 @@ function RightPanelTab(
     theme: "light" | "dark";
     environmentId: EnvironmentId | null;
     pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
+    /** Shown after the title when above zero, such as the Diff tab's file count. */
+    count: number;
     renaming: boolean;
     canRename: boolean;
     ownsDesktopTitleBar: boolean;
@@ -943,6 +947,14 @@ function RightPanelTab(
                 onClick={() => onActivate(surface)}
               >
                 <span className="truncate">{title}</span>
+                {props.count > 0 ? (
+                  <span className="ms-1 shrink-0 text-[10px] tabular-nums opacity-70">
+                    {props.count}
+                    <span className="sr-only">
+                      {props.count === 1 ? " file" : " files"} changed
+                    </span>
+                  </span>
+                ) : null}
               </button>
             }
           />
@@ -975,8 +987,8 @@ function RightPanelTab(
         "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
         props.active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          ? "bg-surface-floating text-foreground shadow-xs ring-1 ring-border/60"
+          : "text-sidebar-foreground hover:bg-surface-floating/50",
         isDragging && "relative z-10",
       )}
     >
@@ -1106,9 +1118,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddPullRequests,
     },
     {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
+      label: "Overview",
+      icon: ListTree,
+      shortcut: "O",
       available: props.agentsAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.agents,
       onClick: props.onAddAgents,
@@ -1310,7 +1322,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     >
       <div
         className={cn(
-          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 pl-2",
+          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border bg-sidebar surface-grain pl-3",
           props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
@@ -1326,46 +1338,56 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           data-right-panel-tab-list
         >
           <div className="flex h-full w-max min-w-full items-center gap-1">
-            <SortableTabList surfaces={props.surfaces} onMove={props.onMoveSurface}>
-              {props.surfaces.map((surface) => {
-                const previewTabId = previewTabIdOf(surface, props.previewSessions);
-                const favicon = previewFaviconOf(
-                  surface,
-                  props.previewSessions,
-                  props.desktopByTabId,
-                );
-                return (
-                  <RightPanelTab
-                    key={surface.id}
-                    surface={surface}
-                    dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
-                    active={surface.id === props.activeSurfaceId}
-                    pending={props.pendingSurfaceIds.has(surface.id)}
-                    title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
-                    audio={tabAudioState(
-                      previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
-                    )}
-                    audioRuntimeTabId={
-                      previewTabId ? (props.previewRuntimeTabId?.(previewTabId) ?? null) : null
-                    }
-                    previewUrl={favicon.url}
-                    previewCapturedUrl={favicon.capturedUrl}
-                    theme={resolvedTheme}
-                    environmentId={props.environmentId}
-                    pullRequestStatusSeed={props.pullRequestStatusSeeds?.[surface.id]}
-                    renaming={renamingDevice === surface.id}
-                    canRename={props.onRenameDevice !== undefined}
-                    ownsDesktopTitleBar={ownsDesktopTitleBar}
-                    onActivate={onActivateTab}
-                    onClose={onCloseTab}
-                    onAuxClick={onTabAuxClick}
-                    onContextMenu={onTabContextMenu}
-                    onStartRename={onStartRenameTab}
-                    onFinishRename={onFinishRenameTab}
-                  />
-                );
-              })}
-            </SortableTabList>
+            <div
+              className={cn(
+                "flex h-7 items-center gap-0.5 rounded-lg p-[3px]",
+                // The groove reads as a segmented control only once it holds a choice.
+                props.surfaces.length > 1 && "bg-accent",
+                props.surfaces.length === 0 && "hidden",
+              )}
+            >
+              <SortableTabList surfaces={props.surfaces} onMove={props.onMoveSurface}>
+                {props.surfaces.map((surface) => {
+                  const previewTabId = previewTabIdOf(surface, props.previewSessions);
+                  const favicon = previewFaviconOf(
+                    surface,
+                    props.previewSessions,
+                    props.desktopByTabId,
+                  );
+                  return (
+                    <RightPanelTab
+                      key={surface.id}
+                      surface={surface}
+                      dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
+                      active={surface.id === props.activeSurfaceId}
+                      pending={props.pendingSurfaceIds.has(surface.id)}
+                      title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
+                      audio={tabAudioState(
+                        previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
+                      )}
+                      audioRuntimeTabId={
+                        previewTabId ? (props.previewRuntimeTabId?.(previewTabId) ?? null) : null
+                      }
+                      previewUrl={favicon.url}
+                      previewCapturedUrl={favicon.capturedUrl}
+                      theme={resolvedTheme}
+                      environmentId={props.environmentId}
+                      pullRequestStatusSeed={props.pullRequestStatusSeeds?.[surface.id]}
+                      count={surface.kind === "diff" ? (props.changedFileCount ?? 0) : 0}
+                      renaming={renamingDevice === surface.id}
+                      canRename={props.onRenameDevice !== undefined}
+                      ownsDesktopTitleBar={ownsDesktopTitleBar}
+                      onActivate={onActivateTab}
+                      onClose={onCloseTab}
+                      onAuxClick={onTabAuxClick}
+                      onContextMenu={onTabContextMenu}
+                      onStartRename={onStartRenameTab}
+                      onFinishRename={onFinishRenameTab}
+                    />
+                  );
+                })}
+              </SortableTabList>
+            </div>
             {props.open !== false ? (
               <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
                 <MenuTrigger

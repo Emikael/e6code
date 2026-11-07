@@ -4,6 +4,7 @@ import {
   BUILT_IN_THEMES,
   E6_CHAT_THEME,
   E6_CODE_LIGHT_THEME_COLORS,
+  E6_CODE_DARK_MOBILE_PANE_COLORS,
   E6_CODE_DARK_THEME_COLORS,
   MOBILE_THEME_IDS,
   getThemeColorsForAppearance,
@@ -79,10 +80,12 @@ describe("mobile themes", () => {
   it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
       const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+      // Default dark keeps mobile's darker pane under the chat (see
+      // E6_CODE_DARK_MOBILE_PANE_COLORS); every other role is the web's.
       const colors = theme
         ? getThemeColorsForAppearance(theme, appearance)!
         : appearance === "dark"
-          ? E6_CODE_DARK_THEME_COLORS
+          ? { ...E6_CODE_DARK_THEME_COLORS, ...E6_CODE_DARK_MOBILE_PANE_COLORS }
           : E6_CODE_LIGHT_THEME_COLORS;
       const variables =
         themeId === DEFAULT_MOBILE_THEME_ID

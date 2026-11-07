@@ -890,3 +890,186 @@ export function formatSubagentTokenCount(totalTokens: number): string {
   }
   return `${(totalTokens / 1_000_000).toFixed(1)}M`;
 }
+
+/**
+ * The five words a subagent row can say. Pending, running and waiting all read
+ * as Working: a queued or stalled subagent is still the fleet doing its job,
+ * and the detail belongs on the activity line, not in a separate state.
+ */
+export type SubagentStatusTone = "working" | "idle" | "done" | "failed" | "stopped";
+
+export function subagentStatusTone(status: RuntimeSubagentStatus): SubagentStatusTone {
+  switch (status) {
+    case "pending":
+    case "running":
+    case "waiting":
+      return "working";
+    case "idle":
+      return "idle";
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
+  }
+}
+
+export const SUBAGENT_STATUS_LABEL: Readonly<Record<SubagentStatusTone, string>> = {
+  working: "Working",
+  idle: "Idle",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+
+const SUMMARY_TONE_ORDER: ReadonlyArray<SubagentStatusTone> = [
+  "working",
+  "failed",
+  "stopped",
+  "idle",
+  "done",
+];
+
+export interface SubagentStatusSummary {
+  /** "3 working · 1 done"; empty when there are no agents. */
+  readonly text: string;
+  /** The tone that should color the summary: live work first, then problems. */
+  readonly tone: SubagentStatusTone | null;
+  readonly counts: Readonly<Record<SubagentStatusTone, number>>;
+}
+
+/** Spawn-card header line: counts per status word, live and failing first. */
+export function summarizeSubagentStatuses(
+  agents: ReadonlyArray<Pick<RuntimeSubagent, "status">>,
+): SubagentStatusSummary {
+  const counts: Record<SubagentStatusTone, number> = {
+    working: 0,
+    idle: 0,
+    done: 0,
+    failed: 0,
+    stopped: 0,
+  };
+  for (const agent of agents) {
+    counts[subagentStatusTone(agent.status)] += 1;
+  }
+  const present = SUMMARY_TONE_ORDER.filter((tone) => counts[tone] > 0);
+  return {
+    text: present.map((tone) => `${counts[tone]} ${tone}`).join(" · "),
+    tone: present[0] ?? null,
+    counts,
+  };
+}
+
+export interface SpawnBatchStatusPart {
+  readonly text: string;
+  readonly tone: SubagentStatusTone | null;
+}
+
+export interface SpawnBatchStatus {
+  readonly text: string;
+  /** The same line as segments, each carrying its own status color. */
+  readonly parts: ReadonlyArray<SpawnBatchStatusPart>;
+  readonly tone: SubagentStatusTone | null;
+  /** The batch still has work in flight (a live coordinator counts). */
+  readonly live: boolean;
+}
+
+/**
+ * Header line for a spawn card. Member counts carry the detail, but a
+ * workflow coordinator's own outcome leads when it disagrees with them: a
+ * crashed run whose members finished is "Workflow failed · 3 done", and a
+ * coordinator between launches is "Working · 3 done". Members missing from
+ * the roster are counted as unavailable instead of silently dropped.
+ */
+export function describeSpawnBatchStatus(input: {
+  readonly agents: ReadonlyArray<Pick<RuntimeSubagent, "status">>;
+  readonly agentCount: number;
+  readonly coordinatorStatus?: RuntimeSubagentStatus | undefined;
+}): SpawnBatchStatus {
+  const summary = summarizeSubagentStatuses(input.agents);
+  const coordinator =
+    input.coordinatorStatus === undefined ? null : subagentStatusTone(input.coordinatorStatus);
+  const live =
+    input.coordinatorStatus !== undefined
+      ? !isTerminalSubagentStatus(input.coordinatorStatus)
+      : summary.counts.working > 0;
+  const lead =
+    coordinator === "failed"
+      ? { text: "Workflow failed", tone: "failed" as const }
+      : coordinator === "stopped"
+        ? { text: "Workflow stopped", tone: "stopped" as const }
+        : live && summary.counts.working === 0
+          ? { text: "Working", tone: "working" as const }
+          : null;
+  const missing = Math.max(0, input.agentCount - input.agents.length);
+  const counted = SUMMARY_TONE_ORDER.filter((tone) => summary.counts[tone] > 0).map((tone) => ({
+    text: `${summary.counts[tone]} ${tone}`,
+    tone,
+  }));
+  const parts: SpawnBatchStatusPart[] = [
+    ...(lead ? [lead] : []),
+    ...counted,
+    ...(!live && missing > 0 ? [{ text: `${missing} unavailable`, tone: null }] : []),
+  ];
+  if (parts.length === 0) {
+    parts.push(
+      live ? { text: "Working", tone: "working" } : { text: "Status unavailable", tone: null },
+    );
+  }
+  return {
+    text: parts.map((part) => part.text).join(" · "),
+    parts,
+    tone: lead?.tone ?? summary.tone ?? (live ? "working" : null),
+    live,
+  };
+}
+
+/**
+ * Activity line for a subagent row. Live rows lead with what is happening
+ * now; settled rows lead with the outcome, errors first because they explain
+ * a failed row at a glance.
+ */
+export function subagentActivityText(
+  agent: Pick<RuntimeSubagent, "status" | "progress" | "lastToolName" | "result" | "error">,
+): string | null {
+  const tool = agent.lastToolName ? `▸ ${agent.lastToolName}` : null;
+  const text = isActiveSubagentStatus(agent.status)
+    ? (agent.progress ?? tool ?? agent.result ?? agent.error)
+    : (agent.error ?? agent.result ?? agent.progress ?? tool);
+  return text?.split("\n").find((line) => line.trim().length > 0) ?? null;
+}
+
+/** True while a subagent's elapsed time should keep counting. */
+export function subagentElapsedIsLive(status: RuntimeSubagentStatus): boolean {
+  return status === "running" || status === "waiting";
+}
+
+/**
+ * Elapsed time of the current activation; null before it has started. A
+ * settled or idle agent without a terminal timestamp stops at its last update,
+ * so a resting agent never appears to keep counting.
+ */
+export function subagentElapsedMs(
+  agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt" | "updatedAt">,
+  nowMs: number,
+): number | null {
+  if (!agent.startedAt) return null;
+  const start = Date.parse(agent.startedAt);
+  const end = subagentElapsedIsLive(agent.status)
+    ? nowMs
+    : Date.parse(agent.completedAt ?? agent.updatedAt);
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return Math.max(0, end - start);
+}
+
+/** "19s", "1m 05s", "2h 03m". */
+export function formatSubagentElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 0) return `${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours === 0) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}

@@ -1111,18 +1111,20 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   @variant dark {
     color-scheme: dark;
     /* Graphite: warm near-black canvas with surfaces stepping lighter as they
-       rise. Borders and hover states provide separation without milky fills. */
+       rise. Borders and hover states provide separation without milky fills.
+       Chrome (sidebar, inspector) sits one step above the thread so the work
+       stays the brightest thing without the rail reading as a hole. */
     --background: #0e0f0d;
     --surface-well: #090a08;
     --surface-raised: #1b1c19;
-    --surface-floating: #20211e;
+    --surface-floating: #22231f;
     --bezel-highlight: rgb(255 255 255 / 5%);
     --bezel-border: color-mix(in srgb, var(--color-white) 7.5%, transparent);
     --command-deck-shadow: 0 22px 44px -16px rgb(0 0 0 / 68%), 0 4px 12px -2px rgb(0 0 0 / 42%);
     --foreground: #ecede5;
     --card: #171815;
     --card-foreground: var(--foreground);
-    --popover: #20211e;
+    --popover: #22231f;
     --popover-foreground: var(--foreground);
     --primary: #c4ee3a;
     --primary-foreground: #141510;
@@ -1155,7 +1157,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
     --update-foreground: #84adff;
     --update-surface: color-mix(in srgb, var(--update) 18%, transparent);
-    --sidebar: #040504;
+    --sidebar: #141512;
     --sidebar-control-surface: var(--muted);
     --sidebar-row-hover: var(--accent);
     --sidebar-row-active: var(--accent);
@@ -1193,11 +1195,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   @variant dark {
     --background: #0e0f0d;
     --foreground: #ecede5;
-    --card: #040504;
+    --card: #141512;
     --card-foreground: var(--foreground);
-    --accent: #20211e;
+    --accent: #22231f;
     --accent-foreground: #f4f5ee;
-    --muted: #171815;
+    --muted: #1b1c19;
     --muted-foreground: #9d9f95;
     --border: rgb(255 255 255 / 9%);
     --input: rgb(255 255 255 / 18%);

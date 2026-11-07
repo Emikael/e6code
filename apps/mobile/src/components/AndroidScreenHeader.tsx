@@ -16,6 +16,10 @@ export interface AndroidHeaderAction {
   readonly onPress: () => void;
   readonly disabled?: boolean;
   readonly selected?: boolean;
+  /** Stable identity when the label carries changing state, such as a count. */
+  readonly id?: string;
+  /** Count drawn over the icon; the label must say the same thing. */
+  readonly badge?: number;
 }
 
 export function AndroidHeaderIconButton(props: {
@@ -88,14 +92,26 @@ export function AndroidScreenHeader(props: {
         </View>
 
         {visibleActions.map((action) => (
-          <AndroidHeaderIconButton
-            key={action.accessibilityLabel}
-            accessibilityLabel={action.accessibilityLabel}
-            disabled={action.disabled}
-            selected={action.selected}
-            icon={action.icon}
-            onPress={action.onPress}
-          />
+          <View key={action.id ?? action.accessibilityLabel}>
+            <AndroidHeaderIconButton
+              accessibilityLabel={action.accessibilityLabel}
+              disabled={action.disabled}
+              selected={action.selected}
+              icon={action.icon}
+              onPress={action.onPress}
+            />
+            {action.badge !== undefined && action.badge > 0 ? (
+              <View
+                pointerEvents="none"
+                importantForAccessibility="no-hide-descendants"
+                className="absolute top-1.5 right-1 h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1"
+              >
+                <Text className="font-e6-bold text-3xs tabular-nums text-screen">
+                  {action.badge > 99 ? "99+" : action.badge}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         ))}
         {overflowActions.length > 0 ? (
           <AndroidAnchoredMenu

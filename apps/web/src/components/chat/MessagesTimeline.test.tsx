@@ -1522,7 +1522,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Working for");
+    expect(markup).toContain(">Working<");
     expect(markup).toContain("Running pnpm");
   });
 

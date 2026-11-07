@@ -42,6 +42,7 @@ import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
+import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   WorkspaceBreadcrumb,
@@ -68,6 +69,8 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
+  /** The Inspector's Overview shows these actions, so the header leaves them out. */
+  workspaceActionsInPanel?: boolean;
   gitCwd: string | null;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
@@ -130,6 +133,7 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   rightPanelOpen,
+  workspaceActionsInPanel = false,
   gitCwd,
   onOpenPullRequest,
   onNewThreadInProject,
@@ -204,12 +208,16 @@ export const ChatHeader = memo(function ChatHeader({
     activeProjectScripts ? activeProjectCwd : null,
   );
   const remoteOpenState = useRemoteOpenState(activeThreadEnvironmentId);
-  const showOpenInPicker = shouldShowOpenInPicker({
-    activeProjectName,
-    activeThreadEnvironmentId,
-    primaryEnvironmentId,
-    remoteOpenMode: remoteOpenState.mode,
-  });
+  const showOpenInPicker =
+    !workspaceActionsInPanel &&
+    shouldShowOpenInPicker({
+      activeProjectName,
+      activeThreadEnvironmentId,
+      primaryEnvironmentId,
+      remoteOpenMode: remoteOpenState.mode,
+    });
+  const showProjectScripts = workspaceActionsInPanel ? undefined : activeProjectScripts;
+  const showGitActions = !workspaceActionsInPanel && Boolean(activeProjectName && gitCwd);
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -324,12 +332,12 @@ export const ChatHeader = memo(function ChatHeader({
   );
   const headerActions = (
     <>
-      {activeProjectScripts && (
+      {showProjectScripts && (
         <>
           <ProjectScriptsControl
             onRequestMenuClose={() => setActionsOpen(false)}
             presentation={actionsCollapsed ? "menu" : "toolbar"}
-            scripts={activeProjectScripts}
+            scripts={showProjectScripts}
             fileScripts={fileScripts}
             keybindings={keybindings}
             preferredScriptId={preferredScriptId}
@@ -342,7 +350,7 @@ export const ChatHeader = memo(function ChatHeader({
       )}
       {showOpenInPicker && (
         <>
-          {actionsCollapsed && activeProjectScripts && <MenuSeparator />}
+          {actionsCollapsed && showProjectScripts && <MenuSeparator />}
           <OpenInPicker
             presentation={actionsCollapsed ? "menu" : "toolbar"}
             environmentId={activeThreadEnvironmentId}
@@ -352,9 +360,9 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
-      {activeProjectName && gitCwd && (
+      {showGitActions && gitCwd && (
         <>
-          {actionsCollapsed && (activeProjectScripts || showOpenInPicker) && <MenuSeparator />}
+          {actionsCollapsed && (showProjectScripts || showOpenInPicker) && <MenuSeparator />}
           <GitActionsControl
             presentation={actionsCollapsed ? "menu" : "toolbar"}
             gitCwd={gitCwd}
@@ -478,6 +486,11 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {/* Which machine runs this thread, and whether it is reachable, in words. */}
+      <EnvironmentConnectionChip
+        environmentId={activeThreadEnvironmentId}
+        className="hidden @2xl/header-actions:inline-flex"
+      />
       <div
         ref={headerActionsRef}
         data-chat-header-actions
@@ -492,8 +505,7 @@ export const ChatHeader = memo(function ChatHeader({
         <Menu open={actionsCollapsed && actionsOpen} onOpenChange={setActionsOpen}>
           <MenuTrigger
             className={
-              actionsCollapsed &&
-              (activeProjectScripts || showOpenInPicker || (activeProjectName && gitCwd))
+              actionsCollapsed && (showProjectScripts || showOpenInPicker || showGitActions)
                 ? undefined
                 : "hidden"
             }

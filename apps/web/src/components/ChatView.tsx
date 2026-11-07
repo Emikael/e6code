@@ -228,7 +228,8 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
-import { AgentsPanel } from "./AgentsPanel";
+import { InspectorOverview, type InspectorWorkspace } from "./InspectorOverview";
+import { useSubagentSelectionStore } from "../subagentSelectionStore";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -238,6 +239,7 @@ import { WizardPopup } from "./ui/wizard";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
+  formatSubagentModelLabel,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -321,8 +323,10 @@ import {
   markPromotedDraftThreadByRef,
   restoreFailedBackgroundDraftThread,
   useComposerDraftStore,
+  useEffectiveComposerModelState,
   DraftId,
 } from "../composerDraftStore";
+import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import {
   formatTerminalContextLabel,
   type TerminalContextDraft,
@@ -383,6 +387,8 @@ import {
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
+import { DraftHeroFooter } from "./chat/DraftHeroFooter";
+import { selectUnpushedCommits } from "./chat/DraftHeroFooter.logic";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -3662,6 +3668,24 @@ export default function ChatView(props: ChatViewProps) {
     captureDraftHeroComposerRect,
   ] = useDraftHeroLayoutTransition(isDraftHeroState);
 
+  // The new-thread hero names the model the composer will send to, so read
+  // the same effective selection the composer's picker shows.
+  const { selectedModel: draftHeroModelSlug } = useEffectiveComposerModelState({
+    threadRef: composerDraftTarget,
+    providers: providerStatuses,
+    selectedProvider,
+    selectedInstanceId: activeProviderInstanceId,
+    threadModelSelection: activeThread?.modelSelection,
+    projectModelSelection: activeProjectDefaultModelSelection,
+    settings,
+  });
+  const draftHeroModel = selectedProviderEntry?.snapshot?.models.find(
+    (model) => model.slug === draftHeroModelSlug,
+  );
+  const draftHeroAgentLabel = draftHeroModel
+    ? getTriggerDisplayModelName(draftHeroModel)
+    : (selectedProviderEntry?.displayName ?? null);
+
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.workspaceRoot },
@@ -4601,10 +4625,19 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
-  const addAgentsSurface = useCallback(() => {
-    if (!activeThreadRef) return;
-    useRightPanelStore.getState().open(activeThreadRef, "agents");
-  }, [activeThreadRef]);
+  const addAgentsSurface = useCallback(
+    (agentId?: unknown) => {
+      if (!activeThreadRef) return;
+      // Launcher clicks pass a DOM event; only a subagent row passes its id.
+      if (typeof agentId === "string") {
+        useSubagentSelectionStore
+          .getState()
+          .select(scopedThreadKey(activeThreadRef), agentId, { reveal: true });
+      }
+      useRightPanelStore.getState().open(activeThreadRef, "agents");
+    },
+    [activeThreadRef],
+  );
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
@@ -9838,6 +9871,39 @@ export default function ChatView(props: ChatViewProps) {
       <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
     </div>
   );
+  const inspectorThreadModelLabel = activeThread
+    ? [
+        selectedProviderEntry?.displayName ?? null,
+        formatSubagentModelLabel(activeThread.modelSelection.model, null),
+      ]
+        .filter(Boolean)
+        .join(" · ") || null
+    : null;
+  const inspectorWorkspace: InspectorWorkspace | null = activeThread
+    ? {
+        environmentId: activeThread.environmentId,
+        threadId: activeThread.id,
+        draftId: routeKind === "draft" && draftId ? draftId : undefined,
+        activeProject,
+        openInCwd: gitCwd,
+        gitCwd,
+        keybindings,
+        availableEditors,
+        activeProjectScripts,
+        preferredScriptId: activeProject
+          ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+          : null,
+        onRunProjectScript: runProjectScript,
+        onAddProjectScript: saveProjectScript,
+        onUpdateProjectScript: updateProjectScript,
+        onDeleteProjectScript: deleteProjectScript,
+        onOpenPullRequest:
+          !supportsPullRequests || activeProjectRepository === null
+            ? undefined
+            : openProjectPullRequest,
+        onOpenDiff: isServerThread && isGitRepo ? addDiffSurface : null,
+      }
+    : null;
   const rightPanelContent = activeThreadRef ? (
     renderedRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
@@ -9935,10 +10001,12 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
-      <AgentsPanel
+      <InspectorOverview
         model={agentPanelModel}
-        environmentId={activeThreadRef?.environmentId ?? null}
-        threadId={activeThreadRef?.threadId ?? null}
+        threadKey={activeThreadRef ? scopedThreadKey(activeThreadRef) : null}
+        providerKind={selectedProvider ?? null}
+        threadModelLabel={inspectorThreadModelLabel}
+        workspace={inspectorWorkspace}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
@@ -10087,6 +10155,7 @@ export default function ChatView(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
+            workspaceActionsInPanel={rightPanelOpen && activeRightPanelSurface?.kind === "agents"}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
@@ -10152,6 +10221,13 @@ export default function ChatView(props: ChatViewProps) {
                       onCiteAssistantText: citeAssistantText,
                       agentPanelModel,
                       onOpenAgents: addAgentsSurface,
+                      subagentProviderKind: selectedProvider ?? null,
+                      pendingAttention:
+                        pendingApprovals.length > 0
+                          ? "approval"
+                          : pendingUserInputs.length > 0
+                            ? "input"
+                            : null,
                       onUseArtifactTemplate: useArtifactTemplate,
                     }
                   : {})}
@@ -10431,6 +10507,9 @@ export default function ChatView(props: ChatViewProps) {
                           draftId={draftId}
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
+                          agentLabel={draftHeroAgentLabel}
+                          envMode={envMode}
+                          branch={activeThreadBranch ?? gitStatusQuery.data?.refName ?? null}
                         />
                       </div>
                     </div>
@@ -10635,6 +10714,17 @@ export default function ChatView(props: ChatViewProps) {
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
                     />
                   </div>
+                  {isDraftHeroState ? (
+                    // Hangs below the centered composer so the hero never shifts it;
+                    // short windows and phones keep just the composer.
+                    <div className="absolute inset-x-0 top-full z-0 hidden pt-2 sm:block [@media(max-height:760px)]:hidden">
+                      <DraftHeroFooter
+                        keybindings={keybindings}
+                        unpushed={selectUnpushedCommits(gitStatusQuery.data)}
+                        onOpenSourceControl={addAgentsSurface}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -10764,6 +10854,7 @@ export default function ChatView(props: ChatViewProps) {
           agentsAvailable
           deviceAvailable={activeThreadRef !== null}
           liveAgentCount={agentPanelModel.liveCount}
+          changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -10832,6 +10923,7 @@ export default function ChatView(props: ChatViewProps) {
             agentsAvailable
             deviceAvailable={activeThreadRef !== null}
             liveAgentCount={agentPanelModel.liveCount}
+            changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
           >
             {rightPanelContent}
           </RightPanelTabs>

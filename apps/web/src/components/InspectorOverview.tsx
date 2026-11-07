@@ -1,0 +1,922 @@
+/**
+ * Inspector Overview: the right panel's first surface. Workspace actions,
+ * source control at a glance, and the lineage of every subagent this thread
+ * spawned, with the selected one shown in detail.
+ *
+ * Visualization rules (carried over from the Agents surface it replaces):
+ * - Spawn order is stable. Activity and completion update rows in place;
+ *   finished rows fold only when the panel opens, never under the pointer.
+ * - Status is a glyph plus a word or label, never color alone.
+ * - Elapsed timers tick by DOM writes; nothing repaints continuously.
+ * - The panel sits on the sidebar ground, so metadata uses the sidebar's
+ *   muted role, which every theme tunes for that ground.
+ */
+import { useAtomValue } from "@effect/atom-react";
+import type {
+  EditorId,
+  EnvironmentId,
+  ProjectScript,
+  ProviderDriverKind,
+  ResolvedKeybindingsConfig,
+  ThreadId,
+} from "@e6tools/contracts";
+import { scopeThreadRef } from "@e6tools/client-runtime/environment";
+import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
+import {
+  type AgentPanelModel,
+  type AgentPanelWorkflowGroup,
+  formatSubagentModelLabel,
+  formatSubagentTokenCount,
+  isActiveSubagentStatus,
+  type RuntimeSubagent,
+  SUBAGENT_STATUS_LABEL,
+  subagentActivityText,
+  subagentStatusTone,
+  summarizeSubagentStatuses,
+} from "@e6tools/client-runtime/state/subagentRuntime";
+import {
+  BotIcon,
+  BracesIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  EllipsisIcon,
+  ExternalLinkIcon,
+  FileDiffIcon,
+  GitBranchIcon,
+  GitCommitHorizontalIcon,
+  MessageSquareTextIcon,
+  MonitorIcon,
+  SquareArrowOutUpRightIcon,
+  WrenchIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  memo,
+  type ReactNode,
+  type Ref,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import type { DraftId } from "~/composerDraftStore";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { useE6ProjectFileScripts } from "~/hooks/useE6ProjectFileScripts";
+import { cn } from "~/lib/utils";
+import { primaryProjectScript } from "~/projectScripts";
+import { useRemoteOpenState } from "~/remoteOpen";
+import { usePrimaryEnvironmentId } from "~/state/environments";
+import { orchestrationEnvironment } from "~/state/orchestration";
+import { useEnvironmentQuery } from "~/state/query";
+import { vcsEnvironment } from "~/state/vcs";
+import { useSubagentSelectionStore } from "~/subagentSelectionStore";
+import GitActionsControl from "./GitActionsControl";
+import ProjectScriptsControl, {
+  type NewProjectScriptInput,
+  type ProjectScriptActionResult,
+} from "./ProjectScriptsControl";
+import { OpenInPicker } from "./chat/OpenInPicker";
+import { shouldShowOpenInPicker } from "./chat/ChatHeader";
+import {
+  SUBAGENT_TONE_TEXT_CLASS,
+  SubagentElapsed,
+  SubagentStatusGlyph,
+  SubagentTile,
+} from "./subagents/SubagentParts";
+import { Button } from "./ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
+import { ScrollArea } from "./ui/scroll-area";
+import { toastManager } from "./ui/toast";
+
+export interface InspectorWorkspace {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  draftId?: DraftId | undefined;
+  activeProject: EnvironmentProject | null;
+  openInCwd: string | null;
+  gitCwd: string | null;
+  keybindings: ResolvedKeybindingsConfig;
+  availableEditors: ReadonlyArray<EditorId>;
+  activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
+  preferredScriptId: string | null;
+  onRunProjectScript: (script: ProjectScript) => void;
+  onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
+  onUpdateProjectScript: (
+    scriptId: string,
+    input: NewProjectScriptInput,
+  ) => Promise<ProjectScriptActionResult>;
+  onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  onOpenPullRequest?: ((number: number) => void) | undefined;
+  /** Opens the Diff surface; null when the thread has no diff to show. */
+  onOpenDiff: (() => void) | null;
+}
+
+const MUTED = "text-sidebar-muted-foreground";
+const ROW_CLASS_NAME =
+  "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-accent/60";
+const ROW_ICON_CLASS_NAME = cn("size-4 shrink-0", MUTED);
+
+/** A row that opens one of the header's controls in its menu presentation. */
+function InspectorMenuRow({
+  icon,
+  label,
+  meta,
+  children,
+}: {
+  icon: ReactNode;
+  label: ReactNode;
+  meta?: ReactNode;
+  children: (close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  return (
+    <Menu open={open} onOpenChange={setOpen}>
+      <MenuTrigger className={ROW_CLASS_NAME}>
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {meta}
+        <ChevronDownIcon aria-hidden className={cn("size-3 shrink-0", MUTED)} />
+      </MenuTrigger>
+      {/* Kept mounted so dialogs the control opens outlive the menu. */}
+      <MenuPopup keepMounted align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">
+        {children(close)}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function SectionDivider() {
+  return <div aria-hidden className="mx-2 my-2 h-px bg-sidebar-border" />;
+}
+
+function WorkspaceSection({ workspace }: { workspace: InspectorWorkspace }) {
+  const project = workspace.activeProject;
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const remoteOpenState = useRemoteOpenState(workspace.environmentId);
+  const fileScripts = useE6ProjectFileScripts(
+    workspace.environmentId,
+    workspace.activeProjectScripts ? (project?.workspaceRoot ?? null) : null,
+  );
+  const showOpenIn = shouldShowOpenInPicker({
+    activeProjectName: project?.title,
+    activeThreadEnvironmentId: workspace.environmentId,
+    primaryEnvironmentId,
+    remoteOpenMode: remoteOpenState.mode,
+  });
+  const scripts = workspace.activeProjectScripts;
+  // Same choice as the header's script button: the last run, else the first
+  // script that is not a worktree setup step.
+  const scriptLabel =
+    scripts?.find((script) => script.id === workspace.preferredScriptId)?.name ??
+    (scripts ? primaryProjectScript(scripts)?.name : undefined) ??
+    "Scripts";
+
+  if (!project) return null;
+  return (
+    <div role="group" aria-label="Workspace" className="flex flex-col">
+      <div className="flex h-8 min-w-0 items-center gap-2.5 px-2">
+        <MonitorIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{project.title}</span>
+      </div>
+      {showOpenIn ? (
+        <InspectorMenuRow
+          icon={<SquareArrowOutUpRightIcon aria-hidden className={ROW_ICON_CLASS_NAME} />}
+          label="Open in editor"
+        >
+          {() => (
+            <OpenInPicker
+              presentation="menu"
+              enableShortcut={false}
+              environmentId={workspace.environmentId}
+              keybindings={workspace.keybindings}
+              availableEditors={workspace.availableEditors}
+              openInCwd={workspace.openInCwd}
+            />
+          )}
+        </InspectorMenuRow>
+      ) : null}
+      {scripts ? (
+        <InspectorMenuRow
+          icon={<WrenchIcon aria-hidden className={ROW_ICON_CLASS_NAME} />}
+          label={scriptLabel}
+        >
+          {(close) => (
+            <ProjectScriptsControl
+              presentation="menu"
+              onRequestMenuClose={close}
+              scripts={scripts}
+              fileScripts={fileScripts}
+              keybindings={workspace.keybindings}
+              preferredScriptId={workspace.preferredScriptId}
+              onRunScript={workspace.onRunProjectScript}
+              onAddScript={workspace.onAddProjectScript}
+              onUpdateScript={workspace.onUpdateProjectScript}
+              onDeleteScript={workspace.onDeleteProjectScript}
+            />
+          )}
+        </InspectorMenuRow>
+      ) : null}
+      <SectionDivider />
+    </div>
+  );
+}
+
+/** Branch, commit and change count. Values stay blank until status arrives. */
+function SourceControlSection({
+  workspace,
+  gitCwd,
+}: {
+  workspace: InspectorWorkspace;
+  gitCwd: string;
+}) {
+  const { data: status } = useEnvironmentQuery(
+    vcsEnvironment.status({ environmentId: workspace.environmentId, input: { cwd: gitCwd } }),
+  );
+  if (status && !status.isRepo) return null;
+  const files = status?.workingTree.files.length ?? 0;
+  const ahead = status?.aheadCount ?? 0;
+  const behind = status?.behindCount ?? 0;
+  const threadRef = scopeThreadRef(workspace.environmentId, workspace.threadId);
+  const commitMeta = !status
+    ? null
+    : files > 0
+      ? `${files} ${files === 1 ? "file" : "files"}`
+      : ahead > 0
+        ? `${ahead} to push`
+        : "Nothing to commit";
+  const changes = status ? (
+    <>
+      <span className="text-xs tabular-nums text-success-foreground">
+        +{status.workingTree.insertions}
+      </span>
+      <span className="text-xs tabular-nums text-destructive-foreground">
+        −{status.workingTree.deletions}
+      </span>
+    </>
+  ) : null;
+  return (
+    <div role="group" aria-label="Source control" className="flex flex-col">
+      <div className="flex h-8 min-w-0 items-center gap-2.5 px-2">
+        <GitBranchIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+        <span className={cn("min-w-0 flex-1 truncate text-xs", status ? "font-mono" : MUTED)}>
+          {status ? (status.refName ?? "Detached") : "Checking…"}
+        </span>
+        {ahead > 0 ? (
+          <span className={cn("text-xs tabular-nums", MUTED)}>
+            ↑{ahead}
+            <span className="sr-only"> ahead</span>
+          </span>
+        ) : null}
+        {behind > 0 ? (
+          <span className={cn("text-xs tabular-nums", MUTED)}>
+            ↓{behind}
+            <span className="sr-only"> behind</span>
+          </span>
+        ) : null}
+      </div>
+      <InspectorMenuRow
+        icon={<GitCommitHorizontalIcon aria-hidden className={ROW_ICON_CLASS_NAME} />}
+        label="Commit"
+        meta={commitMeta ? <span className={cn("text-xs", MUTED)}>{commitMeta}</span> : null}
+      >
+        {() => (
+          <GitActionsControl
+            presentation="menu"
+            gitCwd={gitCwd}
+            activeThreadRef={threadRef}
+            onOpenPullRequest={workspace.onOpenPullRequest}
+            {...(workspace.draftId ? { draftId: workspace.draftId } : {})}
+          />
+        )}
+      </InspectorMenuRow>
+      {workspace.onOpenDiff ? (
+        <button type="button" className={ROW_CLASS_NAME} onClick={workspace.onOpenDiff}>
+          <FileDiffIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+          <span className="min-w-0 flex-1 truncate">Changes</span>
+          {changes}
+        </button>
+      ) : (
+        <div className="flex h-8 min-w-0 items-center gap-2.5 px-2 text-[13px]">
+          <FileDiffIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+          <span className="min-w-0 flex-1 truncate">Changes</span>
+          {changes}
+        </div>
+      )}
+      <SectionDivider />
+    </div>
+  );
+}
+
+/**
+ * Read-only workflow script viewer, fetched through the contained
+ * getWorkflowScript RPC (never a raw filesystem read from the client).
+ */
+function WorkflowScriptView({
+  environmentId,
+  threadId,
+  scriptPath,
+  onClose,
+}: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  scriptPath: string;
+  onClose: () => void;
+}) {
+  const result = useAtomValue(
+    orchestrationEnvironment.workflowScript({ environmentId, input: { threadId, scriptPath } }),
+  );
+  return (
+    <div className="rounded-lg border border-border bg-surface-well">
+      <div className="flex items-center gap-2 border-b border-border px-2 py-1">
+        <BracesIcon aria-hidden className="size-3 text-muted-foreground" />
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {scriptPath.split("/").at(-1)}
+        </span>
+        <Button
+          size="icon-micro"
+          variant="ghost-muted"
+          onClick={onClose}
+          aria-label="Close script"
+          className="ml-auto"
+        >
+          <XIcon aria-hidden className="size-3" />
+        </Button>
+      </div>
+      <div className="max-h-72 overflow-auto p-2">
+        {result._tag === "Success" ? (
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">
+            {result.value.contents}
+            {result.value.truncated ? "\n… (truncated)" : ""}
+          </pre>
+        ) : result._tag === "Failure" ? (
+          <p className="text-xs text-destructive-foreground">Could not load the script.</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">Loading…</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type LineagePhase = AgentPanelWorkflowGroup["phases"][number];
+
+interface LineageNode {
+  readonly agent: RuntimeSubagent;
+  /** Workflow members by phase, in phase order; empty for a direct spawn. */
+  readonly phases: ReadonlyArray<LineagePhase>;
+  readonly unphased: ReadonlyArray<RuntimeSubagent>;
+}
+
+/** Top-level lineage in spawn order: workflows carry their members. */
+function deriveLineage(model: AgentPanelModel): ReadonlyArray<LineageNode> {
+  const nodes: LineageNode[] = [
+    ...model.workflows.map((group) => ({
+      agent: group.workflow,
+      phases: group.phases,
+      unphased: group.unphasedMembers,
+    })),
+    ...model.directAgents.map((agent) => ({ agent, phases: [], unphased: [] })),
+  ];
+  return nodes.sort(
+    (a, b) =>
+      a.agent.firstSeenAt.localeCompare(b.agent.firstSeenAt) ||
+      a.agent.id.localeCompare(b.agent.id),
+  );
+}
+
+function nodeMembers(node: LineageNode): ReadonlyArray<RuntimeSubagent> {
+  return [...node.phases.flatMap((phase) => phase.members), ...node.unphased];
+}
+
+const PHASE_STATE_WORD: Readonly<Record<LineagePhase["state"], string>> = {
+  pending: "Pending",
+  running: "Working",
+  done: "Done",
+};
+
+/**
+ * One subagent in the lineage. Hover or focus trades the elapsed time for a
+ * menu with the ways back out: the thread card, the task text and the session.
+ */
+function LineageRow({
+  agent,
+  providerKind,
+  selected,
+  onSelect,
+  onShowInThread,
+}: {
+  agent: RuntimeSubagent;
+  providerKind: ProviderDriverKind | null;
+  selected: boolean;
+  onSelect: (agentId: string) => void;
+  onShowInThread: ((agentId: string) => void) | null;
+}) {
+  const tone = subagentStatusTone(agent.status);
+  const sessionUrl = agent.runHandles?.sessionUrl;
+  const { copyToClipboard } = useCopyToClipboard({
+    onCopy: () =>
+      toastManager.add({ type: "success", title: "Task copied", description: agent.title }),
+    onError: (error) =>
+      toastManager.add({
+        type: "error",
+        title: "Couldn't copy the task",
+        description: error.message,
+      }),
+  });
+  return (
+    <div className="group/lineage relative flex min-w-0">
+      <button
+        type="button"
+        data-lineage-row
+        data-agent-id={agent.id}
+        aria-current={selected ? "true" : undefined}
+        aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}`}
+        onClick={() => onSelect(agent.id)}
+        className={cn(
+          "flex h-7 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          // Selection takes the primary edge, the system's selected-outline role.
+          selected
+            ? "bg-accent ring-1 ring-inset ring-primary-edge"
+            : "group-hover/lineage:bg-accent/60",
+        )}
+      >
+        <SubagentTile driverKind={providerKind} size="sm" />
+        <span className="min-w-0 flex-1 truncate">{agent.title}</span>
+        <SubagentStatusGlyph tone={tone} decorative />
+        <SubagentElapsed
+          agent={agent}
+          className={cn(
+            "min-w-14 shrink-0 text-right text-xs group-focus-within/lineage:invisible group-hover/lineage:invisible group-has-[[data-popup-open]]/lineage:invisible",
+            MUTED,
+          )}
+        />
+      </button>
+      <Menu>
+        <MenuTrigger
+          aria-label={`More for ${agent.title}`}
+          className={cn(
+            "absolute inset-y-0.5 end-0.5 inline-flex w-7 items-center justify-center rounded-[5px] opacity-0 outline-none transition-colors hover:bg-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-focus-within/lineage:opacity-100 group-hover/lineage:opacity-100 data-popup-open:bg-accent data-popup-open:opacity-100 pointer-coarse:opacity-100",
+            MUTED,
+          )}
+        >
+          <EllipsisIcon aria-hidden className="size-3.5" />
+        </MenuTrigger>
+        <MenuPopup align="end" className="min-w-44">
+          {onShowInThread ? (
+            <MenuItem onClick={() => onShowInThread(agent.id)}>
+              <MessageSquareTextIcon aria-hidden />
+              Show in thread
+            </MenuItem>
+          ) : null}
+          <MenuItem onClick={() => copyToClipboard(agent.title)}>
+            <CopyIcon aria-hidden />
+            Copy task
+          </MenuItem>
+          {sessionUrl ? (
+            <MenuItem render={<a href={sessionUrl} target="_blank" rel="noreferrer" />}>
+              <ExternalLinkIcon aria-hidden />
+              Open session
+            </MenuItem>
+          ) : null}
+        </MenuPopup>
+      </Menu>
+    </div>
+  );
+}
+
+function moveLineageFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const rows = Array.from(
+    event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-lineage-row]"),
+  );
+  const index = rows.indexOf(event.target as HTMLButtonElement);
+  if (index < 0) return;
+  event.preventDefault();
+  rows[
+    Math.min(rows.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)))
+  ]?.focus();
+}
+
+function SubagentDetailCard({
+  agent,
+  providerKind,
+  environmentId,
+  threadId,
+  cardRef,
+}: {
+  agent: RuntimeSubagent;
+  providerKind: ProviderDriverKind | null;
+  environmentId: EnvironmentId | null;
+  threadId: ThreadId | null;
+  cardRef: Ref<HTMLDivElement>;
+}) {
+  const [scriptOpen, setScriptOpen] = useState(false);
+  const tone = subagentStatusTone(agent.status);
+  const live = isActiveSubagentStatus(agent.status);
+  const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
+  const role =
+    agent.role && agent.role.trim().toLowerCase() !== agent.title.trim().toLowerCase()
+      ? agent.role
+      : null;
+  const activity = live
+    ? (agent.progress ?? subagentActivityText(agent))
+    : (agent.error ?? agent.result ?? subagentActivityText(agent));
+  const scriptPath = agent.runHandles?.scriptPath;
+  const canShowScript = scriptPath !== undefined && environmentId !== null && threadId !== null;
+  const sessionUrl = agent.runHandles?.sessionUrl;
+  // "Recent" adds history, so it never repeats what "Now" already says.
+  const recent = agent.recentActivity
+    .filter((entry) => entry.summary !== activity)
+    .slice(-4)
+    .toReversed();
+
+  return (
+    <div
+      ref={cardRef}
+      role="group"
+      aria-label={`${agent.title} details`}
+      className="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-card px-2 py-3 text-card-foreground shadow-xs"
+    >
+      <div className="flex min-w-0 items-center gap-2.5">
+        <SubagentTile driverKind={providerKind} size="lg" />
+        <div className="flex min-w-0 flex-1 flex-col leading-tight">
+          <span className="truncate text-[13px] font-semibold">{agent.title}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {[role, modelLabel].filter(Boolean).join(" · ") || "Subagent"}
+          </span>
+        </div>
+        <span
+          className={cn(
+            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-accent px-2 text-xs font-semibold",
+            SUBAGENT_TONE_TEXT_CLASS[tone],
+          )}
+        >
+          <SubagentStatusGlyph tone={tone} className="size-3" decorative />
+          {SUBAGENT_STATUS_LABEL[tone]}
+        </span>
+      </div>
+      {activity ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-muted-foreground">
+            {live ? "Now" : agent.status === "failed" ? "Error" : "Result"}
+          </span>
+          <p
+            className={cn(
+              "line-clamp-6 whitespace-pre-wrap break-words text-xs leading-relaxed",
+              agent.status === "failed" && "text-destructive-foreground",
+            )}
+          >
+            {activity}
+          </p>
+        </div>
+      ) : null}
+      {recent.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-muted-foreground">Recent</span>
+          <ul className="flex flex-col gap-0.5">
+            {recent.map((entry) => (
+              <li
+                key={`${entry.at}:${entry.summary}`}
+                className="truncate text-xs text-muted-foreground"
+              >
+                {entry.summary}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <dl className="grid grid-cols-3 gap-2 border-t border-border pt-2.5">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <dt className="text-xs text-muted-foreground">Elapsed</dt>
+          <dd className="text-[13px] font-medium">
+            <SubagentElapsed agent={agent} />
+          </dd>
+        </div>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <dt className="text-xs text-muted-foreground">Tokens</dt>
+          <dd className="text-[13px] font-medium tabular-nums">
+            {agent.usage ? formatSubagentTokenCount(agent.usage.totalTokens) : "–"}
+          </dd>
+        </div>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <dt className="text-xs text-muted-foreground">Tool calls</dt>
+          <dd className="text-[13px] font-medium tabular-nums">
+            {agent.usage?.toolUses ?? "–"}
+            {agent.activationCount > 1 ? (
+              <span className="font-normal text-muted-foreground">
+                {" "}
+                · run {agent.activationCount}
+              </span>
+            ) : null}
+          </dd>
+        </div>
+      </dl>
+      {canShowScript || sessionUrl ? (
+        <div className="flex gap-2">
+          {canShowScript ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              aria-expanded={scriptOpen}
+              onClick={() => setScriptOpen((value) => !value)}
+            >
+              <BracesIcon aria-hidden />
+              {scriptOpen ? "Hide script" : "Show script"}
+            </Button>
+          ) : null}
+          {sessionUrl ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              render={<a href={sessionUrl} target="_blank" rel="noreferrer" />}
+            >
+              <ExternalLinkIcon aria-hidden />
+              Open session
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {scriptOpen && canShowScript ? (
+        <WorkflowScriptView
+          environmentId={environmentId}
+          threadId={threadId}
+          scriptPath={scriptPath}
+          onClose={() => setScriptOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function LineageSection({
+  model,
+  threadKey,
+  providerKind,
+  threadModelLabel,
+  environmentId,
+  threadId,
+}: {
+  model: AgentPanelModel;
+  threadKey: string | null;
+  providerKind: ProviderDriverKind | null;
+  threadModelLabel: string | null;
+  environmentId: EnvironmentId | null;
+  threadId: ThreadId | null;
+}) {
+  const [showFolded, setShowFolded] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const storedSelection = useSubagentSelectionStore((state) =>
+    threadKey ? (state.selectedByThreadKey[threadKey] ?? null) : null,
+  );
+  const revealCount = useSubagentSelectionStore((state) =>
+    threadKey ? (state.revealByThreadKey[threadKey] ?? 0) : 0,
+  );
+  const select = useSubagentSelectionStore((state) => state.select);
+  const showInThread = useSubagentSelectionStore((state) => state.showInThread);
+  const lineage = useMemo(() => deriveLineage(model), [model]);
+  const allAgents = useMemo(
+    () => lineage.flatMap((node) => [node.agent, ...nodeMembers(node)]),
+    [lineage],
+  );
+  const selected =
+    allAgents.find((agent) => agent.id === storedSelection) ??
+    allAgents.find((agent) => isActiveSubagentStatus(agent.status)) ??
+    allAgents.at(-1) ??
+    null;
+  const onSelect = useCallback(
+    (agentId: string) => {
+      if (threadKey) select(threadKey, agentId);
+    },
+    [select, threadKey],
+  );
+  const onShowInThread = useCallback(
+    (agentId: string) => {
+      if (!threadKey) return;
+      select(threadKey, agentId);
+      showInThread(threadKey, agentId);
+    },
+    [select, showInThread, threadKey],
+  );
+
+  // Pin the default pick once shown, so the card does not jump to another
+  // agent when this one finishes and its result is what the user came for.
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    if (threadKey && selectedId && storedSelection !== selectedId) {
+      if (storedSelection === null) select(threadKey, selectedId);
+    }
+  }, [select, selectedId, storedSelection, threadKey]);
+
+  // A pick from the thread scrolls the row and its card into view.
+  useEffect(() => {
+    if (revealCount === 0 || !selectedId) return;
+    const row = listRef.current?.querySelector<HTMLElement>(
+      `[data-agent-id="${CSS.escape(selectedId)}"]`,
+    );
+    row?.scrollIntoView({ block: "nearest" });
+    cardRef.current?.scrollIntoView({ block: "nearest" });
+  }, [revealCount, selectedId]);
+
+  // Finished top-level rows fold only as the panel opens on live work; rows
+  // that finish afterwards stay where they are.
+  const [foldedIds] = useState<ReadonlySet<string>>(
+    () =>
+      new Set(
+        model.liveCount > 0
+          ? lineage.filter((node) => node.agent.status === "completed").map((node) => node.agent.id)
+          : [],
+      ),
+  );
+  const folded = lineage.filter(
+    (node) => foldedIds.has(node.agent.id) && node.agent.id !== selectedId,
+  );
+  const folding = folded.length >= 2;
+  const visible =
+    folding && !showFolded ? lineage.filter((node) => !folded.includes(node)) : lineage;
+
+  // Coordinators with members are containers; their members carry the work.
+  const counted = lineage.flatMap((node) => {
+    const members = nodeMembers(node);
+    return members.length > 0 ? members : [node.agent];
+  });
+  const summary = summarizeSubagentStatuses(counted);
+  const header = [
+    "Lineage",
+    summary.text || null,
+    model.totalTokens > 0 ? `${formatSubagentTokenCount(model.totalTokens)} tok` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const renderRow = (agent: RuntimeSubagent) => (
+    <LineageRow
+      key={agent.id}
+      agent={agent}
+      providerKind={providerKind}
+      selected={agent.id === selectedId}
+      onSelect={onSelect}
+      onShowInThread={threadKey ? onShowInThread : null}
+    />
+  );
+
+  return (
+    <div role="group" aria-label="Lineage" className="flex flex-col">
+      <div className="flex h-7 items-center px-2">
+        <span className={cn("truncate text-xs font-medium", MUTED)}>{header}</span>
+      </div>
+      <div className="flex h-7 min-w-0 items-center gap-2.5 px-2">
+        <SubagentTile driverKind={providerKind} size="xs" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">This thread</span>
+        {threadModelLabel ? (
+          <span className={cn("truncate text-xs", MUTED)}>{threadModelLabel}</span>
+        ) : null}
+      </div>
+      {model.hasAgents ? (
+        <>
+          <div
+            ref={listRef}
+            role="group"
+            aria-label="Subagents"
+            onKeyDown={moveLineageFocus}
+            className="ms-4 flex flex-col border-s border-sidebar-border ps-2.5"
+          >
+            {visible.map((node) => (
+              <div key={node.agent.id} className="flex flex-col">
+                {renderRow(node.agent)}
+                {node.phases.length > 0 || node.unphased.length > 0 ? (
+                  <div className="ms-4 flex flex-col border-s border-sidebar-border ps-2.5">
+                    {node.phases.map((phase) => (
+                      <div key={phase.index} className="flex flex-col">
+                        <div className={cn("flex h-6 items-center gap-1.5 px-2 text-xs", MUTED)}>
+                          <span className="min-w-0 truncate font-medium">{phase.title}</span>
+                          <span aria-hidden>·</span>
+                          <span className="shrink-0">{PHASE_STATE_WORD[phase.state]}</span>
+                        </div>
+                        {phase.members.map(renderRow)}
+                      </div>
+                    ))}
+                    {node.unphased.map(renderRow)}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {folding ? (
+              <button
+                type="button"
+                aria-expanded={showFolded}
+                onClick={() => setShowFolded((value) => !value)}
+                className={cn(
+                  "flex h-7 w-full items-center gap-2.5 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent/60 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  MUTED,
+                )}
+              >
+                {showFolded ? (
+                  <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
+                ) : (
+                  <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
+                )}
+                <span className="flex-1">
+                  {showFolded ? `Hide ${folded.length} done` : `${folded.length} done`}
+                </span>
+              </button>
+            ) : null}
+          </div>
+          {selected ? (
+            <SubagentDetailCard
+              key={selected.id}
+              agent={selected}
+              providerKind={providerKind}
+              environmentId={environmentId}
+              threadId={threadId}
+              cardRef={cardRef}
+            />
+          ) : null}
+        </>
+      ) : (
+        <div className="mx-2 mt-1 flex flex-col items-center gap-1.5 rounded-lg bg-accent/40 px-4 py-5 text-center">
+          <BotIcon aria-hidden className={cn("size-4.5", MUTED)} />
+          <p className="text-xs font-semibold">No subagents yet</p>
+          <p className={cn("max-w-56 text-xs", MUTED)}>
+            When an agent splits work, each subagent appears here with its status and running time.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface InspectorOverviewProps {
+  model: AgentPanelModel;
+  threadKey: string | null;
+  providerKind: ProviderDriverKind | null;
+  threadModelLabel: string | null;
+  workspace: InspectorWorkspace | null;
+}
+
+function InspectorOverviewView({
+  model,
+  threadKey,
+  providerKind,
+  threadModelLabel,
+  workspace,
+}: InspectorOverviewProps) {
+  const gitCwd = workspace?.gitCwd ?? null;
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col bg-sidebar surface-grain text-sidebar-foreground"
+      data-inspector-overview
+    >
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-col p-2">
+          {workspace?.activeProject ? <WorkspaceSection workspace={workspace} /> : null}
+          {workspace && gitCwd ? (
+            <SourceControlSection workspace={workspace} gitCwd={gitCwd} />
+          ) : null}
+          <LineageSection
+            model={model}
+            threadKey={threadKey}
+            providerKind={providerKind}
+            threadModelLabel={threadModelLabel}
+            environmentId={workspace?.environmentId ?? null}
+            threadId={workspace?.threadId ?? null}
+          />
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+function shallowEqualWorkspace(
+  left: InspectorWorkspace | null,
+  right: InspectorWorkspace | null,
+): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  const keys = Object.keys(left) as Array<keyof InspectorWorkspace>;
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((key) => Object.is(left[key], right[key]))
+  );
+}
+
+/**
+ * ChatView rebuilds the workspace object on every render (each streaming
+ * delta); comparing it field by field keeps the panel and its controls still.
+ */
+export const InspectorOverview = memo(
+  InspectorOverviewView,
+  (previous, next) =>
+    previous.model === next.model &&
+    previous.threadKey === next.threadKey &&
+    previous.providerKind === next.providerKind &&
+    previous.threadModelLabel === next.threadModelLabel &&
+    shallowEqualWorkspace(previous.workspace, next.workspace),
+);

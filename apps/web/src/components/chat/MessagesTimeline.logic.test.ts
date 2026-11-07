@@ -23,6 +23,7 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  findSubagentSpawnRow,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
@@ -1460,26 +1461,73 @@ describe("deriveMessagesTimelineRows", () => {
           toolLifecycleStatus,
         },
       };
-      for (const trailingEntries of [[], [laterTool]]) {
-        const rows = deriveMessagesTimelineRows({
-          timelineEntries: [...direct.slice(0, 2), ...trailingEntries],
+      const rowsWhile = (liveAgentTaskIds: ReadonlySet<string>) =>
+        deriveMessagesTimelineRows({
+          timelineEntries: [...direct.slice(0, 2), laterTool],
           isWorking: true,
           runningTurnId: "turn-1" as TurnId,
           activeTurnStartedAt: "2026-01-01T00:00:00Z",
           turnDiffSummaries: [],
           supportsConversationRollback: false,
-          liveAgentTaskIds: new Set(["agent-b"]),
+          liveAgentTaskIds,
         });
-        expect(rows.filter((row) => row.kind === "work-live")).toMatchObject([
-          {
-            id: "live-activity-row",
-            entry: { id: trailingEntries.length ? "later-tool" : "spawn-entry" },
-            active: true,
-          },
-        ]);
-        expect(rows.some((row) => row.kind === "work" || row.kind === "thinking")).toBe(false);
-      }
+      // While a subagent works, its batch keeps its own card above the live
+      // row of the coordinator's later tool calls.
+      const working = rowsWhile(new Set(["agent-b"]));
+      expect(
+        working
+          .filter((row) => row.kind === "work" || row.kind === "work-live")
+          .map((row) => [row.kind, row.id]),
+      ).toEqual([
+        ["work", "spawn-entry"],
+        ["work-live", "live-activity-row"],
+      ]);
+      expect(working.find((row) => row.kind === "work-live")).toMatchObject({
+        entry: { id: "later-tool" },
+        active: true,
+      });
+      expect(working.some((row) => row.kind === "thinking")).toBe(false);
+      // Once the agents settle, the batch folds into the run like any tool call.
+      const settled = rowsWhile(new Set());
+      expect(settled.filter((row) => row.kind === "work-live")).toMatchObject([
+        {
+          entry: { id: "later-tool" },
+          groupedEntries: [{ id: "spawn-entry" }, { id: "later-tool" }],
+        },
+      ]);
+      expect(settled.some((row) => row.kind === "work")).toBe(false);
+
+      // "Show in thread" finds the card, and the group to open once it folded.
+      expect(findSubagentSpawnRow(working, new Set(["agent-b"]))).toEqual({
+        index: working.findIndex((row) => row.id === "spawn-entry"),
+        entryId: "spawn-entry",
+        foldedGroupId: null,
+      });
+      const settledLive = settled.find((row) => row.kind === "work-live");
+      expect(findSubagentSpawnRow(settled, new Set(["agent-a"]))).toEqual({
+        index: settled.indexOf(settledLive!),
+        entryId: "spawn-entry",
+        foldedGroupId: settledLive?.kind === "work-live" ? settledLive.groupId : "missing",
+      });
+      expect(findSubagentSpawnRow(working, new Set(["someone-else"]))).toBeNull();
     }
+
+    // A live batch with nothing after it is its own card, and the turn shows
+    // no separate thinking row while its agents work.
+    const liveBatchOnly = deriveMessagesTimelineRows({
+      timelineEntries: direct.slice(0, 2),
+      isWorking: true,
+      runningTurnId: "turn-1" as TurnId,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      liveAgentTaskIds: new Set(["agent-b"]),
+    });
+    expect(
+      liveBatchOnly
+        .filter((row) => row.kind === "work" || row.kind === "work-live" || row.kind === "thinking")
+        .map((row) => [row.kind, row.id]),
+    ).toEqual([["work", "spawn-entry"]]);
 
     expect(derive(direct, new Set())).toEqual(unfolded);
     expect(derive(direct, new Set(["agent-b"]))).toEqual(unfolded);

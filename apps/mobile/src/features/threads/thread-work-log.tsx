@@ -1017,11 +1017,93 @@ const AGENT_SPAWN_TONE_DOT_CLASS = {
   stopped: "bg-foreground-muted",
 } as const satisfies Record<AgentSpawnSummary["tone"], string>;
 
+const AGENT_SPAWN_TONE_TEXT_CLASS = {
+  working: "text-adaptive-sky-700-300",
+  completed: "text-adaptive-emerald-700-300",
+  failed: "text-danger-foreground",
+  stopped: "text-foreground-muted",
+} as const satisfies Record<AgentSpawnSummary["tone"], string>;
+
+const AGENT_SPAWN_TONE_WORD = {
+  working: "Working",
+  completed: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+} as const satisfies Record<AgentSpawnSummary["tone"], string>;
+
+const AGENT_SPAWN_SUMMARY_ORDER = ["working", "failed", "stopped", "completed"] as const;
+
 /**
- * A batch of spawned subagents. The status line updates in place as members
- * report progress; expanding lists each member. Text nodes carry keys tied to
- * the row identity only, so a progress tick re-renders the labels without
- * remounting the card (see the batch key in appendActivityGroupRows).
+ * "3 working · 1 done": live work first, then problems, then successes. When
+ * the batch's own state disagrees with its members (a coordinator still
+ * running between launches, or one that failed after its members finished),
+ * that state leads, so the line's color and its first word always agree.
+ */
+function agentSpawnCountsText(
+  members: AgentSpawnSummary["members"],
+  batchTone: AgentSpawnSummary["tone"],
+): string {
+  const counts = AGENT_SPAWN_SUMMARY_ORDER.flatMap((tone) => {
+    const count = members.filter((member) => member.tone === tone).length;
+    if (count === 0) return [];
+    return [`${count} ${tone === "completed" ? "done" : tone}`];
+  });
+  const leads = members.some((member) => member.tone === batchTone);
+  const lead =
+    batchTone === "completed" || leads
+      ? []
+      : [batchTone === "working" ? "Working" : batchTone === "failed" ? "Failed" : "Stopped"];
+  return [...lead, ...counts].join(" · ");
+}
+
+/** Status word with its dot; the word carries the state, the dot only echoes it. */
+function AgentSpawnStatusWord(props: { readonly tone: AgentSpawnSummary["tone"] }) {
+  return (
+    <View className="shrink-0 flex-row items-center gap-1.5">
+      <View className={cn("h-1.5 w-1.5 rounded-full", AGENT_SPAWN_TONE_DOT_CLASS[props.tone])} />
+      <Text className={cn("font-e6-medium text-xs", AGENT_SPAWN_TONE_TEXT_CLASS[props.tone])}>
+        {AGENT_SPAWN_TONE_WORD[props.tone]}
+      </Text>
+    </View>
+  );
+}
+
+/** A raised tile standing in for one subagent in the stack and the rows. */
+function AgentSpawnTile(props: {
+  readonly size: "stack" | "row";
+  readonly iconSubtleColor: ColorValue;
+  readonly label?: string;
+  readonly stacked?: boolean;
+}) {
+  const row = props.size === "row";
+  return (
+    <View
+      className={cn(
+        "shrink-0 items-center justify-center rounded-lg border border-border bg-subtle",
+        row ? "h-7 w-7" : "h-6 w-6",
+        props.stacked && "-ml-2 border-2 border-card",
+      )}
+    >
+      {props.label ? (
+        <Text className="font-e6-bold text-2xs text-foreground">{props.label}</Text>
+      ) : (
+        <SymbolView
+          name={{ ios: "sparkles", android: "auto_awesome" }}
+          size={row ? 13 : 11}
+          weight="medium"
+          tintColor={props.iconSubtleColor}
+          type="monochrome"
+        />
+      )}
+    </View>
+  );
+}
+
+/**
+ * A batch of spawned subagents. The header counts members by status; expanding
+ * lists each one with its status word and latest activity. Text nodes carry
+ * keys tied to the row identity only, so a progress tick re-renders the labels
+ * without remounting the card (see the batch key in appendActivityGroupRows).
  */
 export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
   readonly summary: AgentSpawnSummary;
@@ -1032,43 +1114,54 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
   readonly onCopy: () => void;
 }) {
   const { summary, expanded } = props;
-  const working = summary.tone === "working";
   const memberCount = summary.members.length;
   const canExpand = memberCount > 0;
+  const statusText =
+    memberCount > 1 ? agentSpawnCountsText(summary.members, summary.tone) : summary.status;
+  const stackTiles = Math.min(Math.max(memberCount, 1), memberCount > 4 ? 3 : 4);
   return (
     <Animated.View layout={WORK_LOG_LAYOUT_TRANSITION} className="-mx-1 mb-1 px-1">
-      <Pressable
-        accessibilityRole={canExpand ? "button" : undefined}
-        accessibilityState={canExpand ? { expanded } : undefined}
-        accessibilityLabel={`${summary.title}, ${summary.status}`}
-        accessibilityHint={
-          canExpand
-            ? `Double tap to ${expanded ? "hide" : "show"} ${memberCount} ${memberCount === 1 ? "subagent" : "subagents"}. Long press to copy.`
-            : "Long press to copy."
-        }
-        hitSlop={4}
-        onPress={() => {
-          if (!canExpand) return;
-          void Haptics.selectionAsync();
-          props.onToggle();
-        }}
-        onLongPress={props.onCopy}
-        className="rounded-xl border border-border-subtle bg-card px-2.5 py-2 active:bg-subtle"
-      >
-        <View className="flex-row items-center gap-2">
-          <View className="h-6 w-6 shrink-0 items-center justify-center">
-            <SymbolView
-              name={{ ios: "sparkles", android: "auto_awesome" }}
-              size={14}
-              weight="medium"
-              tintColor={props.iconSubtleColor}
-              type="monochrome"
-            />
+      <View className="overflow-hidden rounded-2xl border border-border-subtle bg-card">
+        <Pressable
+          accessibilityRole={canExpand ? "button" : undefined}
+          accessibilityState={canExpand ? { expanded } : undefined}
+          accessibilityLabel={`${summary.title}, ${statusText}`}
+          accessibilityHint={
+            canExpand
+              ? `Double tap to ${expanded ? "hide" : "show"} ${memberCount} ${memberCount === 1 ? "subagent" : "subagents"}. Long press to copy.`
+              : "Long press to copy."
+          }
+          hitSlop={4}
+          onPress={() => {
+            if (!canExpand) return;
+            void Haptics.selectionAsync();
+            props.onToggle();
+          }}
+          onLongPress={props.onCopy}
+          className="min-h-[60px] flex-row items-center gap-3 px-3.5 py-2.5 active:bg-subtle"
+        >
+          <View className="flex-row pl-2">
+            {Array.from({ length: stackTiles }, (_, index) => (
+              <AgentSpawnTile
+                key={index}
+                size="stack"
+                stacked
+                iconSubtleColor={props.iconSubtleColor}
+              />
+            ))}
+            {memberCount > stackTiles ? (
+              <AgentSpawnTile
+                size="stack"
+                stacked
+                iconSubtleColor={props.iconSubtleColor}
+                label={`+${memberCount - stackTiles}`}
+              />
+            ) : null}
           </View>
           <View className="min-w-0 flex-1 gap-0.5">
             <Text
               key={props.rowSizing.textSizeKey}
-              className="font-e6-medium text-sm text-foreground"
+              className="font-e6-semibold text-base text-foreground"
               numberOfLines={1}
             >
               {summary.title}
@@ -1080,20 +1173,15 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
                   AGENT_SPAWN_TONE_DOT_CLASS[summary.tone],
                 )}
               />
-              {working ? (
-                <ShimmeringWorkContent
-                  key={props.rowSizing.textSizeKey}
-                  compact
-                  icon="brain"
-                  iconSubtleColor={props.iconSubtleColor}
-                  label={summary.status}
-                  showIcon={false}
-                />
-              ) : (
-                <Text className="min-w-0 flex-1 text-xs text-foreground-muted" numberOfLines={1}>
-                  {summary.status}
-                </Text>
-              )}
+              <Text
+                className={cn(
+                  "min-w-0 flex-1 font-e6-medium text-sm",
+                  AGENT_SPAWN_TONE_TEXT_CLASS[summary.tone],
+                )}
+                numberOfLines={1}
+              >
+                {statusText}
+              </Text>
             </View>
           </View>
           {canExpand ? (
@@ -1104,42 +1192,42 @@ export const ThreadAgentSpawnCard = memo(function ThreadAgentSpawnCard(props: {
               tintColor={props.iconSubtleColor}
             />
           ) : null}
-        </View>
+        </Pressable>
         {expanded && canExpand ? (
           <Animated.View
             entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
             exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
             layout={WORK_LOG_LAYOUT_TRANSITION}
-            className="ml-8 mt-1.5 gap-1.5 border-l border-border pl-3"
+            className="border-t border-border-subtle p-1"
           >
             {summary.members.map((member) => (
-              <View key={member.title} className="gap-px">
-                <View className="flex-row items-center gap-1.5">
-                  <View
-                    className={cn(
-                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                      AGENT_SPAWN_TONE_DOT_CLASS[member.tone],
-                    )}
-                  />
-                  <Text className="min-w-0 flex-1 text-xs text-foreground" numberOfLines={1}>
-                    {member.title}
-                  </Text>
-                  <Text className="shrink-0 text-2xs text-foreground-muted">{member.status}</Text>
+              <View key={member.title} className="flex-row items-start gap-3 rounded-xl p-2.5">
+                <AgentSpawnTile size="row" iconSubtleColor={props.iconSubtleColor} />
+                <View className="min-w-0 flex-1 gap-px">
+                  <View className="flex-row items-center gap-2">
+                    <Text
+                      className="min-w-0 flex-1 font-e6-medium text-sm text-foreground"
+                      numberOfLines={1}
+                    >
+                      {member.title}
+                    </Text>
+                    <AgentSpawnStatusWord tone={member.tone} />
+                  </View>
+                  {member.detail ? (
+                    <Text
+                      selectable
+                      className="font-mono text-xs leading-normal text-foreground-muted"
+                      numberOfLines={2}
+                    >
+                      {member.detail}
+                    </Text>
+                  ) : null}
                 </View>
-                {member.detail ? (
-                  <Text
-                    selectable
-                    className="pl-3 font-mono text-2xs leading-normal text-foreground-muted"
-                    numberOfLines={expanded ? 6 : 1}
-                  >
-                    {member.detail}
-                  </Text>
-                ) : null}
               </View>
             ))}
           </Animated.View>
         ) : null}
-      </Pressable>
+      </View>
     </Animated.View>
   );
 });

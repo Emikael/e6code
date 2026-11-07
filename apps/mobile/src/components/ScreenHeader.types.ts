@@ -10,6 +10,10 @@ export interface ScreenHeaderAction {
   readonly disabled?: boolean;
   readonly selected?: boolean;
   readonly tintColor?: ColorValue;
+  /** Stable identity when the label carries changing state, such as a count. */
+  readonly id?: string;
+  /** Android count badge; the label must say the same thing. */
+  readonly badge?: number;
 }
 
 export type ScreenHeaderMenuItem =
