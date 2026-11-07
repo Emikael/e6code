@@ -2583,6 +2583,16 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     );
   });
 
+  const stopSubagent: NonNullable<CodexAdapterShape["stopSubagent"]> = (threadId, subagentId) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.interruptSubagent(subagentId)),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "turn/interrupt", cause),
+      ),
+    );
+
   const readThread: CodexAdapterShape["readThread"] = (threadId) =>
     requireSession(threadId).pipe(
       Effect.flatMap((session) => session.runtime.readThread),
@@ -2730,6 +2740,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     sendTurn,
     compaction: { type: "native", start: compactThread },
     interruptTurn,
+    stopSubagent,
     readThread,
     rollbackThread,
     uploadFeedback,

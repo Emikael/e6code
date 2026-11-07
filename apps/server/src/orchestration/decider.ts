@@ -982,6 +982,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         thread.branch !== command.expectedBranch
           ? thread.branch
           : command.branch;
+      // A recorded setup describes one checkout; moving the thread to another
+      // worktree leaves nothing to compare until that one is set up.
+      const setupScriptHash =
+        command.setupScriptHash !== undefined
+          ? command.setupScriptHash
+          : command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath
+            ? null
+            : undefined;
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -1026,6 +1034,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(setupScriptHash !== undefined ? { setupScriptHash } : {}),
           ...(command.linkedPullRequest !== undefined
             ? { linkedPullRequest: command.linkedPullRequest }
             : {}),
@@ -1561,6 +1570,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           ...(command.turnId !== undefined ? { turnId: command.turnId } : {}),
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.subagent.stop": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.subagent-stop-requested",
+        payload: {
+          threadId: command.threadId,
+          subagentId: command.subagentId,
           createdAt: command.createdAt,
         },
       };

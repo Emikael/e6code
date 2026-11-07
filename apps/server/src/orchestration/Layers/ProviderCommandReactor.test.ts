@@ -46,6 +46,7 @@ import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@e6tools/contracts";
 import {
   ProviderAdapterRequestError,
+  ProviderValidationError,
   ProviderWorkspaceMissingError,
   type ProviderServiceError,
 } from "../../provider/Errors.ts";
@@ -195,6 +196,7 @@ describe("ProviderCommandReactor", () => {
     readonly afterTurnStartDispatch?: () => Effect.Effect<void>;
     readonly compactThreadEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly interruptTurnEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
+    readonly stopSubagentEffect?: () => Effect.Effect<void, ProviderServiceError>;
     readonly stopSessionEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly startSessionEffect?: (
       session: ProviderSession,
@@ -288,6 +290,9 @@ describe("ProviderCommandReactor", () => {
     );
     const compactThread = vi.fn((_: ThreadId) => input?.compactThreadEffect?.() ?? Effect.void);
     const interruptTurn = vi.fn((_: unknown) => input?.interruptTurnEffect?.() ?? Effect.void);
+    const stopSubagent = vi.fn<ProviderServiceShape["stopSubagent"]>(
+      () => input?.stopSubagentEffect?.() ?? Effect.void,
+    );
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const stopSession = vi.fn((stopInput: unknown) =>
@@ -375,6 +380,7 @@ describe("ProviderCommandReactor", () => {
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       compactThread,
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
+      stopSubagent,
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
@@ -659,6 +665,7 @@ describe("ProviderCommandReactor", () => {
       sendTurn,
       compactThread,
       interruptTurn,
+      stopSubagent,
       respondToRequest,
       respondToUserInput,
       stopSession,
@@ -3970,6 +3977,107 @@ describe("ProviderCommandReactor", () => {
       threadId: "thread-1",
     });
   });
+
+  effectIt.effect("stops one subagent without interrupting the turn", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-1");
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-subagent-stop"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.subagent.stop",
+        commandId: CommandId.make("cmd-subagent-stop"),
+        threadId,
+        subagentId: "child-thread-1",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => harness.drain());
+
+      expect(harness.stopSubagent.mock.calls).toEqual([
+        [{ threadId, subagentId: "child-thread-1" }],
+      ]);
+      expect(harness.interruptTurn).not.toHaveBeenCalled();
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(thread?.session).toMatchObject({ status: "running", activeTurnId: "turn-1" });
+      expect(
+        thread?.activities.some((activity) => activity.kind === "provider.subagent.stop.failed"),
+      ).toBe(false);
+    }),
+  );
+
+  effectIt.effect("records a failed subagent stop against the request that asked", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          stopSubagentEffect: () =>
+            Effect.fail(
+              new ProviderValidationError({
+                operation: "ProviderService.stopSubagent",
+                issue: "Provider 'grok' cannot stop a single subagent.",
+              }),
+            ),
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-1");
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-subagent-stop-unsupported"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "grok",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.subagent.stop",
+        commandId: CommandId.make("cmd-subagent-stop-unsupported"),
+        threadId,
+        subagentId: "task-1",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => harness.drain());
+
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(
+        thread?.activities.find((activity) => activity.kind === "provider.subagent.stop.failed"),
+      ).toMatchObject({
+        tone: "error",
+        payload: {
+          detail: "Provider 'grok' cannot stop a single subagent.",
+          requestId: "cmd-subagent-stop-unsupported",
+          subagentId: "task-1",
+        },
+      });
+      expect(harness.stopSession).not.toHaveBeenCalled();
+    }),
+  );
 
   effectIt.effect(
     "stops a running session and records the failure when provider interrupt fails",

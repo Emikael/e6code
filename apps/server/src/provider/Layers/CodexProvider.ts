@@ -68,6 +68,7 @@ const CODEX_PRESENTATION = {
   showInteractionModeToggle: true,
   supportsSubagentSplit: true,
   reportsContextWindow: true,
+  supportsSubagentStop: true,
 } as const;
 
 export interface CodexAppServerProviderSnapshot {

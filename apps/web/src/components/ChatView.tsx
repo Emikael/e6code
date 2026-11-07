@@ -85,9 +85,11 @@ import {
   resolvePromptInjectedEffort,
 } from "@e6tools/shared/model";
 import {
+  isWorktreeSetupStale,
   projectScriptCwd,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 import { sourceControlRepositorySelector } from "@e6tools/shared/sourceControl";
@@ -233,7 +235,12 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
-import { InspectorOverview, type InspectorWorkspace } from "./InspectorOverview";
+import {
+  InspectorOverview,
+  type InspectorSubagentStop,
+  type InspectorWorkspace,
+} from "./InspectorOverview";
+import { useSubagentStop } from "~/hooks/useSubagentStop";
 import { useSubagentSelectionStore } from "../subagentSelectionStore";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
@@ -242,6 +249,7 @@ import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import {
+  canStopSubagent,
   deriveAgentPanelModel,
   findSubagent,
   foldSubagentActivities,
@@ -2197,6 +2205,17 @@ export default function ChatView(props: ChatViewProps) {
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
   );
+  const draftHeroSetupProject = useMemo(
+    () =>
+      activeProject
+        ? {
+            environmentId: activeProject.environmentId,
+            id: activeProject.id,
+            scripts: activeProjectScripts,
+          }
+        : null,
+    [activeProject, activeProjectScripts],
+  );
   // A project added by cloning exists before its files do. The draft stays
   // editable throughout; only sending waits for the clone, and a failed
   // clone offers its retry right where the user is looking.
@@ -3654,6 +3673,9 @@ export default function ChatView(props: ChatViewProps) {
   const cancelWorktreeSetup = useAtomCommand(vcsEnvironment.cancelWorktreeSetup, {
     reportFailure: false,
   });
+  const rerunWorktreeSetup = useAtomCommand(vcsEnvironment.rerunWorktreeSetup, {
+    reportFailure: false,
+  });
   const onCancelWorktreeSetup = useCallback(() => {
     if (!worktreeSetup || worktreeSetup.phase !== "running") return;
     void cancelWorktreeSetup({
@@ -3733,6 +3755,47 @@ export default function ChatView(props: ChatViewProps) {
   });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const subagentStopControl = useSubagentStop({
+    environmentId: activeThreadEnvironmentId,
+    threadId: activeThread?.id ?? null,
+    threadKey: activeThreadKey,
+    activities: threadActivities,
+    model: agentPanelModel,
+  });
+  // Only providers that can stop one subagent offer Stop at all.
+  const supportsSubagentStop = conversationProviderStatus?.supportsSubagentStop === true;
+  const stopSubagentShortcutLabel = shortcutLabelForCommand(keybindings, "thread.stopSubagent");
+  const inspectorSubagentStop = useMemo<InspectorSubagentStop | null>(
+    () =>
+      supportsSubagentStop
+        ? {
+            canStop: (agent) => canStopSubagent(agentPanelModel, agent, true),
+            isPending: subagentStopControl.isPending,
+            stop: subagentStopControl.stop,
+            shortcutLabel: stopSubagentShortcutLabel,
+          }
+        : null,
+    [agentPanelModel, stopSubagentShortcutLabel, subagentStopControl, supportsSubagentStop],
+  );
+  // thread.stopSubagent acts on the subagent selected in an open Overview.
+  const stopSelectedSubagentRef = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    stopSelectedSubagentRef.current = () => {
+      if (!inspectorSubagentStop || !activeThreadKey) return false;
+      if (!rightPanelOpen || activeRightPanelSurface?.kind !== "agents") return false;
+      const selectedId = useSubagentSelectionStore.getState().selectedByThreadKey[activeThreadKey];
+      const agent = selectedId ? findSubagent(agentPanelModel, selectedId) : null;
+      if (!agent || !inspectorSubagentStop.canStop(agent)) return false;
+      inspectorSubagentStop.stop(agent.id);
+      return true;
+    };
+  }, [
+    activeRightPanelSurface?.kind,
+    activeThreadKey,
+    agentPanelModel,
+    inspectorSubagentStop,
+    rightPanelOpen,
+  ]);
   const manualCompactionProviderAvailable = useMemo(
     () =>
       hasAvailableCompactionProvider({
@@ -4308,6 +4371,32 @@ export default function ChatView(props: ChatViewProps) {
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
 
+      // The setup script in the thread's own worktree runs on the server, which
+      // watches its exit code and records it on the thread when it succeeds.
+      // Servers without that method fall through to a plain terminal run.
+      if (
+        isServerThread &&
+        activeThreadRef &&
+        activeThread.worktreePath !== null &&
+        options?.cwd === undefined &&
+        options?.worktreePath === undefined &&
+        options?.env === undefined &&
+        setupProjectScript(activeProjectScripts)?.id === script.id
+      ) {
+        const rerun = await rerunWorktreeSetup({
+          environmentId,
+          input: { threadId: activeThreadId },
+        });
+        if (rerun._tag === "Success" && rerun.value.terminalId !== null) {
+          storeEnsureTerminal(activeThreadRef, rerun.value.terminalId, {
+            open: true,
+            active: true,
+          });
+          setTerminalFocusRequestId((value) => value + 1);
+          return;
+        }
+      }
+
       setTerminalUiLaunchContext({
         threadId: activeThreadId,
         cwd: targetCwd,
@@ -4383,9 +4472,13 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeProject,
+      activeProjectScripts,
       activeThread,
       activeThreadId,
       activeThreadRef,
+      isServerThread,
+      rerunWorktreeSetup,
+      storeEnsureTerminal,
       gitCwd,
       setTerminalOpen,
       setThreadError,
@@ -7196,6 +7289,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "thread.stopSubagent") {
+        // A repeat finds the stop already pending and does nothing.
+        if (!stopSelectedSubagentRef.current()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       if (command === "thread.stop") {
         // An unavailable command should not shadow contextual shortcuts such as Escape to close a dialog.
         if (!canInterruptRunningThread) return;
@@ -9922,6 +10023,9 @@ export default function ChatView(props: ChatViewProps) {
         .filter(Boolean)
         .join(" · ") || null
     : null;
+  const inspectorWorktreeSetupScript = activeThread?.worktreePath
+    ? setupProjectScript(activeProjectScripts)
+    : null;
   const inspectorWorkspace: InspectorWorkspace | null = activeThread
     ? {
         environmentId: activeThread.environmentId,
@@ -9935,6 +10039,14 @@ export default function ChatView(props: ChatViewProps) {
         activeProjectScripts,
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+          : null,
+        worktreeSetup: inspectorWorktreeSetupScript
+          ? {
+              script: inspectorWorktreeSetupScript,
+              changed:
+                activeThreadShell !== null &&
+                isWorktreeSetupStale(activeThreadShell, activeProjectScripts),
+            }
           : null,
         onRunProjectScript: runProjectScript,
         onAddProjectScript: saveProjectScript,
@@ -10050,6 +10162,7 @@ export default function ChatView(props: ChatViewProps) {
         providerKind={selectedProvider ?? null}
         threadModelLabel={inspectorThreadModelLabel}
         workspace={inspectorWorkspace}
+        subagentStop={inspectorSubagentStop}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
@@ -10774,6 +10887,7 @@ export default function ChatView(props: ChatViewProps) {
                       <DraftHeroFooter
                         keybindings={keybindings}
                         unpushed={selectUnpushedCommits(gitStatusQuery.data)}
+                        setupProject={draftHeroSetupProject}
                         onOpenSourceControl={addAgentsSurface}
                       />
                     </div>

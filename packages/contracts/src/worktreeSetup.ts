@@ -101,6 +101,22 @@ export const WorktreeSetupCancelResult = Schema.Struct({
 });
 export type WorktreeSetupCancelResult = typeof WorktreeSetupCancelResult.Type;
 
+/**
+ * Runs the project's setup script again in the thread's worktree. The server
+ * runs it so it can see the exit code: only a clean exit records the script
+ * on the thread (`setupScriptHash`), whichever client asked.
+ */
+export const WorktreeSetupRerunInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type WorktreeSetupRerunInput = typeof WorktreeSetupRerunInput.Type;
+
+/** The terminal the script runs in; null when nothing ran (no worktree or no setup script). */
+export const WorktreeSetupRerunResult = Schema.Struct({
+  terminalId: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type WorktreeSetupRerunResult = typeof WorktreeSetupRerunResult.Type;
+
 export const WORKTREE_SETUP_STAGE_ORDER: ReadonlyArray<WorktreeSetupStageId> = [
   "fetch",
   "checkout",

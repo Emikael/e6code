@@ -587,6 +587,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          setupScriptHash: null,
           pullRequests: expectedPullRequests,
           branchPullRequest,
           latestTurn: {

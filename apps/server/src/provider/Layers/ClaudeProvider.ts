@@ -67,6 +67,7 @@ const CLAUDE_PRESENTATION = {
   showInteractionModeToggle: true,
   supportsSubagentSplit: true,
   reportsContextWindow: true,
+  supportsSubagentStop: true,
 } as const;
 function toTitleCaseWords(value: string): string {
   const parts: Array<string> = [];

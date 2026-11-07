@@ -116,6 +116,7 @@ const startupDependencies = Layer.mergeAll(
     sendTurn: () => Effect.die("unused"),
     compactThread: () => Effect.die("unused"),
     interruptTurn: () => Effect.die("unused"),
+    stopSubagent: () => Effect.die("unused"),
     respondToRequest: () => Effect.die("unused"),
     respondToUserInput: () => Effect.die("unused"),
     stopSession: () => Effect.die("unused"),

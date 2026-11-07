@@ -42,7 +42,9 @@ import { increment, orchestrationEventsProcessedTotal } from "../../observabilit
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
+  ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
+  ProviderValidationError,
   ProviderWorkspaceMissingError,
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -78,6 +80,8 @@ const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderWorkspaceMissingError = Schema.is(ProviderWorkspaceMissingError);
+const isProviderValidationError = Schema.is(ProviderValidationError);
+const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
 type ProviderIntentEvent = Extract<
@@ -88,6 +92,7 @@ type ProviderIntentEvent = Extract<
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
+      | "thread.subagent-stop-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
       | "thread.session-stop-requested"
@@ -127,6 +132,8 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
   event.commandId !== null ? `command:${event.commandId}` : `event:${event.eventId}`;
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
+/** Upper bound on a single-subagent stop; adapters bound their own RPCs below it. */
+const SUBAGENT_STOP_TIMEOUT = Duration.seconds(10);
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
@@ -283,6 +290,7 @@ const make = Effect.gen(function* () {
     readonly kind:
       | "provider.turn.start.failed"
       | "provider.turn.interrupt.failed"
+      | "provider.subagent.stop.failed"
       | "provider.approval.respond.failed"
       | "provider.user-input.respond.failed"
       | "provider.session.stop.failed";
@@ -291,6 +299,7 @@ const make = Effect.gen(function* () {
     readonly turnId: TurnId | null;
     readonly createdAt: string;
     readonly requestId?: string;
+    readonly subagentId?: string;
   }) =>
     Effect.all({
       commandId: serverCommandId("provider-failure-activity"),
@@ -309,6 +318,7 @@ const make = Effect.gen(function* () {
             payload: {
               detail: input.detail,
               ...(input.requestId ? { requestId: input.requestId } : {}),
+              ...(input.subagentId ? { subagentId: input.subagentId } : {}),
             },
             turnId: input.turnId,
             createdAt: input.createdAt,
@@ -2006,6 +2016,52 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /**
+   * Stops one subagent while the turn runs on. The provider's own task
+   * notification settles the subagent; only a failure is recorded here, keyed
+   * by the command id so the requesting client can tell the user.
+   */
+  const processSubagentStopRequested = Effect.fn("processSubagentStopRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.subagent-stop-requested" }>,
+  ) {
+    const recordFailure = (detail: string) =>
+      appendProviderFailureActivity({
+        threadId: event.payload.threadId,
+        kind: "provider.subagent.stop.failed",
+        summary: "Subagent stop failed",
+        detail,
+        turnId: null,
+        createdAt: event.payload.createdAt,
+        ...(event.commandId !== null ? { requestId: event.commandId } : {}),
+        subagentId: event.payload.subagentId,
+      });
+    yield* providerService
+      .stopSubagent({ threadId: event.payload.threadId, subagentId: event.payload.subagentId })
+      .pipe(
+        // This worker serves every thread; no adapter may hold it hostage.
+        Effect.timeoutOption(SUBAGENT_STOP_TIMEOUT),
+        Effect.flatMap((completed) =>
+          Option.isSome(completed)
+            ? Effect.void
+            : recordFailure(
+                "The provider did not confirm the stop in time. Try again, or stop the turn.",
+              ),
+        ),
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.interrupt;
+          }
+          const failure = cause.reasons.find(Cause.isFailReason)?.error;
+          const detail = isProviderValidationError(failure)
+            ? failure.issue
+            : isProviderAdapterSessionNotFoundError(failure)
+              ? "No active provider session is bound to this thread."
+              : formatFailureDetail(cause);
+          return recordFailure(detail);
+        }),
+      );
+  });
+
   const processSessionStopRequested = Effect.fn("processSessionStopRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-stop-requested" }>,
   ) {
@@ -2121,6 +2177,9 @@ const make = Effect.gen(function* () {
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
         return;
+      case "thread.subagent-stop-requested":
+        yield* processSubagentStopRequested(event);
+        return;
       case "thread.approval-response-requested":
         yield* processApprovalResponseRequested(event);
         return;
@@ -2195,6 +2254,7 @@ const make = Effect.gen(function* () {
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
+        event.type === "thread.subagent-stop-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested" ||
