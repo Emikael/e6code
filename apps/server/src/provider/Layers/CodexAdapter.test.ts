@@ -140,6 +140,14 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
     return Effect.promise(() => this.interruptTurnImpl(turnId));
   }
 
+  public readonly interruptSubagentImpl = vi.fn((_agentThreadId: string): Promise<void> =>
+    Promise.resolve(undefined),
+  );
+
+  interruptSubagent(agentThreadId: string) {
+    return Effect.promise(() => this.interruptSubagentImpl(agentThreadId));
+  }
+
   readThread = Effect.promise(() => this.readThreadImpl());
 
   rollbackThread(numTurns: number) {
@@ -400,6 +408,27 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       NodeAssert.deepStrictEqual(runtime.uploadFeedbackImpl.mock.calls, [
         ["The agent stopped early."],
       ]);
+    }),
+  );
+
+  it.effect("stops one subagent by interrupting its child thread", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-stop-subagent");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const runtime = sessionRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.ok(adapter.stopSubagent);
+
+      yield* adapter.stopSubagent(threadId, "child-thread-1");
+
+      NodeAssert.deepStrictEqual(runtime.interruptSubagentImpl.mock.calls, [["child-thread-1"]]);
+      NodeAssert.equal(runtime.interruptTurnImpl.mock.calls.length, 0);
+      yield* adapter.stopSession(threadId);
     }),
   );
 
