@@ -115,6 +115,37 @@ layer("ProjectionThreadMessageRepository", (it) => {
     }),
   );
 
+  it.effect("keeps the split-into-subagents mark across later updates", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.make("thread-split");
+      const messageId = MessageId.make("message-split");
+      const createdAt = "2026-02-28T19:05:00.000Z";
+      const message = {
+        messageId,
+        threadId,
+        turnId: null,
+        role: "user" as const,
+        text: "refactor the parser",
+        isStreaming: false,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      yield* repository.upsert({ ...message, splitIntoSubagents: true });
+      yield* repository.upsert({ ...message, updatedAt: "2026-02-28T19:05:01.000Z" });
+      yield* repository.upsert({
+        ...message,
+        messageId: MessageId.make("message-plain"),
+        createdAt: "2026-02-28T19:05:02.000Z",
+      });
+      const rows = yield* repository.listByThreadId({ threadId });
+      assert.deepStrictEqual(
+        rows.map((row) => row.splitIntoSubagents),
+        [true, undefined],
+      );
+    }),
+  );
+
   it.effect("appends streaming text and applies attachment updates", () =>
     Effect.gen(function* () {
       const repository = yield* ProjectionThreadMessageRepository;

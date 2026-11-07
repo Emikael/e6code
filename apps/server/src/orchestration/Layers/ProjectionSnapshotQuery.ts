@@ -114,6 +114,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
     context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
+    splitIntoSubagents: Schema.Number,
   }),
 );
 const ProjectionTurnStartMessageDbRowSchema = ProjectionThreadMessageDbRowSchema.mapFields(
@@ -745,6 +746,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           context_json AS "context",
+          split_into_subagents AS "splitIntoSubagents",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1352,6 +1354,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         text,
         attachments_json AS "attachments",
         context_json AS "context",
+        split_into_subagents AS "splitIntoSubagents",
         is_streaming AS "isStreaming",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
@@ -1385,6 +1388,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           context_json AS "context",
+          split_into_subagents AS "splitIntoSubagents",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1799,6 +1803,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           context_json AS "context",
+          split_into_subagents AS "splitIntoSubagents",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -2209,6 +2214,7 @@ pending_approval_requests AS (
                   text: row.text,
                   ...(row.attachments !== null ? { attachments: row.attachments } : {}),
                   ...(row.context !== null ? { context: row.context } : {}),
+                  ...(row.splitIntoSubagents === 1 ? { splitIntoSubagents: true } : {}),
                   turnId: row.turnId,
                   streaming: row.isStreaming === 1,
                   createdAt: row.createdAt,
@@ -3319,6 +3325,7 @@ pending_approval_requests AS (
         updatedAt: row.updatedAt,
         ...(row.attachments !== null ? { attachments: row.attachments } : {}),
         ...(row.context !== null ? { context: row.context } : {}),
+        ...(row.splitIntoSubagents === 1 ? { splitIntoSubagents: true } : {}),
       },
       hasOtherUserMessages: row.hasOtherUserMessages === 1,
     }));
@@ -3583,6 +3590,9 @@ pending_approval_requests AS (
           }
           if (row.context !== null) {
             Object.assign(message, { context: row.context });
+          }
+          if (row.splitIntoSubagents === 1) {
+            Object.assign(message, { splitIntoSubagents: true });
           }
           return message;
         }),

@@ -64,6 +64,7 @@ import { VideoPreviewModal, type VideoPreviewSource } from "../../components/Vid
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
+import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { hasProviderUsageLimits, isUsageLimitsCommand } from "@e6tools/shared/usageLimits";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
@@ -1540,6 +1541,23 @@ export function NewTaskDraftScreen(props: {
       />
     </View>
   );
+  // A phone row has no room beside the workspace and branch pickers, so the
+  // switch takes its own right-aligned line under them.
+  const subagentSplitControl = flow.subagentSplit.available ? (
+    <View className="flex-row items-center justify-end gap-2 px-3 pt-1">
+      <View className="items-end">
+        <Text className="text-xs font-e6-medium text-foreground">Split into subagents</Text>
+        <Text className="text-[11px] text-foreground-muted">Up to 4 in parallel</Text>
+      </View>
+      <ThemedSwitch
+        accessibilityLabel="Split into subagents"
+        accessibilityHint="Asks the agent to run up to 4 subagents in parallel"
+        disabled={isComposerInteractionLocked}
+        onValueChange={flow.setSplitIntoSubagents}
+        value={flow.subagentSplit.enabled}
+      />
+    </View>
+  ) : null;
 
   const composerDock = (
     <View
@@ -1587,7 +1605,10 @@ export function NewTaskDraftScreen(props: {
           />
         </View>
       ) : null}
-      <View className="pb-1">{workspaceControls}</View>
+      <View className="pb-1">
+        {workspaceControls}
+        {subagentSplitControl}
+      </View>
 
       {modelUnavailable ? (
         <Pressable

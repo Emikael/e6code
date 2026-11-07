@@ -1636,6 +1636,12 @@ function renderFeedEntry(
             ) : null}
           </View>
           <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
+            {message.splitIntoSubagents === true ? (
+              <View className="flex-row items-center gap-1 pr-1">
+                <SymbolView name="square.split.2x1" size={12} tintColor={iconSubtleColor} />
+                <Text className="text-xs text-foreground-secondary">Split into subagents</Text>
+              </View>
+            ) : null}
             <Text className="font-e6-medium text-xs tabular-nums text-foreground-secondary">
               {entry.pendingMessage && !entry.acknowledged ? "Pending" : timestampLabel}
             </Text>

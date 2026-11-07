@@ -143,6 +143,7 @@ import {
   PaintbrushIcon,
   SearchIcon,
   SmartphoneIcon,
+  SplitIcon,
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
@@ -2436,6 +2437,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           />
         </div>
       </div>
+      {row.message.splitIntoSubagents === true ? (
+        <p className="flex items-center gap-1 pe-1 text-muted-foreground text-xs">
+          <SplitIcon aria-hidden="true" className="size-3 shrink-0" />
+          Split into subagents
+        </p>
+      ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>

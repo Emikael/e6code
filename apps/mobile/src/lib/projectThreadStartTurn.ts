@@ -40,6 +40,7 @@ export interface ProjectThreadStartTurnSpec {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin: boolean;
+  readonly splitIntoSubagents?: boolean;
   /** Generated temp branch for worktree mode; unused for local mode. */
   readonly worktreeBranchName: string;
 }
@@ -89,6 +90,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
           }
         : {}),
     },
+    ...(spec.splitIntoSubagents ? { splitIntoSubagents: true } : {}),
     createdAt: spec.createdAt,
   };
 }

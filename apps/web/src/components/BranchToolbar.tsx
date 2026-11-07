@@ -14,6 +14,7 @@ import {
   useImperativeHandle,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -53,6 +54,7 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import { Separator } from "./ui/separator";
+import { Switch } from "./ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { ComposerSurface } from "./chat/ComposerSurface";
@@ -88,6 +90,38 @@ interface BranchToolbarProps {
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
   composerControlsHostRef?: (element: HTMLDivElement | null) => void;
   contextStripVisible?: boolean;
+  /** New-thread "Split into subagents" switch; omitted where it does not apply. */
+  onSubagentSplitChange?: ((checked: boolean) => void) | undefined;
+  subagentSplitChecked?: boolean;
+}
+
+interface SubagentSplitSwitchProps {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}
+
+function SubagentSplitSwitch({ checked, onCheckedChange }: SubagentSplitSwitchProps) {
+  const switchId = useId();
+  return (
+    <label
+      htmlFor={switchId}
+      data-composer-context-control
+      className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap"
+    >
+      <span className="flex flex-col items-end leading-tight">
+        <span className="font-medium text-foreground/80">Split into subagents</span>
+        <span className="hidden text-[11px] font-normal text-muted-foreground @3xl/composer-surface:block">
+          Up to 4 in parallel
+        </span>
+      </span>
+      <Switch
+        id={switchId}
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(Boolean(next))}
+        className="[--thumb-size:18px] sm:[--thumb-size:18px] data-checked:inset-ring data-checked:inset-ring-primary-edge"
+      />
+    </label>
+  );
 }
 
 interface MobileRunContextSelectorProps {
@@ -503,6 +537,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   onEnvironmentChange,
   composerControlsHostRef,
   contextStripVisible = true,
+  onSubagentSplitChange,
+  subagentSplitChecked = false,
 }: BranchToolbarProps) {
   const branchSelectorRef = useRef<BranchToolbarBranchSelectorHandle>(null);
   const threadRef = useMemo(
@@ -707,6 +743,12 @@ export const BranchToolbar = memo(function BranchToolbar({
           onStartFromOriginChange={onStartFromOriginChange}
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      ) : null}
+      {onSubagentSplitChange ? (
+        <SubagentSplitSwitch
+          checked={subagentSplitChecked}
+          onCheckedChange={onSubagentSplitChange}
         />
       ) : null}
     </ComposerSurface.ContextStrip>

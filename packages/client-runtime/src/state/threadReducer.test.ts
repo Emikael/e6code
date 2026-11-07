@@ -8,6 +8,7 @@ import {
   MessageId,
   ProjectId,
   ProviderInstanceId,
+  SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
 } from "@e6tools/contracts";
@@ -1142,6 +1143,47 @@ describe("applyThreadDetailEvent", () => {
   });
 
   describe("thread.activity-appended", () => {
+    it("marks the user message a recorded subagent split was sent with", () => {
+      const messageId = MessageId.make("user-message-split");
+      const message = {
+        id: messageId,
+        role: "user" as const,
+        text: "refactor the parser",
+        turnId: null,
+        streaming: false,
+        createdAt: "2026-04-01T10:59:00.000Z",
+        updatedAt: "2026-04-01T10:59:00.000Z",
+      };
+      const result = applyThreadDetailEvent(
+        { ...baseThread, messages: [message] },
+        {
+          ...baseEventFields,
+          sequence: 12,
+          occurredAt: "2026-04-01T11:00:00.000Z",
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          type: "thread.activity-appended",
+          payload: {
+            threadId: ThreadId.make("thread-1"),
+            activity: {
+              id: EventId.make("activity-split"),
+              tone: "info",
+              kind: SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
+              summary: "Split into subagents",
+              payload: { messageId },
+              turnId: null,
+              createdAt: "2026-04-01T11:00:00.000Z",
+            },
+          },
+        },
+      );
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.messages).toEqual([{ ...message, splitIntoSubagents: true }]);
+      }
+    });
+
     it("adds an activity", () => {
       const result = applyThreadDetailEvent(baseThread, {
         ...baseEventFields,
