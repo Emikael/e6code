@@ -18,6 +18,7 @@ import { type ProviderApprovalDecision, type ProviderEvent, ThreadId } from "@e6
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { assert, describe } from "vite-plus/test";
@@ -278,18 +279,22 @@ describe("CodexSessionRuntime collab integration", () => {
         runtimeMode: "full-access",
         environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
       });
-      const itemsFiber = yield* runtime.events.pipe(
+      const childItems = yield* Queue.unbounded<ProviderEvent>();
+      yield* runtime.events.pipe(
         Stream.filter((event) => event.method === "collabAgent/item"),
-        Stream.take(2),
-        Stream.runCollect,
+        Stream.runForEach((event) => Queue.offer(childItems, event)),
         Effect.forkScoped,
       );
 
       yield* runtime.start();
+      // Each turn's child edit must land before the next turn starts; otherwise
+      // the first edit can be processed after the second turn is active.
       yield* runtime.sendTurn({ input: "spawn a child" });
+      const firstItem = yield* Queue.take(childItems);
       yield* runtime.sendTurn({ input: "give the child more work" });
+      const secondItem = yield* Queue.take(childItems);
 
-      const items = Array.from(yield* Fiber.join(itemsFiber));
+      const items = [firstItem, secondItem];
       // The event keeps the spawn turn; parentTurnId names the turn whose diff
       // holds the edit.
       assert.deepEqual(
