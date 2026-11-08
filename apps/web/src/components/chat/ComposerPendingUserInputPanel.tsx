@@ -195,8 +195,10 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         <ComposerBanner.Content>
           {agentTitle ? (
             // A subagent is blocked on this answer: name it, as approvals do.
-            <span className="min-w-0 max-w-[45%] shrink truncate font-medium text-warning-foreground">
-              {agentTitle} asks
+            // Only the title truncates, so the verb survives a long name.
+            <span className="flex min-w-0 max-w-[55%] shrink items-baseline gap-1 font-medium text-warning-foreground">
+              <span className="min-w-0 truncate">{agentTitle}</span>
+              <span className="shrink-0">needs your answer</span>
             </span>
           ) : null}
           <span className="shrink-0 font-medium text-muted-foreground">

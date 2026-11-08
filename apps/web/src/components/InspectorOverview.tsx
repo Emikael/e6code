@@ -777,13 +777,6 @@ function SubagentDetailCard({
           </ul>
         </div>
       ) : null}
-      {agent.changedFiles ? (
-        <SubagentFilesSection
-          changedFiles={agent.changedFiles}
-          workspaceRoot={workspaceRoot}
-          onOpenTurnDiff={onOpenTurnDiff}
-        />
-      ) : null}
       <dl className="grid grid-cols-3 gap-2 border-t border-border pt-2.5">
         <div className="flex min-w-0 flex-col gap-0.5">
           <dt className="text-xs text-muted-foreground">Elapsed</dt>
@@ -849,7 +842,7 @@ function SubagentDetailCard({
               onClick={() => stopControl.stop(agent.id)}
             >
               <CircleStopIcon aria-hidden />
-              {stopPending ? "Stopping…" : "Stop"}
+              {stopPending ? "Stopping…" : "Stop subagent"}
             </Button>
           ) : null}
         </div>
@@ -861,6 +854,17 @@ function SubagentDetailCard({
           scriptPath={scriptPath}
           onClose={() => setScriptOpen(false)}
         />
+      ) : null}
+      {/* Files sit below the actions: the list grows while the subagent runs
+          and would otherwise push Stop down under the pointer. */}
+      {agent.changedFiles ? (
+        <div className="border-t border-border pt-2.5">
+          <SubagentFilesSection
+            changedFiles={agent.changedFiles}
+            workspaceRoot={workspaceRoot}
+            onOpenTurnDiff={onOpenTurnDiff}
+          />
+        </div>
       ) : null}
     </div>
   );
