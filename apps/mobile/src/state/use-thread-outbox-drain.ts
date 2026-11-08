@@ -421,7 +421,6 @@ export async function restoreRejectedQueuedMessage(
                 ? { startFromOrigin: queuedMessage.creation.startFromOrigin }
                 : {}),
             },
-            ...(queuedMessage.creation.splitIntoSubagents ? { splitIntoSubagents: true } : {}),
           }
         : {}),
     });
@@ -954,7 +953,6 @@ export function useThreadOutboxDrain(): void {
           branch: creation.branch,
           worktreePath: creation.worktreePath,
           startFromOrigin: creation.startFromOrigin ?? false,
-          ...(creation.splitIntoSubagents ? { splitIntoSubagents: true } : {}),
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
         }),
       });

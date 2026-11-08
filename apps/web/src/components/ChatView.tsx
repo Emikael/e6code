@@ -17,7 +17,6 @@ import {
   maxUsedPercent,
   shouldOfferHandoff,
 } from "@e6tools/client-runtime/state/thread-handoff";
-import { resolveSubagentSplit } from "@e6tools/client-runtime/subagent-split";
 import {
   derivePendingRequests,
   SUBAGENT_APPROVAL_PHRASE,
@@ -2956,11 +2955,6 @@ export default function ChatView(props: ChatViewProps) {
     interactionMode:
       composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
   });
-  const subagentSplit = resolveSubagentSplit({
-    isNewThread: isLocalDraftThread,
-    provider: activeProviderStatus,
-    requested: draftThread?.splitIntoSubagents,
-  });
   const conversationProviderStatus =
     providerStatuses.find(
       (status) => status.instanceId === activeThread?.session?.providerInstanceId,
@@ -3906,14 +3900,12 @@ export default function ChatView(props: ChatViewProps) {
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
-    showsSubagentSplit: subagentSplit.available,
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     hasActiveProject: activeProject !== null,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
-    showsSubagentSplit: subagentSplit.available,
   });
   const terminalShortcutLabelOptions = useMemo(
     () => ({
@@ -8436,15 +8428,6 @@ export default function ChatView(props: ChatViewProps) {
                     },
                     runSetupScript: true,
                   },
-                  ...(resolveSubagentSplit({
-                    isNewThread: isLocalDraftThread,
-                    provider: providerStatuses.find(
-                      (status) => status.instanceId === target.selection.instanceId,
-                    ),
-                    requested: draftThread?.splitIntoSubagents,
-                  }).enabled
-                    ? { splitIntoSubagents: true }
-                    : {}),
                   createdAt: messageCreatedAt,
                 },
               });
@@ -8837,7 +8820,6 @@ export default function ChatView(props: ChatViewProps) {
           runtimeMode,
           interactionMode: sendInteractionMode,
           ...(bootstrap ? { bootstrap } : {}),
-          ...(subagentSplit.enabled ? { splitIntoSubagents: true } : {}),
           createdAt: messageCreatedAt,
         },
       });
@@ -9889,13 +9871,6 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
 
-  const onSubagentSplitChange = useCallback(
-    (splitIntoSubagents: boolean) => {
-      setDraftThreadContext(composerDraftTarget, { splitIntoSubagents });
-    },
-    [composerDraftTarget, setDraftThreadContext],
-  );
-
   const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
     setExpandedImage(preview);
   }, []);
@@ -10866,10 +10841,6 @@ export default function ChatView(props: ChatViewProps) {
                                 availableEnvironments={logicalProjectEnvironments}
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
-                                onSubagentSplitChange={
-                                  subagentSplit.available ? onSubagentSplitChange : undefined
-                                }
-                                subagentSplitChecked={subagentSplit.enabled}
                               />
                             </div>
                           )}

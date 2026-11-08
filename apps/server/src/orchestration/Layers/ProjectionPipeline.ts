@@ -5,7 +5,6 @@ import {
   type ChatAttachment,
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
-  subagentSplitAppliedMessageId,
   ThreadId,
 } from "@e6tools/contracts";
 import { compareDateTimeStrings } from "@e6tools/shared/dateTime";
@@ -1123,18 +1122,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyThreadMessagesProjection",
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
-        case "thread.activity-appended": {
-          const messageId = subagentSplitAppliedMessageId(event.payload.activity);
-          if (messageId === null) return;
-          const message = yield* projectionThreadMessageRepository.getByMessageId({ messageId });
-          if (Option.isSome(message) && message.value.splitIntoSubagents !== true) {
-            yield* projectionThreadMessageRepository.upsert({
-              ...message.value,
-              splitIntoSubagents: true,
-            });
-          }
-          return;
-        }
         case "thread.turn-completed": {
           const message = yield* projectionThreadMessageRepository.getByMessageId({
             messageId: event.payload.userMessageId,
@@ -1203,7 +1190,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...((event.payload.context ?? previousMessage?.context) !== undefined
               ? { context: event.payload.context ?? previousMessage?.context }
               : {}),
-            ...(previousMessage?.splitIntoSubagents ? { splitIntoSubagents: true } : {}),
             isStreaming: false,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,

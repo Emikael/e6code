@@ -13,7 +13,6 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-  subagentSplitAppliedMessageId,
   WORKTREE_SETUP_ACTIVITY_KIND,
 } from "@e6tools/contracts";
 import {
@@ -1083,20 +1082,10 @@ export function projectEvent(
             ].toSorted(compareThreadActivities),
           );
 
-          const splitMessageId = subagentSplitAppliedMessageId(payload.activity);
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               activities,
-              ...(splitMessageId !== null
-                ? {
-                    messages: thread.messages.map((message) =>
-                      message.id === splitMessageId
-                        ? { ...message, splitIntoSubagents: true }
-                        : message,
-                    ),
-                  }
-                : {}),
               updatedAt: event.occurredAt,
             }),
           };

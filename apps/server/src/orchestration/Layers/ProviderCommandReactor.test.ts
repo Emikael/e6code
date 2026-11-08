@@ -21,9 +21,6 @@ import {
   EventId,
   MessageId,
   ProjectId,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
-  SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
 } from "@e6tools/contracts";
@@ -60,7 +57,6 @@ import {
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
-import { SUBAGENT_SPLIT_INSTRUCTION } from "../subagentSplit.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { RuntimeReceiptBusTest } from "./RuntimeReceiptBus.ts";
@@ -186,7 +182,6 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
-    readonly supportsSubagentSplit?: boolean;
     readonly unreadableHistory?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
@@ -370,7 +365,6 @@ describe("ProviderCommandReactor", () => {
         ...(input?.requiresNewThreadForModelChange === true
           ? { requiresNewThreadForModelChange: true }
           : {}),
-        ...(input?.supportsSubagentSplit === true ? { supportsSubagentSplit: true } : {}),
       },
     ];
 
@@ -3125,62 +3119,6 @@ describe("ProviderCommandReactor", () => {
       interactionMode: "plan",
     });
   });
-
-  it.each([
-    { name: "applied", supportsSubagentSplit: true, text: "refactor the parser" },
-    { name: "unsupported", supportsSubagentSplit: false, text: "refactor the parser" },
-    {
-      name: "too-long",
-      supportsSubagentSplit: true,
-      text: "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 10),
-    },
-  ] as const)(
-    "records whether the subagent split reached the provider ($name)",
-    async ({ name, supportsSubagentSplit, text }) => {
-      const harness = await createHarness({ supportsSubagentSplit });
-      const now = "2026-01-01T00:00:00.000Z";
-      const messageId = asMessageId("user-message-split");
-
-      await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.turn.start",
-          commandId: CommandId.make("cmd-turn-start-split"),
-          threadId: ThreadId.make("thread-1"),
-          message: { messageId, role: "user", text, attachments: [] },
-          interactionMode: "default",
-          runtimeMode: "approval-required",
-          splitIntoSubagents: true,
-          createdAt: now,
-        }),
-      );
-
-      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-      const applied = name === "applied";
-      expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
-        input: applied ? `${text}\n\n${SUBAGENT_SPLIT_INSTRUCTION}` : text,
-      });
-      const thread = (await harness.readModel()).threads.find(
-        (entry) => entry.id === ThreadId.make("thread-1"),
-      );
-      const message = thread?.messages.find((entry) => entry.id === messageId);
-      // The stored text never carries the instruction; the mark follows what was sent.
-      expect(message?.text).toBe(text);
-      expect(message?.splitIntoSubagents).toBe(applied ? true : undefined);
-      const splitActivities = (thread?.activities ?? []).filter((activity) =>
-        activity.kind.startsWith("subagent-split."),
-      );
-      expect(splitActivities).toEqual([
-        expect.objectContaining(
-          applied
-            ? { kind: SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND, payload: { messageId } }
-            : {
-                kind: SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND,
-                payload: expect.objectContaining({ messageId, reason: name }),
-              },
-        ),
-      ]);
-    },
-  );
 
   it("preserves the active session model when in-session model switching is unsupported", async () => {
     const harness = await createHarness({ sessionModelSwitch: "unsupported" });
