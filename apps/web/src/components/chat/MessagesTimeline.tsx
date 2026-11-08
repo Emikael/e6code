@@ -2781,9 +2781,9 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     <CompactingLabel />
   ) : waiting ? (
     pendingAttention === "approval" ? (
-      "Waiting on your approval"
+      "Needs approval"
     ) : (
-      "Waiting on your answer"
+      "Needs your answer"
     )
   ) : (
     "Working"

@@ -608,15 +608,20 @@ const LineageRow = memo(function LineageRow(props: {
         .filter(Boolean)
         .join(", ")}
       accessibilityHint={
-        changedFiles
-          ? `Double tap to ${props.selected ? "hide" : "list"} the files it changed.`
-          : undefined
+        [
+          changedFiles
+            ? `Double tap to ${props.selected ? "hide" : "list"} the files it changed.`
+            : null,
+          props.stop ? "Stop subagent is the next control." : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined
       }
       onPress={() => props.onSelect(agent.id)}
       className={cn(
-        "min-h-14 flex-row items-center gap-3 py-2.5 pr-4 active:bg-subtle",
+        "min-h-14 flex-row items-center gap-3 py-2.5 pr-4",
         row.depth === 1 ? "pl-14" : "pl-4",
-        props.selected && "bg-subtle",
+        props.selected ? "active:opacity-70" : "active:bg-subtle-strong",
       )}
     >
       <SubagentTile />
@@ -659,43 +664,43 @@ const LineageRow = memo(function LineageRow(props: {
       />
     ) : null;
   const { stop } = props;
-  if (!stop) {
-    return (
-      <>
-        {rowButton}
-        {filesList}
-      </>
-    );
-  }
+  const stopButton = stop ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        stop.pending ? `Stopping subagent, ${agent.title}` : `Stop subagent, ${agent.title}`
+      }
+      accessibilityState={{ disabled: stop.pending }}
+      disabled={stop.pending}
+      onPress={() => stop.onStop(agent.id)}
+      className={cn(
+        "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
+        row.depth === 1 ? "pl-24" : "pl-14",
+        stop.pending && "opacity-60",
+      )}
+    >
+      <SymbolView
+        name="stop.fill"
+        size={13}
+        tintColorClassName="accent-danger-foreground"
+        type="monochrome"
+      />
+      <Text className="font-e6-medium text-sm text-danger-foreground">
+        {stop.pending ? "Stopping…" : "Stop subagent"}
+      </Text>
+    </Pressable>
+  ) : null;
+  if (!props.selected) return rowButton;
+  // The selected row, its Stop action and its files read as one block marked
+  // by a leading edge. A tinted ground would barely separate from the card in
+  // some themes and would pull the status words below text contrast in others.
   return (
-    <>
-      <View className="bg-subtle">
-        {rowButton}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={stop.pending ? `Stopping ${agent.title}` : `Stop ${agent.title}`}
-          accessibilityState={{ disabled: stop.pending }}
-          disabled={stop.pending}
-          onPress={() => stop.onStop(agent.id)}
-          className={cn(
-            "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
-            row.depth === 1 ? "pl-24" : "pl-14",
-            stop.pending && "opacity-60",
-          )}
-        >
-          <SymbolView
-            name="stop.fill"
-            size={13}
-            tintColorClassName="accent-danger-foreground"
-            type="monochrome"
-          />
-          <Text className="font-e6-medium text-sm text-danger-foreground">
-            {stop.pending ? "Stopping…" : "Stop subagent"}
-          </Text>
-        </Pressable>
-      </View>
+    <View>
+      <View className="absolute top-0 bottom-0 left-0 w-[3px] bg-focus" />
+      {rowButton}
+      {stopButton}
       {filesList}
-    </>
+    </View>
   );
 });
 

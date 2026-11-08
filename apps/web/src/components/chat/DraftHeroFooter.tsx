@@ -123,7 +123,7 @@ export function DraftHeroFooter({
                       </span>
                       <span className="truncate text-xs text-muted-foreground">
                         <span className="font-medium text-warning-foreground">
-                          {reason === "approval" ? "Needs your approval" : "Waiting on your answer"}
+                          {reason === "approval" ? "Needs approval" : "Needs your answer"}
                         </span>
                         {projectTitle ? ` · ${projectTitle}` : ""}
                         {` · ${formatRelativeTimeLabel(thread.updatedAt)}`}
