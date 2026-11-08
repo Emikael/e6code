@@ -13,8 +13,6 @@ import {
   ThreadId,
   type ProviderSession,
   type RuntimeMode,
-  SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
-  SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND,
   TurnId,
 } from "@e6tools/contracts";
 import { assistantCitationsToPlainText } from "@e6tools/shared/assistantCitations";
@@ -68,7 +66,6 @@ import {
   type ThreadTitleMessage,
 } from "../../textGeneration/ThreadTitleContext.ts";
 import { canReplaceThreadTitle, DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
-import { type SubagentSplitOutcome, withSubagentSplitInstruction } from "../subagentSplit.ts";
 import {
   resolveSourceControlWriterModelSelection,
   ServerSettingsService,
@@ -996,7 +993,6 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
-    readonly splitIntoSubagents?: boolean;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThreadShell(input.threadId);
@@ -1012,6 +1008,7 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
+    const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
       .listSessions()
@@ -1040,80 +1037,15 @@ const make = Effect.gen(function* () {
             }
           : requestedModelSelection
         : input.modelSelection;
-    const providerInstanceId =
-      activeSession?.providerInstanceId ?? requestedModelSelection.instanceId;
-    const providerSupportsSplit =
-      input.splitIntoSubagents === true &&
-      (yield* providerRegistry.getProviders).some(
-        (provider) =>
-          provider.instanceId === providerInstanceId && provider.supportsSubagentSplit === true,
-      );
-    const split = withSubagentSplitInstruction({
-      text: input.messageText,
-      splitIntoSubagents: input.splitIntoSubagents === true,
-      providerSupportsSplit,
-    });
-    const normalizedInput = toNonEmptyProviderInput(split.text);
 
     return {
-      request: {
-        threadId: input.threadId,
-        ...(normalizedInput ? { input: normalizedInput } : {}),
-        ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
-        ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
-        ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
-      },
-      subagentSplit: split.outcome,
+      threadId: input.threadId,
+      ...(normalizedInput ? { input: normalizedInput } : {}),
+      ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+      ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
+      ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     };
   });
-
-  // Records whether a requested split reached the provider. The applied record
-  // is what marks the user message, so its label never claims a split that was
-  // not sent; a skipped one tells the user why in the work log.
-  const recordSubagentSplitOutcome = (input: {
-    readonly threadId: ThreadId;
-    readonly messageId: MessageId;
-    readonly outcome: SubagentSplitOutcome;
-    readonly createdAt: string;
-  }) => {
-    if (input.outcome === "not-requested") return Effect.void;
-    const activity =
-      input.outcome === "applied"
-        ? {
-            tone: "info" as const,
-            kind: SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
-            summary: "Split into subagents",
-            payload: { messageId: input.messageId },
-          }
-        : {
-            tone: "info" as const,
-            kind: SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND,
-            summary: "Sent without splitting into subagents",
-            payload: {
-              messageId: input.messageId,
-              reason: input.outcome,
-              detail:
-                input.outcome === "too-long"
-                  ? "The message is too long to add the subagent instruction."
-                  : "This provider cannot run subagents.",
-            },
-          };
-    return Effect.all({
-      commandId: serverCommandId("subagent-split-activity"),
-      eventId: serverEventId(),
-    }).pipe(
-      Effect.flatMap(({ commandId, eventId }) =>
-        orchestrationEngine.dispatch({
-          type: "thread.activity.append",
-          commandId,
-          threadId: input.threadId,
-          activity: { id: eventId, ...activity, turnId: null, createdAt: input.createdAt },
-          createdAt: input.createdAt,
-        }),
-      ),
-      Effect.asVoid,
-    );
-  };
 
   const maybeGenerateAndRenameWorktreeBranchForFirstTurn = Effect.fn(
     "maybeGenerateAndRenameWorktreeBranchForFirstTurn",
@@ -1681,8 +1613,7 @@ const make = Effect.gen(function* () {
       thread.session?.status === "starting" ||
       thread.hasPendingApprovals ||
       thread.hasPendingUserInput ||
-      event.payload.sourceProposedPlan !== undefined ||
-      event.payload.splitIntoSubagents === true;
+      event.payload.sourceProposedPlan !== undefined;
     const preRoute = providerNeedsTurn
       ? null
       : yield* routeSystemOneTurn({
@@ -1794,7 +1725,6 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
-      ...(event.payload.splitIntoSubagents === true ? { splitIntoSubagents: true } : {}),
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.map(Option.some),
@@ -1804,19 +1734,9 @@ const make = Effect.gen(function* () {
     if (Option.isNone(sendTurnRequest)) {
       return;
     }
-    yield* recordSubagentSplitOutcome({
-      threadId: event.payload.threadId,
-      messageId: event.payload.messageId,
-      outcome: sendTurnRequest.value.subagentSplit,
-      createdAt: event.payload.createdAt,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("failed to record subagent split outcome", { cause }),
-      ),
-    );
 
     const send = providerService
-      .sendTurn(sendTurnRequest.value.request)
+      .sendTurn(sendTurnRequest.value)
       .pipe(Effect.asVoid, Effect.catchCause(recoverTurnStartFailure));
     // The forked send settles `sent` from here on, so drop the entry the post-processing hook uses.
     if (resumed && event.commandId !== null) resumedTurnStarts.delete(event.commandId);

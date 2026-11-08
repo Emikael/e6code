@@ -61,15 +61,10 @@ export function shouldShowComposerContextStrip(input: {
   showEnvironmentIndicator: boolean;
   /** A collapsed composer's controls currently fit in their measured strip host. */
   hostsRestingComposerControls: boolean;
-  /** The new-thread "Split into subagents" switch lives in the strip. */
-  showsSubagentSplit?: boolean;
 }): boolean {
   return (
     input.hasActiveProject &&
-    (input.isGitRepo ||
-      input.showEnvironmentIndicator ||
-      input.hostsRestingComposerControls ||
-      input.showsSubagentSplit === true)
+    (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)
   );
 }
 

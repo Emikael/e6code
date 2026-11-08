@@ -27,10 +27,6 @@
       "types": "./src/pendingRequests.ts",
       "default": "./src/pendingRequests.ts"
     },
-    "./subagent-split": {
-      "types": "./src/subagentSplit.ts",
-      "default": "./src/subagentSplit.ts"
-    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"

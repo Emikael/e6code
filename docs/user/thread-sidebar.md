@@ -13,9 +13,6 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, E6 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
-With Claude or Codex, turn on **Split into subagents** before sending to ask the
-agent to divide the task among up to 4 parallel subagents and combine their results.
-
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`

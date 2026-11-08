@@ -327,8 +327,6 @@ export interface ComposerDraft {
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
   readonly workspaceSelection?: ComposerDraftWorkspaceSelection;
-  /** New-task "Split into subagents" switch; dropped once the task is sent. */
-  readonly splitIntoSubagents?: boolean;
   /**
    * Set on new-task drafts only. The project is stored here rather than in
    * the key so a project can hold any number of drafts and a draft can be
@@ -359,12 +357,7 @@ export interface ComposerDraftWorkspaceSelection {
 
 export type ComposerDraftSettingsUpdate = Pick<
   ComposerDraft,
-  | "modelSelection"
-  | "runtimeMode"
-  | "interactionMode"
-  | "workspaceSelection"
-  | "splitIntoSubagents"
-  | "project"
+  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection" | "project"
 >;
 
 const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
@@ -396,7 +389,6 @@ const ComposerDraftSchema = Schema.Struct({
   runtimeMode: Schema.optional(RuntimeModeSchema),
   interactionMode: Schema.optional(ProviderInteractionModeSchema),
   workspaceSelection: Schema.optional(ComposerDraftWorkspaceSelectionSchema),
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   project: Schema.optional(ComposerDraftProjectSchema),
 });
 
@@ -551,8 +543,7 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
-    draft.workspaceSelection === undefined &&
-    draft.splitIntoSubagents === undefined
+    draft.workspaceSelection === undefined
   );
 }
 
@@ -1162,8 +1153,7 @@ export async function removeDeliveredCloudQueuedMessage(
             editor.workspaceSelection.branch !== message.creation?.branch ||
             editor.workspaceSelection.worktreePath !== message.creation?.worktreePath ||
             (editor.workspaceSelection.startFromOrigin ?? false) !==
-              (message.creation?.startFromOrigin ?? false))) ||
-        (editor.splitIntoSubagents ?? false) !== (message.creation?.splitIntoSubagents ?? false))
+              (message.creation?.startFromOrigin ?? false))))
     )
       continue;
     const drafts = { ...saved.drafts };
@@ -1496,7 +1486,6 @@ export function clearComposerDraftContentState(
     context: _context,
     modelSelection,
     workspaceSelection,
-    splitIntoSubagents: _splitIntoSubagents,
     project: _project,
     ...retained
   } = existing;
@@ -1686,8 +1675,7 @@ export function sameComposerDraftState(a: ComposerDraft, b: ComposerDraft): bool
     a.modelSelection === b.modelSelection &&
     a.runtimeMode === b.runtimeMode &&
     a.interactionMode === b.interactionMode &&
-    a.workspaceSelection === b.workspaceSelection &&
-    a.splitIntoSubagents === b.splitIntoSubagents
+    a.workspaceSelection === b.workspaceSelection
   );
 }
 

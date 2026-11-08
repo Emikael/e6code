@@ -84,7 +84,6 @@ import {
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
 import { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
-import { resolveSubagentSplit } from "@e6tools/client-runtime/subagent-split";
 import { type VcsRef } from "@e6tools/client-runtime/state/vcs";
 import {
   buildHomeProjectScopes,
@@ -150,8 +149,6 @@ type NewTaskFlowContextValue = {
   readonly selectedBranchName: string | null;
   readonly selectedWorktreePath: string | null;
   readonly startFromOrigin: boolean;
-  /** "Split into subagents": offered when the selected provider supports it. */
-  readonly subagentSplit: { readonly available: boolean; readonly enabled: boolean };
   readonly draftKey: string | null;
   readonly editingPendingTask: QueuedThreadMessage | null;
   readonly prompt: string;
@@ -195,7 +192,6 @@ type NewTaskFlowContextValue = {
   readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
   readonly selectBranch: (branch: VcsRef) => void;
   readonly setStartFromOrigin: (value: boolean) => void;
-  readonly setSplitIntoSubagents: (value: boolean) => void;
   readonly beginEditingPendingTask: (messageId: string) => boolean;
   readonly finishEditingPendingTask: () => void;
   readonly cancelEditingPendingTask: () => void;
@@ -550,15 +546,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
   const planModeEnabled =
     legacyPlanModeEnabled && selectedProviderStatus?.showInteractionModeToggle !== false;
-  const subagentSplit = useMemo(
-    () =>
-      resolveSubagentSplit({
-        isNewThread: true,
-        provider: selectedProviderStatus,
-        requested: selectedProjectDraft.splitIntoSubagents,
-      }),
-    [selectedProjectDraft.splitIntoSubagents, selectedProviderStatus],
-  );
   const interactionMode = planModeEnabled
     ? (selectedProjectDraft.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE)
     : DEFAULT_PROVIDER_INTERACTION_MODE;
@@ -948,16 +935,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     },
     [selectedProjectDraftKey, selectedProviderStatus],
   );
-  const setSplitIntoSubagents = useCallback(
-    (value: boolean) => {
-      if (selectedProjectDraftKey) {
-        updateComposerDraftSettings(selectedProjectDraftKey, {
-          splitIntoSubagents: value ? true : undefined,
-        });
-      }
-    },
-    [selectedProjectDraftKey],
-  );
 
   const beginEditingPendingTask = useCallback((messageId: string): boolean => {
     const message = findQueuedPendingTask(messageId);
@@ -980,7 +957,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           worktreePath: message.creation.worktreePath,
           startFromOrigin: message.creation.startFromOrigin ?? false,
         },
-        ...(message.creation.splitIntoSubagents ? { splitIntoSubagents: true } : {}),
       });
     }
     setSelectedEnvironmentId(message.environmentId);
@@ -1068,15 +1044,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           // drain with the same origin mode the composer displayed.
           ...((workspaceSelection?.startFromOrigin ?? startFromOrigin)
             ? { startFromOrigin: true }
-            : {}),
-          ...(resolveSubagentSplit({
-            isNewThread: true,
-            provider: selectedEnvironmentServerConfig?.providers.find(
-              (candidate) => candidate.instanceId === draftModelSelection.instanceId,
-            ),
-            requested: draft.splitIntoSubagents,
-          }).enabled
-            ? { splitIntoSubagents: true }
             : {}),
         },
         createdAt: metadata.createdAt,
@@ -1209,7 +1176,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedBranchName,
       selectedWorktreePath,
       startFromOrigin,
-      subagentSplit,
       draftKey: selectedProjectDraftKey,
       editingPendingTask,
       prompt,
@@ -1242,7 +1208,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setWorkspaceMode,
       selectBranch,
       setStartFromOrigin,
-      setSplitIntoSubagents,
       beginEditingPendingTask,
       finishEditingPendingTask,
       cancelEditingPendingTask,
@@ -1309,10 +1274,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setRuntimeMode,
       setSelectedModelKey,
       setStartFromOrigin,
-      setSplitIntoSubagents,
       setWorkspaceMode,
       startFromOrigin,
-      subagentSplit,
       submitting,
       workspaceMode,
       appendAttachments,

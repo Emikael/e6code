@@ -577,9 +577,6 @@ export const OrchestrationMessage = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
-  // Set once the provider input for this user message carried the split
-  // instruction (from a SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND activity).
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -672,30 +669,6 @@ export const OrchestrationThreadActivity = Schema.Struct({
   createdAt: IsoDateTime,
 });
 export type OrchestrationThreadActivity = typeof OrchestrationThreadActivity.Type;
-
-/**
- * Recorded when a turn's provider input carried the "Split into subagents"
- * instruction. Projections mark the user message from it, so the message's
- * `splitIntoSubagents` reflects what was sent rather than what was asked.
- */
-export const SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND = "subagent-split.applied";
-/** Recorded when a requested split was not sent, with the reason in `detail`. */
-export const SUBAGENT_SPLIT_SKIPPED_ACTIVITY_KIND = "subagent-split.skipped";
-
-/** The user message an applied-split activity marks, if it is one. */
-export function subagentSplitAppliedMessageId(
-  activity: Pick<OrchestrationThreadActivity, "kind" | "payload">,
-): MessageId | null {
-  if (activity.kind !== SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND) return null;
-  const payload = activity.payload;
-  return typeof payload === "object" &&
-    payload !== null &&
-    "messageId" in payload &&
-    typeof payload.messageId === "string" &&
-    payload.messageId.length > 0
-    ? MessageId.make(payload.messageId)
-    : null;
-}
 
 const OrchestrationLatestTurnState = Schema.Literals([
   "running",
@@ -1364,8 +1337,6 @@ export const ThreadTurnStartCommand = Schema.Struct({
   ),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  // Asks a provider that supports it to fan the turn out to parallel subagents.
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1386,8 +1357,6 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  // Asks a provider that supports it to fan the turn out to parallel subagents.
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1984,7 +1953,6 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  splitIntoSubagents: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 

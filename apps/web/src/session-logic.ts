@@ -2,10 +2,7 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import {
-  SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND,
-  UserInputAttachmentAnswerPayload,
-} from "@e6tools/contracts";
+import { UserInputAttachmentAnswerPayload } from "@e6tools/contracts";
 import { foldUserInputActivities } from "@e6tools/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -493,8 +490,6 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
-    // The user message's "Split into subagents" label already shows it.
-    if (activity.kind === SUBAGENT_SPLIT_APPLIED_ACTIVITY_KIND) continue;
     if (activity.kind === "turn.plan.updated") {
       const todoEntry = todoListWorkLogEntry(activity);
       if (todoEntry) entries.push(todoEntry);

@@ -65,7 +65,6 @@ const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabili
 const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
-  supportsSubagentSplit: true,
   reportsContextWindow: true,
   supportsSubagentStop: true,
 } as const;
