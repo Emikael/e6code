@@ -1,4 +1,5 @@
 import { EnvironmentId, UsageDay, USAGE_CONTRACT_VERSION } from "@e6tools/contracts";
+import { formatTokens } from "@e6tools/shared/usageFormat";
 import { mergeUsage } from "@e6tools/shared/usageMerge";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -182,6 +183,19 @@ describe("UsagePage hourly breakdown", () => {
     const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
 
     expect(body).toMatch(/\$11\.00.*\$13\.00/);
+  });
+
+  it("shows token totals in the Total column when tokens are selected", () => {
+    testState.metric = "tokens";
+
+    const markup = renderToStaticMarkup(<UsagePage />);
+    const header = markup.match(/<thead>(.*?)<\/thead>/)?.[1] ?? "";
+    const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
+
+    expect(header).toMatch(/Total.*Cost/);
+    // Total carries tokens; the trailing column carries the cost.
+    expect(body.indexOf(formatTokens(13_000))).toBeGreaterThan(-1);
+    expect(body.indexOf(formatTokens(13_000))).toBeLessThan(body.indexOf("$13.00"));
   });
 });
 
