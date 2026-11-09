@@ -119,7 +119,7 @@ export function PullRequestThreadDialog({
   const statusTone = useMemo(() => {
     switch (resolvedPullRequest?.state) {
       case "merged":
-        return "text-violet-600 dark:text-violet-300/90";
+        return "text-merged-foreground";
       case "closed":
         return "text-muted-foreground";
       case "open":

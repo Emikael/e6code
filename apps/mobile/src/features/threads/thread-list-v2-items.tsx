@@ -1008,10 +1008,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   pr.state === null || pr.isDraft
                     ? rowAppearance.mutedIconTintClassName
                     : pr.state === "open"
-                      ? "accent-adaptive-emerald-600-400"
+                      ? "accent-success-foreground"
                       : pr.state === "closed"
-                        ? "accent-adaptive-rose-600-400"
-                        : "accent-adaptive-violet-600-400"
+                        ? "accent-danger-foreground"
+                        : "accent-merged-foreground"
                 }
               />
             ) : null}
@@ -1030,7 +1030,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               className={
                 selected
                   ? selectedThreadRowColors.mutedForegroundClassName
-                  : "text-adaptive-emerald-600-400"
+                  : "text-diff-addition-foreground"
               }
             >
               +{diff.insertions}
@@ -1039,7 +1039,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               className={
                 selected
                   ? selectedThreadRowColors.mutedForegroundClassName
-                  : "text-adaptive-rose-600-400"
+                  : "text-diff-deletion-foreground"
               }
             >
               −{diff.deletions}

@@ -14,12 +14,14 @@ import {
 // Iris's inline-skill wash is the accent at about this strength over the
 // canvas (#f2f1fd on Porcelain, #2a2a3d on Slate).
 const SKILL_WASH_ALPHA = { light: 0.08, dark: 0.12 } as const;
+// The merged wash matches web's --merged-surface: 8% on Porcelain, 16% on Slate.
+const MERGED_WASH_ALPHA = { light: 0.08, dark: 0.16 } as const;
 
 const NO_OVERRIDES: Partial<MobileThemeVariables> = {};
 
 /**
  * The primary-family variables an accent replaces on the stock E6 Code
- * palette. Iris and every other theme (including Material You, which brings
+ * palette, plus the merged pull request family that pairs with it. Iris and every other theme (including Material You, which brings
  * the system accent) get no overrides, so they render exactly as generated.
  */
 export function getStockAccentVariableOverrides(
@@ -45,6 +47,11 @@ export function getStockAccentVariableOverrides(
       themeColorWithAlpha(colors.primary, SKILL_WASH_ALPHA[appearance]),
       canvas,
     ),
+    "--color-merged": flattenThemeColor(
+      themeColorWithAlpha(colors.merged, MERGED_WASH_ALPHA[appearance]),
+      canvas,
+    ),
+    "--color-merged-foreground": colors.mergedForeground,
   };
 }
 

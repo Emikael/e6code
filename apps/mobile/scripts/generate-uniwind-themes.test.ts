@@ -25,6 +25,22 @@ describe("generate mobile Uniwind themes", () => {
     ).toEqual([]);
   });
 
+  it("owns the widget and Android colour resources that cannot import the palette", () => {
+    const outputs = getGeneratedUniwindThemeOutputs().map(([filename]) =>
+      NodePath.relative(NodePath.resolve(import.meta.dirname, ".."), filename),
+    );
+    expect(outputs).toEqual(
+      expect.arrayContaining([
+        "src/widgets/AgentActivity.tsx",
+        "src/widgets/SubscriptionUsage.tsx",
+        "modules/e6-agent-notifications/android/src/main/res/values/agent_activity_colors.xml",
+        "modules/e6-agent-notifications/android/src/main/res/values-night/agent_activity_colors.xml",
+        "modules/e6-subscription-widget/android/src/main/res/values/colors.xml",
+        "modules/e6-subscription-widget/android/src/main/res/values-night/colors.xml",
+      ]),
+    );
+  });
+
   it("registers every custom palette for both appearances", () => {
     expect(customThemeNames).toEqual([
       "e6-chat-light",

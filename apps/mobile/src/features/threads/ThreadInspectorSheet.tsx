@@ -667,8 +667,12 @@ function LineCounts(props: {
   if (props.additions === null || props.deletions === null) return null;
   return (
     <>
-      <Text className="shrink-0 text-sm tabular-nums text-diff-addition">+{props.additions}</Text>
-      <Text className="shrink-0 text-sm tabular-nums text-diff-deletion">−{props.deletions}</Text>
+      <Text className="shrink-0 text-sm tabular-nums text-diff-addition-foreground">
+        +{props.additions}
+      </Text>
+      <Text className="shrink-0 text-sm tabular-nums text-diff-deletion-foreground">
+        −{props.deletions}
+      </Text>
     </>
   );
 }

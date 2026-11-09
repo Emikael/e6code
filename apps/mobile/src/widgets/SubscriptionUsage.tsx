@@ -26,7 +26,27 @@ function SubscriptionUsage(
   environment: WidgetEnvironment<UsageConfiguration>,
 ) {
   "widget";
-  // The extension evaluates this function without the app's module scope.
+  // The extension evaluates this function without the app's module scope, so
+  // the generator writes the stock palette's status colors in below.
+  // <generated widget-status-colors>
+  // Written by scripts/generate-uniwind-themes.mts from the stock palette.
+  const statusColors = {
+    light: {
+      primary: "#4a3ad0",
+      warning: "#92400e",
+      update: "#1d4ed8",
+      success: "#096b5f",
+      error: "#b42318",
+    },
+    dark: {
+      primary: "#b9afff",
+      warning: "#fcd34d",
+      update: "#93c5fd",
+      success: "#5eead4",
+      error: "#fca5a5",
+    },
+  } as const;
+  // </generated widget-status-colors>
   const family = environment.widgetFamily;
   // Gallery snapshots can render an old timeline entry after it has expired.
   const now = Math.max(environment.date.getTime(), Date.now());
@@ -193,9 +213,7 @@ function SubscriptionUsage(
                   layoutPriority(1),
                   foregroundStyle(
                     window.remaining <= 10 && !monochrome
-                      ? environment.colorScheme === "light"
-                        ? "#dc2626"
-                        : "#fca5a5"
+                      ? statusColors[environment.colorScheme === "light" ? "light" : "dark"].error
                       : "primary",
                   ),
                 ]}

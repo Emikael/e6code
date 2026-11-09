@@ -48,7 +48,7 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
   readonly colors: ReviewCommentColors;
 }) {
   const { codeSurface, nativeReviewDiffStyle } = useAppearanceCodeSurface();
-  const { themeAppearance: appearanceScheme, themeId } = useAppearancePreferences();
+  const { themeAppearance: appearanceScheme } = useAppearancePreferences();
   const appTheme = useUniwindTheme();
   const [NativeReviewDiffView] = useState(() => resolveNativeReviewDiffView());
   const patch = useMemo(() => buildReviewCommentPatch(props.comment), [props.comment]);
@@ -102,8 +102,8 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
     [addedRows, deletedRows, addedTokens, deletedTokens],
   );
   const nativeReviewDiffTheme = useMemo(
-    () => createNativeReviewDiffTheme(appearanceScheme, themeId, appTheme),
-    [appearanceScheme, appTheme, themeId],
+    () => createNativeReviewDiffTheme(appearanceScheme, appTheme),
+    [appearanceScheme, appTheme],
   );
   const nativeRowsJson = useMemo(() => JSON.stringify(compactNativeRows), [compactNativeRows]);
   const nativeThemeJson = useMemo(

@@ -159,7 +159,7 @@ describe("resolveThreadPullRequestBadgePresentation", () => {
       "merged",
       { state: "merged", isDraft: false },
       PullRequestGlyph.merged,
-      "text-violet-600 dark:text-violet-300/90",
+      "text-merged-foreground",
       "PR #42 - Merged: PR branch",
     ],
   ] as const)(
@@ -189,7 +189,7 @@ describe("resolveThreadPullRequestBadgePresentation", () => {
   it.each([
     ["open", "text-success-foreground"],
     ["draft", "text-muted-foreground"],
-    ["merged", "text-violet-600 dark:text-violet-300/90"],
+    ["merged", "text-merged-foreground"],
   ] as const)(
     "uses a layers badge with the %s stack tone without a link identity",
     (state, expectedToneClassName) => {
@@ -210,7 +210,7 @@ describe("resolveThreadPullRequestBadgePresentation", () => {
   it.each([
     ["open", PullRequestGlyph.pullRequest, "text-success-foreground"],
     ["draft", PullRequestGlyph.draft, "text-muted-foreground"],
-    ["merged", PullRequestGlyph.merged, "text-violet-600 dark:text-violet-300/90"],
+    ["merged", PullRequestGlyph.merged, "text-merged-foreground"],
   ] as const)(
     "draws the count of unrelated linked pull requests with their %s aggregate state",
     (state, expectedIcon, expectedToneClassName) => {

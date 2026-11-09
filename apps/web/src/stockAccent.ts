@@ -13,6 +13,8 @@ const STOCK_ACCENT_VARIABLE_NAMES: Readonly<Record<keyof StockAccentColors, stri
   primaryHover: "--stock-primary-hover",
   primaryEdge: "--stock-primary-edge",
   primaryText: "--stock-primary-text",
+  merged: "--stock-merged",
+  mergedForeground: "--stock-merged-foreground",
 };
 
 function stockAccentVariableName(role: keyof StockAccentColors, appearance: ThemeAppearance) {

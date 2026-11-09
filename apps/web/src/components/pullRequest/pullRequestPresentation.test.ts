@@ -31,7 +31,7 @@ describe("resolvePullRequestState", () => {
       { state: "merged", isDraft: false },
       PullRequestGlyph.merged,
       "Merged",
-      "text-violet-600 dark:text-violet-300/90",
+      "text-merged-foreground",
     ],
   ] as const)(
     "resolves the %s lifecycle presentation",

@@ -11,6 +11,7 @@ import {
   getMobileThemeVariables,
   DEFAULT_MOBILE_THEME_ID,
   type MobileThemeAppearance,
+  type MobileThemeVariables,
 } from "../src/lib/mobileTheme.ts";
 
 const APPEARANCES = ["light", "dark"] as const;
@@ -24,6 +25,15 @@ const GENERATED_DEFAULT_VARIABLES_PATH = NodePath.resolve(
   "../generated-uniwind-default-theme-variables.json",
 );
 const GENERATED_CLERK_THEME_PATH = NodePath.resolve(import.meta.dirname, "../clerk-theme.json");
+// Widget layouts are serialized into the extension without module scope, so
+// they cannot import the palette. Their status colors are written into a
+// marked block inside each widget function instead.
+const WIDGET_SOURCE_PATHS = [
+  NodePath.resolve(import.meta.dirname, "../src/widgets/AgentActivity.tsx"),
+  NodePath.resolve(import.meta.dirname, "../src/widgets/SubscriptionUsage.tsx"),
+];
+const WIDGET_STATUS_COLORS_START = "  // <generated widget-status-colors>\n";
+const WIDGET_STATUS_COLORS_END = "  // </generated widget-status-colors>\n";
 
 type TailwindColorFamily = keyof typeof tailwindColors;
 type TailwindColorShade = 50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 950;
@@ -74,12 +84,6 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
     color("black", undefined, 0.15),
     color("black", undefined, 0.35),
   ],
-  "--color-adaptive-emerald-500-a12-a16": [
-    color("emerald", 500, 0.12),
-    color("emerald", 500, 0.16),
-  ],
-  "--color-adaptive-emerald-600-400": [color("emerald", 600), color("emerald", 400)],
-  "--color-adaptive-emerald-700-300": [color("emerald", 700), color("emerald", 300)],
   "--color-adaptive-indigo-700-300": [color("indigo", 700), color("indigo", 300)],
   "--color-adaptive-neutral-100-900": [color("neutral", 100), color("neutral", 900)],
   "--color-adaptive-neutral-200-700-a60": [color("neutral", 200), color("neutral", 700, 0.6)],
@@ -122,20 +126,10 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
   "--color-adaptive-rose-300-a70-400-a28": [color("rose", 300, 0.7), color("rose", 400, 0.28)],
   "--color-adaptive-rose-500-a12-a16": [color("rose", 500, 0.12), color("rose", 500, 0.16)],
   "--color-adaptive-rose-500-400": [color("rose", 500), color("rose", 400)],
-  "--color-adaptive-rose-600-400": [color("rose", 600), color("rose", 400)],
-  "--color-adaptive-violet-600-400": [color("violet", 600), color("violet", 400)],
-  "--color-adaptive-violet-700-300": [color("violet", 700), color("violet", 300)],
   "--color-adaptive-white-neutral-950-a70": [color("white"), color("neutral", 950, 0.7)],
   "--color-adaptive-zinc-500-a12-a16": [color("zinc", 500, 0.12), color("zinc", 500, 0.16)],
   "--color-adaptive-zinc-500-400": [color("zinc", 500), color("zinc", 400)],
   "--color-adaptive-zinc-600-300": [color("zinc", 600), color("zinc", 300)],
-};
-
-// Semantic roles that keep one hue in every theme, like the info and success
-// roles. `+N −M` line counts read through these, never a raw palette class.
-const SEMANTIC_COLORS: Readonly<Record<string, readonly [light: string, dark: string]>> = {
-  "--color-diff-addition": [color("emerald", 700), color("emerald", 300)],
-  "--color-diff-deletion": [color("rose", 700), color("rose", 300)],
 };
 
 export const customThemeNames = BUILT_IN_THEME_IDS.flatMap((themeId) =>
@@ -144,7 +138,7 @@ export const customThemeNames = BUILT_IN_THEME_IDS.flatMap((themeId) =>
 
 const adaptiveVariablesFor = (appearance: MobileThemeAppearance) =>
   Object.fromEntries(
-    Object.entries({ ...SEMANTIC_COLORS, ...ADAPTIVE_COLORS }).map(([name, [light, dark]]) => [
+    Object.entries(ADAPTIVE_COLORS).map(([name, [light, dark]]) => [
       name,
       appearance === "light" ? light : dark,
     ]),
@@ -227,6 +221,114 @@ export const renderUniwindThemesCSS = () => {
   ].join("\n");
 };
 
+/**
+ * The stock palette's status text roles for widgets, which render on the
+ * system's light or dark material rather than an app theme.
+ */
+const widgetStatusColorsFor = (appearance: MobileThemeAppearance) => {
+  const variables = getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, appearance);
+  return {
+    primary: variables["--color-primary-text"],
+    warning: variables["--color-warning-foreground"],
+    update: variables["--color-update-foreground"],
+    success: variables["--color-success-foreground"],
+    error: variables["--color-danger-foreground"],
+  };
+};
+
+const renderWidgetStatusColors = () => {
+  const lines = [
+    WIDGET_STATUS_COLORS_START.trimEnd(),
+    "  // Written by scripts/generate-uniwind-themes.mts from the stock palette.",
+    "  const statusColors = {",
+    ...APPEARANCES.flatMap((appearance) => [
+      `    ${appearance}: {`,
+      ...Object.entries(widgetStatusColorsFor(appearance)).map(
+        ([role, value]) => `      ${role}: "${value}",`,
+      ),
+      "    },",
+    ]),
+    "  } as const;",
+    WIDGET_STATUS_COLORS_END.trimEnd(),
+  ];
+  return `${lines.join("\n")}\n`;
+};
+
+/** Replace the block between `start` and `end` (both kept) in a hand-written file. */
+const replaceGeneratedBlock = (filename: string, start: string, end: string, block: string) => {
+  const source = NodeFS.readFileSync(filename, "utf8");
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end);
+  if (startIndex === -1 || endIndex < startIndex) {
+    throw new Error(
+      `${filename} has no generated block between ${start.trim()} and ${end.trim()}.`,
+    );
+  }
+  return source.slice(0, startIndex) + block + source.slice(endIndex + end.length);
+};
+
+const renderWidgetSource = (filename: string) =>
+  replaceGeneratedBlock(
+    filename,
+    WIDGET_STATUS_COLORS_START,
+    WIDGET_STATUS_COLORS_END,
+    renderWidgetStatusColors(),
+  );
+
+// Android widgets and notifications read colour resources. Each file keeps
+// its hand-written frame; the generator owns the colours between the markers
+// in the default (light) and values-night (dark) resource directories.
+const ANDROID_COLORS_START = "<!-- <generated android-colors> -->\n";
+const ANDROID_COLORS_END = "<!-- </generated android-colors> -->\n";
+
+const ANDROID_COLOR_RESOURCE_SOURCES = [
+  {
+    resDir: "../modules/e6-agent-notifications/android/src/main/res",
+    file: "agent_activity_colors.xml",
+    indent: "    ",
+    // Phase tints match the iOS Live Activity and the web sidebar's status line.
+    colors: (variables: MobileThemeVariables) => ({
+      agent_activity_working: variables["--color-primary-text"],
+      agent_activity_attention: variables["--color-warning-foreground"],
+      agent_activity_input: variables["--color-update-foreground"],
+      agent_activity_waiting: variables["--color-foreground-muted"],
+      agent_activity_done: variables["--color-success-foreground"],
+      agent_activity_failed: variables["--color-danger-foreground"],
+    }),
+  },
+  {
+    resDir: "../modules/e6-subscription-widget/android/src/main/res",
+    file: "colors.xml",
+    indent: "  ",
+    colors: (variables: MobileThemeVariables) => ({
+      e6_widget_background: variables["--color-screen"],
+      e6_widget_foreground: variables["--color-foreground"],
+      e6_widget_secondary: variables["--color-foreground-muted"],
+    }),
+  },
+] as const;
+
+const renderAndroidColorResources = () =>
+  ANDROID_COLOR_RESOURCE_SOURCES.flatMap(({ resDir, file, indent, colors }) =>
+    APPEARANCES.map((appearance) => {
+      const filename = NodePath.resolve(
+        import.meta.dirname,
+        resDir,
+        appearance === "light" ? "values" : "values-night",
+        file,
+      );
+      const start = `${indent}${ANDROID_COLORS_START}`;
+      const end = `${indent}${ANDROID_COLORS_END}`;
+      const entries = Object.entries(
+        colors(getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, appearance)),
+      ).map(([name, value]) => `${indent}<color name="${name}">${value}</color>\n`);
+      return [
+        filename,
+        replaceGeneratedBlock(filename, start, end, [start, ...entries, end].join("")),
+      ] as const;
+    }),
+  );
+
 export const renderDefaultThemeVariablesJSON = () =>
   `${JSON.stringify(
     Object.fromEntries(
@@ -249,6 +351,8 @@ export const getGeneratedUniwindThemeOutputs = (): ReadonlyArray<
     GENERATED_CLERK_THEME_PATH,
     `${JSON.stringify({ colors: clerkColorsFor("light"), darkColors: clerkColorsFor("dark"), design: { borderRadius: 18 } }, null, 2)}\n`,
   ],
+  ...WIDGET_SOURCE_PATHS.map((filename) => [filename, renderWidgetSource(filename)] as const),
+  ...renderAndroidColorResources(),
 ];
 
 const writeFileAtomically = (filename: string, contents: string) => {
