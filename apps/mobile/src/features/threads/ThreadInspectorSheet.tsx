@@ -82,11 +82,12 @@ import {
 
 const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 
-/** The spawn card's status colors, keyed by the shared status words. */
+/** The spawn card's status colors, keyed by the shared status words. Working
+    takes Iris (primary), as on web; each colour pairs a dot with its word. */
 const STATUS_TEXT_CLASS = {
   approval: "text-warning-foreground",
   question: "text-warning-foreground",
-  working: "text-info-foreground",
+  working: "text-primary-text",
   idle: "text-foreground-muted",
   done: "text-success-foreground",
   failed: "text-danger-foreground",
@@ -96,7 +97,7 @@ const STATUS_TEXT_CLASS = {
 const STATUS_DOT_CLASS = {
   approval: "bg-warning-foreground",
   question: "bg-warning-foreground",
-  working: "bg-info-foreground",
+  working: "bg-primary-text",
   idle: "bg-foreground-muted",
   done: "bg-success-foreground",
   failed: "bg-danger-foreground",

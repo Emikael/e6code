@@ -30,10 +30,13 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 
+/** Status colours for every subagent surface. Working takes Iris (primary),
+    which marks a live agent across the app; each tone sits beside its glyph
+    and word, never alone. */
 export const SUBAGENT_TONE_TEXT_CLASS: Readonly<Record<SubagentStatusTone, string>> = {
   approval: "text-warning-foreground",
   question: "text-warning-foreground",
-  working: "text-info-foreground",
+  working: "text-primary-text",
   idle: "text-muted-foreground",
   done: "text-success-foreground",
   failed: "text-destructive-foreground",
