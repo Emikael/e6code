@@ -523,8 +523,8 @@ export interface ThreadStatusPill {
     | "Paused"
     | "Plan Ready";
   colorClass: string;
+  /** Static fill. Live work adds a ring instead of animating. */
   dotClass: string;
-  pulse: boolean;
 }
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
@@ -1176,10 +1176,13 @@ export function formatWorkingDurationLabel(elapsedMs: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+const LIVE_STATUS_DOT_CLASS = "bg-primary ring-2 ring-primary-surface";
+
 /** Legacy sidebar pill. Colors go through semantic roles so themes recolor
     them, matching the newer sidebar's status hues: warning for approval and
-    pauses, primary (the user's next action) for input and plan ready, info
-    for live work, muted for monitoring, success for an unseen completion. */
+    pauses, primary for input and plan ready, primary with a static ring for
+    a live agent, info for connecting, muted for monitoring, success for an
+    unseen completion. */
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
@@ -1190,7 +1193,6 @@ export function resolveThreadStatusPill(input: {
       label: "Pending Approval",
       colorClass: "text-warning-foreground",
       dotClass: "bg-warning",
-      pulse: false,
     };
   }
 
@@ -1199,7 +1201,6 @@ export function resolveThreadStatusPill(input: {
       label: "Awaiting Input",
       colorClass: "text-primary-text",
       dotClass: "bg-primary",
-      pulse: false,
     };
   }
 
@@ -1208,16 +1209,14 @@ export function resolveThreadStatusPill(input: {
       label: "Paused",
       colorClass: "text-warning-foreground",
       dotClass: "bg-warning",
-      pulse: false,
     };
   }
 
   if (thread.session?.status === "running") {
     return {
       label: "Working",
-      colorClass: "text-info-foreground",
-      dotClass: "bg-info",
-      pulse: true,
+      colorClass: "text-primary-text",
+      dotClass: LIVE_STATUS_DOT_CLASS,
     };
   }
 
@@ -1226,7 +1225,6 @@ export function resolveThreadStatusPill(input: {
       label: "Connecting",
       colorClass: "text-info-foreground",
       dotClass: "bg-info",
-      pulse: true,
     };
   }
 
@@ -1242,7 +1240,6 @@ export function resolveThreadStatusPill(input: {
       label: "Plan Ready",
       colorClass: "text-primary-text",
       dotClass: "bg-primary",
-      pulse: false,
     };
   }
 
@@ -1253,9 +1250,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.backgroundLiveness === "working") {
     return {
       label: "Working",
-      colorClass: "text-info-foreground",
-      dotClass: "bg-info",
-      pulse: true,
+      colorClass: "text-primary-text",
+      dotClass: LIVE_STATUS_DOT_CLASS,
     };
   }
 
@@ -1264,7 +1260,6 @@ export function resolveThreadStatusPill(input: {
       label: "Monitoring",
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",
-      pulse: false,
     };
   }
 
@@ -1273,7 +1268,6 @@ export function resolveThreadStatusPill(input: {
       label: "Completed",
       colorClass: "text-success-foreground",
       dotClass: "bg-success",
-      pulse: false,
     };
   }
 

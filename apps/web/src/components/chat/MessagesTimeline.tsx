@@ -246,7 +246,6 @@ import {
 } from "@e6tools/client-runtime/state/agent-state";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import {
@@ -2934,7 +2933,10 @@ function BackgroundWorktreeSetupChip({ snapshot }: { snapshot: WorktreeSetupSnap
           />
         }
       >
-        <Spinner className="size-3 shrink-0" />
+        <span
+          aria-hidden
+          className="mx-0.5 size-1.5 shrink-0 rounded-full bg-primary ring-2 ring-primary-surface"
+        />
         <span className="truncate">{scriptName}</span>
       </PopoverTrigger>
       <PopoverPopup

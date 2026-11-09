@@ -147,11 +147,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 
 @theme inline {
   --color-zinc-25: oklch(99.2% 0 0);
-  --animate-skeleton: skeleton 2.4s infinite;
-  /* Duty-cycled indicator animations: long holds with stepped ramps, so the
-     compositor updates discrete frames instead of every vsync. */
-  --animate-status-pulse: status-pulse 2s infinite;
-  --animate-status-ping: status-ping 2s infinite;
+  /* Both run once and settle. Status dots stay static: a looping animation
+     repaints every frame for as long as the state lasts. */
+  --animate-skeleton: skeleton 2.4s;
+  --animate-status-ping: status-ping 2s both;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -221,9 +220,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --radius-3xl: calc(var(--radius) + 12px);
   @keyframes skeleton {
     /* The single loading-bar breath used by every skeleton: one opacity pulse
-       per container, stepped so however many bars sit under it, the compositor
-       draws a handful of discrete frames per cycle rather than one per vsync —
-       which on a 120Hz display is the difference between ~14 and ~288 updates. */
+       per container that ends at rest, stepped so however many bars sit under
+       it, the compositor draws a handful of discrete frames rather than one
+       per vsync. */
     0%,
     42% {
       opacity: 1;
@@ -238,25 +237,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
       opacity: 1;
     }
   }
-  @keyframes status-pulse {
-    0%,
-    40% {
-      opacity: 1;
-      animation-timing-function: steps(6);
-    }
-    50%,
-    90% {
-      opacity: 0.5;
-      animation-timing-function: steps(6);
-    }
-    100% {
-      opacity: 1;
-    }
-  }
   @keyframes status-ping {
-    /* Burst first (immediate feedback for click ripples), then hold
-       invisible for the rest of the cycle. Mirrors animate-ping's
-       75%-scale start. */
+    /* One click ripple: burst first for immediate feedback, then hold
+       invisible. Mirrors animate-ping's 75%-scale start. */
     0% {
       opacity: 0.9;
       scale: 0.75;

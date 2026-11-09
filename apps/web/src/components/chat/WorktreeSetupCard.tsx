@@ -18,7 +18,6 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
-import { Spinner } from "~/components/ui/spinner";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
@@ -61,7 +60,13 @@ function StageIcon({ status }: { status: WorktreeSetupStage["status"] }) {
     case "done":
       return <CheckIcon aria-hidden className={className} />;
     case "running":
-      return <Spinner className={className} />;
+      // The timeline's static live mark; a spinner would loop for the whole stage.
+      return (
+        <span
+          aria-hidden
+          className="size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
+        />
+      );
     case "failed":
       return <XIcon aria-hidden className={className} />;
     case "warning":
