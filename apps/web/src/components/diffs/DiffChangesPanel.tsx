@@ -40,13 +40,13 @@ interface DiffChangesPanelProps {
 }
 
 const KIND_TONE: Record<VcsFileChangeKind, string> = {
-  modified: "text-warning",
-  added: "text-success",
-  untracked: "text-success",
+  modified: "text-warning-foreground",
+  added: "text-success-foreground",
+  untracked: "text-success-foreground",
   deleted: "text-destructive-foreground",
   renamed: "text-info",
   copied: "text-info",
-  "type-changed": "text-warning",
+  "type-changed": "text-warning-foreground",
   conflicted: "text-error",
 };
 

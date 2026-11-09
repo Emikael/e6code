@@ -729,7 +729,7 @@ export function ProviderInstanceCard({
                     className={cn(
                       "text-xs leading-snug",
                       versionAdvisory.emphasis === "strong"
-                        ? "text-warning"
+                        ? "text-warning-foreground"
                         : "text-muted-foreground",
                     )}
                   >

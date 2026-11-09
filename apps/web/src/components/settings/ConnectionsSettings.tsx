@@ -1199,7 +1199,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
               {pairingScopes.length === 0 ? (
                 <p className="text-xs text-destructive">Select at least one permission.</p>
               ) : pairingScopes.includes(AuthAccessWriteScope) ? (
-                <p className="text-xs text-warning">
+                <p className="text-xs text-warning-foreground">
                   This client can create or revoke access for other devices.
                 </p>
               ) : null}
