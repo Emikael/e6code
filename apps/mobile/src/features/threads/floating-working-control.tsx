@@ -270,7 +270,7 @@ function CompactingLabel(props: { readonly onLayout: (event: LayoutChangeEvent) 
       <SymbolView
         name="arrow.down.right.and.arrow.up.left"
         size={13}
-        tintColorClassName="foreground"
+        tintColorClassName="accent-foreground"
         type="monochrome"
       />
       <Text className="font-e6-medium text-xs text-foreground">Compacting…</Text>
@@ -303,7 +303,7 @@ function AgentStateLabel(props: {
       <SymbolView
         name={AGENT_STATE_SYMBOL[props.agentState.kind]}
         size={13}
-        tintColorClassName={paused ? "accent-warning-foreground" : "foreground"}
+        tintColorClassName={paused ? "accent-warning-foreground" : "accent-foreground"}
         type="monochrome"
       />
       <Text
@@ -412,7 +412,7 @@ function FloatingStatusLabel(props: {
         <SymbolView
           name="arrow.triangle.branch"
           size={13}
-          tintColorClassName="foreground"
+          tintColorClassName="accent-foreground"
           type="monochrome"
         />
         <ShimmeringWorkContent
