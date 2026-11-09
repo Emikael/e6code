@@ -19,6 +19,10 @@ import type { EnvironmentThreadSearchMatch } from "@e6tools/client-runtime/state
 import type { EnvironmentMachineKind } from "@e6tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@e6tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@e6tools/client-runtime/state/thread-sort";
+import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";
@@ -61,14 +65,34 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 // Live Activity/widgets (amber approval, indigo input, sky working) so a
 // thread reads the same color everywhere it surfaces.
 const STATUS_LABEL_BY_STATUS: Partial<
-  Record<ThreadListV2Status, { label: string; className: string }>
+  Record<ThreadListV2Status, { label: string; accessibilityLabel?: string; className: string }>
 > = {
-  approval: { label: "Approval", className: "text-warning-foreground" },
-  input: { label: "Input", className: "text-adaptive-indigo-600-300" },
+  approval: {
+    label: "Approval",
+    accessibilityLabel: "Needs approval",
+    className: "text-warning-foreground",
+  },
+  input: {
+    label: "Input",
+    accessibilityLabel: "Needs your answer",
+    className: "text-adaptive-indigo-600-300",
+  },
   paused: { label: "Paused", className: "text-warning-foreground" },
   working: { label: "Working", className: "text-adaptive-sky-600-400" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
+
+/** Usage-limit reset as a short local clock time, with the weekday when not today. */
+function formatResetClockTime(resetsAt: string): string {
+  const date = new Date(resetsAt);
+  if (Number.isNaN(date.getTime())) return "";
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return date.toLocaleTimeString([], {
+    ...(sameDay ? {} : { weekday: "short" }),
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 function threadTimeLabel(thread: EnvironmentThreadShell): string {
   return relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
@@ -549,6 +573,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  // Working and paused rows add the agent state or plan step, matching the
+  // web sidebar: "Working · step 4 of 6", "Paused · resets 14:20".
+  const statusText =
+    status === "working" || status === "paused"
+      ? joinThreadRowStatus(
+          formatRunningThreadStatus({
+            agentState: thread.agentState,
+            planProgress: thread.planProgress,
+            formatResetTime: formatResetClockTime,
+          }),
+        )
+      : statusLabel?.label;
   // Settled rows label by the same stamp they sort by, so order and label
   // can't disagree. updatedAt is always present, so the resolver never
   // returns null here.
@@ -865,14 +901,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ) : null}
         <Text
           className={cn(
-            "text-xs tabular-nums",
+            "max-w-[55%] shrink text-xs tabular-nums",
             statusLabel?.className ??
               (selected
                 ? selectedThreadRowColors.foregroundClassName
                 : rowAppearance.tertiaryForegroundClassName),
           )}
+          numberOfLines={1}
+          accessibilityLabel={statusLabel?.accessibilityLabel}
         >
-          {statusLabel?.label ?? timeLabel}
+          {statusText ?? timeLabel}
         </Text>
       </View>
       {props.searchMatch ? (
