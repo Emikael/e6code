@@ -38,12 +38,7 @@ export interface EnvironmentPullRequestError extends PullRequestListProjectError
   readonly environmentId: EnvironmentId;
 }
 
-export type PullRequestGroupKey =
-  | "reviewRequested"
-  | "authored"
-  | "others"
-  | "needsYou"
-  | "waitingOnOthers";
+export type PullRequestGroupKey = "reviewRequested" | "authored" | "others" | "needsYou";
 
 export interface PullRequestGroup<Entry extends PullRequestListEntry = PullRequestListEntry> {
   readonly key: PullRequestGroupKey;
@@ -80,7 +75,6 @@ const GROUP_LABELS: Record<PullRequestGroupKey, string> = {
   authored: "Authored",
   others: "Others",
   needsYou: "Needs you",
-  waitingOnOthers: "Waiting on others",
 };
 
 function normalize(value: string | null | undefined): string | null {
@@ -1107,8 +1101,7 @@ export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   }
   if (sort === "blocked") {
     if (searchText.trim().length > 0) return groups;
-    // "Needs you" mixes the reader's own work with reviews asked of them, so it keeps its order;
-    // "Waiting on others" is the reader's work blocked on reviewers, ranked as such.
+    // "Needs you" mixes the reader's own work with reviews asked of them, so it keeps its order.
     const role = (key: PullRequestGroupKey): PullRequestInvolvement =>
       key === "others"
         ? involvement

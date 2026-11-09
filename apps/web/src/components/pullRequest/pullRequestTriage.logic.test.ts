@@ -165,10 +165,7 @@ function row(
 
 describe("pull request tabs", () => {
   it("names the tab the filters amount to, and none for filters no tab covers", () => {
-    expect(pullRequestLensOf({ state: "open", involvement: "all", lens: "needs-you" })).toBe(
-      "needs-you",
-    );
-    expect(pullRequestLensOf({ state: "open", involvement: "all" })).toBe("open");
+    expect(pullRequestLensOf({ state: "open", involvement: "all", lens: "open" })).toBe("open");
     expect(pullRequestLensOf({ state: "open", involvement: "authored" })).toBe("yours");
     expect(pullRequestLensOf({ state: "merged", involvement: "all" })).toBe("merged");
     expect(pullRequestLensOf({ state: "closed", involvement: "all" })).toBeNull();
@@ -179,6 +176,15 @@ describe("pull request tabs", () => {
     for (const lens of ["needs-you", "yours", "open", "merged"] as const) {
       expect(pullRequestLensOf(pullRequestLensScope(lens))).toBe(lens);
     }
+  });
+
+  it("opens the bare open list, as a fresh visit or an old link has it, on Needs you", () => {
+    expect(pullRequestLensOf({ state: "open", involvement: "all" })).toBe("needs-you");
+    expect(pullRequestLensScope("needs-you")).toEqual({
+      state: "open",
+      involvement: "all",
+      lens: undefined,
+    });
   });
 });
 
@@ -195,12 +201,16 @@ describe("what needs the reader", () => {
     row(9, { viewerReviewRequested: true, isDraft: true }),
   ];
 
-  it("shelves review requests and the reader's blocked or ready work, then their waiting work", () => {
+  it("lists only review requests and the reader's blocked or ready work", () => {
     const groups = groupPullRequestsForNeedsYou(entries, VIEWERS);
+    // 6 is the reader's own work waiting on reviewers: it belongs to "Yours", not here.
     expect(groups.map((group) => [group.key, group.entries.map((entry) => entry.number)])).toEqual([
       ["needsYou", [1, 2, 3, 4, 5]],
-      ["waitingOnOthers", [6]],
     ]);
+  });
+
+  it("has no shelf at all when nothing needs the reader", () => {
+    expect(groupPullRequestsForNeedsYou([row(6, { mine: true }), row(8)], VIEWERS)).toEqual([]);
   });
 
   it("counts the tabs from the partitions, marking a read that stopped at its page", () => {

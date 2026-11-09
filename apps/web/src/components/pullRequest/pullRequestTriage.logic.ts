@@ -130,7 +130,8 @@ export function pullRequestRowStatusStatesReview(kind: PullRequestRowStatusKind)
 /**
  * The page's tabs. Each is a named state and involvement pair the listing already understands,
  * so a tab is only a shortcut onto the filters; "Needs you" adds a local narrowing on top of the
- * open list, since what needs the reader is a judgement no host makes for us.
+ * open list, since what needs the reader is a judgement no host makes for us. It is the page's
+ * default tab.
  */
 export type PullRequestLens = "needs-you" | "yours" | "open" | "merged";
 
@@ -144,33 +145,37 @@ export const PULL_REQUEST_LENSES: ReadonlyArray<{
   { value: "merged", label: "Merged" },
 ];
 
-/** The tab the filters amount to, or null where they are something no tab names. */
+/**
+ * The tab the filters amount to, or null where they are something no tab names. The open list
+ * across every involvement is "Needs you" unless it is marked as the whole list, so a bare visit,
+ * an old link, and a scope saved before the page opened on "Needs you" all land there.
+ */
 export function pullRequestLensOf(scope: {
   readonly state: PullRequestListState;
   readonly involvement: PullRequestInvolvement;
-  readonly lens?: "needs-you" | undefined;
+  readonly lens?: "open" | undefined;
 }): PullRequestLens | null {
   if (scope.state === "open" && scope.involvement === "all") {
-    return scope.lens === "needs-you" ? "needs-you" : "open";
+    return scope.lens === "open" ? "open" : "needs-you";
   }
   if (scope.state === "open" && scope.involvement === "authored") return "yours";
   if (scope.state === "merged" && scope.involvement === "all") return "merged";
   return null;
 }
 
-/** The filters a tab stands for; picking one clears the "Needs you" narrowing unless it is it. */
+/** The filters a tab stands for. Only "All open" marks itself, since "Needs you" is the default. */
 export function pullRequestLensScope(lens: PullRequestLens): {
   readonly state: PullRequestListState;
   readonly involvement: PullRequestInvolvement;
-  readonly lens: "needs-you" | undefined;
+  readonly lens: "open" | undefined;
 } {
   switch (lens) {
     case "needs-you":
-      return { state: "open", involvement: "all", lens: "needs-you" };
+      return { state: "open", involvement: "all", lens: undefined };
     case "yours":
       return { state: "open", involvement: "authored", lens: undefined };
     case "open":
-      return { state: "open", involvement: "all", lens: undefined };
+      return { state: "open", involvement: "all", lens: "open" };
     case "merged":
       return { state: "merged", involvement: "all", lens: undefined };
   }
@@ -195,35 +200,18 @@ function pullRequestNeedsViewer(entry: TriageEntry, authoredByViewer: boolean): 
   );
 }
 
-/** The reader's own open, non-draft work whose next move is somebody else's. */
-function isWaitingOnOthers(entry: TriageEntry, authoredByViewer: boolean): boolean {
-  return (
-    authoredByViewer &&
-    entry.state === "open" &&
-    !entry.isDraft &&
-    !pullRequestNeedsViewer(entry, authoredByViewer)
-  );
-}
-
 /**
- * The "Needs you" tab's two shelves: what needs the reader, then their own work waiting on
- * reviewers or checks. Everything else on the open list is left out.
+ * The "Needs you" tab: only what needs the reader. Their own work waiting on reviewers or checks
+ * stays under "Yours", with the rest of the open list under "All open".
  */
 export function groupPullRequestsForNeedsYou<Entry extends TriageEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
-  const needsYou: Entry[] = [];
-  const waiting: Entry[] = [];
-  for (const entry of entries) {
-    const authored = isAuthoredByViewer(entry, viewers);
-    if (pullRequestNeedsViewer(entry, authored)) needsYou.push(entry);
-    else if (isWaitingOnOthers(entry, authored)) waiting.push(entry);
-  }
-  return [
-    { key: "needsYou" as const, label: "Needs you", entries: needsYou },
-    { key: "waitingOnOthers" as const, label: "Waiting on others", entries: waiting },
-  ].filter((group) => group.entries.length > 0);
+  const needsYou = entries.filter((entry) =>
+    pullRequestNeedsViewer(entry, isAuthoredByViewer(entry, viewers)),
+  );
+  return needsYou.length > 0 ? [{ key: "needsYou", label: "Needs you", entries: needsYou }] : [];
 }
 
 /** A tab's count, and whether more rows exist on the hosts than were read to count it. */

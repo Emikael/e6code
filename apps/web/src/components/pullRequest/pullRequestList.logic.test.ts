@@ -39,6 +39,7 @@ import {
   readPullRequestListPreferences,
   writePullRequestListPreferences,
 } from "./pullRequestListPreferences";
+import { pullRequestLensOf, pullRequestLensScope } from "./pullRequestTriage.logic";
 
 const VIEWERS = { "github.com": "Bilal" } as const;
 const NO_VIEWERS = {} as const;
@@ -1208,6 +1209,60 @@ describe("remembered pull request list controls", () => {
 
     writePullRequestListPreferences(preferences, storage);
     expect(readPullRequestListPreferences(storage)).toEqual(preferences);
+  });
+
+  it("opens a first visit on Needs you", () => {
+    expect(pullRequestLensOf(readPullRequestListPreferences(makeStorage()))).toBe("needs-you");
+  });
+
+  it("moves a scope saved under the old All open default to Needs you, keeping its filters", () => {
+    const storage = makeStorage();
+    // What the page saved before Needs you was the default: no lens on the open list.
+    storage.setItem(
+      "e6.pullRequests.preferences",
+      JSON.stringify({
+        involvement: "all",
+        state: "open",
+        projectId: "project-1",
+        sort: "updated",
+      }),
+    );
+    const preferences = readPullRequestListPreferences(storage);
+    expect(preferences).toEqual({
+      involvement: "all",
+      state: "open",
+      projectId: "project-1",
+      sort: "updated",
+    });
+    expect(pullRequestLensOf(preferences)).toBe("needs-you");
+  });
+
+  it("reads the old explicit Needs you marker as the default it now is", () => {
+    const storage = makeStorage();
+    storage.setItem(
+      "e6.pullRequests.preferences",
+      JSON.stringify({ involvement: "all", state: "open", lens: "needs-you" }),
+    );
+    const preferences = readPullRequestListPreferences(storage);
+    expect(preferences).toEqual({ involvement: "all", state: "open" });
+    expect(pullRequestLensOf(preferences)).toBe("needs-you");
+  });
+
+  it("keeps a tab the reader picked, All open included", () => {
+    for (const lens of ["yours", "open", "merged", "needs-you"] as const) {
+      const storage = makeStorage();
+      writePullRequestListPreferences(
+        pullRequestListPreferences(pullRequestLensScope(lens)),
+        storage,
+      );
+      expect(pullRequestLensOf(readPullRequestListPreferences(storage))).toBe(lens);
+    }
+  });
+
+  it("drops the All open marker off any list but the open one", () => {
+    expect(
+      pullRequestListPreferences({ involvement: "all", state: "merged", lens: "open" }),
+    ).toEqual({ involvement: "all", state: "merged" });
   });
 
   it("omits the default sort from storage", () => {

@@ -23,7 +23,6 @@ import {
   CircleAlertIcon,
   ClockIcon,
   EyeIcon,
-  HourglassIcon,
   LayersIcon,
   ListChecksIcon,
   PenLineIcon,
@@ -219,7 +218,6 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   reviewRequested: EyeIcon,
   others: UsersIcon,
   needsYou: CircleAlertIcon,
-  waitingOnOthers: HourglassIcon,
 };
 
 /**
@@ -431,7 +429,8 @@ export const Route = createFileRoute("/_chat/pull-requests")({
       ? { author: raw.author.trim().slice(0, 200) }
       : {}),
     ...pullRequestSearchLabels(raw.labels),
-    ...(raw.lens === "needs-you" ? { lens: "needs-you" as const } : {}),
+    // An older link's `lens=needs-you` reads as the default it now is.
+    ...(raw.lens === "open" ? { lens: "open" as const } : {}),
   }),
   component: PullRequestsRouteView,
 });
@@ -637,8 +636,8 @@ function PullRequestsRouteView() {
             ...(next.checks ? { checks: next.checks } : {}),
             ...(next.author ? { author: next.author } : {}),
             ...(next.labels && next.labels.length > 0 ? { labels: next.labels } : {}),
-            // Only the open list can be narrowed to what needs the reader.
-            ...(next.lens === "needs-you" &&
+            // Only the open list is narrowed to what needs the reader, so only it can opt out.
+            ...(next.lens === "open" &&
             (next.state ?? previous.state) === "open" &&
             (next.involvement ?? previous.involvement) === "all"
               ? { lens: next.lens }
@@ -1876,10 +1875,10 @@ function PullRequestsRouteView() {
             menuFiltered ||
             search.state !== "open" ||
             search.involvement !== "all" ||
-            lens === "needs-you" ||
             scopedProjectId !== undefined ||
             search.host !== undefined
           }
+          {...(lens === "needs-you" ? { onShowAllOpen: () => selectLens("open") } : {})}
           searching={typedQuery.length > 0 && (!querySettled || showingCarried)}
           canLoadMore={listData?.truncated === true && (canContinue || pageSize < MAX_PAGE_SIZE)}
           loadingMore={loadingMore}
@@ -1999,15 +1998,17 @@ function PullRequestsRouteView() {
       onChange={(next) => updateListScope({ sort: next })}
     />
   );
+  // A state or involvement picked from the menu means the plain list it names, so the open list
+  // reached that way is "All open" rather than the "Needs you" narrowing.
   const filtersMenu = (
     <PullRequestFiltersMenu
       onOpenChange={setFiltersOpen}
       state={search.state}
       stateOptions={STATE_TABS}
-      onState={(state) => updateListScope({ state, lens: undefined })}
+      onState={(state) => updateListScope({ state, lens: "open" })}
       involvement={search.involvement}
       involvementOptions={INVOLVEMENT_TABS}
-      onInvolvement={(involvement) => updateListScope({ involvement, lens: undefined })}
+      onInvolvement={(involvement) => updateListScope({ involvement, lens: "open" })}
       filters={menuFilters}
       onFilters={(next) =>
         updateListScope({
@@ -2049,8 +2050,8 @@ function PullRequestsRouteView() {
     host: search.host,
     hostMenuOptions,
     onInvolvement: (involvement: PullRequestInvolvement) =>
-      updateListScope({ involvement, lens: undefined }),
-    onState: (state: PullRequestListState) => updateListScope({ state, lens: undefined }),
+      updateListScope({ involvement, lens: "open" }),
+    onState: (state: PullRequestListState) => updateListScope({ state, lens: "open" }),
     onHost: (host: string | undefined) => updateListScope({ host }),
     lens,
     onLens: selectLens,

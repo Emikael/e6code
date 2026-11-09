@@ -5,14 +5,15 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
  * The drawing is the page's own subject rather than a stock empty box: two branch lines and the
  * node where a change would land, in the stroke language the row icons already use. Nothing
  * found leaves the branch unjoined — the gap is the whole picture, so it is drawn once and the
- * variants only decide whether the seam closes.
+ * variants only decide whether the seam closes. An empty "Needs you" tab is the one that closes
+ * it: nothing waiting on the reader is the outcome they want.
  *
  * An empty page and an unread one look the same, so the states that are showing a host's answer
  * offer to ask for it again. The two that are not — a search still in flight, and a workspace
  * with no project to read from — leave the button out, since pressing it could only repeat what
  * is already happening or ask nobody.
  */
-import { PlusIcon, SearchIcon } from "lucide-react";
+import { ListIcon, PlusIcon, SearchIcon } from "lucide-react";
 
 import { openCommandPalette } from "../../commandPaletteBus";
 import { Button } from "../ui/button";
@@ -77,6 +78,7 @@ export function PullRequestListEmptyState({
   onClearQuery,
   onLoadMore,
   onRefresh,
+  onShowAllOpen,
 }: {
   /** The text being searched for, so the reader is told what was searched rather than guessing. */
   query: string;
@@ -96,6 +98,8 @@ export function PullRequestListEmptyState({
   onClearQuery: () => void;
   onLoadMore: () => void;
   onRefresh: () => void;
+  /** Given on the "Needs you" tab, where an empty list is good news and the way on is "All open". */
+  onShowAllOpen?: () => void;
 }) {
   // Ahead of the search and the filters, because neither can produce a row until a project does.
   if (!hasProjects) {
@@ -158,6 +162,42 @@ export function PullRequestListEmptyState({
     );
   }
 
+  const loadMoreButton = canLoadMore ? (
+    <Button size="sm" variant="outline" disabled={loadingMore} onClick={onLoadMore}>
+      {loadingMore ? "Loading..." : "Load more pull requests"}
+    </Button>
+  ) : null;
+  const checkAgainButton = (
+    <Button size="sm" variant="outline" disabled={refreshing} onClick={onRefresh}>
+      <RefreshIcon className="size-3.5" refreshing={refreshing} />
+      {refreshing ? "Checking..." : "Check again"}
+    </Button>
+  );
+
+  if (onShowAllOpen) {
+    return (
+      <Empty className="py-16">
+        <BranchMark joined />
+        <EmptyHeader>
+          <EmptyTitle>Nothing needs you right now</EmptyTitle>
+          <EmptyDescription>
+            {filtered
+              ? "No reviews are waiting on you and none of your pull requests need a fix or are ready to merge under these filters."
+              : "No reviews are waiting on you and none of your pull requests need a fix or are ready to merge."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+          <Button size="sm" onClick={onShowAllOpen}>
+            <ListIcon className="size-3.5" />
+            Show all open
+          </Button>
+          {loadMoreButton}
+          {checkAgainButton}
+        </EmptyContent>
+      </Empty>
+    );
+  }
+
   return (
     <Empty className="py-16">
       <BranchMark joined={false} />
@@ -170,15 +210,8 @@ export function PullRequestListEmptyState({
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-        {canLoadMore ? (
-          <Button size="sm" variant="outline" disabled={loadingMore} onClick={onLoadMore}>
-            {loadingMore ? "Loading..." : "Load more pull requests"}
-          </Button>
-        ) : null}
-        <Button size="sm" variant="outline" disabled={refreshing} onClick={onRefresh}>
-          <RefreshIcon className="size-3.5" refreshing={refreshing} />
-          {refreshing ? "Checking..." : "Check again"}
-        </Button>
+        {loadMoreButton}
+        {checkAgainButton}
       </EmptyContent>
     </Empty>
   );
