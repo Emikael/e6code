@@ -553,6 +553,9 @@ internal data class DiffStyle(
   val changeBarWidthPx: Float,
   val fileHeaderHeightPx: Float,
   val fileHeaderHorizontalPaddingPx: Float,
+  /** Embedded PostScript families from JS; empty keeps the system fonts. */
+  val codeFontFamily: String,
+  val uiFontFamily: String,
   val codeFontSizePx: Float,
   val codeFontWeight: String,
   val lineNumberFontSizePx: Float,
@@ -575,6 +578,8 @@ internal data class DiffStyle(
       changeBarWidthPx = 3f * density,
       fileHeaderHeightPx = 44f * density,
       fileHeaderHorizontalPaddingPx = 10f * density,
+      codeFontFamily = "",
+      uiFontFamily = "",
       codeFontSizePx = 12f * density,
       codeFontWeight = "regular",
       lineNumberFontSizePx = 10f * density,
@@ -603,6 +608,8 @@ internal data class DiffStyle(
           fallback.fileHeaderHorizontalPaddingPx,
           density,
         ),
+        codeFontFamily = json.optString("codeFontFamily", fallback.codeFontFamily),
+        uiFontFamily = json.optString("uiFontFamily", fallback.uiFontFamily),
         codeFontSizePx = json.floatSp("codeFontSize", fallback.codeFontSizePx, density),
         codeFontWeight = json.optString("codeFontWeight", fallback.codeFontWeight),
         lineNumberFontSizePx = json.floatSp(
@@ -740,6 +747,7 @@ private class DiffCanvasView(context: Context) : View(context) {
   var style: DiffStyle = DiffStyle.defaults(density)
     set(value) {
       field = value
+      drawing.setFontFamilies(code = value.codeFontFamily, ui = value.uiFontFamily)
       rebuildOffsets()
     }
   var contentWidthPx: Int = (1200 * density).toInt()

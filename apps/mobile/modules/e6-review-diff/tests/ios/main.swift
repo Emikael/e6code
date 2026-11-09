@@ -57,4 +57,22 @@ for (index, start) in layout.starts.enumerated() {
   reconstructed += segment
 }
 check(reconstructed == ascii)
+
+// Token faces are applied before TextKit measures, so bold fallback glyphs wrap at their real width.
+let boldFont = UIFont.monospacedSystemFont(ofSize: 14, weight: .bold)
+let faces = ReviewDiffCodeFaces(regular: font, bold: boldFont, italic: font, boldItalic: boldFont)
+let unicode = String(repeating: "漢字表示", count: 40)
+let boldRun = [ReviewDiffCodeStyleRun(location: 0, length: unicode.utf16.count, fontStyle: 2)]
+let styled = ReviewDiffCodeLayout(
+  text: unicode, font: font, width: 280, characterWidth: characterWidth,
+  styleRuns: boldRun, faces: faces
+)
+let plain = ReviewDiffCodeLayout(text: unicode, font: font, width: 280, characterWidth: characterWidth)
+check(styled.styleRuns == boldRun && plain.styleRuns.isEmpty)
+check(styled.firstLineHeight + styled.extraHeight >= plain.firstLineHeight + plain.extraHeight)
+let asciiStyled = ReviewDiffCodeLayout(
+  text: ascii, font: font, width: 280, characterWidth: characterWidth,
+  styleRuns: [ReviewDiffCodeStyleRun(location: 0, length: 5, fontStyle: 2)], faces: faces
+)
+check(asciiStyled.styleRuns.isEmpty && asciiStyled.starts == layout.starts, "ASCII ignores token styles")
 print("Passed \(cases) Unicode/width cases, color-update geometry, and ASCII coverage")

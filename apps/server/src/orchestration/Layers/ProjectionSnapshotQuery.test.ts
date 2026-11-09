@@ -1928,6 +1928,98 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("sums every turn's usage into the shell, beyond the detail activity window", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json, scripts_json,
+          created_at, updated_at, deleted_at
+        )
+        VALUES (
+          'project-1', 'Project 1', '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-02T00:00:00.000Z', '2026-04-02T00:00:01.000Z', NULL
+        )
+      `;
+      for (const threadId of ["thread-reported", "thread-mixed", "thread-tokens", "thread-none"]) {
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+            branch, worktree_path, latest_turn_id, latest_user_message_at,
+            pending_approval_count, pending_user_input_count, has_actionable_proposed_plan,
+            created_at, updated_at, archived_at, deleted_at
+          )
+          VALUES (
+            ${threadId}, 'project-1', 'Thread', '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access', 'default', NULL, NULL, NULL, NULL, 0, 0, 0,
+            '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', NULL, NULL
+          )
+        `;
+      }
+      const insertActivity = (threadId: string, index: number, kind: string, payload: unknown) =>
+        sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence,
+            created_at
+          )
+          VALUES (
+            ${`${threadId}-${kind}-${index}`}, ${threadId}, ${`${threadId}-turn-${index}`},
+            'info', ${kind}, 'Activity', ${JSON.stringify(payload)}, ${index},
+            '2026-04-02T00:00:04.000Z'
+          )
+        `;
+      // More turns than the detail read keeps, each followed by tool noise, so
+      // the oldest usage rows fall outside any client's activity window.
+      for (let index = 0; index < 600; index += 1) {
+        yield* insertActivity("thread-reported", index * 2, "turn.usage", {
+          totalTokens: 1000,
+          partial: false,
+          costUsd: 0.01,
+          costSource: "reported",
+        });
+        yield* insertActivity("thread-reported", index * 2 + 1, "tool.completed", {});
+      }
+      yield* insertActivity("thread-mixed", 0, "turn.usage", {
+        totalTokens: 500,
+        partial: false,
+        costUsd: 0.25,
+        costSource: "reported",
+      });
+      yield* insertActivity("thread-mixed", 1, "turn.usage", {
+        totalTokens: 700,
+        partial: false,
+        costUsd: 0.5,
+        costSource: "estimated",
+      });
+      yield* insertActivity("thread-tokens", 0, "turn.usage", { totalTokens: 900, partial: true });
+      yield* insertActivity("thread-none", 0, "tool.completed", {});
+
+      const byId = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-reported"));
+      const reported = Option.getOrUndefined(byId)?.usageTotal;
+      assert.equal(reported?.totalTokens, 600_000);
+      assert.equal(reported?.costSource, "reported");
+      assert.approximately(reported?.costUsd ?? 0, 6, 1e-9);
+
+      const shells = (yield* snapshotQuery.getShellSnapshot()).threads;
+      const usageOf = (id: string) => shells.find((thread) => thread.id === id)?.usageTotal;
+      assert.deepEqual(usageOf("thread-reported"), reported);
+      assert.deepEqual(usageOf("thread-mixed"), {
+        totalTokens: 1200,
+        costUsd: 0.75,
+        costSource: "estimated",
+      });
+      assert.deepEqual(usageOf("thread-tokens"), { totalTokens: 900 });
+      assert.equal(usageOf("thread-none"), undefined);
+    }),
+  );
+
   it.effect("uses projection_threads.latest_turn_id for bulk command and shell snapshots", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

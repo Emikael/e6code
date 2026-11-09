@@ -1,9 +1,12 @@
+import { DEFAULT_STOCK_ACCENT, type StockAccent } from "@e6tools/contracts/settings";
+
 import {
   getMobileThemeColors,
   getMobileThemeVariables,
   themeColorToNativeColor,
   type MobileThemeId,
 } from "../../lib/mobileTheme";
+import { getStockAccentTerminalCursor } from "../../lib/mobileStockAccent";
 
 export type TerminalAppearanceScheme = "light" | "dark";
 
@@ -100,6 +103,7 @@ function getPierreTerminalTheme(scheme: TerminalAppearanceScheme): TerminalTheme
 export function getMobileTerminalTheme(
   themeId: MobileThemeId,
   scheme: TerminalAppearanceScheme,
+  stockAccent: StockAccent = DEFAULT_STOCK_ACCENT,
 ): TerminalTheme {
   const base = getPierreTerminalTheme(scheme);
   const paletteId = themeId === "material-you" ? "e6-code" : themeId;
@@ -112,7 +116,9 @@ export function getMobileTerminalTheme(
     foreground: themeColorToNativeColor(palette.terminalForeground),
     mutedForeground: colors["--color-foreground-muted"],
     border: colors["--color-border"],
-    cursorForeground: themeColorToNativeColor(palette.terminalCursor),
+    cursorForeground:
+      getStockAccentTerminalCursor(themeId, stockAccent, scheme) ??
+      themeColorToNativeColor(palette.terminalCursor),
     cursorBackground: background,
   };
 }

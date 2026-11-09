@@ -41,7 +41,8 @@ import { getDriverOption } from "../settings/providerDriverMeta";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
-const PACE: Record<
+/** Pace in words and as a glyph; the glyph never stands without its words. */
+export const PACE: Record<
   LimitPace,
   { readonly label: string; readonly words: string; readonly icon: typeof GaugeIcon }
 > = {
