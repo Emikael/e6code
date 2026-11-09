@@ -2126,22 +2126,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           ) : topStatus.icon === "done" ? (
                             <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />
                           ) : null}
-                          {/* The label alone is the live region: a role="status"
-                            wrapper around the ticking duration would make
-                            screen readers announce every second. */}
-                          <span role="status" className="flex min-w-0 items-center gap-1">
+                          {/* The short label alone is the live region. The plan-step
+                            detail and the ticking duration sit outside it, or screen
+                            readers would announce every step and every second. */}
+                          <span role="status" className="shrink-0">
                             <span aria-hidden={topStatus.fullLabel ? true : undefined}>
                               {topStatus.label}
                             </span>
-                            {topStatus.detail ? (
-                              <span className="max-w-28 truncate font-normal text-secondary-label">
-                                · {topStatus.detail}
-                              </span>
-                            ) : null}
                             {topStatus.fullLabel ? (
                               <span className="sr-only">{topStatus.fullLabel}</span>
                             ) : null}
                           </span>
+                          {topStatus.detail ? (
+                            <span className="min-w-0 max-w-28 truncate font-normal text-secondary-label">
+                              · {topStatus.detail}
+                            </span>
+                          ) : null}
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />

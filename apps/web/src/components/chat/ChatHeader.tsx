@@ -199,10 +199,11 @@ const THREAD_HEADER_STATUS_STYLE: Record<
 function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
   const { icon: Icon, className } = THREAD_HEADER_STATUS_STYLE[status.kind];
   const fullText = joinThreadRowStatus(status);
+  // Not a live region: the open thread's sidebar row already announces its status label,
+  // so a second region here read every change twice. The pill also mounts with its first
+  // status, which screen readers skip in a freshly inserted live region anyway.
   const pill = (
     <span
-      role="status"
-      aria-label={fullText}
       className={cn(
         "inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-1.5 text-xs font-medium whitespace-nowrap",
         className,
