@@ -1,5 +1,5 @@
 import { memo, useId } from "react";
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { ScopedTheme, ScopedVariables } from "uniwind";
 
@@ -309,6 +309,7 @@ function AccentSwatch(props: {
       )}
       disabled={props.disabled}
       onPress={props.onPress}
+      style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
     >
       <View
         className="size-4 rounded-full border border-border"

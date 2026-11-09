@@ -203,7 +203,8 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
         <Pressable
           accessibilityLabel="Close overview"
           accessibilityRole="button"
-          hitSlop={4}
+          // Android's 48dp target around the 31.5dp circle.
+          hitSlop={Platform.OS === "android" ? 9 : 4}
           onPress={() => navigation.goBack()}
           className="h-9 w-9 items-center justify-center rounded-full bg-subtle active:bg-subtle-strong"
         >
@@ -752,6 +753,7 @@ function ChangedFilesList(props: {
           accessibilityRole="button"
           accessibilityState={{ expanded: showAll }}
           onPress={() => setShowAll((value) => !value)}
+          style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
           className="min-h-11 justify-center self-start"
         >
           <Text className="font-e6-medium text-sm text-foreground-muted">
@@ -877,6 +879,7 @@ const LineageRow = memo(function LineageRow(props: {
       accessibilityState={{ disabled: stop.pending }}
       disabled={stop.pending}
       onPress={() => stop.onStop(agent.id)}
+      style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
       className={cn(
         "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
         row.depth === 1 ? "pl-24" : "pl-14",
