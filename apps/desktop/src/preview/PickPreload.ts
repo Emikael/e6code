@@ -305,7 +305,7 @@ function createBox(color: string, fill: string): HTMLDivElement {
     "position:fixed",
     "pointer-events:none",
     `border:2px solid ${color}`,
-    // A thin dark halo on both sides keeps a light accent (Volt) visible on
+    // A thin dark halo on both sides keeps a light theme accent visible on
     // white pages; on dark pages the accent itself carries the outline.
     "box-shadow:0 0 0 1px rgb(0 0 0 / 45%), inset 0 0 0 1px rgb(0 0 0 / 45%)",
     `background:${fill}`,

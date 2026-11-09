@@ -223,7 +223,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         stageBackdropVariant
           ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
           : // Disabled sends go neutral rather than a faded action color, so
-            // a light accent such as Volt never reads as "almost clickable".
+            // a light theme accent never reads as "almost clickable".
             "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover disabled:bg-secondary disabled:text-muted-foreground disabled:opacity-100",
       )}
       {...pointerFocusProps}

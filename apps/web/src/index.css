@@ -664,7 +664,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   }
   body {
     @apply text-foreground relative;
-    /* primary-text, not primary: a light accent such as Volt vanishes as a
+    /* primary-text, not primary: a light theme accent vanishes as a
        1px caret or a translucent selection wash on light grounds. */
     caret-color: var(--primary-text);
   }

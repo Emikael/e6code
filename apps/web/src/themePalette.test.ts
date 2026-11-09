@@ -978,7 +978,7 @@ describe("theme files", () => {
 
 describe("derived accent roles", () => {
   it("darkens a light action color until it reads as text and as an edge on every ground", () => {
-    // A light action color (Volt) on the stock light grounds: too pale to read
+    // A light lime action color on the stock light grounds: too pale to read
     // as text or an edge until the derivation darkens it.
     const colors = { ...getStandardThemeColors("light"), messageAction: "#c4ee3a" };
     const derived = deriveThemeAccentVariables(colors);

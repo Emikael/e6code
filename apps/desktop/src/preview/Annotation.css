@@ -25,11 +25,14 @@
 }
 
 :host {
+  /* Guest pages never load the app's bundled Geist faces, so these name the
+     locally installed families and fall back to the same system stacks as
+     the web app's appearanceFonts.ts defaults. No network fetch. */
   --e6-font-sans:
-    "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-    sans-serif;
+    "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --e6-font-mono:
-    "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+    "Geist Mono Variable", "Geist Mono", "SF Mono", "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
   --e6-radius: 0.625rem;
   --e6-background: white;
   --e6-foreground: oklch(0.269 0 0);

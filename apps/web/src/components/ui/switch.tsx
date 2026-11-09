@@ -9,7 +9,7 @@ import { cn } from "~/lib/utils";
  * targets disagree (the macOS mixed-state convention). It is presentational:
  * the caller still decides what a click sets, usually on for everyone.
  *
- * A checked thumb takes `primary-foreground`: a light `primary` (Volt) would
+ * A checked thumb takes `primary-foreground`: a theme's light `primary` would
  * otherwise leave a near-white thumb on a near-white track.
  */
 function Switch({

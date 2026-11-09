@@ -189,8 +189,10 @@ const DEFAULT_ANNOTATION_THEME: DesktopPreviewAnnotationTheme = {
   border: "rgb(0 0 0 / 8%)",
   input: "rgb(0 0 0 / 10%)",
   ring: "#5b4ae0",
-  fontSans: "system-ui, sans-serif",
-  fontMono: "ui-monospace, monospace",
+  fontSans:
+    '"Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  fontMono:
+    '"Geist Mono Variable", "Geist Mono", "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
 };
 
 const buildPreviewPictureInPictureDataUrl = (): string => {

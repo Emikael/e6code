@@ -813,7 +813,7 @@ function themeContrastRatio(first: ThemeRgbColor, second: ThemeRgbColor): number
 
 /**
  * The theme's action color moved toward its text color only as far as needed
- * for `minimumRatio` against every ground. A light action color such as Volt
+ * for `minimumRatio` against every ground. A light (say, lime) action color
  * stays recognizable but readable; one that already passes is unchanged.
  */
 function readableThemeAccent(

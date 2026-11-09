@@ -1,5 +1,7 @@
 import type { DesktopPreviewAnnotationTheme } from "@e6tools/contracts";
 
+import { DEFAULT_CODE_FONT_STACK, DEFAULT_SANS_FONT_STACK } from "../appearanceFonts";
+
 const readVariable = (styles: CSSStyleDeclaration, name: string, fallback: string): string =>
   styles.getPropertyValue(name).trim() || fallback;
 
@@ -23,7 +25,7 @@ export function readPreviewAnnotationTheme(): DesktopPreviewAnnotationTheme {
     border: readVariable(styles, "--contrast-border", "rgb(0 0 0 / 8%)"),
     input: readVariable(styles, "--contrast-input", "rgb(0 0 0 / 10%)"),
     ring: readVariable(styles, "--ring", "#5b4ae0"),
-    fontSans: readVariable(styles, "--font-sans", styles.fontFamily || "system-ui, sans-serif"),
-    fontMono: readVariable(styles, "--font-mono", "ui-monospace, monospace"),
+    fontSans: readVariable(styles, "--font-sans", styles.fontFamily || DEFAULT_SANS_FONT_STACK),
+    fontMono: readVariable(styles, "--font-mono", DEFAULT_CODE_FONT_STACK),
   };
 }
