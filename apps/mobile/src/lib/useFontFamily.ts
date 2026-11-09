@@ -1,8 +1,12 @@
+// Native family names registered by the expo-font plugin in app.config.ts.
 const FONT_FAMILIES = {
-  regular: "DMSans-Regular",
-  medium: "DMSans-Medium",
-  bold: "DMSans-Bold",
+  regular: "Geist-Regular",
+  medium: "Geist-Medium",
+  bold: "Geist-Bold",
 } as const;
+
+/** Geist Mono for code surfaces; pair with fontWeight for bold runs. */
+export const MONO_FONT_FAMILY = "GeistMono-Regular";
 
 /**
  * Resolves a font family for APIs that require a style object or native prop.
