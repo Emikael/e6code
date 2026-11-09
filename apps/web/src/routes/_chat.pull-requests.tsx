@@ -241,7 +241,7 @@ function PullRequestLensTabs({
       ref={listRef}
       role="tablist"
       aria-label="Pull request views"
-      className="flex min-w-0 items-center gap-1 overflow-x-auto"
+      className="flex min-w-0 items-center gap-0.5 self-end overflow-x-auto"
       onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         const index = PULL_REQUEST_LENSES.findIndex(
@@ -271,16 +271,24 @@ function PullRequestLensTabs({
             tabIndex={lens.value === focusable ? 0 : -1}
             onClick={() => onChange(lens.value)}
             className={cn(
-              "relative inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring",
-              // The fill alone is too faint to see; the underline marks the selected lens.
+              "relative inline-flex h-[38px] shrink-0 items-center gap-1.5 px-2.5 text-[13px] font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+              // The underline, not the colour, marks the selected lens; it sits on the row's rule.
               selected
-                ? "bg-accent text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary-edge"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                ? "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {lens.label}
             {count === null ? null : (
-              <span className="text-xs tabular-nums text-muted-foreground">
+              <span
+                className={cn(
+                  "rounded-sm px-1 font-mono text-[11px] tabular-nums",
+                  // What is waiting on the reader wears the warning wash, as on the sidebar.
+                  lens.value === "needs-you" && count.count > 0
+                    ? "bg-warning-surface text-warning-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
                 {formatPullRequestLensCount(count)}
               </span>
             )}
@@ -298,10 +306,10 @@ function PullRequestGroupHeader({
 }) {
   const Icon = GROUP_ICONS[group.key] ?? LayersIcon;
   return (
-    <div className="flex items-center gap-2 px-3 pb-1 text-xs font-medium text-muted-foreground">
+    <div className="flex items-center gap-2 px-3 pt-2.5 pb-1 text-xs text-muted-foreground">
       <Icon aria-hidden className="size-3.5 shrink-0" />
-      <h2 className="shrink-0">{group.label}</h2>
-      <span className="shrink-0 tabular-nums">{group.entries.length}</span>
+      <h2 className="shrink-0 font-semibold">{group.label}</h2>
+      <span className="shrink-0 font-mono text-[11px] tabular-nums">{group.entries.length}</span>
       <Separator className="min-w-2 flex-1 bg-border/60" />
     </div>
   );
@@ -1889,7 +1897,7 @@ function PullRequestsRouteView() {
       ) : (
         <div className="space-y-3">
           {displayGroups.map((group) => (
-            <div key={group.key} className="space-y-0.5">
+            <div key={group.key} className="space-y-1">
               {group.label ? <PullRequestGroupHeader group={group} /> : null}
               {group.entries.map((entry) => {
                 const entryKey = pullRequestEntryKey(entry);
@@ -1991,9 +1999,11 @@ function PullRequestsRouteView() {
   const sortMenu = (
     <CompactFilterMenu
       label="Sort pull requests"
-      triggerIcon={<ArrowDownUpIcon aria-hidden className="size-4" />}
-      triggerLabel="Sort"
+      triggerIcon={<ArrowDownUpIcon aria-hidden className="size-3.5 @2xl/pr-list:hidden" />}
+      triggerLabel={`Sort: ${(SORT_OPTIONS.find((option) => option.value === sort) ?? SORT_OPTIONS[0]).label.toLowerCase()}`}
+      triggerLabelClassName="hidden @2xl/pr-list:inline"
       outlined
+      className="h-[30px] px-2.5"
       value={sort}
       options={SORT_OPTIONS}
       onChange={(next) => updateListScope({ sort: next })}
@@ -2301,6 +2311,7 @@ function CompactFilterMenu<Value extends string>({
   label,
   triggerIcon,
   triggerLabel,
+  triggerLabelClassName,
   outlined = false,
   iconOnly = false,
   value,
@@ -2311,6 +2322,7 @@ function CompactFilterMenu<Value extends string>({
   label: string;
   triggerIcon?: ReactNode;
   triggerLabel?: string;
+  triggerLabelClassName?: string;
   outlined?: boolean;
   iconOnly?: boolean;
   value: Value;
@@ -2342,7 +2354,7 @@ function CompactFilterMenu<Value extends string>({
         ) : triggerLabel ? (
           <>
             {triggerIcon}
-            <span>{triggerLabel}</span>
+            <span className={triggerLabelClassName}>{triggerLabel}</span>
           </>
         ) : (
           <>
@@ -2451,10 +2463,10 @@ function ExpandableSearch({
 }
 
 /**
- * The pull request list column. The full controls live at the top of the scroll flow; once
- * they scroll away, the title transforms into the scope itself — "Pull Requests / Open ▾
- * Authored ▾" — where each segment is the menu for that filter, and a folded search sits on
- * the right. Scrolled back up, the topbar returns to the plain title. The topbar is the
+ * The pull request list column. The topbar holds the large title and the search; the tabs and
+ * list controls lead the scroll flow. Once those scroll away, the title transforms into the
+ * scope — "Pull requests / Open ▾ Authored ▾" — where each segment is the menu for that filter,
+ * and the search folds to an icon on the right. Scrolled back up, the topbar returns to the plain title. The topbar is the
  * window drag region throughout; its interactive children opt out through the `.drag-region`
  * descendant rules.
  */
@@ -2586,7 +2598,7 @@ function PullRequestsColumn({
             {/* An expanded search owns the scarce horizontal space. The page title stays
                 available to readers while the live filters remain available in both states. */}
             <WorkspaceBreadcrumbItem current className={cn(searchExpanded && "sr-only")}>
-              <h1 className="truncate">Pull Requests</h1>
+              <h1 className="truncate">Pull requests</h1>
             </WorkspaceBreadcrumbItem>
             {searchExpanded ? null : <WorkspaceBreadcrumbSeparator />}
             <WorkspaceBreadcrumbItem className="shrink gap-1.5">
@@ -2627,18 +2639,23 @@ function PullRequestsColumn({
             </WorkspaceBreadcrumbItem>
           </WorkspaceBreadcrumb>
         ) : (
-          <WorkspaceBreadcrumb ariaLabel="Pull requests breadcrumb">
-            <WorkspaceBreadcrumbItem current className="min-w-0 gap-2">
-              <h1 className="shrink-0">Pull Requests</h1>
-              {subtitle ? (
-                <span className="truncate text-xs font-normal text-muted-foreground">
-                  {subtitle}
-                </span>
-              ) : null}
-            </WorkspaceBreadcrumbItem>
-          </WorkspaceBreadcrumb>
+          <div className="flex min-w-0 shrink items-baseline gap-2.5">
+            <h1 className="shrink-0 text-[22px] leading-7 font-semibold tracking-[-0.025em] text-foreground">
+              Pull requests
+            </h1>
+            {subtitle ? (
+              <span className="hidden truncate font-mono text-[11px] text-muted-foreground @md/pr-list:inline">
+                {subtitle}
+              </span>
+            ) : null}
+          </div>
         )}
         <div className="min-w-0 flex-1" />
+        {condensed ? null : (
+          <div ref={inFlowSearchRef} className="flex w-[300px] min-w-28 shrink">
+            {searchInput}
+          </div>
+        )}
         {condensed ? (
           <div className="flex shrink items-center gap-1.5">
             <ExpandableSearch
@@ -2664,31 +2681,35 @@ function PullRequestsColumn({
         {/* The top padding is the shared fade band's height, the same pairing the
             settings page makes: at rest the controls sit fully below the mask, and only
             content actually passing under the chrome fades. */}
-        <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
-          <div className="flex flex-col gap-3">
-            <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
-              <div className="min-w-0 basis-full @lg/pr-list:basis-0 @lg/pr-list:flex-1">
-                {searchInput}
+        <WorkspacePageContainer
+          width="expanded"
+          className="min-h-full gap-2.5 px-3 pt-1 sm:px-3 @3xl/pr-list:px-5"
+        >
+          <div className="flex flex-col">
+            {/* Underline tabs on one rule, with the list's own controls at its right end. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border">
+              {lensTabs}
+              <div className="ml-auto flex items-center gap-1.5 py-1">
+                {sortMenu}
+                {filtersMenu}
+                <CompactFilterMenu
+                  label="Filter by provider"
+                  outlined
+                  iconOnly={host !== undefined}
+                  triggerIcon={<Plug2Icon aria-hidden className="size-4" />}
+                  triggerLabel="All"
+                  value={host ?? ""}
+                  options={hostMenuOptions}
+                  onChange={(next) => onHost(next === "" ? undefined : next)}
+                  className="h-[30px]"
+                />
+                {!condensed ? (
+                  <PullRequestRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                ) : null}
               </div>
-              {sortMenu}
-              {filtersMenu}
-              <CompactFilterMenu
-                label="Filter by provider"
-                outlined
-                iconOnly={host !== undefined}
-                triggerIcon={<Plug2Icon aria-hidden className="size-4" />}
-                triggerLabel="All"
-                value={host ?? ""}
-                options={hostMenuOptions}
-                onChange={(next) => onHost(next === "" ? undefined : next)}
-              />
-              {!condensed ? (
-                <PullRequestRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-              ) : null}
             </div>
-            {lensTabs}
             {/* Scrolled past this marker, the controls are gone and the title takes over. */}
-            <div ref={markerRef} aria-hidden className="-mt-3 h-px w-full" />
+            <div ref={markerRef} aria-hidden className="h-px w-full" />
           </div>
 
           {listBody}
@@ -2711,6 +2732,7 @@ function PullRequestRefreshControl({
     <Button
       size={compact ? "icon-sm" : "icon"}
       variant={compact ? "ghost" : "outline"}
+      className={compact ? undefined : "size-[30px]"}
       aria-label="Refresh pull requests"
       onClick={onRefresh}
       disabled={refreshing}

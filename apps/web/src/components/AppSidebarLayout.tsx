@@ -20,11 +20,14 @@ import {
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useIsMobile } from "../hooks/useMediaQuery";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
+import { AppNavRail } from "./AppNavRail";
+import { showsAppNavRail } from "./appNavRail.logic";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
@@ -177,6 +180,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const routePanelAnimationsActive = panelAnimationsActive && !panelAnimationsSuppressed;
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
+  // App-level pages that are not about a thread swap the sidebar for the slim navigation rail.
+  // Narrow windows keep the sheet sidebar, which already carries the same destinations.
+  const isMobile = useIsMobile();
+  const showsRail = showsAppNavRail(pathname) && !isMobile;
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render
@@ -256,41 +263,52 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         className="h-dvh! min-h-0! bg-(--app-window-background)"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         defaultOpen
+        // The rail cannot be hidden, so the layout reads as an open sidebar while it shows. The
+        // thread sidebar's own open state is left as the reader set it.
+        {...(showsRail ? { open: true } : {})}
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
         <WorkspaceFocusControl />
-        <Sidebar
-          side="left"
-          variant="floating"
-          collapsible="offcanvas"
-          {...workspaceAreaProps("sidebar", 0, "Sidebar")}
-          data-app-sidebar=""
-          className="text-sidebar-foreground"
-          resizable={{
-            maxWidth: sidebarMaximumWidth,
-            minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-            shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-              nextWidth <= currentWidth ||
-              wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-            onResize: setSidebarWidth,
-          }}
-        >
-          {isOnSettings ? (
-            <>
-              <SidebarChromeHeader isElectron={isElectron} />
-              <SettingsSidebarNav pathname={pathname} />
-            </>
-          ) : legacySidebarEnabled ? (
-            <LegacyThreadSidebar />
-          ) : (
-            <ThreadSidebar />
-          )}
-          <SidebarRail onDoubleClick={resetSidebarWidth} />
-        </Sidebar>
+        {showsRail ? (
+          <AppNavRail
+            electron={isElectron}
+            reserveWindowControls={isMacosDesktop && !isWindowFullscreen}
+            settingsShortcut={isElectron ? (isMacosDesktop ? "⌘," : "Ctrl+,") : null}
+          />
+        ) : (
+          <Sidebar
+            side="left"
+            variant="floating"
+            collapsible="offcanvas"
+            {...workspaceAreaProps("sidebar", 0, "Sidebar")}
+            data-app-sidebar=""
+            className="text-sidebar-foreground"
+            resizable={{
+              maxWidth: sidebarMaximumWidth,
+              minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+              shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+                nextWidth <= currentWidth ||
+                wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+              storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+              onResize: setSidebarWidth,
+            }}
+          >
+            {isOnSettings ? (
+              <>
+                <SidebarChromeHeader isElectron={isElectron} />
+                <SettingsSidebarNav pathname={pathname} />
+              </>
+            ) : legacySidebarEnabled ? (
+              <LegacyThreadSidebar />
+            ) : (
+              <ThreadSidebar />
+            )}
+            <SidebarRail onDoubleClick={resetSidebarWidth} />
+          </Sidebar>
+        )}
         {children}
-        <SidebarControl />
+        {showsRail ? null : <SidebarControl />}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );
