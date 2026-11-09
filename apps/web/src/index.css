@@ -1101,7 +1101,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --info: #2563eb;
   --info-foreground: #1d4ed8;
   --success: #0f9f8c;
-  --success-foreground: #0b7a6c;
+  --success-foreground: #096b5f;
   --warning: #d97706;
   --warning-foreground: #92400e;
   --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
@@ -2152,8 +2152,9 @@ code {
 :root[data-diff-color-scheme="blue-orange"] {
   --diff-addition: light-dark(var(--color-blue-600), var(--color-blue-400));
   --diff-deletion: light-dark(var(--color-orange-600), var(--color-orange-400));
-  --diff-addition-foreground: var(--diff-addition);
-  --diff-deletion-foreground: var(--diff-deletion);
+  /* Text needs 4.5:1 on Porcelain; orange-600 is only 3.56:1 on white. */
+  --diff-addition-foreground: light-dark(var(--color-blue-700), var(--color-blue-400));
+  --diff-deletion-foreground: light-dark(var(--color-orange-700), var(--color-orange-400));
   --diffs-addition-color-override: var(--diff-addition);
   --diffs-deletion-color-override: var(--diff-deletion);
   --trees-status-added-override: var(--diff-addition);

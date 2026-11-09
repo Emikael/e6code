@@ -49,6 +49,8 @@ export function groupSettingsNavItems<Item extends { readonly to: SettingsPath }
 
 interface SettingsNavBadge {
   readonly text: string;
+  /** Read in place of `text` when the visible text is a bare number. */
+  readonly label: string;
   readonly tone: "muted" | "warning";
 }
 
@@ -63,7 +65,9 @@ export function settingsProvidersBadge(
     (provider) =>
       provider.enabled && provider.installed && provider.auth.status === "unauthenticated",
   ).length;
-  return signedOut > 0 ? { text: `${signedOut} signed out`, tone: "warning" } : null;
+  return signedOut > 0
+    ? { text: `${signedOut} signed out`, label: `${signedOut} signed out`, tone: "warning" }
+    : null;
 }
 
 /**
@@ -79,5 +83,5 @@ export function settingsConnectionsBadge(
       entry.target._tag !== "PrimaryConnectionTarget" &&
       !isDesktopLocalConnectionTarget(entry.target),
   ).length;
-  return count > 0 ? { text: String(count), tone: "muted" } : null;
+  return count > 0 ? { text: String(count), label: `${count} saved`, tone: "muted" } : null;
 }

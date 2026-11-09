@@ -8,6 +8,7 @@ import {
   type LimitPool,
   type LimitPoolMember,
   type LimitPoolWindow,
+  limitPaceReading,
   remainingPercent,
 } from "@e6tools/shared/usageLimits";
 import { AlertTriangleIcon, TicketIcon } from "lucide-react";
@@ -485,6 +486,7 @@ function PoolWindowCard({
 }) {
   // The soonest reset that hands anything back; an untouched account resets to no effect.
   const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
+  const pace = limitPaceReading(pool.pace, pool.remainingPercent);
   return (
     <div className="grid items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4 md:grid-cols-[11rem_minmax(0,1fr)]">
       <div className="flex flex-col gap-1">
@@ -494,7 +496,7 @@ function PoolWindowCard({
             {pool.remainingPercent}%
           </span>
           <span className="text-sm text-muted-foreground">left</span>
-          {pool.pace ? <PaceIcon pace={pool.pace} /> : null}
+          {pace ? <PaceIcon pace={pace} /> : null}
         </span>
         {nextRefill ? (
           <span className="text-xs text-muted-foreground tabular-nums">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveWorkStepMeta, resolveWorkRowStats } from "./stepMeta.ts";
+import { deriveWorkStepMeta, resolveWorkRowStats, workRowAccessibleText } from "./stepMeta.ts";
 
 describe("deriveWorkStepMeta", () => {
   const settled = {
@@ -79,5 +79,37 @@ describe("resolveWorkRowStats", () => {
     const bare = { createdAt: entry.createdAt };
     expect(resolveWorkRowStats(bare, true)).toEqual({ meta: null, inlineDiffStat: null });
     expect(resolveWorkRowStats(bare, false)).toEqual({ meta: null, inlineDiffStat: null });
+  });
+});
+
+describe("workRowAccessibleText", () => {
+  const base = {
+    label: "Edit app.ts",
+    failed: false,
+    diffStat: null,
+    duration: null,
+    running: false,
+  };
+
+  it("is the label alone when the row shows no meta", () => {
+    expect(workRowAccessibleText(base)).toBe("Edit app.ts");
+  });
+
+  it("reads the diff stat, duration and failure the row shows", () => {
+    expect(
+      workRowAccessibleText({
+        ...base,
+        failed: true,
+        diffStat: { additions: 48, deletions: 12 },
+        duration: "1.2s",
+      }),
+    ).toBe("Edit app.ts, tool call failed, 48 additions, 12 deletions, took 1.2s");
+    expect(workRowAccessibleText({ ...base, diffStat: { additions: 1, deletions: 0 } })).toBe(
+      "Edit app.ts, 1 addition, 0 deletions",
+    );
+  });
+
+  it("says a live step is running", () => {
+    expect(workRowAccessibleText({ ...base, running: true })).toBe("Edit app.ts, running");
   });
 });

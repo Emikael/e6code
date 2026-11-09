@@ -459,15 +459,35 @@ export function formatResetsIn(window: ServerProviderUsageWindow, now: number): 
   return resetsAt <= now ? "resets now" : `resets in ${formatDuration(resetsAt - now)}`;
 }
 
-/** Pace as words for one-line summaries, so it never rests on an icon or colour alone. */
-const LIMIT_PACE_WORDS: Record<LimitPace, string> = {
+/** What a limit view says about pace: the pace itself, or that the quota is nearly spent. */
+export type LimitPaceReading = LimitPace | "low";
+
+/**
+ * Pace in words for every limit view, web and mobile, so it never rests on an
+ * icon or colour alone and reads the same wherever it shows.
+ */
+export const LIMIT_PACE_WORDS: Record<LimitPaceReading, string> = {
   ahead: "running fast",
   on: "on pace",
   under: "under pace",
+  low: "running low",
 };
 
 /** At or below this share left, a limit summary reads as a warning whatever the pace. */
 const LOW_REMAINING_PERCENT = 20;
+
+/**
+ * The pace a view shows beside a remaining share. Once little is left, being
+ * on or under pace is no comfort, so it reads as running low; running fast
+ * still says why the quota went.
+ */
+export function limitPaceReading(
+  pace: LimitPace | null,
+  remainingPercent: number,
+): LimitPaceReading | null {
+  if (pace === null || pace === "ahead") return pace;
+  return remainingPercent <= LOW_REMAINING_PERCENT ? "low" : pace;
+}
 
 /** `5-hour limit`, `Weekly limit`; a window without a known shape keeps its own label. */
 function limitWindowName(window: ServerProviderUsageWindow): string {
@@ -490,6 +510,7 @@ export interface LimitHeadline {
   readonly remainingLabel: string;
   /** Reset countdown and pace in words; empty when the window reports neither. */
   readonly detail: string;
+  /** The pace glyph to show; null when unknown or running low, which has no glyph. */
   readonly pace: LimitPace | null;
   /** Running fast or nearly spent. The text already says so; this only tints. */
   readonly warning: boolean;
@@ -554,12 +575,12 @@ export function mostConstrainedLimit(
   }
   if (chosen === null || picked === null) return null;
   const remaining = remainingPercent(chosen);
-  const pace = paceOf(chosen, now);
+  const reading = limitPaceReading(paceOf(chosen, now), remaining);
   const owner =
     readable.length > 1 ? `${providerLabel} (${limitAccountName(picked)})` : providerLabel;
   const title = `${owner} · ${limitWindowName(chosen)}`;
   const remainingLabel = `${remaining}% left`;
-  const detail = [formatResetsIn(chosen, now), pace ? LIMIT_PACE_WORDS[pace] : null]
+  const detail = [formatResetsIn(chosen, now), reading ? LIMIT_PACE_WORDS[reading] : null]
     .filter((part): part is string => part !== null)
     .join(" · ");
   return {
@@ -567,8 +588,8 @@ export function mostConstrainedLimit(
     remainingPercent: remaining,
     remainingLabel,
     detail,
-    pace,
-    warning: pace === "ahead" || remaining <= LOW_REMAINING_PERCENT,
+    pace: reading === "low" ? null : reading,
+    warning: reading === "ahead" || remaining <= LOW_REMAINING_PERCENT,
     accessibilityLabel: [title, remainingLabel, detail].filter(Boolean).join(", "),
   };
 }

@@ -525,7 +525,7 @@ export function PullRequestDiffStat({
   return (
     <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)}>
       <span className="text-diff-addition-foreground">+{additions.toLocaleString()}</span>
-      <span className="text-diff-deletion">-{deletions.toLocaleString()}</span>
+      <span className="text-diff-deletion-foreground">-{deletions.toLocaleString()}</span>
     </span>
   );
 }

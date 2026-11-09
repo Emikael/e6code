@@ -199,10 +199,10 @@ const THREAD_HEADER_STATUS_STYLE: Record<
 function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
   const { icon: Icon, className } = THREAD_HEADER_STATUS_STYLE[status.kind];
   const fullText = joinThreadRowStatus(status);
+  // Not a live region itself: it mounts and unmounts with the status, which screen readers
+  // skip. ChatHeader keeps an always-mounted region with the short label instead.
   const pill = (
     <span
-      role="status"
-      aria-label={fullText}
       className={cn(
         "inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-1.5 text-xs font-medium whitespace-nowrap",
         className,
@@ -655,6 +655,17 @@ export const ChatHeader = memo(function ChatHeader({
           </li>
         ) : null}
       </WorkspaceBreadcrumb>
+      {/* The open thread's only status live region, so it is heard whether or not the sidebar
+          is showing; the sidebar row of the open thread is not a live region. It stays mounted
+          and holds just the short label, so a status change is announced and a plan step is
+          not. Keyed by thread, so opening a thread does not announce its current status. */}
+      <span
+        key={`${activeThreadEnvironmentId}:${activeThreadId}`}
+        role="status"
+        className="sr-only"
+      >
+        {headerStatus?.label ?? ""}
+      </span>
       {/* Which machine runs this thread, and whether it is reachable, in words. */}
       <EnvironmentConnectionChip
         environmentId={activeThreadEnvironmentId}
