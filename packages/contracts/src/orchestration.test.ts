@@ -784,6 +784,40 @@ it.effect("decodes a newer server's agent state kind as no state", () =>
   }),
 );
 
+it.effect("decodes a newer server's usage total cost source as no total", () =>
+  Effect.gen(function* () {
+    const shellWith = (usageTotal: unknown) =>
+      decodeOrchestrationThreadShell({
+        id: "thread-1",
+        projectId: "project-1",
+        title: "Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: null,
+        session: null,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+        usageTotal,
+      });
+
+    assert.strictEqual(
+      (yield* shellWith({ totalTokens: 10, costUsd: 0.5, costSource: "invoiced" })).usageTotal,
+      undefined,
+    );
+    assert.deepStrictEqual(
+      (yield* shellWith({ totalTokens: 10, costUsd: 0.5, costSource: "reported" })).usageTotal,
+      { totalTokens: 10, costUsd: 0.5, costSource: "reported" },
+    );
+  }),
+);
+
 it.effect("decodes thread pull request links with snapshot and stack", () =>
   Effect.gen(function* () {
     const shell = yield* decodeOrchestrationThreadShell({
