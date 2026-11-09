@@ -366,6 +366,10 @@ export function UsagePage() {
   );
 
   const periodNoun = isPast24Hours ? "Hour" : "Day";
+  // The table mirrors the chart: cells show the selected metric, and the last
+  // column carries the other one so neither number disappears.
+  const formatTableValue = (value: { costUsd: number; totalTokens: number } | undefined) =>
+    metric === "tokens" ? formatTokens(value?.totalTokens ?? 0) : formatUsd(value?.costUsd ?? 0);
   const chartTitle = `${isPast24Hours ? "Hourly" : "Daily"} ${
     metric === "tokens" ? "processed tokens" : "cost"
   }`;
@@ -491,7 +495,9 @@ export function UsagePage() {
                                     </th>
                                   ))}
                                   <th className="py-2 text-right font-normal">Total</th>
-                                  <th className="py-2 text-right font-normal">Tokens</th>
+                                  <th className="py-2 text-right font-normal">
+                                    {metric === "tokens" ? "Cost" : "Tokens"}
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -520,14 +526,16 @@ export function UsagePage() {
                                           key={provider}
                                           className="py-2 text-right font-mono text-xs text-muted-foreground tabular-nums"
                                         >
-                                          {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
+                                          {formatTableValue(period.byProvider.get(provider))}
                                         </td>
                                       ))}
                                       <td className="py-2 text-right font-mono text-xs text-foreground tabular-nums">
-                                        {formatUsd(period.costUsd)}
+                                        {formatTableValue(period)}
                                       </td>
                                       <td className="py-2 text-right font-mono text-xs text-muted-foreground tabular-nums">
-                                        {formatTokens(period.totalTokens)}
+                                        {metric === "tokens"
+                                          ? formatUsd(period.costUsd)
+                                          : formatTokens(period.totalTokens)}
                                       </td>
                                     </tr>
                                   ))

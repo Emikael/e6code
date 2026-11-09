@@ -9,9 +9,8 @@ const UsagePagePreferencesSchema = Schema.Struct({
 });
 export type UsagePagePreferences = typeof UsagePagePreferencesSchema.Type;
 
-// Limits is what most people open the page for (how much subscription quota is
-// left, and when it resets), so it is the first-visit default; the last picked
-// tab sticks after that.
+// First visits open on Cost over the last 7 days; the last picked tab and
+// window stick after that.
 const DEFAULT_PREFERENCES: UsagePagePreferences = { metric: "cost", windowDays: 7 };
 
 export function readUsagePagePreferences(): UsagePagePreferences {
