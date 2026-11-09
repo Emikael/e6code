@@ -19,6 +19,7 @@ import type {
 } from "@e6tools/contracts";
 import { renderAssistantCitationsAsText } from "@e6tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@e6tools/shared/composerContextClipboard";
+import { formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import {
   parseComposerContextHref,
   collectComposerContextReferences,
@@ -1493,7 +1494,7 @@ function renderFeedEntry(
           rowSizing={props.workRowSizing}
           iconSubtleColor={iconSubtleColor}
           expanded={props.expandedReasoningMessageIds.has(entry.id)}
-          label={`Thought${messages.length > 1 ? ` (×${messages.length})` : ""}`}
+          label={formatThoughtLabel(messages)}
           streaming={false}
           onToggle={() => props.onToggleReasoning(entry.id)}
         >

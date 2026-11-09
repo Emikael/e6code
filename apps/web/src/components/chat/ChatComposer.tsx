@@ -954,7 +954,7 @@ import {
 } from "./composerPromptHistory";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
-import type { ContextWindowSnapshot } from "../../lib/contextWindow";
+import type { ContextWindowSnapshot } from "@e6tools/client-runtime/work-log/context-window";
 import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
