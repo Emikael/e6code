@@ -1034,6 +1034,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --radius: 0.5rem;
   /* Porcelain: white content over cool slate-tinted chrome. */
   --background: #ffffff;
+  /* Floating panels: the sidebar and the content are separate panels on a
+     slate-tinted window ground, a panel gap apart. */
+  --app-window-background: #eef0f4;
+  --panel-gap: 0.5rem;
+  --radius-panel: 14px;
+  --floating-controls-top: 0px;
+
+  @media (width >= 48rem) {
+    --floating-controls-top: calc(var(--panel-gap) + 1px);
+  }
   --app-chrome-background: var(--background);
   --toolbar-background: var(--app-chrome-background);
   --toolbar-foreground: var(--foreground);
@@ -1118,6 +1128,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
        the thread, cards and overlays step lighter, and borders and hover
        states provide separation without milky fills. */
     --background: #1a1d23;
+    --app-window-background: #0c0d10;
     --surface-well: #0f1114;
     --surface-raised: #13151a;
     --surface-floating: #22252c;
@@ -1239,6 +1250,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 html[data-theme-id]:not([data-theme-id=""]) {
   --background: var(--app-theme-canvas);
   --app-chrome-background: var(--app-theme-chrome);
+  /* Themes have no window-ground role: sit the panels on a shade of their own
+     sidebar so the panel edges still read. */
+  --app-window-background: color-mix(in srgb, var(--app-theme-sidebar), black 6%);
   --toolbar-background: var(--app-theme-toolbar);
   --toolbar-foreground: var(--app-theme-toolbar-foreground);
   --toolbar-border: var(--app-theme-toolbar-border);
