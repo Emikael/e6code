@@ -813,7 +813,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                         color={props.iconSubtleColor}
                         colorClassName={
                           iconIsDestructive
-                            ? "accent-adaptive-rose-600-400"
+                            ? "accent-danger-foreground"
                             : failed
                               ? "accent-danger-foreground/40"
                               : undefined
@@ -825,7 +825,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                 <Text
                   className={cn(
                     "min-w-0 flex-1 text-sm text-foreground-muted",
-                    iconIsDestructive && "font-e6-medium text-adaptive-rose-600-400",
+                    iconIsDestructive && "font-e6-medium text-danger-foreground",
                   )}
                   numberOfLines={expanded ? undefined : 1}
                 >
@@ -858,9 +858,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                 </View>
               ) : null}
               {props.copied ? (
-                <Text className="pr-1 font-e6-medium text-3xs text-adaptive-emerald-600-400">
-                  Copied
-                </Text>
+                <Text className="pr-1 font-e6-medium text-3xs text-success-foreground">Copied</Text>
               ) : null}
               {failed && toolIcon !== undefined ? (
                 <View

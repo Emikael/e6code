@@ -113,9 +113,6 @@
       --color-adaptive-blue-600-400: oklch(54.6% 0.245 262.881);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 10%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 15%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 12%);
-      --color-adaptive-emerald-600-400: oklch(59.6% 0.145 163.225);
-      --color-adaptive-emerald-700-300: oklch(50.8% 0.118 165.612);
       --color-adaptive-indigo-700-300: oklch(45.7% 0.24 277.023);
       --color-adaptive-neutral-100-900: oklch(97% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(92.2% 0 none);
@@ -143,7 +140,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(81% 0.117 11.638 / 70%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
-      --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
       --color-adaptive-white-neutral-950-a70: #fff;
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 12%);
       --color-adaptive-zinc-500-400: oklch(55.2% 0.016 285.938);
@@ -267,9 +263,6 @@
       --color-adaptive-blue-600-400: oklch(70.7% 0.165 254.624);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 25%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 35%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 16%);
-      --color-adaptive-emerald-600-400: oklch(76.5% 0.177 163.223);
-      --color-adaptive-emerald-700-300: oklch(84.5% 0.143 164.978);
       --color-adaptive-indigo-700-300: oklch(78.5% 0.115 274.713);
       --color-adaptive-neutral-100-900: oklch(20.5% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(37.1% 0 none / 60%);
@@ -297,7 +290,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(71.2% 0.194 13.428 / 28%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 16%);
       --color-adaptive-zinc-500-400: oklch(70.5% 0.015 286.067);
@@ -421,9 +413,6 @@
       --color-adaptive-blue-600-400: oklch(54.6% 0.245 262.881);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 10%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 15%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 12%);
-      --color-adaptive-emerald-600-400: oklch(59.6% 0.145 163.225);
-      --color-adaptive-emerald-700-300: oklch(50.8% 0.118 165.612);
       --color-adaptive-indigo-700-300: oklch(45.7% 0.24 277.023);
       --color-adaptive-neutral-100-900: oklch(97% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(92.2% 0 none);
@@ -451,7 +440,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(81% 0.117 11.638 / 70%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
-      --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
       --color-adaptive-white-neutral-950-a70: #fff;
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 12%);
       --color-adaptive-zinc-500-400: oklch(55.2% 0.016 285.938);
@@ -575,9 +563,6 @@
       --color-adaptive-blue-600-400: oklch(70.7% 0.165 254.624);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 25%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 35%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 16%);
-      --color-adaptive-emerald-600-400: oklch(76.5% 0.177 163.223);
-      --color-adaptive-emerald-700-300: oklch(84.5% 0.143 164.978);
       --color-adaptive-indigo-700-300: oklch(78.5% 0.115 274.713);
       --color-adaptive-neutral-100-900: oklch(20.5% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(37.1% 0 none / 60%);
@@ -605,7 +590,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(71.2% 0.194 13.428 / 28%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 16%);
       --color-adaptive-zinc-500-400: oklch(70.5% 0.015 286.067);
@@ -729,9 +713,6 @@
       --color-adaptive-blue-600-400: oklch(54.6% 0.245 262.881);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 10%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 15%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 12%);
-      --color-adaptive-emerald-600-400: oklch(59.6% 0.145 163.225);
-      --color-adaptive-emerald-700-300: oklch(50.8% 0.118 165.612);
       --color-adaptive-indigo-700-300: oklch(45.7% 0.24 277.023);
       --color-adaptive-neutral-100-900: oklch(97% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(92.2% 0 none);
@@ -759,7 +740,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(81% 0.117 11.638 / 70%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
-      --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
       --color-adaptive-white-neutral-950-a70: #fff;
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 12%);
       --color-adaptive-zinc-500-400: oklch(55.2% 0.016 285.938);
@@ -883,9 +863,6 @@
       --color-adaptive-blue-600-400: oklch(70.7% 0.165 254.624);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 25%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 35%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 16%);
-      --color-adaptive-emerald-600-400: oklch(76.5% 0.177 163.223);
-      --color-adaptive-emerald-700-300: oklch(84.5% 0.143 164.978);
       --color-adaptive-indigo-700-300: oklch(78.5% 0.115 274.713);
       --color-adaptive-neutral-100-900: oklch(20.5% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(37.1% 0 none / 60%);
@@ -913,7 +890,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(71.2% 0.194 13.428 / 28%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 16%);
       --color-adaptive-zinc-500-400: oklch(70.5% 0.015 286.067);
@@ -1037,9 +1013,6 @@
       --color-adaptive-blue-600-400: oklch(54.6% 0.245 262.881);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 10%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 15%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 12%);
-      --color-adaptive-emerald-600-400: oklch(59.6% 0.145 163.225);
-      --color-adaptive-emerald-700-300: oklch(50.8% 0.118 165.612);
       --color-adaptive-indigo-700-300: oklch(45.7% 0.24 277.023);
       --color-adaptive-neutral-100-900: oklch(97% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(92.2% 0 none);
@@ -1067,7 +1040,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(81% 0.117 11.638 / 70%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
-      --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
       --color-adaptive-white-neutral-950-a70: #fff;
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 12%);
       --color-adaptive-zinc-500-400: oklch(55.2% 0.016 285.938);
@@ -1191,9 +1163,6 @@
       --color-adaptive-blue-600-400: oklch(70.7% 0.165 254.624);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 25%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 35%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 16%);
-      --color-adaptive-emerald-600-400: oklch(76.5% 0.177 163.223);
-      --color-adaptive-emerald-700-300: oklch(84.5% 0.143 164.978);
       --color-adaptive-indigo-700-300: oklch(78.5% 0.115 274.713);
       --color-adaptive-neutral-100-900: oklch(20.5% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(37.1% 0 none / 60%);
@@ -1221,7 +1190,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(71.2% 0.194 13.428 / 28%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 16%);
       --color-adaptive-zinc-500-400: oklch(70.5% 0.015 286.067);
@@ -1345,9 +1313,6 @@
       --color-adaptive-blue-600-400: oklch(54.6% 0.245 262.881);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 10%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 15%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 12%);
-      --color-adaptive-emerald-600-400: oklch(59.6% 0.145 163.225);
-      --color-adaptive-emerald-700-300: oklch(50.8% 0.118 165.612);
       --color-adaptive-indigo-700-300: oklch(45.7% 0.24 277.023);
       --color-adaptive-neutral-100-900: oklch(97% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(92.2% 0 none);
@@ -1375,7 +1340,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(81% 0.117 11.638 / 70%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
-      --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
       --color-adaptive-white-neutral-950-a70: #fff;
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 12%);
       --color-adaptive-zinc-500-400: oklch(55.2% 0.016 285.938);
@@ -1499,9 +1463,6 @@
       --color-adaptive-blue-600-400: oklch(70.7% 0.165 254.624);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 25%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 35%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 16%);
-      --color-adaptive-emerald-600-400: oklch(76.5% 0.177 163.223);
-      --color-adaptive-emerald-700-300: oklch(84.5% 0.143 164.978);
       --color-adaptive-indigo-700-300: oklch(78.5% 0.115 274.713);
       --color-adaptive-neutral-100-900: oklch(20.5% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(37.1% 0 none / 60%);
@@ -1529,7 +1490,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(71.2% 0.194 13.428 / 28%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 16%);
       --color-adaptive-zinc-500-400: oklch(70.5% 0.015 286.067);
@@ -1653,9 +1613,6 @@
       --color-adaptive-blue-600-400: oklch(54.6% 0.245 262.881);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 10%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 15%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 12%);
-      --color-adaptive-emerald-600-400: oklch(59.6% 0.145 163.225);
-      --color-adaptive-emerald-700-300: oklch(50.8% 0.118 165.612);
       --color-adaptive-indigo-700-300: oklch(45.7% 0.24 277.023);
       --color-adaptive-neutral-100-900: oklch(97% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(92.2% 0 none);
@@ -1683,7 +1640,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(81% 0.117 11.638 / 70%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
-      --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
       --color-adaptive-white-neutral-950-a70: #fff;
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 12%);
       --color-adaptive-zinc-500-400: oklch(55.2% 0.016 285.938);
@@ -1807,9 +1763,6 @@
       --color-adaptive-blue-600-400: oklch(70.7% 0.165 254.624);
       --color-adaptive-black-a10-a25: rgb(0 0 0 / 25%);
       --color-adaptive-black-a15-a35: rgb(0 0 0 / 35%);
-      --color-adaptive-emerald-500-a12-a16: oklch(69.6% 0.17 162.48 / 16%);
-      --color-adaptive-emerald-600-400: oklch(76.5% 0.177 163.223);
-      --color-adaptive-emerald-700-300: oklch(84.5% 0.143 164.978);
       --color-adaptive-indigo-700-300: oklch(78.5% 0.115 274.713);
       --color-adaptive-neutral-100-900: oklch(20.5% 0 none);
       --color-adaptive-neutral-200-700-a60: oklch(37.1% 0 none / 60%);
@@ -1837,7 +1790,6 @@
       --color-adaptive-rose-300-a70-400-a28: oklch(71.2% 0.194 13.428 / 28%);
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
       --color-adaptive-zinc-500-a12-a16: oklch(55.2% 0.016 285.938 / 16%);
       --color-adaptive-zinc-500-400: oklch(70.5% 0.015 286.067);
