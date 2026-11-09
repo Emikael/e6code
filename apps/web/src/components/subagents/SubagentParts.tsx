@@ -79,7 +79,7 @@ export function SubagentStatusGlyph({
 
 /**
  * Status word with its shape-distinct glyph. The solid dot is reserved for the
- * turn's own Volt live signal, so a working subagent uses the dashed circle.
+ * turn's own accent live signal, so a working subagent uses the dashed circle.
  */
 export function SubagentStatusWord({
   tone,

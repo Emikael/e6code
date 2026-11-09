@@ -1554,7 +1554,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     // The open thread lifts like a macOS source-list selection: a white card
-    // with a hairline shadow on Paper, a flat tint on Graphite.
+    // with a hairline shadow on Porcelain, a flat tint on Slate.
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground shadow-xs dark:shadow-none"
       : isSelected

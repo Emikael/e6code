@@ -2794,8 +2794,8 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         {shimmer ? null : waiting ? (
           <TriangleAlertIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
         ) : (
-          // The one live signal on screen: Volt, stepped pulse. When an
-          // approval is pending, the Volt moves to the Approve action instead.
+          // The one live signal on screen: the accent, stepped pulse. When an
+          // approval is pending, the accent moves to the Approve action instead.
           <span
             aria-hidden
             className="inline-flex size-2 shrink-0 rounded-full ring-1 ring-primary-edge"
