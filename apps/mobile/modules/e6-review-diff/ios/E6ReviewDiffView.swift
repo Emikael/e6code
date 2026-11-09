@@ -152,6 +152,8 @@ private struct ReviewDiffNativeStylePayload: Decodable {
   let fileHeaderPathRightPadding: Double?
   let fileHeaderCountColumnWidth: Double?
   let fileHeaderCountGap: Double?
+  let codeFontFamily: String?
+  let uiFontFamily: String?
   let codeFontSize: Double?
   let codeFontWeight: String?
   let lineNumberFontSize: Double?
@@ -186,6 +188,9 @@ private struct ReviewDiffNativeStyle {
   let fileHeaderPathRightPadding: CGFloat
   let fileHeaderCountColumnWidth: CGFloat
   let fileHeaderCountGap: CGFloat
+  /// Embedded PostScript families from JS; nil keeps the system fonts.
+  let codeFontFamily: String?
+  let uiFontFamily: String?
   let codeFontSize: CGFloat
   let codeFontWeight: UIFont.Weight
   let lineNumberFontSize: CGFloat
@@ -220,6 +225,8 @@ private struct ReviewDiffNativeStyle {
       fileHeaderPathRightPadding: metric(payload?.fileHeaderPathRightPadding, fallback: 128),
       fileHeaderCountColumnWidth: metric(payload?.fileHeaderCountColumnWidth, fallback: 42),
       fileHeaderCountGap: metric(payload?.fileHeaderCountGap, fallback: 6),
+      codeFontFamily: payload?.codeFontFamily,
+      uiFontFamily: payload?.uiFontFamily,
       codeFontSize: metric(payload?.codeFontSize, fallback: 12),
       codeFontWeight: fontWeight(payload?.codeFontWeight, fallback: .bold),
       lineNumberFontSize: metric(payload?.lineNumberFontSize, fallback: 11),
@@ -295,6 +302,8 @@ private struct ReviewDiffNativeStyle {
       fileHeaderPathRightPadding: fileHeaderPathRightPadding,
       fileHeaderCountColumnWidth: fileHeaderCountColumnWidth,
       fileHeaderCountGap: fileHeaderCountGap,
+      codeFontFamily: codeFontFamily,
+      uiFontFamily: uiFontFamily,
       codeFontSize: codeFontSize,
       codeFontWeight: codeFontWeight,
       lineNumberFontSize: lineNumberFontSize,
@@ -312,6 +321,36 @@ private struct ReviewDiffNativeStyle {
       emptyStateFontSize: emptyStateFontSize,
       emptyStateFontWeight: emptyStateFontWeight
     )
+  }
+}
+
+/// Fonts resolved once per style. Code and gutters use the code family, headers the UI family;
+/// glyph width, line height, and tab stops are measured from these fonts, not assumed.
+private struct ReviewDiffResolvedFonts {
+  let code: UIFont
+  let lineNumber: UIFont
+  let hunk: UIFont
+  let fileHeader: UIFont
+  let fileHeaderMeta: UIFont
+  let fileHeaderSubtext: UIFont
+  let fileHeaderStatus: UIFont
+  let emptyState: UIFont
+
+  init(style: ReviewDiffNativeStyle) {
+    func mono(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+      ReviewDiffFontResolver.font(family: style.codeFontFamily, size: size, weight: weight, monospaced: true)
+    }
+    func ui(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+      ReviewDiffFontResolver.font(family: style.uiFontFamily, size: size, weight: weight, monospaced: false)
+    }
+    code = mono(style.codeFontSize, style.codeFontWeight)
+    lineNumber = mono(style.lineNumberFontSize, style.lineNumberFontWeight)
+    hunk = mono(style.hunkFontSize, style.hunkFontWeight)
+    fileHeader = ui(style.fileHeaderFontSize, style.fileHeaderFontWeight)
+    fileHeaderMeta = ui(style.fileHeaderMetaFontSize, style.fileHeaderMetaFontWeight)
+    fileHeaderSubtext = ui(style.fileHeaderSubtextFontSize, style.fileHeaderSubtextFontWeight)
+    fileHeaderStatus = ui(style.fileHeaderStatusFontSize, style.fileHeaderStatusFontWeight)
+    emptyState = ui(style.emptyStateFontSize, style.emptyStateFontWeight)
   }
 }
 
@@ -987,6 +1026,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   }
   var style = ReviewDiffNativeStyle.resolve(nil) {
     didSet {
+      fonts = ReviewDiffResolvedFonts(style: style)
       codeDecorationVersion += 1
       tokenAttributedStringsByRowId.removeAll()
       rebuildRowLayout()
@@ -1027,6 +1067,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   private var codeLayoutsByRowId: [String: ReviewDiffCodeLayout] = [:]
   private var codeLayoutWidth: CGFloat = 0
   private var codeLayoutFont: UIFont?
+  private var fonts = ReviewDiffResolvedFonts(style: ReviewDiffNativeStyle.resolve(nil))
   private var codeDecorationVersion = 0
   private var panStartHorizontalOffset: CGFloat = 0
   private var activePanFileId: String?
@@ -1202,37 +1243,14 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     contentHeight = offset
   }
 
-  private var codeFont: UIFont {
-    UIFont.monospacedSystemFont(ofSize: style.codeFontSize, weight: style.codeFontWeight)
-  }
-
-  private var lineNumberFont: UIFont {
-    UIFont.monospacedSystemFont(ofSize: style.lineNumberFontSize, weight: style.lineNumberFontWeight)
-  }
-
-  private var hunkFont: UIFont {
-    UIFont.monospacedSystemFont(ofSize: style.hunkFontSize, weight: style.hunkFontWeight)
-  }
-
-  private var fileHeaderFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderFontSize, weight: style.fileHeaderFontWeight)
-  }
-
-  private var fileHeaderMetaFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderMetaFontSize, weight: style.fileHeaderMetaFontWeight)
-  }
-
-  private var fileHeaderSubtextFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderSubtextFontSize, weight: style.fileHeaderSubtextFontWeight)
-  }
-
-  private var fileHeaderStatusFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderStatusFontSize, weight: style.fileHeaderStatusFontWeight)
-  }
-
-  private var emptyStateFont: UIFont {
-    UIFont.systemFont(ofSize: style.emptyStateFontSize, weight: style.emptyStateFontWeight)
-  }
+  private var codeFont: UIFont { fonts.code }
+  private var lineNumberFont: UIFont { fonts.lineNumber }
+  private var hunkFont: UIFont { fonts.hunk }
+  private var fileHeaderFont: UIFont { fonts.fileHeader }
+  private var fileHeaderMetaFont: UIFont { fonts.fileHeaderMeta }
+  private var fileHeaderSubtextFont: UIFont { fonts.fileHeaderSubtext }
+  private var fileHeaderStatusFont: UIFont { fonts.fileHeaderStatus }
+  private var emptyStateFont: UIFont { fonts.emptyState }
 
   private lazy var horizontalPanGesture: UIPanGestureRecognizer = {
     let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleHorizontalPan(_:)))
