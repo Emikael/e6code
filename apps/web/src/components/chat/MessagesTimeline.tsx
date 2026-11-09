@@ -2842,7 +2842,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
             aria-hidden
             className="inline-flex size-2 shrink-0 rounded-full ring-1 ring-primary-edge"
           >
-            {/* Only the fill pulses, so the edge keeps the dot visible on Paper. */}
+            {/* Only the fill pulses, so the edge keeps the dot visible on light grounds. */}
             <span className="size-full rounded-full bg-primary animate-status-pulse motion-reduce:animate-none" />
           </span>
         )}
