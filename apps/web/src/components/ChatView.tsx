@@ -10604,6 +10604,9 @@ export default function ChatView(props: ChatViewProps) {
                                 ) : null}
                                 {activeApprovalDestructive ? (
                                   <HoldToAllowButton
+                                    // A new request remounts it, so an open confirm dialog never
+                                    // approves a request it was not opened for.
+                                    key={activePendingApproval.requestId}
                                     reason={activeApprovalDestructive.reason}
                                     disabled={respondingRequestIds.includes(
                                       activePendingApproval.requestId,
