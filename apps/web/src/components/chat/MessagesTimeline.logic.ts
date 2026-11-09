@@ -1896,7 +1896,7 @@ export function buildToolCallExpandedBody(
 }
 
 /**
- * The row that shows a subagent's spawn batch, for the Overview's "Show in
+ * The row that shows a subagent's spawn batch, for Run details' "Show in
  * thread". A batch is its own row, or one of the entries a live row folded in
  * after its agents settled; then `foldedGroupId` names the group to open.
  * `agentIds` holds the subagent and its workflow coordinator, if it has one.

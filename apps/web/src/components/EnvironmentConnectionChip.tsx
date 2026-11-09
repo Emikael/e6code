@@ -8,6 +8,7 @@ import type { EnvironmentId } from "@e6tools/contracts";
 
 import { cn } from "~/lib/utils";
 import { useEnvironment } from "~/state/environments";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { connectionPhaseDotClassName } from "./ConnectionStatusDot";
 
 /** The connection phase in words, so no status is told by its dot alone. */
@@ -30,7 +31,11 @@ export function connectionPhaseWord(phase: EnvironmentConnectionPhase): string {
   }
 }
 
-/** A quiet dot and word: "MacBook Pro · Connected". The word carries the state, the dot tints it. */
+/**
+ * A quiet dot and word: "MacBook Pro · Connected". The word carries the state, the dot tints it.
+ * Below the thread header's `@2xl/header-actions` width it compacts to the dot and the word; the
+ * environment name stays for screen readers and in the tooltip.
+ */
 export function EnvironmentConnectionChip({
   environmentId,
   className,
@@ -41,22 +46,36 @@ export function EnvironmentConnectionChip({
   const environment = useEnvironment(environmentId);
   if (!environment) return null;
   const phase = environment.connection.phase;
+  const word = connectionPhaseWord(phase);
   return (
-    <span
-      role="status"
-      aria-live="polite"
-      className={cn(
-        "inline-flex h-6 max-w-64 shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground",
-        className,
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn("size-1.5 shrink-0 rounded-full", connectionPhaseDotClassName(phase))}
-      />
-      <span className="min-w-0 truncate">{environment.label}</span>
-      <span aria-hidden>·</span>
-      <span className="shrink-0">{connectionPhaseWord(phase)}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            role="status"
+            aria-live="polite"
+            className={cn(
+              "inline-flex h-6 max-w-64 shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground",
+              className,
+            )}
+          />
+        }
+      >
+        <span
+          aria-hidden
+          className={cn("size-1.5 shrink-0 rounded-full", connectionPhaseDotClassName(phase))}
+        />
+        <span className="sr-only @2xl/header-actions:not-sr-only @2xl/header-actions:min-w-0 @2xl/header-actions:truncate">
+          {environment.label}
+        </span>
+        <span aria-hidden className="hidden @2xl/header-actions:inline">
+          ·
+        </span>
+        <span className="shrink-0">{word}</span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {environment.label} · {word}
+      </TooltipPopup>
+    </Tooltip>
   );
 }

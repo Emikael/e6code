@@ -1816,7 +1816,7 @@ it.effect("fails a listing in which no repository could be read, naming why", ()
 
     // An empty answer here would read as "nothing needs you" while nothing was asked at all.
     assert.strictEqual(error._tag, "PullRequestOperationError");
-    assert.include(error.message, "No repository could be read. HTTP 404");
+    assert.include(error.message, "Couldn't read any repository. HTTP 404");
   }),
 );
 

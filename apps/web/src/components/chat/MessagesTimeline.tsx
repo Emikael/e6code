@@ -356,9 +356,9 @@ interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
   expandedSpawnEntryIds: ReadonlySet<string>;
-  /** Opens the Inspector, selecting the subagent when one is named. */
+  /** Opens Run details, selecting the subagent when one is named. */
   onOpenAgents: (agentId?: string) => void;
-  /** The subagent the Overview just asked to show in the thread; lit briefly. */
+  /** The subagent Run details just asked to show in the thread; lit briefly. */
   highlightedSubagentId: string | null;
   /** The thread's provider; subagents run on it, so their tiles carry its mark. */
   subagentProviderKind: ProviderDriverKind | null;
@@ -932,7 +932,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
 
-  // "Show in thread" from the Overview: open the subagent's card, scroll to
+  // "Show in thread" from Run details: open the subagent's card, scroll to
   // it and light its row for a moment. Only requests made while this list is
   // mounted count; an older one is not replayed.
   const [highlight, setHighlight] = useState<SubagentThreadTarget | null>(null);
@@ -5182,7 +5182,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     completedAt: ends.length > 0 ? ends.toSorted().at(-1)! : null,
     updatedAt: workEntry.createdAt,
   };
-  // Rows keep spawn order. One the Overview asked to show, or one blocked on
+  // Rows keep spawn order. One Run details asked to show, or one blocked on
   // the user, stays visible past the row cap.
   const highlightedIndex = agents.findIndex((agent) => agent.id === highlightedSubagentId);
   const visibleAgents =
@@ -5305,7 +5305,7 @@ function spawnCardClosedKey(entryId: string): string {
   return `closed:${entryId}`;
 }
 
-/** A spawn of one subagent: identity and activity on two lines; opens the Inspector. */
+/** A spawn of one subagent: identity and activity on two lines; opens Run details. */
 function SubagentInlineRow({
   agent,
   providerKind,
@@ -5323,7 +5323,7 @@ function SubagentInlineRow({
       type="button"
       data-subagent-row={agent.id}
       onClick={() => onOpen(agent.id)}
-      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in Overview`}
+      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}. Show in Run details`}
       className={cn(
         "my-1 flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-left outline-none transition-colors duration-500 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
         highlighted && "bg-accent",
@@ -5344,7 +5344,7 @@ function SubagentInlineRow({
   );
 }
 
-/** Identity, activity and metrics on three fixed lines; opens the Inspector. */
+/** Identity, activity and metrics on three fixed lines; opens Run details. */
 function SubagentBatchRow({
   agent,
   providerKind,
@@ -5373,7 +5373,7 @@ function SubagentBatchRow({
       type="button"
       data-subagent-row={agent.id}
       onClick={() => onOpen(agent.id)}
-      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}${files ? `, ${formatSubagentFileCount(files.files.length)} changed` : ""}. Show in Overview`}
+      aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}${files ? `, ${formatSubagentFileCount(files.files.length)} changed` : ""}. Show in Run details`}
       className={cn(
         "flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors duration-500 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none",
         highlighted && "bg-accent",

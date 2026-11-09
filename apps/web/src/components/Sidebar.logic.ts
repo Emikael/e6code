@@ -518,8 +518,8 @@ export interface ThreadStatusPill {
     | "Monitoring"
     | "Connecting"
     | "Completed"
-    | "Pending Approval"
-    | "Awaiting Input"
+    | "Needs approval"
+    | "Needs your answer"
     | "Paused"
     | "Plan Ready";
   colorClass: string;
@@ -532,8 +532,8 @@ export interface ThreadStatusPill {
 // monitoring. A Monitoring sibling must never hide a Plan Ready thread. A
 // usage-limit pause outranks Working so a stalled sibling is not hidden.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 7,
-  "Awaiting Input": 6,
+  "Needs approval": 7,
+  "Needs your answer": 6,
   Paused: 5,
   Working: 4,
   Connecting: 4,
@@ -935,7 +935,7 @@ export interface SidebarRowStatus {
 
 /**
  * Row status in the thread list's wording: "Working · step 4 of 6",
- * "Waiting for your approval", "Retrying · attempt 2 of 10", "Done · 3h",
+ * "Needs approval", "Retrying · attempt 2 of 10", "Done · 3h",
  * "Waiting for usage limit · resets 14:20". A resting thread reads Done after
  * a completed turn (or an unseen completion); otherwise it has no status and
  * the row shows its age instead.
@@ -960,7 +960,7 @@ export function resolveSidebarRowStatus(input: {
         formatResetTime: input.formatResetTime,
       });
       if (input.status === "paused") {
-        return { kind: "paused", ...running, marker: "dot", tone: "muted" };
+        return { kind: "paused", ...running, marker: "dot", tone: "warning" };
       }
       if (input.agentState?.kind === "retrying") {
         return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
@@ -978,7 +978,7 @@ export function resolveSidebarRowStatus(input: {
     case "approval":
       return {
         kind: "approval",
-        label: "Waiting for your approval",
+        label: "Needs approval",
         detail: null,
         marker: "dot",
         tone: "warning",
@@ -1190,7 +1190,7 @@ export function resolveThreadStatusPill(input: {
 
   if (thread.hasPendingApprovals) {
     return {
-      label: "Pending Approval",
+      label: "Needs approval",
       colorClass: "text-warning-foreground",
       dotClass: "bg-warning",
     };
@@ -1198,7 +1198,7 @@ export function resolveThreadStatusPill(input: {
 
   if (thread.hasPendingUserInput) {
     return {
-      label: "Awaiting Input",
+      label: "Needs your answer",
       colorClass: "text-primary-text",
       dotClass: "bg-primary",
     };
