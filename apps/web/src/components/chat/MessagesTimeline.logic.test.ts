@@ -24,6 +24,7 @@ import {
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
   deriveThinkingTimelineHeading,
+  activityGroupHasTimelineSteps,
   formatWorkingTimer,
   findSubagentSpawnRow,
   deriveMessagesTimelineRowsWithState,
@@ -4242,5 +4243,40 @@ describe("formatWorkingTimer", () => {
       "3m 40s",
     );
     expect(formatWorkingTimer("bad", "2026-11-09T10:03:40.000Z")).toBeNull();
+  });
+});
+
+describe("activityGroupHasTimelineSteps", () => {
+  const step = {
+    id: "step",
+    createdAt: "2026-11-09T10:00:00.000Z",
+    label: "Read file",
+    tone: "tool" as const,
+    itemType: "command_execution" as const,
+    command: "cat a.ts",
+  };
+
+  it("needs a visible step for the rail and its heading", () => {
+    expect(
+      activityGroupHasTimelineSteps({
+        active: true,
+        entries: [
+          { kind: "message" },
+          { kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } },
+        ],
+      }),
+    ).toBe(true);
+    expect(activityGroupHasTimelineSteps({ active: true, entries: [{ kind: "message" }] })).toBe(
+      false,
+    );
+  });
+
+  it("leaves out a settled group's neutral rows", () => {
+    expect(
+      activityGroupHasTimelineSteps({
+        active: false,
+        entries: [{ kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } }],
+      }),
+    ).toBe(false);
   });
 });

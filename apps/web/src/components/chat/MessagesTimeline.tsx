@@ -208,6 +208,7 @@ import {
   findSubagentSpawnRow,
   deriveUnsettledTurnId,
   deriveThinkingTimelineHeading,
+  activityGroupHasTimelineSteps,
   formatWorkingTimer,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
@@ -388,6 +389,8 @@ interface TimelineRowActivityState {
   pendingAttention: PendingAttention;
   /** What the running agent reports about itself (compacting, retrying, paused). */
   agentState: ThreadAgentState | null;
+  /** A live thinking timeline already reads "Working for …", so the plain working row stands down. */
+  liveTimelineHeading: boolean;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -1439,6 +1442,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // Keyed by value: the shell object, and so this field, is new on every
   // thread-shell patch, and the activity context re-renders every row.
   const agentStateKey = agentState === null ? null : JSON.stringify(agentState);
+  const liveTimelineHeading =
+    thinkingTimeline &&
+    rows.some(
+      (row) => row.kind === "activity-group" && row.active && activityGroupHasTimelineSteps(row),
+    );
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
@@ -1452,9 +1460,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       backgroundWorktreeSetup,
       pendingAttention,
       agentState: agentStateKey === null ? null : (JSON.parse(agentStateKey) as ThreadAgentState),
+      liveTimelineHeading,
     }),
     [
       backgroundWorktreeSetup,
+      liveTimelineHeading,
       pendingAttention,
       agentStateKey,
       isCompacting,
@@ -2827,6 +2837,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     backgroundWorktreeSetup,
     pendingAttention,
     agentState,
+    liveTimelineHeading,
   } = use(TimelineRowActivityCtx);
   const status = resolveWorkingRowStatus({
     isPreparingWorktree,
@@ -2839,6 +2850,9 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   const shimmer = status.kind === "preparing" || status.kind === "compacting";
   const paused = status.kind === "agent-state" && status.agentState.kind === "rate-limited";
   const waiting = status.kind === "attention" || paused;
+  // The live thinking timeline already says "Working for …"; setup, compacting and waiting
+  // states, and a setup chip, still need this row.
+  if (status.kind === "working" && liveTimelineHeading && !backgroundWorktreeSetup) return null;
   const label =
     status.kind === "preparing" ? (
       "Setting up worktree…"
@@ -2864,15 +2878,12 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         ) : waiting ? (
           <TriangleAlertIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
         ) : (
-          // The one live signal on screen: the accent, stepped pulse. When an
-          // approval is pending, the accent moves to the Approve action instead.
+          // The live signal: the accent dot with a static ring, like the timeline's live step.
+          // When an approval is pending, the accent moves to the Approve action instead.
           <span
             aria-hidden
-            className="inline-flex size-2 shrink-0 rounded-full ring-1 ring-primary-edge"
-          >
-            {/* Only the fill pulses, so the edge keeps the dot visible on light grounds. */}
-            <span className="size-full rounded-full bg-primary animate-status-pulse motion-reduce:animate-none" />
-          </span>
+            className="mx-0.5 size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
+          />
         )}
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}

@@ -186,6 +186,21 @@ export function deriveThinkingTimelineHeading(input: {
   };
 }
 
+/**
+ * Whether an activity group draws the thinking timeline (with the setting on): it needs at least
+ * one visible step to put on the rail. A live group that does carries the "Working for" heading.
+ */
+export function activityGroupHasTimelineSteps(row: {
+  readonly active: boolean;
+  readonly entries: ReadonlyArray<
+    { readonly kind: "work"; readonly entry: WorkLogEntry } | { readonly kind: "message" }
+  >;
+}): boolean {
+  return row.entries.some(
+    (entry) => entry.kind === "work" && workEntryIsVisibleInGroup(entry.entry, row.active),
+  );
+}
+
 export interface WorkGroupScrollAnchor {
   readonly entryId: string;
   readonly offset: number;
