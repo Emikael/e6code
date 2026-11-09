@@ -60,7 +60,7 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { UsageLimitsSection } from "./UsageLimits";
+import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
@@ -205,6 +205,7 @@ export function UsagePage() {
     ) {
       setWindowSelection({ days: windowDays, window: nextWindow });
     }
+    setLimitsNow(Date.now());
     refreshingRef.current = true;
     setIsRefreshing(true);
     void refresh(nextWindow).finally(() => {
@@ -468,6 +469,14 @@ export function UsagePage() {
                     />
                   </div>
                 </section>
+
+                <div className="grid gap-6 empty:hidden md:grid-cols-2">
+                  <UsagePlanLimits
+                    selectedEnvironmentIds={selectedEnvironmentIds}
+                    now={limitsNow}
+                    onShowDetails={() => selectMetric("limits")}
+                  />
+                </div>
 
                 <section className="flex flex-col gap-2">
                   <h2 className="text-sm font-medium text-foreground">Totals</h2>
