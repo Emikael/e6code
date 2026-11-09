@@ -1,4 +1,6 @@
-import { UsageDay, type UsageSummaryInput } from "@e6tools/contracts";
+import { UsageDay, type UsageProviderKind, type UsageSummaryInput } from "@e6tools/contracts";
+import { isModelCostUnknown, type ModelTotals } from "@e6tools/shared/usageMerge";
+import { sharePercents } from "@e6tools/shared/usageShares";
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -68,5 +70,52 @@ export function describePeriodChange(
   return {
     direction,
     text: `${Math.abs(percent)}% ${direction} than the ${periodLabel} before`,
+  };
+}
+
+/** One part of the cost split: a model, or every smaller model folded together. */
+interface ModelCostPart {
+  readonly key: string;
+  readonly label: string;
+  /** Null for the folded remainder, which can span providers. */
+  readonly provider: UsageProviderKind | null;
+  readonly costUsd: number;
+  readonly percent: number;
+}
+
+/**
+ * The period's estimated cost by model, largest first, for "Where the cost
+ * went". Models past `limit` fold into one "N other models" part so the bar
+ * keeps a few readable steps; percents add up to exactly 100. Unpriced models
+ * have no cost to split, so they are counted apart instead of shown as 0%.
+ */
+export function modelCostSplit(
+  models: readonly ModelTotals[],
+  limit = 4,
+): { readonly parts: readonly ModelCostPart[]; readonly unpricedModels: number } {
+  const priced = models
+    .filter((model) => !isModelCostUnknown(model) && model.costUsd > 0)
+    .toSorted((left, right) => right.costUsd - left.costUsd);
+  // Folding a single model into "1 other model" hides its name for no gain.
+  const shown = priced.length > limit + 1 ? priced.slice(0, limit) : priced;
+  const rest = priced.slice(shown.length);
+  const entries: Omit<ModelCostPart, "percent">[] = shown.map((model) => ({
+    key: `${model.provider}:${model.model}`,
+    label: model.model,
+    provider: model.provider,
+    costUsd: model.costUsd,
+  }));
+  if (rest.length > 0) {
+    entries.push({
+      key: "other",
+      label: `${rest.length} other models`,
+      provider: null,
+      costUsd: rest.reduce((sum, model) => sum + model.costUsd, 0),
+    });
+  }
+  const percents = sharePercents(entries.map((entry) => entry.costUsd));
+  return {
+    parts: entries.map((entry, index) => ({ ...entry, percent: percents[index] ?? 0 })),
+    unpricedModels: models.filter(isModelCostUnknown).length,
   };
 }

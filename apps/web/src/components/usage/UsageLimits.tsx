@@ -15,15 +15,23 @@ import {
   formatDuration,
   formatResetsIn,
   LIMIT_PACE_WORDS,
+  LOW_REMAINING_PERCENT,
   type LimitPaceReading,
   limitPaceReading,
   paceOf,
   remainingPercent,
 } from "@e6tools/shared/usageLimits";
-import { BatteryLowIcon, GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
+import {
+  BatteryLowIcon,
+  GaugeIcon,
+  TrendingDownIcon,
+  TrendingUpIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
+import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -376,16 +384,19 @@ export function UsagePlanLimits({
   if (pools.every((pool) => pool.windows.length === 0)) return null;
 
   return (
-    <section aria-labelledby="usage-plan-limits" className="flex min-w-0 flex-col gap-3">
+    <section
+      aria-labelledby="usage-plan-limits"
+      className="flex min-w-0 flex-col gap-3.5 rounded-xl border border-border bg-surface-raised p-4.5"
+    >
       <div className="flex items-center justify-between gap-3">
-        <h2 id="usage-plan-limits" className="text-sm font-medium text-foreground">
+        <h2 id="usage-plan-limits" className="text-sm font-semibold text-foreground">
           Plan limits
         </h2>
         <Button size="xs" variant="ghost" onClick={onShowDetails}>
           Details
         </Button>
       </div>
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-3.5">
         {pools.flatMap((pool) => {
           const provider = getDriverOption(pool.driver)?.label ?? String(pool.driver);
           const color = barColor(pool.driver);
@@ -398,39 +409,45 @@ export function UsagePlanLimits({
                   ? "resets now"
                   : `resets in ${formatDuration(nextReset.at - now)}`;
             const reading = limitPaceReading(window.pace, window.remainingPercent);
-            const pace = reading ? { ...PACE[reading], words: LIMIT_PACE_WORDS[reading] } : null;
-            const PaceGlyph = pace?.icon;
+            const paceWords = reading ? LIMIT_PACE_WORDS[reading] : null;
+            // Low reads as a warning whatever the pace: icon and words, never the tint alone.
+            const low = window.remainingPercent <= LOW_REMAINING_PERCENT;
             return (
               <li
                 key={`${pool.driver}:${window.kind}:${window.id}`}
-                className="flex flex-col gap-1"
+                className="flex flex-col gap-1.5"
               >
-                <span className="flex items-baseline gap-2 text-sm">
-                  <span className="min-w-0 truncate text-foreground">
+                <span className="flex items-baseline gap-2 text-[13px]">
+                  <span className="min-w-0 truncate font-medium text-foreground">
                     {provider} · {window.label}
                   </span>
-                  <span className="ms-auto shrink-0 text-xs font-medium text-foreground tabular-nums">
+                  <span
+                    className={cn(
+                      "ms-auto flex shrink-0 items-center gap-1 self-center font-mono text-xs tabular-nums",
+                      low ? "text-warning-foreground" : "text-foreground",
+                    )}
+                  >
+                    {low ? <TriangleAlertIcon className="size-3 shrink-0" aria-hidden /> : null}
                     {window.remainingPercent}% left
+                    {low ? <span className="sr-only"> (running low)</span> : null}
                   </span>
                 </span>
-                <span aria-hidden className="relative h-1.5 rounded-full bg-muted">
+                <span aria-hidden className="relative h-1.5 rounded-full bg-surface-well">
                   {window.remainingPercent > 0 ? (
                     <span
-                      className="absolute inset-y-0 left-0 rounded-full"
-                      style={{ width: `${window.remainingPercent}%`, backgroundColor: color }}
+                      className={cn("absolute inset-y-0 left-0 rounded-full", low && "bg-warning")}
+                      style={{
+                        width: `${window.remainingPercent}%`,
+                        backgroundColor: low ? undefined : color,
+                      }}
                     />
                   ) : null}
                 </span>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
-                  {resetsIn}
-                  {resetsIn && pace ? " · " : null}
-                  {pace && PaceGlyph ? (
-                    <>
-                      <PaceGlyph className="size-3.5 shrink-0" aria-hidden />
-                      {pace.words}
-                    </>
-                  ) : null}
-                </span>
+                {resetsIn || paceWords ? (
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                    {[resetsIn, paceWords].filter(Boolean).join(" · ")}
+                  </span>
+                ) : null}
               </li>
             );
           });

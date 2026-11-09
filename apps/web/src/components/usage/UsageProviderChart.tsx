@@ -11,10 +11,11 @@ import {
 } from "@e6tools/shared/usageFormat";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
 
-const VIEW_WIDTH = 960;
-const VIEW_HEIGHT = 260;
-const TICK_COUNT = 4;
-const PLOT_TOP = 8;
+const TICK_COUNT = 3;
+/** Above this many bars, per-bar totals collide; the hover readout and table still carry them. */
+const MAX_VALUE_LABELS = 14;
+/** Roughly how many period labels fit under the plot at any width. */
+const MAX_PERIOD_LABELS = 8;
 
 export type UsageChartMetric = "tokens" | "cost";
 
@@ -30,18 +31,13 @@ interface UsageProviderChartProps {
   readonly timeZone: string;
 }
 
-/** One day's per-provider values, shared by the paths and the hover readout. */
-export interface DayColumn {
+/** One period's per-provider values, shared by the bars and the hover readout. */
+interface DayColumn {
   readonly bands: readonly {
     readonly provider: UsageProviderKind;
     readonly value: number;
   }[];
   readonly total: number;
-}
-
-interface Point {
-  readonly x: number;
-  readonly y: number;
 }
 
 function valueFor(
@@ -69,84 +65,6 @@ export function buildPeriodColumns(
   });
 }
 
-/** Shape-preserving cubic tangents that cannot overshoot spiky usage data. */
-function monotoneTangents(points: readonly Point[]): readonly number[] {
-  const count = points.length;
-  if (count < 2) return [0];
-
-  const slopes: number[] = [];
-  for (let index = 0; index < count - 1; index += 1) {
-    const dx = (points[index + 1]?.x ?? 0) - (points[index]?.x ?? 0);
-    const dy = (points[index + 1]?.y ?? 0) - (points[index]?.y ?? 0);
-    slopes.push(dx === 0 ? 0 : dy / dx);
-  }
-
-  const tangents: number[] = Array.from({ length: count }, () => 0);
-  tangents[0] = slopes[0] ?? 0;
-  tangents[count - 1] = slopes[count - 2] ?? 0;
-  for (let index = 1; index < count - 1; index += 1) {
-    const previous = slopes[index - 1] ?? 0;
-    const next = slopes[index] ?? 0;
-    tangents[index] = previous * next <= 0 ? 0 : (previous + next) / 2;
-  }
-
-  for (let index = 0; index < count - 1; index += 1) {
-    const slope = slopes[index] ?? 0;
-    if (slope === 0) {
-      tangents[index] = 0;
-      tangents[index + 1] = 0;
-      continue;
-    }
-    const a = (tangents[index] ?? 0) / slope;
-    const b = (tangents[index + 1] ?? 0) / slope;
-    const magnitude = a * a + b * b;
-    if (magnitude > 9) {
-      const scale = 3 / Math.sqrt(magnitude);
-      tangents[index] = scale * a * slope;
-      tangents[index + 1] = scale * b * slope;
-    }
-  }
-
-  return tangents;
-}
-
-interface CurveSegment {
-  readonly from: Point;
-  readonly c1: Point;
-  readonly c2: Point;
-  readonly to: Point;
-}
-
-function smoothCurve(points: readonly Point[]): readonly CurveSegment[] {
-  if (points.length < 2) return [];
-  const tangents = monotoneTangents(points);
-  const segments: CurveSegment[] = [];
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const from = points[index];
-    const to = points[index + 1];
-    if (from === undefined || to === undefined) continue;
-    const dx = to.x - from.x;
-    segments.push({
-      from,
-      c1: { x: from.x + dx / 3, y: from.y + ((tangents[index] ?? 0) * dx) / 3 },
-      c2: { x: to.x - dx / 3, y: to.y - ((tangents[index + 1] ?? 0) * dx) / 3 },
-      to,
-    });
-  }
-  return segments;
-}
-
-function curvePath(segments: readonly CurveSegment[]): string {
-  const first = segments[0];
-  if (first === undefined) return "";
-  let path = `M${first.from.x.toFixed(2)},${first.from.y.toFixed(2)}`;
-  for (const segment of segments) {
-    path += ` C${segment.c1.x.toFixed(2)},${segment.c1.y.toFixed(2)} ${segment.c2.x.toFixed(2)},${segment.c2.y.toFixed(2)} ${segment.to.x.toFixed(2)},${segment.to.y.toFixed(2)}`;
-  }
-  return path;
-}
-
 /**
  * Builds a scale whose maximum is a readable 1/2/5 x 10^n step at or above the
  * peak.
@@ -169,6 +87,17 @@ export function niceScale(peak: number, count: number): { max: number; ticks: re
   return { max, ticks };
 }
 
+/** `$8` for whole-dollar ticks, so the axis stays quieter than the bar labels. */
+function formatTick(value: number, metric: UsageChartMetric): string {
+  if (metric === "tokens") return formatTokens(value);
+  return Number.isInteger(value) ? `$${value.toLocaleString("en-US")}` : formatUsd(value);
+}
+
+/**
+ * Per-period totals as bars stacked by provider, in the provider series
+ * colours. The legend above the card names each colour; totals sit on the
+ * bars when there is room, and the hover readout lists every provider.
+ */
 export function UsageProviderChart({
   providers,
   days,
@@ -193,61 +122,24 @@ export function UsageProviderChart({
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const hoverPositionRef = useRef<{ x: number; y: number } | null>(null);
 
-  const { paths, ticks, stepX, toY, series } = useMemo(() => {
-    if (periods.length === 0) {
-      return {
-        paths: [],
-        series: [] as readonly DayColumn[],
-        stepX: 0,
-        ticks: [0] as readonly number[],
-        toY: () => VIEW_HEIGHT,
-      };
-    }
-
-    const columns = buildPeriodColumns(periods, byPeriod, metric);
-    // The scale tops out at the largest single provider-period, not the sum:
-    // layered series each measure from zero, so a combined peak would leave
-    // the plot permanently half empty.
-    const peak = columns.reduce(
-      (max, column) => column.bands.reduce((inner, band) => Math.max(inner, band.value), max),
-      0,
-    );
-    const { max, ticks: tickValues } = niceScale(peak, TICK_COUNT);
-    const step = periods.length === 1 ? 0 : VIEW_WIDTH / (periods.length - 1);
-    // Leave room above the top gridline so the constant-width stroke is not
-    // clipped when a series reaches the peak.
-    const toY = (value: number) =>
-      max === 0 ? VIEW_HEIGHT : VIEW_HEIGHT - (value / max) * (VIEW_HEIGHT - PLOT_TOP);
-
-    const built = providers.map((provider) => {
-      const providerIndex = PROVIDER_ORDER.indexOf(provider);
-      const line = curvePath(
-        smoothCurve(
-          columns.map((column, periodIndex) => ({
-            x: periodIndex * step,
-            y: toY(column.bands[providerIndex]?.value ?? 0),
-          })),
-        ),
-      );
-      return {
-        provider,
-        total: columns.reduce((sum, column) => sum + (column.bands[providerIndex]?.value ?? 0), 0),
-        area: line === "" ? "" : `${line} L${VIEW_WIDTH},${VIEW_HEIGHT} L0,${VIEW_HEIGHT} Z`,
-        line,
-      };
+  const { columns, max, ticks, peakIndex } = useMemo(() => {
+    const built = buildPeriodColumns(periods, byPeriod, metric);
+    // Stacked bars measure from zero to the column total, so the scale tops
+    // out at the largest total.
+    let peak = 0;
+    let peakAt = -1;
+    built.forEach((column, index) => {
+      if (column.total > peak) {
+        peak = column.total;
+        peakAt = index;
+      }
     });
-
-    // Paint the heavier series first so the lighter one is not buried.
-    return {
-      paths: built.toSorted((a, b) => b.total - a.total),
-      series: columns,
-      stepX: step,
-      ticks: tickValues,
-      toY,
-    };
-  }, [byPeriod, metric, periods, providers]);
+    const scale = niceScale(peak, TICK_COUNT);
+    return { columns: built, max: scale.max, ticks: scale.ticks, peakIndex: peakAt };
+  }, [byPeriod, metric, periods]);
 
   const format = metric === "tokens" ? formatTokens : formatUsd;
+  const toPercent = (value: number) => (max === 0 ? 0 : (value / max) * 100);
 
   const positionTooltip = useCallback(() => {
     const plot = plotRef.current;
@@ -296,8 +188,7 @@ export function UsageProviderChart({
       if (bounds.width === 0) return;
       const localX = Math.min(bounds.width, Math.max(0, event.clientX - bounds.left));
       const localY = Math.min(bounds.height, Math.max(0, event.clientY - bounds.top));
-      const fraction = localX / bounds.width;
-      const index = Math.round(fraction * (periods.length - 1));
+      const index = Math.floor((localX / bounds.width) * periods.length);
       hoverPositionRef.current = { x: localX, y: localY };
       positionTooltip();
       setHoverIndex(Math.min(periods.length - 1, Math.max(0, index)));
@@ -306,7 +197,7 @@ export function UsageProviderChart({
   );
 
   const hoveredPeriod = hoverIndex === null ? undefined : periods[hoverIndex];
-  const hoveredColumn = hoverIndex === null ? undefined : series[hoverIndex];
+  const hoveredColumn = hoverIndex === null ? undefined : columns[hoverIndex];
   const formatPeriod = (period: string) =>
     resolution === "hour" ? formatHourShort(period, timeZone) : formatDayShort(period);
   const formatTooltipPeriod = (period: string) =>
@@ -314,88 +205,98 @@ export function UsageProviderChart({
       ? formatRelativeHourShort(period, referenceTime, timeZone)
       : formatPeriod(period);
 
+  const showValues = periods.length <= MAX_VALUE_LABELS;
+  const labelEvery = Math.max(1, Math.ceil(periods.length / MAX_PERIOD_LABELS));
+  const firstPeriod = periods[0];
+  const lastPeriod = periods[periods.length - 1];
+  const peakPeriod = periods[peakIndex];
+  const summary = `${resolution === "hour" ? "Hourly" : "Daily"} ${
+    metric === "tokens" ? "processed tokens" : "cost"
+  } stacked by provider${
+    firstPeriod !== undefined && lastPeriod !== undefined
+      ? `, ${formatPeriod(firstPeriod)} to ${formatPeriod(lastPeriod)}`
+      : ""
+  }.${
+    peakPeriod === undefined
+      ? " No activity."
+      : ` Highest ${resolution === "hour" ? "hour" : "day"} ${formatPeriod(peakPeriod)} at ${format(
+          columns[peakIndex]?.total ?? 0,
+        )}.`
+  }`;
+
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex gap-2">
-        {/* Axis labels sit outside the plot so they stay aligned to gridlines. */}
-        <div className="relative h-56 w-14 shrink-0">
+    <div className="flex flex-col gap-2">
+      {/* Top padding leaves room for the tallest bar's total. */}
+      <div className="flex gap-2 pt-6">
+        <div aria-hidden className="relative h-52 w-12 shrink-0">
           {ticks.map((tick) => (
             <span
               key={tick}
-              className="absolute right-0 -translate-y-1/2 text-[10px] text-muted-foreground tabular-nums"
-              style={{ top: `${(toY(tick) / VIEW_HEIGHT) * 100}%` }}
+              className="absolute right-0 translate-y-1/2 font-mono text-[11px] text-muted-foreground tabular-nums"
+              style={{ bottom: `${toPercent(tick)}%` }}
             >
-              {tick === 0 ? "0" : format(tick)}
+              {formatTick(tick, metric)}
             </span>
           ))}
         </div>
 
         <div
           ref={plotRef}
-          className="relative h-56 flex-1"
+          role="img"
+          aria-label={summary}
+          className="relative h-52 min-w-0 flex-1"
           onMouseMove={handleMove}
           onMouseLeave={() => {
             hoverPositionRef.current = null;
             setHoverIndex(null);
           }}
         >
-          <svg
-            className="h-full w-full"
-            viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={`${resolution === "hour" ? "Hourly" : "Daily"} ${metric === "tokens" ? "processed tokens" : "cost"} by provider`}
-          >
-            {ticks.map((tick) => {
-              const y = toY(tick);
-              return (
-                <line
-                  key={tick}
-                  x1={0}
-                  x2={VIEW_WIDTH}
-                  y1={y}
-                  y2={y}
-                  stroke="currentColor"
-                  strokeWidth={1}
-                  className="text-border"
-                  vectorEffect="non-scaling-stroke"
-                />
-              );
-            })}
+          {ticks.map((tick) => (
+            <span
+              key={tick}
+              aria-hidden
+              className="absolute inset-x-0 h-px bg-border"
+              style={{ bottom: `${toPercent(tick)}%` }}
+            />
+          ))}
 
-            {/* Fills first, then every stroke, so no series covers another's line. */}
-            {paths.map(({ provider, area }) => (
-              <path
-                key={provider}
-                d={area}
-                fill={PROVIDER_PRESENTATION[provider].color}
-                fillOpacity={0.12}
-              />
+          <div aria-hidden className="absolute inset-0 flex">
+            {columns.map((column, index) => (
+              <div
+                key={periods[index]}
+                className="relative flex h-full min-w-0 flex-1 justify-center"
+              >
+                {hoverIndex === index ? (
+                  <span className="absolute inset-y-0 inset-x-[8%] rounded-md bg-foreground/5" />
+                ) : null}
+                <div className="relative flex h-full w-[58%] max-w-14 flex-col-reverse">
+                  {column.bands.map((band) =>
+                    band.value > 0 ? (
+                      // The 2px top inset is the surface gap between stacked segments.
+                      <div
+                        key={band.provider}
+                        className="relative shrink-0"
+                        style={{ height: `${toPercent(band.value)}%` }}
+                      >
+                        <span
+                          className="absolute inset-x-0 top-0.5 bottom-0 rounded-[3px]"
+                          style={{ backgroundColor: PROVIDER_PRESENTATION[band.provider].color }}
+                        />
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+                {showValues && column.total > 0 ? (
+                  <span
+                    className="absolute left-1/2 -translate-x-1/2 font-mono text-[11px] whitespace-nowrap text-foreground tabular-nums"
+                    style={{ bottom: `calc(${toPercent(column.total)}% + 4px)` }}
+                  >
+                    {format(column.total)}
+                  </span>
+                ) : null}
+              </div>
             ))}
-            {paths.map(({ provider, line }) => (
-              <path
-                key={provider}
-                d={line}
-                fill="none"
-                stroke={PROVIDER_PRESENTATION[provider].color}
-                strokeWidth={2}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-
-            {hoverIndex === null ? null : (
-              <line
-                x1={hoverIndex * stepX}
-                x2={hoverIndex * stepX}
-                y1={PLOT_TOP}
-                y2={VIEW_HEIGHT}
-                stroke="currentColor"
-                strokeWidth={1}
-                className="text-muted-foreground"
-                vectorEffect="non-scaling-stroke"
-              />
-            )}
-          </svg>
+          </div>
 
           {hoveredPeriod === undefined ? null : (
             <div
@@ -408,14 +309,18 @@ export function UsageProviderChart({
             >
               <div className="mb-1 text-muted-foreground">{formatTooltipPeriod(hoveredPeriod)}</div>
               {providers.map((provider) => {
-                const { label, mark: Mark } = PROVIDER_PRESENTATION[provider];
+                const { label, color } = PROVIDER_PRESENTATION[provider];
                 return (
                   <div key={provider} className="flex items-center justify-between gap-3">
                     <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <Mark className="size-3 shrink-0" aria-hidden />
+                      <span
+                        aria-hidden
+                        className="size-2 shrink-0 rounded-[2px]"
+                        style={{ backgroundColor: color }}
+                      />
                       {label}
                     </span>
-                    <span className="text-foreground tabular-nums">
+                    <span className="font-mono text-foreground tabular-nums">
                       {format(
                         hoveredColumn?.bands.find((band) => band.provider === provider)?.value ?? 0,
                       )}
@@ -425,7 +330,7 @@ export function UsageProviderChart({
               })}
               <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-1">
                 <span className="text-muted-foreground">Total</span>
-                <span className="text-foreground tabular-nums">
+                <span className="font-mono text-foreground tabular-nums">
                   {format(hoveredColumn?.total ?? 0)}
                 </span>
               </div>
@@ -434,18 +339,18 @@ export function UsageProviderChart({
         </div>
       </div>
 
-      <div className="flex justify-between pl-16 text-[10px] text-muted-foreground uppercase">
-        <span>{periods[0] === undefined ? "" : formatPeriod(periods[0])}</span>
-        <span>
-          {periods[Math.floor(periods.length / 2)] === undefined
-            ? ""
-            : formatPeriod(periods[Math.floor(periods.length / 2)] ?? "")}
-        </span>
-        <span>
-          {periods[periods.length - 1] === undefined
-            ? ""
-            : formatPeriod(periods[periods.length - 1] ?? "")}
-        </span>
+      <div aria-hidden className="relative ms-14 h-4">
+        {periods.map((period, index) =>
+          index % labelEvery === 0 ? (
+            <span
+              key={period}
+              className="absolute -translate-x-1/2 font-mono text-[11px] whitespace-nowrap text-muted-foreground"
+              style={{ left: `${((index + 0.5) / periods.length) * 100}%` }}
+            >
+              {formatPeriod(period)}
+            </span>
+          ) : null,
+        )}
       </div>
     </div>
   );
