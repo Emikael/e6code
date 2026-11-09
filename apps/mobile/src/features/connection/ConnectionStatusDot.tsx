@@ -9,7 +9,6 @@ export type ConnectionStatusDotState = RemoteClientConnectionState;
 function statusDotTone(
   state: ConnectionStatusDotState,
   theme: MobileThemeVariables,
-  dark: boolean,
 ): {
   readonly dotColor: string;
   readonly haloColor: string;
@@ -25,8 +24,8 @@ function statusDotTone(
       };
     case "connected":
       return {
-        dotColor: dark ? "#34d399" : "#059669",
-        haloColor: themeColorWithAlpha(dark ? "#34d399" : "#059669", 0.48),
+        dotColor: theme["--color-success-foreground"],
+        haloColor: themeColorWithAlpha(theme["--color-success-foreground"], 0.48),
       };
     case "connecting":
     case "reconnecting":
@@ -49,8 +48,8 @@ export function ConnectionStatusDot(props: {
   readonly halo: boolean;
   readonly size?: number;
 }) {
-  const { themeAppearance, themeVariables } = useAppearancePreferences();
-  const tone = statusDotTone(props.state, themeVariables, themeAppearance === "dark");
+  const { themeVariables } = useAppearancePreferences();
+  const tone = statusDotTone(props.state, themeVariables);
   const dotSize = props.size ?? 10;
   const haloSize = dotSize + 4;
   const containerSize = haloSize + 4;

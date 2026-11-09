@@ -93,22 +93,22 @@ describe("prStatusIndicator", () => {
     });
   });
 
-  it("uses red for closed pull requests", () => {
+  it("uses the destructive role for closed pull requests", () => {
     const closedPr = status().pr;
     if (!closedPr) throw new Error("Expected pull request fixture");
 
     expect(prStatusIndicator({ ...closedPr, state: "closed" }, undefined)?.colorClass).toContain(
-      "text-red-600",
+      "text-destructive-foreground",
     );
   });
 
-  it("uses gray and draft wording for draft pull requests", () => {
+  it("uses muted and draft wording for draft pull requests", () => {
     const draftPr = status().pr;
     if (!draftPr) throw new Error("Expected pull request fixture");
 
     expect(prStatusIndicator({ ...draftPr, isDraft: true }, undefined)).toMatchObject({
       label: "PR draft",
-      colorClass: "text-zinc-500 dark:text-zinc-400/80",
+      colorClass: "text-muted-foreground",
       tooltipLead: "PR #42 - Draft",
     });
   });
@@ -138,21 +138,21 @@ describe("resolveThreadPullRequestBadgePresentation", () => {
       "open",
       { state: "open", isDraft: false },
       PullRequestGlyph.pullRequest,
-      "text-emerald-600 dark:text-emerald-300/90",
+      "text-success-foreground",
       "PR #42 - Open: PR branch",
     ],
     [
       "draft",
       { state: "open", isDraft: true },
       PullRequestGlyph.draft,
-      "text-zinc-500 dark:text-zinc-400/80",
+      "text-muted-foreground",
       "PR #42 - Draft: PR branch",
     ],
     [
       "closed",
       { state: "closed", isDraft: false },
       PullRequestGlyph.closed,
-      "text-red-600 dark:text-red-300/90",
+      "text-destructive-foreground",
       "PR #42 - Closed: PR branch",
     ],
     [
@@ -187,8 +187,8 @@ describe("resolveThreadPullRequestBadgePresentation", () => {
   );
 
   it.each([
-    ["open", "text-emerald-600 dark:text-emerald-300/90"],
-    ["draft", "text-zinc-500 dark:text-zinc-400/80"],
+    ["open", "text-success-foreground"],
+    ["draft", "text-muted-foreground"],
     ["merged", "text-violet-600 dark:text-violet-300/90"],
   ] as const)(
     "uses a layers badge with the %s stack tone without a link identity",
@@ -208,8 +208,8 @@ describe("resolveThreadPullRequestBadgePresentation", () => {
   );
 
   it.each([
-    ["open", PullRequestGlyph.pullRequest, "text-emerald-600 dark:text-emerald-300/90"],
-    ["draft", PullRequestGlyph.draft, "text-zinc-500 dark:text-zinc-400/80"],
+    ["open", PullRequestGlyph.pullRequest, "text-success-foreground"],
+    ["draft", PullRequestGlyph.draft, "text-muted-foreground"],
     ["merged", PullRequestGlyph.merged, "text-violet-600 dark:text-violet-300/90"],
   ] as const)(
     "draws the count of unrelated linked pull requests with their %s aggregate state",
