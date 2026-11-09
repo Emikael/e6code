@@ -51,6 +51,7 @@ import {
   resolveBaseFreshness,
   resolveMergeReadiness,
   resolvePullRequestMergeMethod,
+  summarizePullRequestFindings,
   buildPullRequestTimeline,
   editPullRequestThreadComment,
   writePullRequestDetailSnapshot,
@@ -1876,7 +1877,7 @@ describe("merge readiness checklist", () => {
       behindBy: 3,
     });
     expect(readiness?.rows.map((row) => [row.status, row.label, row.detail, row.action])).toEqual([
-      ["blocked", "2 checks failing", "of 3", "fix-checks"],
+      ["blocked", "2 checks failing", "of 3", null],
       ["blocked", "Changes requested", null, null],
       ["blocked", "Conflicts with the base branch", null, "resolve-conflicts"],
       ["waiting", "Behind the base branch", "3 commits", "update-branch"],
@@ -1913,5 +1914,64 @@ describe("merge readiness checklist", () => {
 
   it("has no checklist once nothing is left to merge", () => {
     expect(resolveMergeReadiness({ ...ready, state: "merged" })).toBeNull();
+  });
+});
+
+describe("what fixing the findings would hand over", () => {
+  const thread = (id: string, body: string, isResolved = false): PullRequestReviewThread => ({
+    id,
+    path: "apps/web/src/page.tsx",
+    line: 12,
+    side: "right",
+    isResolved,
+    isOutdated: false,
+    comments: [
+      {
+        id: `${id}-comment`,
+        author: { login: "reviewer", name: null, avatarUrl: null },
+        body,
+        createdAt: "2026-07-03T00:00:00Z",
+        url: null,
+      },
+    ],
+  });
+  const failing: PullRequestCheck = {
+    name: "lint",
+    status: "failure",
+    description: null,
+    url: null,
+  };
+
+  it("counts unresolved review comments and failing checks the way the hand-off picks them", () => {
+    expect(
+      summarizePullRequestFindings({
+        reviewThreads: [thread("a", "rename this"), thread("b", "done", true), thread("c", " ")],
+        checks: [failing, { ...failing, name: "e2e", status: "success" }],
+        checksState: "failing",
+        checksStale: false,
+      }),
+    ).toBe("1 unresolved review comment · 1 failing check");
+  });
+
+  it("falls back to a newer failing rollup when the check list is stale", () => {
+    expect(
+      summarizePullRequestFindings({
+        reviewThreads: [],
+        checks: [],
+        checksState: "failing",
+        checksStale: true,
+      }),
+    ).toBe("failing checks");
+  });
+
+  it("offers nothing when there is nothing to fix", () => {
+    expect(
+      summarizePullRequestFindings({
+        reviewThreads: [thread("a", "done", true)],
+        checks: [{ ...failing, status: "success" }],
+        checksState: "passing",
+        checksStale: false,
+      }),
+    ).toBeNull();
   });
 });

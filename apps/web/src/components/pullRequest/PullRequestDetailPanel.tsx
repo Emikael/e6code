@@ -172,6 +172,7 @@ import {
   type PullRequestFinding,
   shouldRefreshPullRequestActivity,
   stripPullRequestHandoffReferences,
+  summarizePullRequestFindings,
   writePullRequestDetailSnapshot,
 } from "./pullRequestDetail.logic";
 import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
@@ -445,10 +446,13 @@ const READINESS_STATUS = {
 function PullRequestMergeReadinessChecklist({
   readiness,
   actions,
+  footer,
 }: {
   readiness: MergeReadiness;
   /** Rendered at the end of a row, keyed by that row's action. */
   actions: Partial<Record<NonNullable<MergeReadiness["rows"][number]["action"]>, ReactNode>>;
+  /** Under the rows: the hand-off that clears findings across them. */
+  footer?: ReactNode;
 }) {
   return (
     <section
@@ -485,6 +489,7 @@ function PullRequestMergeReadinessChecklist({
           );
         })}
       </ul>
+      {footer ? <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">{footer}</div> : null}
     </section>
   );
 }
@@ -1623,6 +1628,14 @@ export function PullRequestDetailPanel({
         behindBy: detail.behindBy,
       })
     : null;
+  const findingsSummary = detail
+    ? summarizePullRequestFindings({
+        reviewThreads: detail.reviewThreads,
+        checks: detail.checks,
+        checksState,
+        checksStale,
+      })
+    : null;
 
   // Merging from the keyboard, and from the command palette, goes through the same confirmation
   // the button opens, and only while that button is live. The panel answers only when the reader
@@ -2689,17 +2702,6 @@ export function PullRequestDetailPanel({
                   <PullRequestMergeReadinessChecklist
                     readiness={mergeReadiness}
                     actions={{
-                      "fix-checks": (
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          disabled={handoff !== null}
-                          onClick={startFixFindings}
-                        >
-                          <HammerIcon aria-hidden className="size-3" />
-                          {handoff === "findings" ? "Preparing..." : handoffLabels.fixCheck}
-                        </Button>
-                      ),
                       "resolve-conflicts": (
                         <Button
                           size="xs"
@@ -2727,6 +2729,21 @@ export function PullRequestDetailPanel({
                             ))
                           : null,
                     }}
+                    footer={
+                      // The same task as the overflow menu's item, out where the findings are.
+                      findingsSummary === null ? null : (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={handoff !== null}
+                          onClick={startFixFindings}
+                        >
+                          <HammerIcon aria-hidden className="size-3" />
+                          {handoff === "findings" ? "Preparing..." : handoffLabels.fixFindings}
+                          <span className="text-muted-foreground">{findingsSummary}</span>
+                        </Button>
+                      )
+                    }
                   />
                 ) : null}
               </div>

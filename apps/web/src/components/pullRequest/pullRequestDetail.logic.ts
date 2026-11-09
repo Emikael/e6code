@@ -1269,8 +1269,11 @@ export interface MergeReadinessRow {
   readonly status: MergeReadinessStatus;
   readonly label: string;
   readonly detail: string | null;
-  /** The panel action that clears this row, where there is one. */
-  readonly action: "fix-checks" | "resolve-conflicts" | "update-branch" | null;
+  /**
+   * The panel action that clears this row, where there is one. Failing checks have none here:
+   * the findings button under the checklist hands them over with the review comments.
+   */
+  readonly action: "resolve-conflicts" | "update-branch" | null;
 }
 
 export interface MergeReadiness {
@@ -1281,6 +1284,40 @@ export interface MergeReadiness {
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
+/**
+ * What "Fix findings" would hand over, worded for the button beside it, or null where there is
+ * nothing to fix. Counted the way `buildFixFindingsHandoff` selects them: unresolved review
+ * threads somebody wrote in, and failing checks — or a failing rollup newer than the check list.
+ */
+export function summarizePullRequestFindings(input: {
+  readonly reviewThreads: ReadonlyArray<PullRequestReviewThread>;
+  readonly checks: ReadonlyArray<PullRequestCheck>;
+  readonly checksState: PullRequestChecksState | null;
+  readonly checksStale: boolean;
+}): string | null {
+  const threads = input.reviewThreads.filter(
+    (thread) =>
+      !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
+  ).length;
+  const failing = input.checksStale
+    ? null
+    : input.checks.filter((check) => check.status === "failure" || check.status === "cancelled")
+        .length;
+  const parts = [
+    threads > 0
+      ? `${threads} unresolved ${plural(threads, "review comment", "review comments")}`
+      : null,
+    failing === null
+      ? input.checksState === "failing"
+        ? "failing checks"
+        : null
+      : failing > 0
+        ? `${failing} failing ${plural(failing, "check", "checks")}`
+        : null,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : parts.join(" · ");
+}
+
 function checksReadinessRow(input: {
   readonly checks: ReadonlyArray<PullRequestCheck>;
   readonly checksState: PullRequestChecksState | null;
@@ -1290,13 +1327,7 @@ function checksReadinessRow(input: {
     status: MergeReadinessStatus,
     label: string,
     detail: string | null = null,
-  ): MergeReadinessRow => ({
-    key: "checks",
-    status,
-    label,
-    detail,
-    action: status === "blocked" ? "fix-checks" : null,
-  });
+  ): MergeReadinessRow => ({ key: "checks", status, label, detail, action: null });
   // A newer rollup than the check list says how things stand, not how many of each.
   if (input.checksStale || input.checks.length === 0) {
     switch (input.checksState) {
