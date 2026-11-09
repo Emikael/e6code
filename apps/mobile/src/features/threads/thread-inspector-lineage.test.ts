@@ -114,7 +114,7 @@ describe("deriveInspectorLineage", () => {
       }),
     );
 
-    expect(lineage.label).toBe("Subagents · 1 working · 1 failed · 1 done · 1.5k tok");
+    expect(lineage.label).toBe("Subagents · 1 working · 1 failed · 1 done · 1.5K tok");
   });
 
   it("is a bare label with no rows when the thread has no subagents", () => {

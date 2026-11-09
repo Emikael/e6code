@@ -26,16 +26,16 @@ describe("describeThreadUsage", () => {
       describeThreadUsage({ totalTokens: 1_234_000, costUsd: 1.844, costSource: "reported" }),
     ).toEqual({
       cost: "$1.84",
-      tokens: "1.23m tokens",
-      accessibilityLabel: "This thread cost $1.84, 1.23m tokens",
+      tokens: "1.23M tokens",
+      accessibilityLabel: "This thread cost $1.84, 1.23M tokens",
     });
     expect(
       describeThreadUsage({ totalTokens: 48_600, costUsd: 0.004, costSource: "estimated" }),
     ).toEqual({
       cost: "≈<$0.01",
-      tokens: "48.6k tokens",
+      tokens: "48.6K tokens",
       accessibilityLabel:
-        "This thread cost about <$0.01, approximate because some turns were estimated or reported no cost, 48.6k tokens",
+        "This thread cost about <$0.01, approximate because some turns were estimated or reported no cost, 48.6K tokens",
     });
   });
 
@@ -59,7 +59,7 @@ describe("appendTurnUsage", () => {
         costUsd: 0.1234,
         costSource: "reported",
       }),
-    ).toBe("Worked for 22s · 48.6k tokens · $0.12");
+    ).toBe("Worked for 22s · 48.6K tokens · $0.12");
   });
 
   it("marks an estimated cost and floors sub-cent amounts", () => {
@@ -70,7 +70,7 @@ describe("appendTurnUsage", () => {
         costUsd: 2.5,
         costSource: "estimated",
       }),
-    ).toBe("Worked for 3s · 1.25m tokens · ≈$2.50");
+    ).toBe("Worked for 3s · 1.25M tokens · ≈$2.50");
     expect(
       appendTurnUsage("Worked for 3s", {
         totalTokens: 900,
@@ -80,13 +80,13 @@ describe("appendTurnUsage", () => {
       }),
     ).toBe("Worked for 3s · 900 tokens · <$0.01");
     expect(appendTurnUsage("Worked", { totalTokens: 999_999, partial: false })).toBe(
-      "Worked · 1m tokens",
+      "Worked · 1M tokens",
     );
   });
 
   it("shows tokens alone when the cost is unknown, and nothing without usage", () => {
     expect(appendTurnUsage("You stopped after 5s", { totalTokens: 1_200, partial: true })).toBe(
-      "You stopped after 5s · 1.2k tokens",
+      "You stopped after 5s · 1.2K tokens",
     );
     expect(appendTurnUsage("Worked for 5s", undefined)).toBe("Worked for 5s");
   });
@@ -101,7 +101,7 @@ describe("formatTurnUsage", () => {
         costSource: "estimated",
         partial: false,
       }),
-    ).toBe("48.6k tokens · ≈$0.12");
+    ).toBe("48.6K tokens · ≈$0.12");
     expect(formatTurnUsage({ totalTokens: 0, costUsd: 0.12, partial: false })).toBeNull();
     expect(formatTurnUsage(undefined)).toBeNull();
   });

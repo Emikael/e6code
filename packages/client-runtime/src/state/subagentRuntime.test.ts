@@ -697,8 +697,8 @@ describe("subagent stop", () => {
 describe("formatSubagentTokenCount", () => {
   it("formats plain counters", () => {
     expect(formatSubagentTokenCount(950)).toBe("950");
-    expect(formatSubagentTokenCount(41200)).toBe("41.2k");
-    expect(formatSubagentTokenCount(247000)).toBe("247k");
+    expect(formatSubagentTokenCount(41200)).toBe("41.2K");
+    expect(formatSubagentTokenCount(247000)).toBe("247K");
     expect(formatSubagentTokenCount(1_400_000)).toBe("1.4M");
   });
 });

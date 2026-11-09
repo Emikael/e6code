@@ -18,6 +18,7 @@
  * metadata).
  */
 import type { OrchestrationThreadActivity, TurnId } from "@e6tools/contracts";
+import { formatTokens } from "@e6tools/shared/usageFormat";
 import type { SubagentUserRequest } from "../pendingRequests.ts";
 
 export type RuntimeSubagentStatus =
@@ -996,14 +997,7 @@ export function formatSubagentFileCount(count: number): string {
 }
 
 export function formatSubagentTokenCount(totalTokens: number): string {
-  if (totalTokens < 1000) {
-    return `${totalTokens}`;
-  }
-  if (totalTokens < 1_000_000) {
-    const value = totalTokens / 1000;
-    return `${value >= 100 ? Math.round(value) : value.toFixed(1)}k`;
-  }
-  return `${(totalTokens / 1_000_000).toFixed(1)}M`;
+  return formatTokens(totalTokens);
 }
 
 /**

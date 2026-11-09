@@ -2241,7 +2241,7 @@ describe("buildThreadFeed", () => {
     expect(withUsage.map((entry) => entry.id)).toEqual(collapsed.map((entry) => entry.id));
     expect(withUsage[1]).toMatchObject({
       type: "turn-fold",
-      label: "Worked for 17s · 48.6k tokens · ≈$0.12",
+      label: "Worked for 17s · 48.6K tokens · ≈$0.12",
     });
   });
 
@@ -2304,11 +2304,11 @@ describe("buildThreadFeed", () => {
 
     const withoutTools = present([usageActivity]);
     expect(withoutTools.feed.some((entry) => entry.type === "turn-fold")).toBe(false);
-    expect([...withoutTools.labels]).toEqual([["assistant-final", "48.6k tokens · $0.12"]]);
+    expect([...withoutTools.labels]).toEqual([["assistant-final", "48.6K tokens · $0.12"]]);
 
     const withTools = present([toolActivity, usageActivity]);
     expect(withTools.feed.find((entry) => entry.type === "turn-fold")).toMatchObject({
-      label: "Worked for 17s · 48.6k tokens · $0.12",
+      label: "Worked for 17s · 48.6K tokens · $0.12",
     });
     expect(withTools.labels.size).toBe(0);
   });
