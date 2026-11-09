@@ -300,6 +300,19 @@ export function formatPullRequestLensCount(count: PullRequestLensCount): string 
 }
 
 /**
+ * The line under a "Needs you" list whose authored or review-requested read stopped at its page,
+ * so more rows may need the reader than it shows. Null when the list is whole or empty; the empty
+ * state already offers "Show all open".
+ */
+export function needsYouPartialNotice(
+  count: PullRequestLensCount | null,
+  shownCount: number,
+): string | null {
+  if (count === null || !count.more || shownCount === 0) return null;
+  return `Showing the first ${shownCount}. More may need you.`;
+}
+
+/**
  * Fresh counts laid over the ones held from earlier under the same filters, so a tab whose rows
  * are not being read right now keeps its last count. Returns `held` itself when nothing changed,
  * which is what lets a caller store the result without looping.

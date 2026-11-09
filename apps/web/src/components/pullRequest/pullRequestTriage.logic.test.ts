@@ -7,6 +7,7 @@ import {
   groupPullRequestsForNeedsYou,
   holdPullRequestLensCounts,
   joinPullRequestThreads,
+  needsYouPartialNotice,
   pullRequestLensCounts,
   pullRequestLensOf,
   pullRequestLensScope,
@@ -254,6 +255,30 @@ describe("what needs the reader", () => {
     });
     expect(counts["needs-you"]).toEqual({ count: 5, more: false });
     expect(counts.yours).toEqual({ count: 6, more: false });
+  });
+
+  it("says the list is partial when a partition stopped at its page", () => {
+    const counts = pullRequestLensCounts({
+      viewers: VIEWERS,
+      open: { entries, truncated: true },
+      authored: {
+        entries: entries.filter((entry) => entry.author?.login === "me"),
+        truncated: true,
+      },
+      reviewing: { entries: [entries[0]!, entries[8]!], truncated: false },
+      merged: null,
+    });
+    expect(formatPullRequestLensCount(counts["needs-you"]!)).toBe("5+");
+    expect(needsYouPartialNotice(counts["needs-you"], 5)).toBe(
+      "Showing the first 5. More may need you.",
+    );
+  });
+
+  it("has no partial notice for a whole, empty, or uncounted list", () => {
+    expect(needsYouPartialNotice({ count: 5, more: false }, 5)).toBeNull();
+    // The empty state offers "Show all open" itself.
+    expect(needsYouPartialNotice({ count: 0, more: true }, 0)).toBeNull();
+    expect(needsYouPartialNotice(null, 3)).toBeNull();
   });
 
   it("keeps the last count of a tab that is not being read, and settles once nothing changes", () => {
