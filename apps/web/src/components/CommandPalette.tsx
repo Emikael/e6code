@@ -224,6 +224,7 @@ import {
 import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
+import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -816,6 +817,7 @@ function OpenCommandPaletteDialog(props: {
     (state) => selectThreadRightPanelState(state.byThreadKey, referenceThreadRef).isOpen,
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
+  const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1860,6 +1862,22 @@ function OpenCommandPaletteDialog(props: {
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+    });
+  }
+
+  if (pullRequestMergeCommand !== null) {
+    // Opens the panel's own merge confirmation; nothing merges from here directly.
+    actionItems.push({
+      kind: "action",
+      value: "action:merge-pull-request",
+      searchTerms: ["merge", "pull request", "pr", "ship"],
+      title: `Merge pull request #${pullRequestMergeCommand.number}`,
+      description: pullRequestMergeCommand.title,
+      icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "pullRequest.merge",
+      run: async () => {
+        pullRequestMergeCommand.run();
+      },
     });
   }
 

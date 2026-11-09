@@ -128,6 +128,11 @@ Open **Pull requests** to review changes and comments, request reviewers, check 
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.
 
+The page opens on **All open**; **Needs you** shows reviews requested from you and your own pull
+requests that are blocked or ready to merge, **Yours** shows what you authored, and **Merged** shows
+finished work. An open review lists its merge readiness (checks, approval, conflicts, and whether
+the branch is up to date) above the merge controls, with a button to fix what is failing.
+
 GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
 supports approving waiting fork workflows and opening a revert pull request for a merged change.
 

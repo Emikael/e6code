@@ -671,6 +671,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
         ? ["Effort display"]
         : []),
+      ...(settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline
+        ? ["Thinking timeline"]
+        : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -786,6 +789,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffColorScheme,
       settings.chatWidth,
       settings.effortDisplay,
+      settings.showThinkingTimeline,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -901,6 +905,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
+      showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -1602,6 +1607,31 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("thinking-timeline")}
+          description="Show an opened work log as a timeline, with each step's duration and line changes."
+          resetAction={
+            settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline ? (
+              <SettingResetButton
+                label="thinking timeline"
+                onClick={() =>
+                  updateSettings({
+                    showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showThinkingTimeline}
+              onCheckedChange={(checked) =>
+                updateSettings({ showThinkingTimeline: Boolean(checked) })
+              }
+              aria-label="Show the thinking timeline"
+            />
           }
         />
       </SettingsSection>

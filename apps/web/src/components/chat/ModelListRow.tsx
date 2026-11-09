@@ -1,4 +1,5 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@e6tools/contracts";
+import { modelMetaParts } from "@e6tools/client-runtime/model-meta";
 import { memo } from "react";
 import { CheckIcon, StarIcon } from "lucide-react";
 import {
@@ -45,6 +46,8 @@ export const ModelListRow = memo(function ModelListRow(props: {
   const providerLabel = props.model.subProvider
     ? `${props.providerDisplayName} · ${props.model.subProvider}`
     : props.providerDisplayName;
+  const meta = modelMetaParts(props.model);
+  const hasMeta = meta.context !== undefined || meta.price !== undefined;
 
   const row = (
     <ComboboxItem
@@ -84,14 +87,26 @@ export const ModelListRow = memo(function ModelListRow(props: {
             </Badge>
           ) : null}
         </div>
-        {props.showProvider && (
-          <div className="mt-1 flex items-center gap-1.5">
-            {ProviderIcon ? <ProviderIcon className="size-3 shrink-0" /> : null}
-            <span className="truncate text-xs font-normal leading-snug text-muted-foreground/70">
-              {providerLabel}
-            </span>
+        {props.showProvider || hasMeta ? (
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs font-normal leading-snug text-muted-foreground/70">
+            {props.showProvider && ProviderIcon ? (
+              <ProviderIcon className="size-3 shrink-0" />
+            ) : null}
+            {props.showProvider ? <span className="truncate">{providerLabel}</span> : null}
+            {hasMeta ? (
+              <span className="shrink-0 whitespace-pre tabular-nums">
+                {props.showProvider ? "· " : null}
+                {meta.context}
+                {meta.context && meta.price ? " · " : null}
+                {meta.price ? (
+                  <span role="img" aria-label={meta.priceAccessibilityLabel}>
+                    {meta.price}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">

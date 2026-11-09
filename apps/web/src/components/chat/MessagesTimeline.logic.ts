@@ -32,6 +32,7 @@ import {
   workEntryIndicatesToolNeutralStatus,
   workLogEntryIsToolLike,
   type TimelineEntry,
+  type WorkLogDiffStat,
   type WorkLogEntry,
 } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
@@ -120,6 +121,39 @@ export function workEntryIsVisibleInGroup(
         entry.sourceActivityKind === "task.progress")) ||
     !workEntryIndicatesToolNeutralStatus(entry)
   );
+}
+
+/** What a settled step shows at the right of the thinking timeline. Missing data is null. */
+interface WorkStepMeta {
+  /** "1.2s": from the step's first lifecycle row to its terminal one. */
+  readonly duration: string | null;
+  /** Lines a file change added and removed; null when unknown or both zero. */
+  readonly diffStat: WorkLogDiffStat | null;
+}
+
+const EMPTY_WORK_STEP_META: WorkStepMeta = { duration: null, diffStat: null };
+
+/**
+ * Per-step meta for the thinking timeline. A step still running has no
+ * duration yet: the live ring says it is running, and a frozen number would lie.
+ */
+export function deriveWorkStepMeta(
+  entry: Pick<WorkLogEntry, "createdAt" | "startedAt" | "toolLifecycleStatus" | "diffStat">,
+): WorkStepMeta {
+  let duration: string | null = null;
+  if (
+    entry.startedAt !== undefined &&
+    entry.toolLifecycleStatus !== undefined &&
+    entry.toolLifecycleStatus !== "inProgress"
+  ) {
+    const span = Date.parse(entry.createdAt) - Date.parse(entry.startedAt);
+    if (Number.isFinite(span) && span > 0) duration = formatDuration(span);
+  }
+  const diffStat =
+    entry.diffStat && (entry.diffStat.additions > 0 || entry.diffStat.deletions > 0)
+      ? entry.diffStat
+      : null;
+  return duration === null && diffStat === null ? EMPTY_WORK_STEP_META : { duration, diffStat };
 }
 
 export interface WorkGroupScrollAnchor {
