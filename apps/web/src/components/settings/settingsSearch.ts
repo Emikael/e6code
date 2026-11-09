@@ -190,6 +190,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "appearance",
   },
   {
+    id: "stock-accent",
+    title: "Accent",
+    to: "/settings/appearance",
+    searchTerms: ["color primary iris cobalt rose graphite swatch"],
+  },
+  {
     // Prefixed because the slider control already owns the `appearance-contrast` id.
     id: "setting-appearance-contrast",
     title: "Contrast",
@@ -214,6 +220,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Effort display",
     to: "/settings/appearance",
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
+  },
+  {
+    id: "thinking-timeline",
+    title: "Show the thinking timeline",
+    to: "/settings/appearance",
+    searchTerms: ["work log steps rail tool calls duration diff reasoning thought activity"],
   },
   {
     id: "chat-width",

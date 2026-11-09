@@ -11,7 +11,25 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
-import { ChevronDownIcon, EllipsisIcon, PencilIcon } from "lucide-react";
+import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
+import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
+import {
+  ChevronDownIcon,
+  CircleAlertIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CirclePauseIcon,
+  EllipsisIcon,
+  EyeIcon,
+  GitBranchIcon,
+  MessageCircleQuestionIcon,
+  PencilIcon,
+  ShieldQuestionIcon,
+  type LucideIcon,
+} from "lucide-react";
 import {
   memo,
   useCallback,
@@ -24,7 +42,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import GitActionsControl from "../GitActionsControl";
-import { isTrailingDoubleClick } from "../Sidebar.logic";
+import { isTrailingDoubleClick, resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -40,6 +58,9 @@ import { useProjectGroupDisplayName } from "~/hooks/useProjectGroupDisplayName";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
+import { useThreadShell } from "../../state/entities";
+import { useClientSettings } from "~/hooks/useSettings";
+import { formatUpcomingTimestamp } from "~/timestampFormat";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
 import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
@@ -96,6 +117,133 @@ export function resolveRenameCommit(input: {
   if (trimmed.length === 0) return { action: "reject-empty" };
   if (trimmed === input.originalTitle) return { action: "noop" };
   return { action: "commit", title: trimmed };
+}
+
+type ThreadHeaderStatusKind =
+  | "approval"
+  | "input"
+  | "paused"
+  | "working"
+  | "monitoring"
+  | "failed"
+  | "done";
+
+interface ThreadHeaderStatus {
+  readonly kind: ThreadHeaderStatusKind;
+  readonly label: string;
+  /** Truncatable detail after the label, such as "step 4 of 6". */
+  readonly detail: string | null;
+}
+
+/**
+ * Header status pill for the open thread. Uses the sidebar's resolution and
+ * the shared running-status detail so both surfaces agree ("Working · step 4
+ * of 6", "Paused · resets 14:20"), with full wording for attention states
+ * since the header has room. A resting thread reads Done only after a
+ * completed turn; a fresh or stopped thread shows no pill.
+ */
+export function resolveThreadHeaderStatus(
+  thread: Pick<
+    EnvironmentThreadShell,
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "session"
+    | "backgroundLiveness"
+    | "agentState"
+    | "latestTurn"
+    | "planProgress"
+  >,
+  formatResetTime: (resetsAt: string) => string,
+): ThreadHeaderStatus | null {
+  const status = resolveSidebarThreadStatus(thread);
+  switch (status) {
+    case "approval":
+      return { kind: "approval", label: "Needs approval", detail: null };
+    case "input":
+      return { kind: "input", label: "Needs your answer", detail: null };
+    case "paused":
+    case "working":
+      return {
+        kind: status,
+        ...formatRunningThreadStatus({
+          agentState: thread.agentState,
+          planProgress: thread.planProgress,
+          formatResetTime,
+        }),
+      };
+    case "monitoring":
+      return { kind: "monitoring", label: "Monitoring", detail: null };
+    case "failed":
+      return { kind: "failed", label: "Failed", detail: null };
+    case "ready":
+      return thread.latestTurn?.state === "completed"
+        ? { kind: "done", label: "Done", detail: null }
+        : null;
+  }
+}
+
+// Same icons and semantic hues as the sidebar row status.
+const THREAD_HEADER_STATUS_STYLE: Record<
+  ThreadHeaderStatusKind,
+  { icon: LucideIcon; className: string }
+> = {
+  approval: { icon: ShieldQuestionIcon, className: "text-warning-foreground" },
+  input: { icon: MessageCircleQuestionIcon, className: "text-primary-text" },
+  paused: { icon: CirclePauseIcon, className: "text-warning-foreground" },
+  working: { icon: CircleDashedIcon, className: "text-info-foreground" },
+  monitoring: { icon: EyeIcon, className: "text-foreground" },
+  failed: { icon: CircleAlertIcon, className: "text-destructive-foreground" },
+  done: { icon: CircleCheckIcon, className: "text-success-foreground" },
+};
+
+function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
+  const { icon: Icon, className } = THREAD_HEADER_STATUS_STYLE[status.kind];
+  const fullText = joinThreadRowStatus(status);
+  const pill = (
+    <span
+      role="status"
+      aria-label={fullText}
+      className={cn(
+        "inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-1.5 text-xs font-medium whitespace-nowrap",
+        className,
+      )}
+    >
+      <Icon aria-hidden className="size-3 shrink-0" />
+      <span className="shrink-0">{status.label}</span>
+      {status.detail ? (
+        <span className="max-w-32 truncate font-normal text-muted-foreground">
+          · {status.detail}
+        </span>
+      ) : null}
+    </span>
+  );
+  if (status.detail === null) return pill;
+  // The detail can truncate in the pill; the tooltip keeps it whole.
+  return (
+    <Tooltip>
+      <TooltipTrigger render={pill} />
+      <TooltipPopup side="top">{fullText}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function ThreadHeaderBranch(props: { branch: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            // Branch gives way first: hidden in narrow headers, pill stays.
+            className="hidden min-w-0 shrink items-center gap-1 text-xs text-muted-foreground @xl/header-actions:inline-flex"
+          />
+        }
+      >
+        <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+        <span className="max-w-40 truncate font-mono">{props.branch}</span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">{props.branch}</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 // Matches the @3xl/header-actions container breakpoint owned by this header.
@@ -222,6 +370,7 @@ export const ChatHeader = memo(function ChatHeader({
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
   );
+  const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -233,6 +382,15 @@ export const ChatHeader = memo(function ChatHeader({
     setRenaming(null);
   }
   const renamingTitle = renaming?.threadId === activeThreadId ? renaming.title : null;
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const headerStatus = activeThreadShell
+    ? resolveThreadHeaderStatus(activeThreadShell, (resetsAt) =>
+        formatUpcomingTimestamp(resetsAt, timestampFormat),
+      )
+    : null;
+  const headerBranch = activeThreadShell?.branch ?? null;
+  const showThreadStatus =
+    renamingTitle === null && (headerStatus !== null || headerBranch !== null);
   const renameCommittedRef = useRef(false);
   const startRename = useCallback(() => {
     renameCommittedRef.current = false;
@@ -413,7 +571,12 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+        {/* With status beside it, the title sizes to its text so the pill
+            sits right after it; the title still truncates first. */}
+        <WorkspaceBreadcrumbItem
+          current
+          className={cn("min-w-10", showThreadStatus ? "shrink" : "flex-1")}
+        >
           {renamingTitle !== null ? (
             <input
               autoFocus
@@ -485,6 +648,12 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
         </WorkspaceBreadcrumbItem>
+        {showThreadStatus ? (
+          <li className="flex shrink-0 items-center gap-2">
+            {headerStatus ? <ThreadHeaderStatusPill status={headerStatus} /> : null}
+            {headerBranch ? <ThreadHeaderBranch branch={headerBranch} /> : null}
+          </li>
+        ) : null}
       </WorkspaceBreadcrumb>
       {/* Which machine runs this thread, and whether it is reachable, in words. */}
       <EnvironmentConnectionChip

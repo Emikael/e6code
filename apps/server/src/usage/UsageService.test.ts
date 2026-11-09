@@ -24,6 +24,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Scheduler from "effect/Scheduler";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
@@ -433,6 +434,35 @@ describe("UsageService", () => {
                 output_cost_per_token: 4e-6,
                 cache_read_input_token_cost: 1e-7,
               },
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("pings price-tier subscribers once a background rate fetch lands", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+
+      yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        const changes = yield* service.subscribeModelPriceTierChanges;
+        const firstChange = yield* changes.pipe(Stream.runHead, Effect.forkScoped);
+
+        // Nothing is loaded yet: the lookup answers from the empty table and
+        // starts the fetch in the background.
+        assert.strictEqual((yield* service.modelPriceTiers)("table-model"), undefined);
+        yield* Fiber.join(firstChange);
+        assert.strictEqual((yield* service.modelPriceTiers)("table-model"), 2);
+      }).pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-price-tier-changes-test",
+            home,
+            settings,
+            ratesDocument: {
+              "table-model": { input_cost_per_token: 2e-6, output_cost_per_token: 1e-5 },
             },
           }),
         ),

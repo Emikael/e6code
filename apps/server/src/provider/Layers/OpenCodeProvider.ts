@@ -259,10 +259,17 @@ function flattenOpenCodeModels(input: OpenCodeInventory): ReadonlyArray<ServerPr
     }
 
     const subProvider = nonEmptyTrimmed(providerNames.get(model.providerID));
+    // A missing or zero limit means OpenCode does not know it.
+    const contextWindowTokens = model.limit?.context;
     models.push({
       slug: `${model.providerID}/${model.id}`,
       name,
       ...(subProvider ? { subProvider } : {}),
+      ...(contextWindowTokens !== undefined &&
+      Number.isInteger(contextWindowTokens) &&
+      contextWindowTokens > 0
+        ? { contextWindowTokens }
+        : {}),
       isCustom: false,
       capabilities: openCodeCapabilitiesForModel({
         providerID: model.providerID,

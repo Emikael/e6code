@@ -413,6 +413,36 @@ it.layer(testLayer)("checkOpenCodeProviderStatus", (it) => {
     }),
   );
 
+  it.effect("reports each model's context limit, leaving unknown limits out", () =>
+    Effect.gen(function* () {
+      const model = (id: string, context: number) => ({
+        id,
+        modelID: id,
+        providerID: "openai",
+        name: id,
+        variants: [],
+        limit: { context, output: 4_000 },
+      });
+      runtimeMock.state.inventory = {
+        providers: [{ id: "openai", name: "OpenAI", activation: "enabled" }],
+        models: [model("known", 272_000), model("unknown", 0)],
+        agents: [],
+        skills: [],
+        commands: [],
+      };
+
+      const snapshot = yield* checkProvider(makeOpenCodeSettings());
+
+      NodeAssert.deepEqual(
+        snapshot.models.map((entry) => [entry.slug, entry.contextWindowTokens]),
+        [
+          ["openai/known", 272_000],
+          ["openai/unknown", undefined],
+        ],
+      );
+    }),
+  );
+
   it.effect("includes OpenCode skills in the provider snapshot", () =>
     Effect.gen(function* () {
       runtimeMock.state.inventory = {

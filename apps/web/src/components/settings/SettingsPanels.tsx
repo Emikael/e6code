@@ -157,6 +157,8 @@ import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThemeLibrary } from "./ThemeSettings";
+import { StockAccentSetting } from "./StockAccentSetting";
+import { isStockThemeActive } from "../../stockAccent";
 import {
   backgroundActivityOverrideSettings,
   backgroundActivitySharedPolicySettings,
@@ -657,6 +659,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(theme !== "system" ? ["Theme"] : []),
       ...(!followSystem ? ["Follow system"] : []),
       ...(themeHalves !== null ? ["Theme mix"] : []),
+      ...(settings.stockAccent !== DEFAULT_UNIFIED_SETTINGS.stockAccent ? ["Accent"] : []),
       ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
         ? ["Contrast"]
         : []),
@@ -667,6 +670,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
       ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
         ? ["Effort display"]
+        : []),
+      ...(settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline
+        ? ["Thinking timeline"]
         : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
@@ -779,9 +785,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.browserLinkTarget,
       settings.browserAutoShowFloatingPreview,
       settings.appearanceContrast,
+      settings.stockAccent,
       settings.diffColorScheme,
       settings.chatWidth,
       settings.effortDisplay,
+      settings.showThinkingTimeline,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -893,9 +901,11 @@ export function useSettingsRestore(onRestored?: () => void) {
     }
     updateSettings({
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
+      stockAccent: DEFAULT_UNIFIED_SETTINGS.stockAccent,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
+      showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -1343,6 +1353,12 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="appearance-interface" title="Interface">
+        <StockAccentSetting
+          value={settings.stockAccent}
+          appearance={resolvedTheme}
+          stockThemeActive={isStockThemeActive(theme, themeHalves, resolvedTheme)}
+          onChange={(stockAccent) => updateSettings({ stockAccent })}
+        />
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
@@ -1591,6 +1607,31 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("thinking-timeline")}
+          description="Show an opened work log as a timeline, with each step's duration and line changes."
+          resetAction={
+            settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline ? (
+              <SettingResetButton
+                label="thinking timeline"
+                onClick={() =>
+                  updateSettings({
+                    showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showThinkingTimeline}
+              onCheckedChange={(checked) =>
+                updateSettings({ showThinkingTimeline: Boolean(checked) })
+              }
+              aria-label="Show the thinking timeline"
+            />
           }
         />
       </SettingsSection>

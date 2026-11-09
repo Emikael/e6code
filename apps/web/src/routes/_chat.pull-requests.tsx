@@ -20,8 +20,10 @@ import {
   CalendarArrowDownIcon,
   CalendarArrowUpIcon,
   ChevronDownIcon,
+  CircleAlertIcon,
   ClockIcon,
   EyeIcon,
+  HourglassIcon,
   LayersIcon,
   ListChecksIcon,
   PenLineIcon,
@@ -49,6 +51,7 @@ import {
   findScopedProject,
   collectPullRequestListFacets,
   groupPullRequestsByInvolvement,
+  isAuthoredByViewer,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
   parsePullRequestQuery,
@@ -58,6 +61,7 @@ import {
   pullRequestDiffStatKey,
   pullRequestEntryKey,
   pullRequestEntryViewer,
+  pullRequestListSyncedAt,
   rankPullRequestMatches,
   sortPullRequestGroups,
   pullRequestEnvironmentSetKey,
@@ -87,6 +91,18 @@ import {
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
+import {
+  formatPullRequestLensCount,
+  groupPullRequestsForNeedsYou,
+  holdPullRequestLensCounts,
+  PULL_REQUEST_LENSES,
+  pullRequestLensCounts,
+  pullRequestLensOf,
+  pullRequestLensScope,
+  type PullRequestLens,
+  type PullRequestLensCount,
+  type PullRequestLensCounts,
+} from "../components/pullRequest/pullRequestTriage.logic";
 import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
@@ -105,6 +121,7 @@ import {
   PullRequestRow,
   type PullRequestRowTarget,
 } from "../components/pullRequest/PullRequestRow";
+import { PullRequestThreadJoin } from "../components/pullRequest/PullRequestRowThreads";
 import { PullRequestsUnavailableState } from "../components/pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatusSeed } from "../components/RightPanelTabs";
 import {
@@ -152,6 +169,7 @@ import { cn } from "~/lib/utils";
 import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
 function getShortcutContext() {
@@ -200,7 +218,79 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   authored: PenLineIcon,
   reviewRequested: EyeIcon,
   others: UsersIcon,
+  needsYou: CircleAlertIcon,
+  waitingOnOthers: HourglassIcon,
 };
+
+/**
+ * The page's tabs, each a shortcut onto the state and involvement filters with how many rows it
+ * holds. A count is only shown where one was read; "+" marks a count that stopped at a page.
+ * Arrow keys move focus between tabs, as in any tab list.
+ */
+function PullRequestLensTabs({
+  value,
+  counts,
+  onChange,
+}: {
+  value: PullRequestLens | null;
+  counts: Record<PullRequestLens, PullRequestLensCount | null>;
+  onChange: (lens: PullRequestLens) => void;
+}) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const focusable = value ?? PULL_REQUEST_LENSES[0]!.value;
+  return (
+    <div
+      ref={listRef}
+      role="tablist"
+      aria-label="Pull request views"
+      className="flex min-w-0 items-center gap-1 overflow-x-auto"
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        const index = PULL_REQUEST_LENSES.findIndex(
+          (lens) => lens.value === (event.target as HTMLElement).dataset.lens,
+        );
+        if (index === -1) return;
+        event.preventDefault();
+        const step = event.key === "ArrowRight" ? 1 : -1;
+        const next =
+          PULL_REQUEST_LENSES[
+            (index + step + PULL_REQUEST_LENSES.length) % PULL_REQUEST_LENSES.length
+          ]!;
+        // Focus only: each tab is a new read, so it waits for Enter or Space to be chosen.
+        listRef.current?.querySelector<HTMLElement>(`[data-lens="${next.value}"]`)?.focus();
+      }}
+    >
+      {PULL_REQUEST_LENSES.map((lens) => {
+        const selected = lens.value === value;
+        const count = counts[lens.value];
+        return (
+          <button
+            key={lens.value}
+            type="button"
+            role="tab"
+            data-lens={lens.value}
+            aria-selected={selected}
+            tabIndex={lens.value === focusable ? 0 : -1}
+            onClick={() => onChange(lens.value)}
+            className={cn(
+              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              selected
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+            )}
+          >
+            {lens.label}
+            {count === null ? null : (
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {formatPullRequestLensCount(count)}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function PullRequestGroupHeader({
   group,
@@ -231,6 +321,17 @@ const STATE_TABS = [
   { value: "closed", label: "Closed", Icon: PullRequestGlyph.closed },
   { value: "merged", label: "Merged", Icon: PullRequestGlyph.merged },
 ] as const satisfies ReadonlyArray<PullRequestFilterOption<PullRequestListState>>;
+
+const LENS_ICONS: Record<PullRequestLens, LucideIcon> = {
+  "needs-you": CircleAlertIcon,
+  yours: PenLineIcon,
+  open: PullRequestGlyph.pullRequest,
+  merged: PullRequestGlyph.merged,
+};
+const LENS_OPTIONS = PULL_REQUEST_LENSES.map((lens) => ({
+  ...lens,
+  Icon: LENS_ICONS[lens.value],
+})) satisfies ReadonlyArray<PullRequestFilterOption<PullRequestLens>>;
 
 const SORT_OPTIONS = [
   { value: "ready", label: "Merge readiness", Icon: ListChecksIcon },
@@ -330,6 +431,7 @@ export const Route = createFileRoute("/_chat/pull-requests")({
       ? { author: raw.author.trim().slice(0, 200) }
       : {}),
     ...pullRequestSearchLabels(raw.labels),
+    ...(raw.lens === "needs-you" ? { lens: "needs-you" as const } : {}),
   }),
   component: PullRequestsRouteView,
 });
@@ -535,6 +637,12 @@ function PullRequestsRouteView() {
             ...(next.checks ? { checks: next.checks } : {}),
             ...(next.author ? { author: next.author } : {}),
             ...(next.labels && next.labels.length > 0 ? { labels: next.labels } : {}),
+            // Only the open list can be narrowed to what needs the reader.
+            ...(next.lens === "needs-you" &&
+            (next.state ?? previous.state) === "open" &&
+            (next.involvement ?? previous.involvement) === "all"
+              ? { lens: next.lens }
+              : {}),
           };
         },
         replace: true,
@@ -803,17 +911,18 @@ function PullRequestsRouteView() {
   // so no partitions are read for one. These are the same atoms the Authored and Reviewing tabs
   // ask for, so switching to either is answered from cache.
   const partitionsWanted = search.involvement === "all" && typedQuery.length === 0;
+  // The "Yours" tab reads them too, for the tab counts: its feed is already the authored read,
+  // so only the review-requested one costs anything.
+  const partitionsRead =
+    partitionsWanted ||
+    (search.state === "open" && search.involvement === "authored" && typedQuery.length === 0);
   // Built together so the two reads share one memo, and in the same field order the feed's own
   // input uses: the atoms are keyed by their input, so the Authored tab then reads this answer.
   const partitionTargets = useMemo(() => {
     // The main list goes first. Besides putting the visible rows on screen sooner, it proves
     // which repositories the host search indexes, so an empty partition does not trigger the
     // expensive per-repository fallback. With no rows at all both partitions are already empty.
-    if (
-      !partitionsWanted ||
-      baselineQuery.data === null ||
-      baselineQuery.data.entries.length === 0
-    ) {
+    if (!partitionsRead || baselineQuery.data === null || baselineQuery.data.entries.length === 0) {
       return { authored: NO_LIST_TARGETS, reviewing: NO_LIST_TARGETS };
     }
     const targetsFor = (involvement: PullRequestInvolvement) =>
@@ -833,7 +942,7 @@ function PullRequestsRouteView() {
   }, [
     menuFiltered,
     menuFilters,
-    partitionsWanted,
+    partitionsRead,
     baselineQuery.data,
     environmentQueries,
     scopedProjectId,
@@ -842,6 +951,35 @@ function PullRequestsRouteView() {
   ]);
   const authoredQuery = usePullRequestList(partitionTargets.authored);
   const reviewingQuery = usePullRequestList(partitionTargets.reviewing);
+  // The whole open list for the tab counts while "Yours" is showing, in the baseline's own field
+  // order so it is the very atom "All open" reads.
+  const lensOpenTargets = useMemo(() => {
+    if (search.state !== "open" || search.involvement !== "authored" || typedQuery.length > 0) {
+      return NO_LIST_TARGETS;
+    }
+    return environmentQueries.map(({ environmentId, projectIds }) => ({
+      environmentId,
+      input: {
+        state: "open",
+        involvement: "all",
+        limit: PAGE_SIZE,
+        ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+        ...(projectIds ? { projectIds } : {}),
+        ...(search.host ? { host: search.host } : {}),
+        ...(menuFiltered ? { filters: menuFilters } : {}),
+      } satisfies PullRequestListInput,
+    }));
+  }, [
+    environmentQueries,
+    menuFiltered,
+    menuFilters,
+    scopedProjectId,
+    search.host,
+    search.involvement,
+    search.state,
+    typedQuery.length,
+  ]);
+  const lensOpenQuery = usePullRequestList(lensOpenTargets);
   // The header's refresh punches through the server's cache before re-reading; the error and
   // empty states retry plainly, because a failure is never cached.
   const invalidate = useAtomCommand(pullRequestEnvironment.invalidate, { reportFailure: false });
@@ -1132,6 +1270,7 @@ function PullRequestsRouteView() {
             ...facetTargets,
             ...partitionTargets.authored,
             ...partitionTargets.reviewing,
+            ...lensOpenTargets,
           ]
         : []
     ).filter(
@@ -1187,6 +1326,53 @@ function PullRequestsRouteView() {
 
   const viewers = baselineQuery.data?.viewers ?? listData?.viewers ?? EMPTY_VIEWERS;
   const listErrors = baselineQuery.data?.errors ?? listData?.errors ?? [];
+
+  const lens = pullRequestLensOf(search);
+  // Each tab counts from the reads it already has; a tab whose rows are not being read keeps the
+  // last count it had under the same filters, so switching to "Merged" does not blank the rest.
+  const liveLensCounts = useMemo(() => {
+    const openList = search.state === "open" && search.involvement === "all";
+    const yours = search.state === "open" && search.involvement === "authored";
+    return pullRequestLensCounts({
+      viewers,
+      open: openList ? baselineQuery.data : yours ? lensOpenQuery.data : null,
+      authored: openList || yours ? authoredQuery.data : null,
+      reviewing: openList || yours ? reviewingQuery.data : null,
+      merged: search.state === "merged" && search.involvement === "all" ? baselineQuery.data : null,
+    });
+  }, [
+    authoredQuery.data,
+    baselineQuery.data,
+    lensOpenQuery.data,
+    reviewingQuery.data,
+    search.involvement,
+    search.state,
+    viewers,
+  ]);
+  const lensCountScope = `${environmentKey}:${assignmentKey}:${scopedProjectId ?? ""}:${search.host ?? ""}:${search.draft ?? ""}:${search.review ?? ""}:${search.checks ?? ""}:${search.author ?? ""}:${search.labels?.join("\u0000") ?? ""}`;
+  const [heldLensCounts, setHeldLensCounts] = useState<{
+    readonly scope: string;
+    readonly counts: PullRequestLensCounts;
+  } | null>(null);
+  const heldCounts = heldLensCounts?.scope === lensCountScope ? heldLensCounts.counts : null;
+  const lensCounts = holdPullRequestLensCounts(liveLensCounts, heldCounts);
+  // Adjusted while rendering rather than in an effect: the held copy only changes when a count
+  // does, so this settles on the next render.
+  if (lensCounts !== heldCounts) setHeldLensCounts({ scope: lensCountScope, counts: lensCounts });
+  const selectLens = (next: PullRequestLens) => updateListScope(pullRequestLensScope(next));
+  // "3 projects · synced 1m ago": what the list covers and how fresh it is, each part only where
+  // it is known. The relative time is redrawn with the list's own once-a-minute refresh.
+  const syncedAt = useMemo(() => pullRequestListSyncedAt(listData?.entries ?? []), [listData]);
+  const projectCount = scopedProject === undefined ? projects.length : 1;
+  const subtitle =
+    [
+      projectsKnown && projectCount > 0
+        ? `${projectCount} ${projectCount === 1 ? "project" : "projects"}`
+        : null,
+      syncedAt === null ? null : `synced ${formatRelativeTimeLabel(syncedAt)}`,
+    ]
+      .filter((part) => part !== null)
+      .join(" · ") || null;
   const facets = useMemo(
     () =>
       collectPullRequestListFacets(
@@ -1277,7 +1463,7 @@ function PullRequestsRouteView() {
    * listing leaves them out and they arrive a moment later, into rows that already draw without
    * them. Keyed by the rows being shown, so scrolling further asks only about what is new.
    */
-  const groups = useMemo(() => {
+  const involvementGroups = useMemo(() => {
     if (search.involvement !== "all") return [{ key: "others" as const, label: "", entries }];
     // Until both partitions have answered, the snapshot's stand in — they are yesterday's
     // groups, but whole ones, where grouping the feed's first page locally loses every
@@ -1319,6 +1505,20 @@ function PullRequestsRouteView() {
     search.involvement,
     viewers,
   ]);
+  // "Needs you" is the same open list, re-shelved by whose move it is. The partitions above are
+  // whole up to their page, and every row it keeps is authored or review-requested, so nothing
+  // it should show is missing for the feed being sliced by recency.
+  const groups = useMemo(
+    () =>
+      lens === "needs-you"
+        ? groupPullRequestsForNeedsYou(
+            involvementGroups.flatMap((group) => group.entries),
+            viewers,
+          )
+        : involvementGroups,
+    [involvementGroups, lens, viewers],
+  );
+  const shownCount = groups.reduce((total, group) => total + group.entries.length, 0);
 
   // Date sorts keep optional line-count reads near the viewport. Size and readiness sorts need
   // every loaded count before their order is final. Counts stay cached across both policies.
@@ -1646,7 +1846,7 @@ function PullRequestsRouteView() {
   // so that case waits with the skeletons rather than answering for the hosts. A search says so
   // in its own words and is left to.
   const carriedToNothing =
-    showingCarried && listQuery.isPending && entries.length === 0 && typedQuery.length === 0;
+    showingCarried && listQuery.isPending && shownCount === 0 && typedQuery.length === 0;
   const listBody = (
     <>
       {!capabilityKnown ? (
@@ -1658,7 +1858,7 @@ function PullRequestsRouteView() {
         />
       ) : firstLoad ? (
         <PullRequestListGhost rows={7} />
-      ) : listQuery.error && entries.length === 0 ? (
+      ) : listQuery.error && shownCount === 0 ? (
         <PullRequestsUnavailableState
           error={listQuery.error}
           refreshing={listQuery.isPending}
@@ -1666,7 +1866,7 @@ function PullRequestsRouteView() {
         />
       ) : carriedToNothing ? (
         <PullRequestListGhost rows={7} />
-      ) : entries.length === 0 ? (
+      ) : shownCount === 0 ? (
         <PullRequestListEmptyState
           hasProjects={!projectsKnown || projects.length > 0}
           refreshing={refreshing}
@@ -1676,6 +1876,7 @@ function PullRequestsRouteView() {
             menuFiltered ||
             search.state !== "open" ||
             search.involvement !== "all" ||
+            lens === "needs-you" ||
             scopedProjectId !== undefined ||
             search.host !== undefined
           }
@@ -1698,6 +1899,7 @@ function PullRequestsRouteView() {
                     statsKey={entryKey}
                     statsRef={registerStatsRow}
                     entry={entry}
+                    authoredByViewer={isAuthoredByViewer(entry, viewers)}
                     showProjectTitle
                     showProvider={showProvider}
                     {...(capableEnvironments.length > 1 &&
@@ -1725,7 +1927,7 @@ function PullRequestsRouteView() {
         </div>
       )}
 
-      {listQuery.error && entries.length > 0 ? (
+      {listQuery.error && shownCount > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
           <span>{listQuery.error} Showing the last pull requests loaded.</span>
           <Button size="xs" variant="outline" onClick={() => listQuery.refresh()}>
@@ -1733,7 +1935,7 @@ function PullRequestsRouteView() {
           </Button>
         </div>
       ) : null}
-      {listData?.truncated && entries.length > 0 ? (
+      {lens !== "needs-you" && listData?.truncated && entries.length > 0 ? (
         <div className="flex justify-center py-3 text-xs text-muted-foreground">
           {loadingMore ? (
             <span className="flex items-center gap-2">
@@ -1802,10 +2004,10 @@ function PullRequestsRouteView() {
       onOpenChange={setFiltersOpen}
       state={search.state}
       stateOptions={STATE_TABS}
-      onState={(state) => updateListScope({ state })}
+      onState={(state) => updateListScope({ state, lens: undefined })}
       involvement={search.involvement}
       involvementOptions={INVOLVEMENT_TABS}
-      onInvolvement={(involvement) => updateListScope({ involvement })}
+      onInvolvement={(involvement) => updateListScope({ involvement, lens: undefined })}
       filters={menuFilters}
       onFilters={(next) =>
         updateListScope({
@@ -1846,9 +2048,13 @@ function PullRequestsRouteView() {
     state: search.state,
     host: search.host,
     hostMenuOptions,
-    onInvolvement: (involvement: PullRequestInvolvement) => updateListScope({ involvement }),
-    onState: (state: PullRequestListState) => updateListScope({ state }),
+    onInvolvement: (involvement: PullRequestInvolvement) =>
+      updateListScope({ involvement, lens: undefined }),
+    onState: (state: PullRequestListState) => updateListScope({ state, lens: undefined }),
     onHost: (host: string | undefined) => updateListScope({ host }),
+    lens,
+    onLens: selectLens,
+    lensTabs: <PullRequestLensTabs value={lens} counts={lensCounts} onChange={selectLens} />,
     searchInput,
     sortMenu,
     filtersMenu,
@@ -1889,6 +2095,7 @@ function PullRequestsRouteView() {
         )
       ) : null,
     rightPanelOpen: rightPanelState.isOpen,
+    subtitle,
     listBody,
     scrollRef,
   };
@@ -1978,6 +2185,7 @@ function PullRequestsRouteView() {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="relative flex min-h-0 flex-1">
         {pullRequestsSupported && rightPanelPresent ? openPanelControls : null}
+        <PullRequestThreadJoin />
         <PullRequestsColumn {...columnProps} />
 
         {rightPanelPresent && renderedPullRequestSurface && panelEnvironmentId !== null ? (
@@ -2259,12 +2467,16 @@ function PullRequestsColumn({
   onInvolvement,
   onState,
   onHost,
+  lens,
+  onLens,
+  lensTabs,
   searchInput,
   sortMenu,
   filtersMenu,
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
+  subtitle,
   listBody,
   scrollRef,
 }: {
@@ -2278,12 +2490,17 @@ function PullRequestsColumn({
   onInvolvement: (involvement: PullRequestInvolvement) => void;
   onState: (state: PullRequestListState) => void;
   onHost: (host: string | undefined) => void;
+  lens: PullRequestLens | null;
+  onLens: (lens: PullRequestLens) => void;
+  lensTabs: ReactNode;
   searchInput: ReactNode;
   sortMenu: ReactNode;
   filtersMenu: ReactNode;
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
+  /** What the list covers and when it was read, beside the title. */
+  subtitle: string | null;
   listBody: ReactNode;
   scrollRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -2371,19 +2588,32 @@ function PullRequestsColumn({
             </WorkspaceBreadcrumbItem>
             {searchExpanded ? null : <WorkspaceBreadcrumbSeparator />}
             <WorkspaceBreadcrumbItem className="shrink gap-1.5">
-              <CompactFilterMenu
-                label="Filter by state"
-                value={state}
-                options={STATE_TABS}
-                onChange={onState}
-                className="shrink-0"
-              />
-              <CompactFilterMenu
-                label="Filter by involvement"
-                value={involvement}
-                options={INVOLVEMENT_TABS}
-                onChange={onInvolvement}
-              />
+              {/* The tab the filters amount to; filters no tab names keep their own menus. */}
+              {lens !== null ? (
+                <CompactFilterMenu
+                  label="View"
+                  value={lens}
+                  options={LENS_OPTIONS}
+                  onChange={onLens}
+                  className="shrink-0"
+                />
+              ) : (
+                <>
+                  <CompactFilterMenu
+                    label="Filter by state"
+                    value={state}
+                    options={STATE_TABS}
+                    onChange={onState}
+                    className="shrink-0"
+                  />
+                  <CompactFilterMenu
+                    label="Filter by involvement"
+                    value={involvement}
+                    options={INVOLVEMENT_TABS}
+                    onChange={onInvolvement}
+                  />
+                </>
+              )}
               {hostMenuOptions.length > 2 ? (
                 <CompactFilterMenu
                   label="Filter by host"
@@ -2396,8 +2626,13 @@ function PullRequestsColumn({
           </WorkspaceBreadcrumb>
         ) : (
           <WorkspaceBreadcrumb ariaLabel="Pull requests breadcrumb">
-            <WorkspaceBreadcrumbItem current>
-              <h1 className="truncate">Pull Requests</h1>
+            <WorkspaceBreadcrumbItem current className="min-w-0 gap-2">
+              <h1 className="shrink-0">Pull Requests</h1>
+              {subtitle ? (
+                <span className="truncate text-xs font-normal text-muted-foreground">
+                  {subtitle}
+                </span>
+              ) : null}
             </WorkspaceBreadcrumbItem>
           </WorkspaceBreadcrumb>
         )}
@@ -2449,6 +2684,7 @@ function PullRequestsColumn({
                 <PullRequestRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
               ) : null}
             </div>
+            {lensTabs}
             {/* Scrolled past this marker, the controls are gone and the title takes over. */}
             <div ref={markerRef} aria-hidden className="-mt-3 h-px w-full" />
           </div>

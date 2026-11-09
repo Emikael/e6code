@@ -361,6 +361,27 @@ describe("ClientSettings diff colors", () => {
   });
 });
 
+describe("ClientSettings thinking timeline", () => {
+  it("shows the timeline for settings saved before it existed", () => {
+    expect(decodeClientSettings({}).showThinkingTimeline).toBe(true);
+  });
+
+  it("keeps an explicit choice and patches it", () => {
+    const settings = decodeClientSettings({ showThinkingTimeline: false });
+    expect(settings.showThinkingTimeline).toBe(false);
+    expect(encodeClientSettings(settings).showThinkingTimeline).toBe(false);
+    expect(decodeClientSettingsPatch({ showThinkingTimeline: false })).toEqual({
+      showThinkingTimeline: false,
+    });
+  });
+
+  it("falls back to on for a malformed stored value without failing other settings", () => {
+    const settings = decodeClientSettings({ showThinkingTimeline: "yes", chatWidth: "wide" });
+    expect(settings.showThinkingTimeline).toBe(true);
+    expect(settings.chatWidth).toBe("wide");
+  });
+});
+
 describe("ClientSettings chat width", () => {
   it("keeps the comfortable width for existing settings without a saved width", () => {
     expect(decodeClientSettings({}).chatWidth).toBe("comfortable");
@@ -375,6 +396,23 @@ describe("ClientSettings chat width", () => {
   it("rejects unsupported widths", () => {
     expect(() => decodeClientSettings({ chatWidth: "huge" })).toThrow();
     expect(() => decodeClientSettingsPatch({ chatWidth: "huge" })).toThrow();
+  });
+});
+
+describe("ClientSettings stock accent", () => {
+  it("defaults to Iris when no accent is saved", () => {
+    expect(decodeClientSettings({}).stockAccent).toBe("iris");
+  });
+
+  it.each(["iris", "cobalt", "rose", "graphite"])("round-trips the %s accent", (stockAccent) => {
+    const settings = decodeClientSettings({ stockAccent });
+    expect(encodeClientSettings(settings).stockAccent).toBe(stockAccent);
+    expect(decodeClientSettingsPatch({ stockAccent }).stockAccent).toBe(stockAccent);
+  });
+
+  it("falls back to Iris for an accent this client does not know", () => {
+    expect(decodeClientSettings({ stockAccent: "chartreuse" }).stockAccent).toBe("iris");
+    expect(decodeClientSettings({ stockAccent: 7 }).stockAccent).toBe("iris");
   });
 });
 
