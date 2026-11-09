@@ -1,7 +1,7 @@
 import { UsageDay } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePeriodChange, previousWindow } from "./usageInsights";
+import { describePeriodChange, modelCostSplit, previousWindow } from "./usageInsights";
 
 describe("previousWindow", () => {
   it("covers the same number of calendar days just before the window", () => {
@@ -70,5 +70,49 @@ describe("describePeriodChange", () => {
 
   it("has nothing to say when the previous window was empty", () => {
     expect(describePeriodChange(50, 0, "7 days")).toBeNull();
+  });
+});
+
+describe("modelCostSplit", () => {
+  const model = (name: string, costUsd: number, unpricedRecords = 0) => ({
+    model: name,
+    provider: "codex" as const,
+    costUsd,
+    totalTokens: 1_000,
+    records: 2,
+    unpricedRecords,
+    costShare: 0,
+  });
+
+  it("orders models by cost with percents that add up to 100", () => {
+    const { parts } = modelCostSplit([model("small", 1), model("large", 2)]);
+
+    expect(parts.map((part) => [part.label, part.percent])).toEqual([
+      ["large", 67],
+      ["small", 33],
+    ]);
+  });
+
+  it("folds models past the limit into one remainder", () => {
+    const { parts } = modelCostSplit(
+      [model("a", 50), model("b", 20), model("c", 10), model("d", 5)],
+      2,
+    );
+
+    expect(parts.map((part) => part.label)).toEqual(["a", "b", "2 other models"]);
+    expect(parts[2]).toMatchObject({ provider: null, costUsd: 15, percent: 18 });
+  });
+
+  it("names a single model past the limit instead of folding it", () => {
+    const { parts } = modelCostSplit([model("a", 3), model("b", 2), model("c", 1)], 2);
+
+    expect(parts.map((part) => part.label)).toEqual(["a", "b", "c"]);
+  });
+
+  it("counts unpriced models apart rather than as free", () => {
+    const { parts, unpricedModels } = modelCostSplit([model("priced", 4), model("unknown", 0, 2)]);
+
+    expect(parts.map((part) => part.label)).toEqual(["priced"]);
+    expect(unpricedModels).toBe(1);
   });
 });

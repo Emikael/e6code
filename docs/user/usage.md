@@ -7,7 +7,8 @@ environments. It shows token use, cache savings, model breakdowns, and estimated
 cost. These estimates are not your subscription bill.
 
 On web and desktop, Usage also compares each total with the period before and shows where the
-period's tokens went. Mobile shows the same totals, providers, and models without those
+cost went by model, or, under **Tokens**, where the period's tokens went. **View as table** lists
+each day or hour behind the chart. Mobile shows the same totals, providers, and models without those
 comparisons.
 
 Totals depend on the history available on each server. Grok turns without a saved completed-turn

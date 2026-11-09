@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const testState = vi.hoisted(() => ({
   useUsage: vi.fn(),
   metric: "cost" as "cost" | "tokens" | "limits",
-  breakdown: "time" as "model" | "time",
+  chartView: "table" as "chart" | "table",
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -30,8 +30,8 @@ vi.mock("react", async (importOriginal) => {
             }
           : initial === "cost"
             ? testState.metric
-            : initial === "model"
-              ? testState.breakdown
+            : initial === "chart"
+              ? testState.chartView
               : initial,
       vi.fn(),
     ]),
@@ -42,13 +42,6 @@ vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../state/usage", () => ({ useUsage: testState.useUsage }));
 vi.mock("../ui/button", () => ({ Button: "button" }));
 vi.mock("../ui/scroll-area", () => ({ ScrollArea: "div" }));
-vi.mock("../ui/select", () => ({
-  Select: "div",
-  SelectItem: "div",
-  SelectPopup: "div",
-  SelectTrigger: "div",
-  SelectValue: "div",
-}));
 vi.mock("../ui/sidebar", () => ({ SidebarInset: "div" }));
 vi.mock("../ui/toggle-group", () => ({ Toggle: "button", ToggleGroup: "div" }));
 vi.mock("../WorkspaceBreadcrumb", () => ({
@@ -141,7 +134,7 @@ const environments = [
 
 beforeEach(() => {
   testState.metric = "cost";
-  testState.breakdown = "time";
+  testState.chartView = "table";
   testState.useUsage.mockReturnValue({
     merged: {
       ...mergeUsage([], USAGE_CONTRACT_VERSION),
@@ -194,7 +187,7 @@ describe("UsagePage hourly breakdown", () => {
 
 describe("UsagePage model breakdown", () => {
   it("sorts models by cost when the cost metric is selected", () => {
-    testState.breakdown = "model";
+    testState.chartView = "chart";
 
     const markup = renderToStaticMarkup(<UsagePage />);
     const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
@@ -203,7 +196,7 @@ describe("UsagePage model breakdown", () => {
   });
 
   it("flags a model with no known rates instead of showing it as free", () => {
-    testState.breakdown = "model";
+    testState.chartView = "chart";
 
     const markup = renderToStaticMarkup(<UsagePage />);
     const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";
@@ -215,7 +208,7 @@ describe("UsagePage model breakdown", () => {
 
   it("sorts models by token usage when the token metric is selected", () => {
     testState.metric = "tokens";
-    testState.breakdown = "model";
+    testState.chartView = "chart";
 
     const markup = renderToStaticMarkup(<UsagePage />);
     const body = markup.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? "";

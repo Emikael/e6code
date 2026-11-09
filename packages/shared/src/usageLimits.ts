@@ -474,7 +474,7 @@ export const LIMIT_PACE_WORDS: Record<LimitPaceReading, string> = {
 };
 
 /** At or below this share left, a limit summary reads as a warning whatever the pace. */
-const LOW_REMAINING_PERCENT = 20;
+export const LOW_REMAINING_PERCENT = 20;
 
 /**
  * The pace a view shows beside a remaining share. Once little is left, being
