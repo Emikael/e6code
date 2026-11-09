@@ -19,6 +19,30 @@ function formatCompactDiffCount(value: number): string {
   return `${b < 10 ? b.toFixed(1).replace(/\.0$/, "") : Math.round(b)}b`;
 }
 
+/**
+ * Inline "+48 −12" for the thread's changed-files card and timeline steps. The visible counts use
+ * a true minus (U+2212) and are hidden from screen readers, which hear "48 additions, 12 deletions".
+ */
+export const DiffStatCounts = memo(function DiffStatCounts(props: {
+  additions: number;
+  deletions: number;
+  className?: string;
+}) {
+  const { additions, deletions, className } = props;
+  return (
+    <span className={cn("inline-flex items-center gap-1 font-mono tabular-nums", className)}>
+      <span className="text-diff-addition-foreground">
+        <span aria-hidden="true">{`+${formatCompactDiffCount(additions)}`}</span>
+        <span className="sr-only">{additions.toLocaleString()} additions,</span>
+      </span>
+      <span className="text-diff-deletion-foreground">
+        <span aria-hidden="true">{`−${formatCompactDiffCount(deletions)}`}</span>
+        <span className="sr-only">{deletions.toLocaleString()} deletions</span>
+      </span>
+    </span>
+  );
+});
+
 export const DiffStatLabel = memo(function DiffStatLabel(props: {
   additions: number;
   deletions: number;

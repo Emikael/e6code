@@ -8,7 +8,7 @@ import {
 } from "../../lib/turnDiffTree";
 import { ChevronRightIcon, FolderIcon, FolderTreeIcon, FolderClosedIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
+import { DiffStatCounts, hasNonZeroStat } from "./DiffStatLabel";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -60,10 +60,9 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
           {files.length} changed file{files.length === 1 ? "" : "s"}
         </span>
         {hasNonZeroStat(summaryStat) && (
-          <DiffStatLabel
+          <DiffStatCounts
             additions={summaryStat.additions}
             deletions={summaryStat.deletions}
-            layout="inline"
             className="text-[11px] leading-4"
           />
         )}
@@ -131,10 +130,9 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
                   className="text-foreground/85 group-hover:text-foreground"
                 />
                 {typeof file.additions === "number" && typeof file.deletions === "number" ? (
-                  <DiffStatLabel
+                  <DiffStatCounts
                     additions={file.additions}
                     deletions={file.deletions}
-                    layout="inline"
                     className="ms-auto shrink-0"
                   />
                 ) : null}
@@ -229,7 +227,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
             </span>
             {hasNonZeroStat(node.stat) && (
               <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-                <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
+                <DiffStatCounts additions={node.stat.additions} deletions={node.stat.deletions} />
               </span>
             )}
           </button>
@@ -271,7 +269,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
         />
         {node.stat && (
           <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-            <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
+            <DiffStatCounts additions={node.stat.additions} deletions={node.stat.deletions} />
           </span>
         )}
       </button>

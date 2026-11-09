@@ -26,7 +26,9 @@ describe("ChangedFilesCard", () => {
     // A flat change has no folders, so the tree choice cannot apply.
     expect(markup).toContain('data-changed-files-state="list"');
     expect(markup).toContain("Open diff");
-    expect(markup).toContain('role="group" aria-label="2 additions, 1 deletions"');
+    expect(markup).toContain('<span aria-hidden="true">\u22121</span>');
+    expect(markup).toContain('<span class="sr-only">2 additions,</span>');
+    expect(markup).toContain('<span class="sr-only">1 deletions</span>');
     expect(markup).toContain("1 changed file");
     expect(markup).not.toContain("1 changed files");
   });

@@ -52,7 +52,7 @@ import {
   describeSpawnBatchStatus,
   subagentTone,
 } from "@e6tools/client-runtime/state/subagentRuntime";
-import { DiffStatLabel } from "./DiffStatLabel";
+import { DiffStatCounts } from "./DiffStatLabel";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
@@ -5380,7 +5380,7 @@ function SubagentBatchRow({
     formatSubagentModelLabel(agent.model, agent.effort),
     files ? formatSubagentFileCount(files.files.length) : null,
     files && files.additions !== null && files.deletions !== null ? (
-      <DiffStatLabel additions={files.additions} deletions={files.deletions} layout="inline" />
+      <DiffStatCounts additions={files.additions} deletions={files.deletions} />
     ) : null,
     agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : null,
     agent.usage?.toolUses !== undefined ? `${agent.usage.toolUses} tools` : null,
@@ -5636,10 +5636,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               {timeline && stepMeta ? (
                 <ThinkingTimelineMeta>
                   {stepMeta.diffStat ? (
-                    <DiffStatLabel
+                    <DiffStatCounts
                       additions={stepMeta.diffStat.additions}
                       deletions={stepMeta.diffStat.deletions}
-                      layout="inline"
                     />
                   ) : null}
                   {stepMeta.duration ? <span>{stepMeta.duration}</span> : null}
@@ -5657,10 +5656,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
           {inlineDiffStat ? (
-            <DiffStatLabel
+            <DiffStatCounts
               additions={inlineDiffStat.additions}
               deletions={inlineDiffStat.deletions}
-              layout="inline"
               className="shrink-0 text-xs"
             />
           ) : null}
