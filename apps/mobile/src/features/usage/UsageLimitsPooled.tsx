@@ -23,6 +23,7 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
 import { useProviderColors } from "./usageProviders";
+import { formatUpcomingTimestamp } from "../../lib/time";
 
 const DRIVER_LABEL: Partial<Record<string, string>> = { codex: "Codex", claudeAgent: "Claude" };
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
@@ -339,11 +340,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
               </Text>
               {window.resetsAt ? (
                 <Text selectable className="text-sm text-foreground-muted">
-                  Resets{" "}
-                  {new Date(window.resetsAt).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
+                  Resets {formatUpcomingTimestamp(window.resetsAt, "locale")}
                 </Text>
               ) : null}
               {reset && reset.restoresPercent > 0 ? (

@@ -351,6 +351,10 @@
       "types": "./src/htmlText.ts",
       "import": "./src/htmlText.ts"
     },
+    "./timestampFormat": {
+      "types": "./src/timestampFormat.ts",
+      "import": "./src/timestampFormat.ts"
+    },
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"

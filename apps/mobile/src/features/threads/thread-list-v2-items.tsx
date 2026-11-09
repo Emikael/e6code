@@ -37,7 +37,7 @@ import { ProviderInstanceIcon } from "../../components/ProviderIcon";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
-import { relativeTime } from "../../lib/time";
+import { formatUpcomingTimestamp, relativeTime } from "../../lib/time";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useThreadPr } from "../../state/use-thread-pr";
@@ -82,16 +82,9 @@ const STATUS_LABEL_BY_STATUS: Partial<
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
 
-/** Usage-limit reset as a short local clock time, with the weekday when not today. */
-function formatResetClockTime(resetsAt: string): string {
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) return "";
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return date.toLocaleTimeString([], {
-    ...(sameDay ? {} : { weekday: "short" }),
-    hour: "numeric",
-    minute: "2-digit",
-  });
+/** Usage-limit reset worded like web's: `2:20 PM`, `tomorrow at 2:20 PM`. */
+function formatResetTime(resetsAt: string): string {
+  return formatUpcomingTimestamp(resetsAt, "locale");
 }
 
 function threadTimeLabel(thread: EnvironmentThreadShell): string {
@@ -581,7 +574,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           formatRunningThreadStatus({
             agentState: thread.agentState,
             planProgress: thread.planProgress,
-            formatResetTime: formatResetClockTime,
+            formatResetTime,
           }),
         )
       : statusLabel?.label;
