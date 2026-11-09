@@ -142,6 +142,11 @@ On every client, **Overview** also shows how full the thread's context window is
 provider reports usage. Claude and Codex threads report it; other providers show no context
 section.
 
+**This thread** totals the tokens and cost of every turn in the thread. A cost marked `≈` is
+partly estimated from model prices. Below it, a card shows the provider's limit window with the
+least quota left, when it resets, and whether you are spending faster than the window elapses.
+Providers that report no usage or limits leave these rows out; see **Usage** for every window.
+
 To stop one running subagent without stopping the turn, choose **Stop** on its card or in its
 row's menu, or press `mod+.` while it is selected. On mobile, select the subagent and tap
 **Stop subagent**. Stop is available for Claude and Codex threads. A Claude workflow stops as a

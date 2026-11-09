@@ -38,11 +38,19 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
-const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> = {
-  ahead: { label: "Ahead of pace: spending faster than the window elapses", icon: TrendingUpIcon },
-  on: { label: "On pace with the window", icon: GaugeIcon },
-  under: { label: "Under pace: headroom left for the rest of the window", icon: TrendingDownIcon },
-};
+/** Pace in words and as a glyph; the glyph never stands without its words. */
+export const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> =
+  {
+    ahead: {
+      label: "Ahead of pace: spending faster than the window elapses",
+      icon: TrendingUpIcon,
+    },
+    on: { label: "On pace with the window", icon: GaugeIcon },
+    under: {
+      label: "Under pace: headroom left for the rest of the window",
+      icon: TrendingDownIcon,
+    },
+  };
 
 /** The series colour the cost chart uses for this driver, so the two views read as one. */
 export function barColor(driver: ServerProvider["driver"]): string {

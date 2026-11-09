@@ -2,6 +2,7 @@ import {
   TURN_USAGE_ACTIVITY_KIND,
   TurnUsageActivityPayload,
   type OrchestrationThreadActivity,
+  type ThreadUsageTotal,
   type TurnId,
 } from "@e6tools/contracts";
 import { formatUsd } from "@e6tools/shared/usageFormat";
@@ -79,6 +80,31 @@ export function formatTurnUsage(usage: TurnUsageActivityPayload | undefined): st
       ? ` · ${formatTurnCost(usage.costUsd, usage.costSource)}`
       : "";
   return `${tokens}${cost}`;
+}
+
+/**
+ * A thread's summed usage for the Overview: `cost` is `$1.84`, `≈$1.84` when
+ * any part is estimated, or null when no turn had a cost; `tokens` is
+ * `1.2m tokens`. Null when the thread has no usage to show.
+ */
+export function describeThreadUsage(total: ThreadUsageTotal | undefined): {
+  readonly cost: string | null;
+  readonly tokens: string;
+  readonly accessibilityLabel: string;
+} | null {
+  if (!total || total.totalTokens <= 0) return null;
+  const tokens = `${formatCompactTokens(total.totalTokens)} tokens`;
+  const cost =
+    total.costUsd !== undefined && Number.isFinite(total.costUsd) && total.costUsd > 0
+      ? formatTurnCost(total.costUsd, total.costSource)
+      : null;
+  return {
+    cost,
+    tokens,
+    accessibilityLabel: cost
+      ? `This thread cost ${total.costSource === "estimated" ? "about " : ""}${cost.replace("≈", "")}, ${tokens}`
+      : `This thread used ${tokens}`,
+  };
 }
 
 /**
