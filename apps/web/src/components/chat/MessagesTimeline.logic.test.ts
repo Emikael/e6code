@@ -1900,14 +1900,14 @@ describe("deriveMessagesTimelineRows", () => {
           [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" }],
         ]),
       ),
-    ).toBe("Worked for 22s · 48.6k tokens · $0.12");
+    ).toBe("Worked for 22s · 48.6K tokens · $0.12");
     expect(
       foldLabel(
         new Map([
           [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" }],
         ]),
       ),
-    ).toBe("Worked for 22s · 48.6k tokens · ≈$0.12");
+    ).toBe("Worked for 22s · 48.6K tokens · ≈$0.12");
   });
 
   it("shows usage on the final answer only when its turn has no fold row", () => {
@@ -1964,11 +1964,11 @@ describe("deriveMessagesTimelineRows", () => {
 
     const withoutTools = rowsFor([user, answer]);
     expect(withoutTools.some((row) => row.kind === "turn-fold")).toBe(false);
-    expect(answerUsage(withoutTools)).toBe("48.6k tokens · $0.12");
+    expect(answerUsage(withoutTools)).toBe("48.6K tokens · $0.12");
 
     const withTools = rowsFor([user, toolCall, answer]);
     expect(withTools.find((row) => row.kind === "turn-fold")?.label).toBe(
-      "Worked for 22s · 48.6k tokens · $0.12",
+      "Worked for 22s · 48.6K tokens · $0.12",
     );
     expect(answerUsage(withTools)).toBeUndefined();
   });

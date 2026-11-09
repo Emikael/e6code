@@ -5,7 +5,7 @@ import {
   type ThreadUsageTotal,
   type TurnId,
 } from "@e6tools/contracts";
-import { formatUsd } from "@e6tools/shared/usageFormat";
+import { formatTokens, formatUsd } from "@e6tools/shared/usageFormat";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -40,28 +40,6 @@ export function deriveTurnUsageByTurnId(
   return usageByTurnId;
 }
 
-const TOKEN_UNITS = [
-  { size: 1e9, suffix: "b" },
-  { size: 1e6, suffix: "m" },
-  { size: 1e3, suffix: "k" },
-] as const;
-
-/** Three significant figures without trailing zeros: `900`, `1.2k`, `48.6k`, `1.25m`. */
-function formatCompactTokens(value: number): string {
-  for (const [index, unit] of TOKEN_UNITS.entries()) {
-    const scaled = value / unit.size;
-    if (scaled < 1) continue;
-    const rounded = Number(scaled.toFixed(scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2));
-    // 999,999 rounds up to 1000k; name it in the next unit instead.
-    const larger = TOKEN_UNITS[index - 1];
-    if (rounded >= 1000 && larger) {
-      return `${Number((value / larger.size).toFixed(2))}${larger.suffix}`;
-    }
-    return `${rounded}${unit.suffix}`;
-  }
-  return `${Math.round(value)}`;
-}
-
 /** `$0.12`, `≈$0.12` for an estimate, and `<$0.01` below a cent. */
 function formatTurnCost(costUsd: number, costSource: TurnUsageActivityPayload["costSource"]) {
   const amount = costUsd < 0.01 ? "<$0.01" : formatUsd(costUsd);
@@ -69,12 +47,12 @@ function formatTurnCost(costUsd: number, costSource: TurnUsageActivityPayload["c
 }
 
 /**
- * A turn's usage on its own: `48.6k tokens · $0.12`. Turns without a fold row
+ * A turn's usage on its own: `48.6K tokens · $0.12`. Turns without a fold row
  * show this beside their final answer instead. Null when there is nothing to show.
  */
 export function formatTurnUsage(usage: TurnUsageActivityPayload | undefined): string | null {
   if (!usage || usage.totalTokens <= 0) return null;
-  const tokens = `${formatCompactTokens(usage.totalTokens)} tokens`;
+  const tokens = `${formatTokens(usage.totalTokens)} tokens`;
   const cost =
     usage.costUsd !== undefined && Number.isFinite(usage.costUsd) && usage.costUsd > 0
       ? ` · ${formatTurnCost(usage.costUsd, usage.costSource)}`
@@ -85,7 +63,7 @@ export function formatTurnUsage(usage: TurnUsageActivityPayload | undefined): st
 /**
  * A thread's summed usage for the Overview: `cost` is `$1.84`, `≈$1.84` when
  * some turns were estimated or reported no cost, or null when no turn had a cost; `tokens` is
- * `1.2m tokens`. Null when the thread has no usage to show.
+ * `1.2M tokens`. Null when the thread has no usage to show.
  */
 export function describeThreadUsage(total: ThreadUsageTotal | undefined): {
   readonly cost: string | null;
@@ -93,7 +71,7 @@ export function describeThreadUsage(total: ThreadUsageTotal | undefined): {
   readonly accessibilityLabel: string;
 } | null {
   if (!total || total.totalTokens <= 0) return null;
-  const tokens = `${formatCompactTokens(total.totalTokens)} tokens`;
+  const tokens = `${formatTokens(total.totalTokens)} tokens`;
   const cost =
     total.costUsd !== undefined && Number.isFinite(total.costUsd) && total.costUsd > 0
       ? formatTurnCost(total.costUsd, total.costSource)

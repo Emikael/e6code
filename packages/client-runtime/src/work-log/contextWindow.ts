@@ -1,4 +1,5 @@
 import type { OrchestrationThreadActivity, ThreadTokenUsageSnapshot } from "@e6tools/contracts";
+import { formatTokens } from "@e6tools/shared/usageFormat";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -78,23 +79,14 @@ export function formatContextWindowTokens(value: number | null): string {
   if (value === null || !Number.isFinite(value)) {
     return "0";
   }
-  if (value < 1_000) {
-    return `${Math.round(value)}`;
-  }
-  if (value < 10_000) {
-    return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  }
-  if (value < 1_000_000) {
-    return `${Math.round(value / 1_000)}k`;
-  }
-  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
+  return formatTokens(value);
 }
 
 /** Usage at or above this share of the window reads as a warning. */
 const CONTEXT_WINDOW_WARNING_PERCENT = 85;
 
 export interface ContextWindowUsageSummary {
-  /** "68% used · 136k of 200k tokens", or "136k tokens used" without a known window. */
+  /** "68% used · 136K of 200K tokens", or "136K tokens used" without a known window. */
   readonly label: string;
   /** Share of the window in use, 0-100, rounded; null without a known window. */
   readonly percent: number | null;

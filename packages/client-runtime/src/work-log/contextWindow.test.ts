@@ -21,17 +21,17 @@ describe("describeContextWindowUsage", () => {
     expect(
       describeContextWindowUsage(snapshotFrom({ usedTokens: 136_000, maxTokens: 200_000 })),
     ).toEqual({
-      label: "68% used · 136k of 200k tokens",
+      label: "68% used · 136K of 200K tokens",
       percent: 68,
       warning: false,
       compactionNote: null,
-      accessibilityLabel: "Context window 68% used · 136k of 200k tokens",
+      accessibilityLabel: "Context window 68% used · 136K of 200K tokens",
     });
   });
 
   it("states only the used tokens when the window is unknown", () => {
     const summary = describeContextWindowUsage(snapshotFrom({ usedTokens: 136_000 }));
-    expect(summary.label).toBe("136k tokens used");
+    expect(summary.label).toBe("136K tokens used");
     expect(summary.percent).toBeNull();
     expect(summary.warning).toBe(false);
   });
@@ -44,21 +44,21 @@ describe("describeContextWindowUsage", () => {
       snapshotFrom({ usedTokens: 170_000, maxTokens: 200_000 }),
     );
     expect(summary.warning).toBe(true);
-    expect(summary.label).toBe("85% used · 170k of 200k tokens");
+    expect(summary.label).toBe("85% used · 170K of 200K tokens");
   });
 
   it("caps an overfull window at 100%", () => {
     const summary = describeContextWindowUsage(
       snapshotFrom({ usedTokens: 210_000, maxTokens: 200_000 }),
     );
-    expect(summary.label).toBe("100% used · 210k of 200k tokens");
+    expect(summary.label).toBe("100% used · 210K of 200K tokens");
     expect(summary.percent).toBe(100);
   });
 
   it("shows a sliver of usage as under 1%", () => {
     expect(
       describeContextWindowUsage(snapshotFrom({ usedTokens: 900, maxTokens: 200_000 })).label,
-    ).toBe("<1% used · 900 of 200k tokens");
+    ).toBe("<1% used · 900 of 200K tokens");
   });
 
   it("notes automatic compaction as a share of the window", () => {
@@ -72,7 +72,7 @@ describe("describeContextWindowUsage", () => {
     );
     expect(summary.compactionNote).toBe("Compacts automatically near 90%");
     expect(summary.accessibilityLabel).toBe(
-      "Context window 68% used · 136k of 200k tokens. Compacts automatically near 90%",
+      "Context window 68% used · 136K of 200K tokens. Compacts automatically near 90%",
     );
   });
 
@@ -85,7 +85,7 @@ describe("describeContextWindowUsage", () => {
           autoCompactThreshold: 180_000,
         }),
       ).compactionNote,
-    ).toBe("Compacts automatically at 180k tokens");
+    ).toBe("Compacts automatically at 180K tokens");
   });
 
   it("omits the note without a threshold or automatic compaction", () => {
@@ -164,9 +164,9 @@ describe("contextWindow", () => {
 
   it("formats compact token counts", () => {
     expect(formatContextWindowTokens(999)).toBe("999");
-    expect(formatContextWindowTokens(1400)).toBe("1.4k");
-    expect(formatContextWindowTokens(14_000)).toBe("14k");
-    expect(formatContextWindowTokens(258_000)).toBe("258k");
+    expect(formatContextWindowTokens(1400)).toBe("1.4K");
+    expect(formatContextWindowTokens(14_000)).toBe("14K");
+    expect(formatContextWindowTokens(258_000)).toBe("258K");
   });
 
   it("includes total processed tokens when available", () => {

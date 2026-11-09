@@ -1,22 +1,9 @@
 import { memo } from "react";
+import { formatCompactCount } from "@e6tools/shared/usageFormat";
 import { cn } from "~/lib/utils";
 
 export function hasNonZeroStat(stat: { additions: number; deletions: number }): boolean {
   return stat.additions > 0 || stat.deletions > 0;
-}
-
-function formatCompactDiffCount(value: number): string {
-  if (value < 1000) return String(value);
-  if (value < 1_000_000) {
-    const k = value / 1000;
-    return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}k`;
-  }
-  if (value < 1_000_000_000) {
-    const m = value / 1_000_000;
-    return `${m < 10 ? m.toFixed(1).replace(/\.0$/, "") : Math.round(m)}m`;
-  }
-  const b = value / 1_000_000_000;
-  return `${b < 10 ? b.toFixed(1).replace(/\.0$/, "") : Math.round(b)}b`;
 }
 
 /**
@@ -32,11 +19,11 @@ export const DiffStatCounts = memo(function DiffStatCounts(props: {
   return (
     <span className={cn("inline-flex items-center gap-1 font-mono tabular-nums", className)}>
       <span className="text-diff-addition-foreground">
-        <span aria-hidden="true">{`+${formatCompactDiffCount(additions)}`}</span>
+        <span aria-hidden="true">{`+${formatCompactCount(additions)}`}</span>
         <span className="sr-only">{additions.toLocaleString()} additions,</span>
       </span>
       <span className="text-diff-deletion-foreground">
-        <span aria-hidden="true">{`−${formatCompactDiffCount(deletions)}`}</span>
+        <span aria-hidden="true">{`−${formatCompactCount(deletions)}`}</span>
         <span className="sr-only">{deletions.toLocaleString()} deletions</span>
       </span>
     </span>
@@ -65,10 +52,10 @@ export const DiffStatLabel = memo(function DiffStatLabel(props: {
         )}
       >
         <span aria-hidden="true" className="font-mono text-diff-addition-foreground">
-          +{formatCompactDiffCount(additions)}
+          +{formatCompactCount(additions)}
         </span>
         <span aria-hidden="true" className="font-mono text-diff-deletion-foreground">
-          -{formatCompactDiffCount(deletions)}
+          -{formatCompactCount(deletions)}
         </span>
       </span>
       {showParentheses && <span className="text-muted-foreground">)</span>}
