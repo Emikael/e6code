@@ -73,6 +73,7 @@ const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@e6tools/shared/chatList";
 import { toolActivityFaviconUrl } from "@e6tools/shared/favicon";
 import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
+import { resolveWorkRowStats } from "@e6tools/client-runtime/work-log/step-meta";
 import { getProjectFaviconCacheKey } from "@e6tools/shared/projectFavicon";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
@@ -206,7 +207,6 @@ import {
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
   workEntryIsActiveTurnActivity,
-  resolveWorkRowStats,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,

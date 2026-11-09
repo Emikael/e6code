@@ -42,6 +42,7 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
+import { resolveWorkRowStats } from "@e6tools/client-runtime/work-log/step-meta";
 import {
   mainAgentDiffStat,
   type WorkLogDiffStat,
@@ -105,7 +106,16 @@ export interface ThreadFeedActivity {
   readonly workEntry: WorkLogEntry;
   readonly groupedToolDetail?: boolean;
   readonly live?: boolean;
+  /** The step the thinking timeline rings: the running call of a live, opened work group. */
+  readonly runningStep?: boolean;
 }
+
+/**
+ * Where a row sits on an opened work group's thinking-timeline rail. The feed
+ * lists a group's tool rows and thoughts as separate rows, so each row draws
+ * its own piece of the rail and the first and last stop at their dots.
+ */
+export type ThreadTimelineStep = "only" | "first" | "middle" | "last";
 
 export interface WorkLogEntry {
   readonly questionAnswer?: UserInputAttachmentAnswerPayload;
@@ -120,6 +130,13 @@ export interface WorkLogEntry {
   changedFiles?: ReadonlyArray<string>;
   /** Lines a main-agent file change added and removed, when the provider counted its files. */
   diffStat?: WorkLogDiffStat;
+  /**
+   * When the step began, from its tool.started row. `createdAt` stays the
+   * first rendered row's time so the row keeps its place in the feed.
+   */
+  startedAt?: string;
+  /** When the latest lifecycle row merged into this one landed. */
+  updatedAt?: string;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
@@ -181,6 +198,8 @@ type RawThreadFeedEntry =
 export type ThreadFeedEntry =
   | (Extract<RawThreadFeedEntry, { type: "message" }> & {
       readonly reasoningMessages?: OrchestrationThread["messages"];
+      /** Set on a thought inside an opened work group that also ran tools. */
+      readonly timelineStep?: ThreadTimelineStep;
     })
   | {
       readonly type: "activity-group";
@@ -188,6 +207,8 @@ export type ThreadFeedEntry =
       readonly createdAt: string;
       readonly turnId: TurnId | null;
       readonly activities: ReadonlyArray<ThreadFeedActivity>;
+      /** Set on the rows of an opened work group. */
+      readonly timelineStep?: ThreadTimelineStep;
     }
   | {
       readonly type: "work-toggle";
@@ -463,6 +484,8 @@ function deriveWorkLogEntries(
     ),
   );
   const entries: DerivedWorkLogEntry[] = [];
+  // Like web: tool.started rows never render, but their timestamp is when the step began.
+  const toolStartedAtById = new Map<string, string>();
   for (const activity of foldUserInputActivities(ordered)) {
     // The setup card owns its snapshot, including failed and cancelled outcomes.
     if (
@@ -470,7 +493,16 @@ function deriveWorkLogEntries(
       (activity.tone !== "error" || activity.kind === "worktree-setup")
     )
       continue;
-    if (activity.kind === "tool.started") continue;
+    if (activity.kind === "tool.started") {
+      const payload = asRecord(activity.payload);
+      const toolCallId =
+        asTrimmedString(payload?.toolCallId) ??
+        asTrimmedString(asRecord(payload?.data)?.toolCallId);
+      if (toolCallId && !toolStartedAtById.has(toolCallId)) {
+        toolStartedAtById.set(toolCallId, activity.createdAt);
+      }
+      continue;
+    }
     // Like web: an agent's task.started row anchors its batch. It has a fixed
     // id and timestamp, unlike progress ticks, whose stable per-task id is
     // rewritten with a new createdAt on every update (and would otherwise
@@ -491,7 +523,10 @@ function deriveWorkLogEntries(
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
     if (isTaskListToolActivity(activity, planUpdateTurnIds)) continue;
-    entries.push(toDerivedWorkLogEntry(activity));
+    const entry = toDerivedWorkLogEntry(activity);
+    const startedAt = entry.toolCallId ? toolStartedAtById.get(entry.toolCallId) : undefined;
+    if (startedAt !== undefined && startedAt !== entry.createdAt) entry.startedAt = startedAt;
+    entries.push(entry);
   }
   return collapseDerivedWorkLogEntries(entries);
 }
@@ -961,12 +996,16 @@ function mergeDerivedWorkLogEntries(
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolData = next.toolData ?? previous.toolData;
   const diffStat = next.diffStat ?? previous.diffStat;
+  const startedAt = previous.startedAt ?? next.startedAt;
+  const updatedAt = next.updatedAt ?? next.createdAt;
   return {
     ...previous,
     ...next,
     ...(diffStat ? { diffStat } : {}),
     id: previous.id,
     createdAt: previous.createdAt,
+    ...(startedAt ? { startedAt } : {}),
+    ...(updatedAt !== previous.createdAt ? { updatedAt } : {}),
     ...(detail ? { detail } : {}),
     ...(viewedImagePath ? { viewedImagePath } : {}),
     ...(command ? { command } : {}),
@@ -1155,6 +1194,45 @@ function stripShellWrapper(value: string): string {
   const trimmed = value.trim();
   const match = trimmed.match(/^\/bin\/zsh -lc ['"]?([\s\S]*?)['"]?$/);
   return (match?.[1] ?? trimmed).trim();
+}
+
+/**
+ * Where a work row shows its duration and line changes, by the same rules as
+ * web: the timeline meta when the timeline is on, the inline count when it is
+ * off, never both. Mobile keeps `createdAt` at the first row, so the step ends
+ * at `updatedAt` and, without a tool.started row, starts at `createdAt`.
+ */
+export function workEntryRowStats(entry: WorkLogEntry, timeline: boolean) {
+  return resolveWorkRowStats(
+    {
+      createdAt: entry.updatedAt ?? entry.createdAt,
+      startedAt: entry.startedAt ?? (entry.updatedAt !== undefined ? entry.createdAt : undefined),
+      toolLifecycleStatus: entry.toolLifecycleStatus,
+      diffStat: entry.diffStat,
+    },
+    timeline,
+  );
+}
+
+const THOUGHT_PREVIEW_MAX_LENGTH = 240;
+
+/**
+ * A collapsed thought's one-line preview on the timeline, like web's: the
+ * first non-empty thought as plain text, with markdown syntax dropped.
+ */
+export function thoughtPreviewText(
+  messages: ReadonlyArray<{ readonly text: string }>,
+): string | null {
+  const text = messages.find((message) => message.text.trim().length > 0)?.text;
+  if (text === undefined) return null;
+  const plain = text
+    .slice(0, THOUGHT_PREVIEW_MAX_LENGTH * 4)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/[*_~`]+/g, "");
+  const preview = collapseWhitespace(plain).slice(0, THOUGHT_PREVIEW_MAX_LENGTH);
+  return preview.length > 0 ? preview : null;
 }
 
 /** Expanded rows retain detail formatting; commands stay in the separate body. */
@@ -2174,8 +2252,59 @@ function appendMixedActivityRun(
     live,
     shimmer: live,
   });
-  if (expanded) result.push(...history);
+  if (expanded) {
+    // Like web: reasoning alone has no steps to put on a rail.
+    if (activities.length > 0) {
+      result.push(...timelineHistory(history, live, unsettledTurnId));
+    } else {
+      result.push(...history);
+    }
+  }
   activityRunsCache.set(first, { source: run, state, rows: result.slice(outputStart) });
+}
+
+/**
+ * Marks an opened run's rows with their place on the timeline rail. In a live
+ * run the trailing group's running call is the ringed step, as on web, where a
+ * thought after it means the agent moved on.
+ */
+function timelineHistory(
+  history: ReadonlyArray<ThreadFeedEntry>,
+  live: boolean,
+  unsettledTurnId: TurnId | null,
+): ThreadFeedEntry[] {
+  const trailing = history.at(-1);
+  const runningId =
+    live && trailing?.type === "activity-group"
+      ? trailing.activities.findLast(
+          (activity) =>
+            activity.lifecycleStatus === "inProgress" && activity.turnId === unsettledTurnId,
+        )?.id
+      : undefined;
+  return history.map((entry, index) => {
+    const timelineStep: ThreadTimelineStep =
+      history.length === 1
+        ? "only"
+        : index === 0
+          ? "first"
+          : index === history.length - 1
+            ? "last"
+            : "middle";
+    if (entry.type === "activity-group") {
+      return {
+        ...entry,
+        timelineStep,
+        ...(runningId !== undefined && entry === trailing
+          ? {
+              activities: entry.activities.map((activity) =>
+                activity.id === runningId ? { ...activity, runningStep: true } : activity,
+              ),
+            }
+          : {}),
+      };
+    }
+    return entry.type === "message" ? { ...entry, timelineStep } : entry;
+  });
 }
 
 function groupConsecutiveReasoningMessages(
@@ -2457,15 +2586,15 @@ function appendToolGroupRows(
     id: `work-details:${groupId}`,
     createdAt: activities[0]!.createdAt,
     turnId: activities[0]!.turnId,
-    activities: activities.map((activity) => ({
-      ...activity,
-      groupedToolDetail: true,
-      live:
+    activities: activities.map((activity) => {
+      const running =
         isWorking &&
         activity.id === latestActivity.id &&
         activity.lifecycleStatus === "inProgress" &&
-        activity.turnId === unsettledTurnId,
-    })),
+        activity.turnId === unsettledTurnId;
+      return { ...activity, groupedToolDetail: true, live: running, runningStep: running };
+    }),
+    timelineStep: "only",
   });
 }
 

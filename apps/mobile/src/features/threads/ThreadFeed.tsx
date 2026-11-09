@@ -154,6 +154,7 @@ import {
   deriveThreadFeedPresentation,
   deriveUnsettledTurnId,
   isContextCompactionActivityGroup,
+  thoughtPreviewText,
   type ThreadFeedEntry,
   type ThreadFeedLatestTurn,
 } from "../../lib/threadActivity";
@@ -1368,6 +1369,8 @@ function renderFeedEntry(
     readonly assistantUsageLabels: ReadonlyMap<string, string>;
     readonly unsettledTurnId: TurnId | null;
     readonly isWorking: boolean;
+    /** The Thinking timeline appearance setting. */
+    readonly thinkingTimeline: boolean;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey: string) => void;
@@ -1494,6 +1497,9 @@ function renderFeedEntry(
           label={formatThoughtLabel(messages)}
           streaming={false}
           onToggle={() => props.onToggleReasoning(entry.id)}
+          {...(props.thinkingTimeline && entry.timelineStep
+            ? { timelineStep: entry.timelineStep, preview: thoughtPreviewText(messages) }
+            : {})}
         >
           <MarkdownImageAvailableWidthContext
             value={props.markdownContentWidth - REASONING_CONTENT_INSET}
@@ -1772,6 +1778,9 @@ function renderFeedEntry(
       onCopyRow={props.onCopyWorkRow}
       onToggleRow={props.onToggleWorkRow}
       renderImage={props.renderViewedImage}
+      {...(props.thinkingTimeline && entry.timelineStep
+        ? { timelineStep: entry.timelineStep }
+        : {})}
     />
   );
 }
@@ -2775,6 +2784,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             assistantUsageLabels,
             unsettledTurnId,
             isWorking: props.activeWorkStartedAt !== null,
+            thinkingTimeline: appearance.showThinkingTimeline,
             onCopyWorkRow,
             onToggleWorkGroup,
             onToggleWorkRow,
@@ -2822,6 +2832,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       assistantUsageLabels,
       unsettledTurnId,
       props.activeWorkStartedAt,
+      appearance.showThinkingTimeline,
       iconSubtleColor,
       screenColor,
       userBubbleColor,

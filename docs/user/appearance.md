@@ -21,6 +21,8 @@ the plain list.
 
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
+**Thinking timeline** under **Work log** in the same screen is the mobile switch for the timeline,
+set on each device.
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
