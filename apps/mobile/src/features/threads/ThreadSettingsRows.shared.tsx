@@ -1,3 +1,4 @@
+import { modelMetaParts } from "@e6tools/client-runtime/model-meta";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -37,6 +38,9 @@ export function ModelRowContent(
       readonly selectedClassName?: string;
     },
 ) {
+  const meta = modelMetaParts(props.option);
+  // The row's accessibility label reads the price tier out, so "$$$" is visual only.
+  const subtitle = [props.option.subtitle, meta.context, meta.price].filter(Boolean).join(" · ");
   return (
     <View
       style={props.minimumHeight === undefined ? undefined : { minHeight: props.minimumHeight }}
@@ -48,7 +52,14 @@ export function ModelRowContent(
       )}
     >
       <Pressable
-        accessibilityLabel={[props.option.label, props.option.subtitle].filter(Boolean).join(", ")}
+        accessibilityLabel={[
+          props.option.label,
+          props.option.subtitle,
+          meta.context,
+          meta.priceAccessibilityLabel,
+        ]
+          .filter(Boolean)
+          .join(", ")}
         accessibilityRole="radio"
         accessibilityState={{
           checked: props.selected,
@@ -81,12 +92,12 @@ export function ModelRowContent(
               <Text className="text-xs text-foreground">Unavailable</Text>
             ) : null}
           </View>
-          {props.option.subtitle ? (
+          {subtitle ? (
             <Text
               className="text-xs text-foreground-muted"
               numberOfLines={props.labelNumberOfLines}
             >
-              {props.option.subtitle}
+              {subtitle}
             </Text>
           ) : null}
         </View>

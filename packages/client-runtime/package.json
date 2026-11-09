@@ -55,6 +55,10 @@
       "types": "./src/mediaSource.ts",
       "default": "./src/mediaSource.ts"
     },
+    "./model-meta": {
+      "types": "./src/modelMeta.ts",
+      "default": "./src/modelMeta.ts"
+    },
     "./media-actions": {
       "types": "./src/mediaActions.ts",
       "default": "./src/mediaActions.ts"

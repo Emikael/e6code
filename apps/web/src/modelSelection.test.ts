@@ -254,6 +254,36 @@ describe("instance-scoped model selection", () => {
     ).toEqual(["claude-sonnet-4-6", "openai/gpt-5.5"]);
   });
 
+  it("keeps the server's price tier and context window on custom rows", () => {
+    const baseProvider = provider({ instanceId: "claude_openrouter" });
+    const providers = [
+      {
+        ...baseProvider,
+        models: [
+          {
+            slug: "openai/gpt-5.5",
+            name: "openai/gpt-5.5",
+            isCustom: true,
+            capabilities: {},
+            contextWindowTokens: 400_000,
+            priceTier: 2 as const,
+          },
+        ],
+      },
+    ];
+    const openrouter = deriveProviderInstanceEntries(providers)[0]!;
+
+    expect(getAppModelOptionsForInstance(settingsWithProviderInstances(), openrouter)).toEqual([
+      {
+        slug: "openai/gpt-5.5",
+        name: "openai/gpt-5.5",
+        isCustom: true,
+        contextWindowTokens: 400_000,
+        priceTier: 2,
+      },
+    ]);
+  });
+
   it("applies persisted per-instance model ordering", () => {
     const providers = [
       provider({
