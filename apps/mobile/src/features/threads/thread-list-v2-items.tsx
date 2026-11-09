@@ -62,9 +62,10 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
  * hierarchy rather than card fills.
  */
 
-// Status colours use the semantic roles of the web sidebar's status pills
-// (warning approval, primary input, info working) so a thread reads the
-// same everywhere it surfaces.
+// Status colours use the semantic roles of the web sidebar's status line
+// (warning approval, primary input, primary working: Iris marks a live agent)
+// so a thread reads the same everywhere it surfaces. Each colour sits on a
+// word, never alone.
 const STATUS_LABEL_BY_STATUS: Partial<
   Record<ThreadListV2Status, { label: string; accessibilityLabel?: string; className: string }>
 > = {
@@ -79,7 +80,7 @@ const STATUS_LABEL_BY_STATUS: Partial<
     className: "text-primary-text",
   },
   paused: { label: "Paused", className: "text-warning-foreground" },
-  working: { label: "Working", className: "text-info-foreground" },
+  working: { label: "Working", className: "text-primary-text" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
 

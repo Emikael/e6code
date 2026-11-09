@@ -78,7 +78,7 @@ describe("AgentActivity widget layout", () => {
       environment as never,
     );
     const banner = JSON.stringify(layout.banner);
-    expect(banner).toContain("#7dd3fc"); // sky-300: running
+    expect(banner).toContain("#b9afff"); // Iris (dark): running
     expect(banner).toContain("#fcd34d"); // amber-300: waiting_for_approval
   });
 
@@ -97,9 +97,9 @@ describe("AgentActivity widget layout", () => {
       lightEnvironment as never,
     );
     const banner = JSON.stringify(layout.banner);
-    expect(banner).toContain("#0284c7"); // sky-600: running
+    expect(banner).toContain("#4a3ad0"); // Iris (light): running
     expect(banner).toContain("#d97706"); // amber-600: waiting_for_approval
-    expect(banner).not.toContain("#7dd3fc");
+    expect(banner).not.toContain("#b9afff");
     expect(banner).not.toContain("#fcd34d");
   });
 
