@@ -364,8 +364,8 @@ function FloatingStatusLabel(props: {
         <View
           className={
             props.status.tone === "approval"
-              ? "h-2 w-2 rounded-full bg-amber-500"
-              : "h-2 w-2 rounded-full bg-indigo-500"
+              ? "h-2 w-2 rounded-full bg-warning-foreground"
+              : "h-2 w-2 rounded-full bg-primary"
           }
         />
         <Text
@@ -390,7 +390,7 @@ function FloatingStatusLabel(props: {
         {props.status.tone === "reconnecting" ? (
           <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
         ) : (
-          <View className="h-2 w-2 rounded-full bg-red-500" />
+          <View className="h-2 w-2 rounded-full bg-danger-foreground" />
         )}
         <Text
           className="max-w-[260px] shrink font-e6-medium text-xs text-foreground"

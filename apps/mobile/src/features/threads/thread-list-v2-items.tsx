@@ -57,16 +57,16 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
  * hierarchy rather than card fills.
  */
 
-// Status hues follow the system-wide convention set by sidebar v1 and the
-// Live Activity/widgets (amber approval, indigo input, sky working) so a
-// thread reads the same color everywhere it surfaces.
+// Status colours use the semantic roles of the web sidebar's status pills
+// (warning approval, primary input, info working) so a thread reads the
+// same everywhere it surfaces.
 const STATUS_LABEL_BY_STATUS: Partial<
   Record<ThreadListV2Status, { label: string; className: string }>
 > = {
   approval: { label: "Approval", className: "text-warning-foreground" },
-  input: { label: "Input", className: "text-adaptive-indigo-600-300" },
+  input: { label: "Input", className: "text-primary-text" },
   paused: { label: "Paused", className: "text-warning-foreground" },
-  working: { label: "Working", className: "text-adaptive-sky-600-400" },
+  working: { label: "Working", className: "text-info-foreground" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
 

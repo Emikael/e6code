@@ -49,8 +49,8 @@ export function resolveThreadStatus(
     return {
       kind: "awaiting-input",
       label: "Awaiting Input",
-      pillClassName: "bg-adaptive-indigo-500-a12-a16",
-      textClassName: "text-adaptive-indigo-600-300",
+      pillClassName: "bg-primary/10",
+      textClassName: "text-primary-text",
       pulse: false,
     };
   }
@@ -69,8 +69,8 @@ export function resolveThreadStatus(
     return {
       kind: "working",
       label: "Working",
-      pillClassName: "bg-adaptive-sky-500-a12-a16",
-      textClassName: "text-adaptive-sky-600-400",
+      pillClassName: "bg-info",
+      textClassName: "text-info-foreground",
       pulse: true,
     };
   }
@@ -79,8 +79,8 @@ export function resolveThreadStatus(
     return {
       kind: "connecting",
       label: "Connecting",
-      pillClassName: "bg-adaptive-sky-500-a12-a16",
-      textClassName: "text-adaptive-sky-600-400",
+      pillClassName: "bg-info",
+      textClassName: "text-info-foreground",
       pulse: true,
     };
   }
@@ -103,8 +103,8 @@ export function resolveThreadStatus(
     return {
       kind: "plan-ready",
       label: "Plan Ready",
-      pillClassName: "bg-adaptive-violet-500-a12-a16",
-      textClassName: "text-adaptive-violet-600-400",
+      pillClassName: "bg-primary/10",
+      textClassName: "text-primary-text",
       pulse: false,
     };
   }
