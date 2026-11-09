@@ -144,8 +144,10 @@ export const useClosedViewStore = create<ClosedViewStoreState>()(
         ...current,
         entries: [
           ...current.entries.filter((entry) => !isPersistentView(entry)),
-          ...((persisted as Partial<Pick<ClosedViewStoreState, "entries">> | undefined)?.entries ??
-            []),
+          // Validated again so an entry for a dropped surface kind (Overview) cannot reopen.
+          ...(
+            (persisted as Partial<Pick<ClosedViewStoreState, "entries">> | undefined)?.entries ?? []
+          ).filter(isClosedViewEntry),
         ],
       }),
     },

@@ -149,6 +149,7 @@ import {
   createMessageAttachmentPreviewProjector,
   derivePhase,
   deriveTimelineEntriesWithState,
+  deriveActivePlanState,
   deriveActiveWorkStartedAt,
   findLatestProposedPlan,
   deriveWorkLogEntries,
@@ -2067,8 +2068,14 @@ export default function ChatView(props: ChatViewProps) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "uncommitted");
     }
   }, [activeThreadRef, diffOpen]);
+  // A docked panel follows the last open/close choice on threads the user has not touched, so
+  // Run details shows by default; a narrow-window sheet opens only when asked.
   const rightPanelState = useRightPanelStore((state) =>
-    selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+    selectThreadRightPanelState(
+      state.byThreadKey,
+      activeThreadRef,
+      !prefersRightPanelSheet && state.restingOpen,
+    ),
   );
   const shouldUseRightPanelSheet = prefersRightPanelSheet && rightPanelState.maximized !== true;
   const activeRightPanelSurface = useRightPanelStore((state) =>
@@ -2984,6 +2991,11 @@ export default function ChatView(props: ChatViewProps) {
     () => deriveLatestContextWindowSnapshot(threadActivities),
     [threadActivities],
   );
+  const activeLatestTurnId = activeThread?.latestTurn?.turnId;
+  const activePlan = useMemo(
+    () => deriveActivePlanState(threadActivities, activeLatestTurnId),
+    [activeLatestTurnId, threadActivities],
+  );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const turnUsageByTurnId = useMemo(
     () => deriveTurnUsageByTurnId(threadActivities),
@@ -3802,12 +3814,12 @@ export default function ChatView(props: ChatViewProps) {
         : null,
     [agentPanelModel, stopSubagentShortcutLabel, subagentStopControl, supportsSubagentStop],
   );
-  // thread.stopSubagent acts on the subagent selected in an open Overview.
+  // thread.stopSubagent acts on the subagent selected in visible Run details.
   const stopSelectedSubagentRef = useRef<() => boolean>(() => false);
   useEffect(() => {
     stopSelectedSubagentRef.current = () => {
       if (!inspectorSubagentStop || !activeThreadKey) return false;
-      if (!rightPanelOpen || activeRightPanelSurface?.kind !== "agents") return false;
+      if (!rightPanelOpen || activeRightPanelSurface !== null) return false;
       const selectedId = useSubagentSelectionStore.getState().selectedByThreadKey[activeThreadKey];
       const agent = selectedId ? findSubagent(agentPanelModel, selectedId) : null;
       if (!agent || !inspectorSubagentStop.canStop(agent)) return false;
@@ -3815,7 +3827,7 @@ export default function ChatView(props: ChatViewProps) {
       return true;
     };
   }, [
-    activeRightPanelSurface?.kind,
+    activeRightPanelSurface,
     activeThreadKey,
     agentPanelModel,
     inspectorSubagentStop,
@@ -4803,7 +4815,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
-  const addAgentsSurface = useCallback(
+  const showRunDetails = useCallback(
     (agentId?: unknown) => {
       if (!activeThreadRef) return;
       // Launcher clicks pass a DOM event; only a subagent row passes its id.
@@ -4812,7 +4824,7 @@ export default function ChatView(props: ChatViewProps) {
           .getState()
           .select(scopedThreadKey(activeThreadRef), agentId, { reveal: true });
       }
-      useRightPanelStore.getState().open(activeThreadRef, "agents");
+      useRightPanelStore.getState().showRunDetails(activeThreadRef);
     },
     [activeThreadRef],
   );
@@ -5113,9 +5125,9 @@ export default function ChatView(props: ChatViewProps) {
           .open(activeThreadRef, { kind: "device", ...activeRightPanelSurface.target });
       }
       useRightPanelStore.getState().setMaximized(activeThreadRef, false);
-      useRightPanelStore.getState().close(activeThreadRef);
+      useRightPanelStore.getState().close(activeThreadRef, { remember: !prefersRightPanelSheet });
     }
-  }, [activeRightPanelSurface, activeThreadRef]);
+  }, [activeRightPanelSurface, activeThreadRef, prefersRightPanelSheet]);
   const togglePreviewPanel = useCallback(() => {
     if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
     if (previewPanelOpen) {
@@ -5273,7 +5285,8 @@ export default function ChatView(props: ChatViewProps) {
       closePreviewPanel();
       return;
     }
-    useRightPanelStore.getState().toggleVisibility(activeThreadRef);
+    // Not toggleVisibility: the sheet reads open state differently from the store's default.
+    useRightPanelStore.getState().show(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel || !activeThreadRef) return;
@@ -10030,10 +10043,10 @@ export default function ChatView(props: ChatViewProps) {
       rightPanelAvailable={activeProject !== null}
       rightPanelOpen={rightPanelOpen}
       rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
-      // Suppressed while the Agents surface is visible: the roster itself is
+      // Suppressed while Run details is visible: the subagent list itself is
       // on screen, so the toggle badge would be pointing at nothing.
       liveAgentCount={
-        rightPanelOpen && activeRightPanelSurface?.kind === "agents" ? 0 : agentPanelModel.liveCount
+        rightPanelOpen && activeRightPanelSurface === null ? 0 : agentPanelModel.liveCount
       }
       onToggleTerminal={toggleTerminalVisibility}
       onToggleRightPanel={toggleRightPanel}
@@ -10068,14 +10081,6 @@ export default function ChatView(props: ChatViewProps) {
       <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
     </div>
   );
-  const inspectorThreadModelLabel = activeThread
-    ? [
-        selectedProviderEntry?.displayName ?? null,
-        formatSubagentModelLabel(activeThread.modelSelection.model, null),
-      ]
-        .filter(Boolean)
-        .join(" · ") || null
-    : null;
   const inspectorWorktreeSetupScript = activeThread?.worktreePath
     ? setupProjectScript(activeProjectScripts)
     : null;
@@ -10083,16 +10088,7 @@ export default function ChatView(props: ChatViewProps) {
     ? {
         environmentId: activeThread.environmentId,
         threadId: activeThread.id,
-        draftId: routeKind === "draft" && draftId ? draftId : undefined,
-        activeProject,
-        openInCwd: gitCwd,
         gitCwd,
-        keybindings,
-        availableEditors,
-        activeProjectScripts,
-        preferredScriptId: activeProject
-          ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
-          : null,
         worktreeSetup: inspectorWorktreeSetupScript
           ? {
               script: inspectorWorktreeSetupScript,
@@ -10102,13 +10098,6 @@ export default function ChatView(props: ChatViewProps) {
             }
           : null,
         onRunProjectScript: runProjectScript,
-        onAddProjectScript: saveProjectScript,
-        onUpdateProjectScript: updateProjectScript,
-        onDeleteProjectScript: deleteProjectScript,
-        onOpenPullRequest:
-          !supportsPullRequests || activeProjectRepository === null
-            ? undefined
-            : openProjectPullRequest,
         onOpenDiff: isServerThread && isGitRepo ? addDiffSurface : null,
         onOpenTurnDiff: isServerThread && isGitRepo ? onOpenTurnDiff : null,
       }
@@ -10209,14 +10198,14 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
-    ) : renderedRightPanelSurface?.kind === "agents" ? (
+    ) : renderedRightPanelSurface === null ? (
       <InspectorOverview
         model={agentPanelModel}
         threadKey={activeThreadRef ? scopedThreadKey(activeThreadRef) : null}
         providerKind={selectedProvider ?? null}
-        threadModelLabel={inspectorThreadModelLabel}
         workspace={inspectorWorkspace}
         subagentStop={inspectorSubagentStop}
+        plan={activePlan}
         contextWindow={activeContextWindow}
         usageTotal={activeThreadShell?.usageTotal ?? null}
         planLimits={inspectorPlanLimits}
@@ -10368,7 +10357,6 @@ export default function ChatView(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
-            workspaceActionsInPanel={rightPanelOpen && activeRightPanelSurface?.kind === "agents"}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
@@ -10433,7 +10421,7 @@ export default function ChatView(props: ChatViewProps) {
                   ? {
                       onCiteAssistantText: citeAssistantText,
                       agentPanelModel,
-                      onOpenAgents: addAgentsSurface,
+                      onOpenAgents: showRunDetails,
                       subagentProviderKind: selectedProvider ?? null,
                       pendingAttention:
                         pendingApprovals.length > 0
@@ -10983,7 +10971,7 @@ export default function ChatView(props: ChatViewProps) {
                         keybindings={keybindings}
                         unpushed={selectUnpushedCommits(gitStatusQuery.data)}
                         setupProject={draftHeroSetupProject}
-                        onOpenSourceControl={addAgentsSurface}
+                        onOpenSourceControl={showRunDetails}
                       />
                     </div>
                   ) : null}
@@ -11105,7 +11093,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
-          onAddAgents={addAgentsSurface}
+          onShowRunDetails={showRunDetails}
           onAddDevice={addDeviceSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
@@ -11113,9 +11101,7 @@ export default function ChatView(props: ChatViewProps) {
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
-          agentsAvailable
           deviceAvailable={activeThreadRef !== null}
-          liveAgentCount={agentPanelModel.liveCount}
           changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
         >
           {rightPanelContent}
@@ -11174,7 +11160,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
-            onAddAgents={addAgentsSurface}
+            onShowRunDetails={showRunDetails}
             onAddDevice={addDeviceSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
@@ -11182,9 +11168,7 @@ export default function ChatView(props: ChatViewProps) {
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
-            agentsAvailable
             deviceAvailable={activeThreadRef !== null}
-            liveAgentCount={agentPanelModel.liveCount}
             changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
           >
             {rightPanelContent}

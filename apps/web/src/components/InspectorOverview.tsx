@@ -1,8 +1,11 @@
 /**
- * Inspector Overview: the right panel's first surface. Workspace actions,
- * source control at a glance, what the thread has cost against the
- * provider's nearest limit, and the lineage of every subagent this thread
- * spawned, with the selected one shown in detail.
+ * Run details: the thread's right panel at rest. It shows whenever the panel is
+ * open and no other surface is active. Top to bottom: the agent's plan, how
+ * full the context window is, what the thread has cost, the working tree's
+ * changes, and the subagents this thread spawned, with the selected one in
+ * detail. The provider's nearest plan limit stays pinned to the bottom.
+ *
+ * Only what providers report is shown: totals, never an invented breakdown.
  *
  * Visualization rules (carried over from the Agents surface it replaces):
  * - Spawn order is stable. Activity and completion update rows in place;
@@ -12,15 +15,14 @@
  *   the control until the provider confirms, and a failure arrives as a toast.
  * - Elapsed timers tick by DOM writes; nothing repaints continuously.
  * - The panel sits on the sidebar ground, so metadata uses the sidebar's
- *   muted role, which every theme tunes for that ground.
+ *   muted role, which every theme tunes for that ground. Cards are raised to
+ *   the page background.
  */
 import { useAtomValue } from "@effect/atom-react";
 import type {
-  EditorId,
   EnvironmentId,
   ProjectScript,
   ProviderDriverKind,
-  ResolvedKeybindingsConfig,
   ThreadId,
   ThreadUsageTotal,
   TurnId,
@@ -28,8 +30,6 @@ import type {
 } from "@e6tools/contracts";
 import { mostConstrainedLimit } from "@e6tools/shared/usageLimits";
 import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
-import { scopeThreadRef } from "@e6tools/client-runtime/environment";
-import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
 import {
   type AgentPanelModel,
   type AgentPanelWorkflowGroup,
@@ -50,27 +50,22 @@ import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-req
 import {
   type ContextWindowSnapshot,
   describeContextWindowUsage,
+  formatContextWindowTokens,
 } from "@e6tools/client-runtime/work-log/context-window";
+import { TASK_LIST_STEP_STATUS_LABELS } from "@e6tools/client-runtime/work-log/task-list";
 import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import {
-  BotIcon,
   BracesIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CircleStopIcon,
-  CoinsIcon,
   CopyIcon,
   EllipsisIcon,
   ExternalLinkIcon,
-  FileDiffIcon,
-  GaugeIcon,
-  GitBranchIcon,
-  GitCommitHorizontalIcon,
   MessageSquareTextIcon,
-  MonitorIcon,
-  RefreshCwIcon,
-  SquareArrowOutUpRightIcon,
-  WrenchIcon,
+  SquareCheckIcon,
+  SquareDotIcon,
+  SquareIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -80,31 +75,21 @@ import {
   type Ref,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
 
-import type { DraftId } from "~/composerDraftStore";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { useE6ProjectFileScripts } from "~/hooks/useE6ProjectFileScripts";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
-import { primaryProjectScript } from "~/projectScripts";
-import { useRemoteOpenState } from "~/remoteOpen";
-import { usePrimaryEnvironmentId } from "~/state/environments";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 import { useSubagentSelectionStore } from "~/subagentSelectionStore";
-import GitActionsControl from "./GitActionsControl";
-import ProjectScriptsControl, {
-  type NewProjectScriptInput,
-  type ProjectScriptActionResult,
-} from "./ProjectScriptsControl";
+import type { ActivePlanState } from "~/session-logic";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
-import { OpenInPicker } from "./chat/OpenInPicker";
-import { shouldShowOpenInPicker } from "./chat/ChatHeader";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
@@ -115,32 +100,21 @@ import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { toastManager } from "./ui/toast";
-import { PACE } from "./usage/UsageLimits";
 
+/**
+ * What Run details needs from the thread's workspace. Workspace actions (open in editor,
+ * scripts, commit) live in the thread header, not here.
+ */
 export interface InspectorWorkspace {
   environmentId: EnvironmentId;
   threadId: ThreadId;
-  draftId?: DraftId | undefined;
-  activeProject: EnvironmentProject | null;
-  openInCwd: string | null;
   gitCwd: string | null;
-  keybindings: ResolvedKeybindingsConfig;
-  availableEditors: ReadonlyArray<EditorId>;
-  activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
-  preferredScriptId: string | null;
   /**
    * The project's setup script, when the thread runs in a worktree. `changed`
    * means the worktree was set up with an older version of it.
    */
   worktreeSetup: { readonly script: ProjectScript; readonly changed: boolean } | null;
   onRunProjectScript: (script: ProjectScript) => void;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
-  onUpdateProjectScript: (
-    scriptId: string,
-    input: NewProjectScriptInput,
-  ) => Promise<ProjectScriptActionResult>;
-  onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
-  onOpenPullRequest?: ((number: number) => void) | undefined;
   /** Opens the Diff surface; null when the thread has no diff to show. */
   onOpenDiff: (() => void) | null;
   /** Opens one turn's diff, optionally at a file; null when there is none to show. */
@@ -157,247 +131,116 @@ export interface InspectorSubagentStop {
 }
 
 const MUTED = "text-sidebar-muted-foreground";
-const ROW_CLASS_NAME =
-  "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-accent/60";
-const ROW_ICON_CLASS_NAME = cn("size-4 shrink-0", MUTED);
+/** The raised card the plan and the plan limit sit on. */
+const CARD_CLASS_NAME = "rounded-[10px] border border-border bg-background px-3 py-2.5";
 
-/** A row that opens one of the header's controls in its menu presentation. */
-function InspectorMenuRow({
-  icon,
-  label,
+/** A Run details section: a 13px heading with mono meta on the right, then its body. */
+function DetailsSection({
+  title,
   meta,
+  metaClassName,
   children,
 }: {
-  icon: ReactNode;
-  label: ReactNode;
+  title: string;
   meta?: ReactNode;
-  children: (close: () => void) => ReactNode;
+  metaClassName?: string | undefined;
+  children?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const headingId = useId();
   return (
-    <Menu open={open} onOpenChange={setOpen}>
-      <MenuTrigger className={ROW_CLASS_NAME}>
-        {icon}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {meta}
-        <ChevronDownIcon aria-hidden className={cn("size-3 shrink-0", MUTED)} />
-      </MenuTrigger>
-      {/* Kept mounted so dialogs the control opens outlive the menu. */}
-      <MenuPopup keepMounted align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">
-        {children(close)}
-      </MenuPopup>
-    </Menu>
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <h2 id={headingId} className="shrink-0 text-[13px] leading-[18px] font-semibold">
+          {title}
+        </h2>
+        {meta !== undefined && meta !== null ? (
+          <span
+            className={cn(
+              "ms-auto min-w-0 truncate font-mono text-[11px] tabular-nums",
+              MUTED,
+              metaClassName,
+            )}
+          >
+            {meta}
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </section>
   );
 }
 
-function SectionDivider() {
-  return <div aria-hidden className="mx-2 my-2 h-px bg-sidebar-border" />;
-}
+const PLAN_STEP_ICON = {
+  completed: { Icon: SquareCheckIcon, className: "text-success" },
+  inProgress: { Icon: SquareDotIcon, className: "text-primary" },
+  pending: { Icon: SquareIcon, className: MUTED },
+} as const;
 
-function WorkspaceSection({ workspace }: { workspace: InspectorWorkspace }) {
-  const project = workspace.activeProject;
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const remoteOpenState = useRemoteOpenState(workspace.environmentId);
-  const fileScripts = useE6ProjectFileScripts(
-    workspace.environmentId,
-    workspace.activeProjectScripts ? (project?.workspaceRoot ?? null) : null,
-  );
-  const showOpenIn = shouldShowOpenInPicker({
-    activeProjectName: project?.title,
-    activeThreadEnvironmentId: workspace.environmentId,
-    primaryEnvironmentId,
-    remoteOpenMode: remoteOpenState.mode,
+/** The agent's latest task list: done steps recede, the current one carries "in progress". */
+function PlanSection({ plan }: { plan: ActivePlanState }) {
+  const done = plan.steps.filter((step) => step.status === "completed").length;
+  // Step text can repeat; numbering repeats keeps keys unique and stable within one plan.
+  const seen = new Map<string, number>();
+  const keys = plan.steps.map((step) => {
+    const count = seen.get(step.step) ?? 0;
+    seen.set(step.step, count + 1);
+    return `${step.step}#${count}`;
   });
-  const scripts = workspace.activeProjectScripts;
-  // Same choice as the header's script button: the last run, else the first
-  // script that is not a worktree setup step.
-  const scriptLabel =
-    scripts?.find((script) => script.id === workspace.preferredScriptId)?.name ??
-    (scripts ? primaryProjectScript(scripts)?.name : undefined) ??
-    "Scripts";
-
-  if (!project) return null;
   return (
-    <div role="group" aria-label="Workspace" className="flex flex-col">
-      <div className="flex h-8 min-w-0 items-center gap-2.5 px-2">
-        <MonitorIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{project.title}</span>
-      </div>
-      {showOpenIn ? (
-        <InspectorMenuRow
-          icon={<SquareArrowOutUpRightIcon aria-hidden className={ROW_ICON_CLASS_NAME} />}
-          label="Open in editor"
-        >
-          {() => (
-            <OpenInPicker
-              presentation="menu"
-              enableShortcut={false}
-              environmentId={workspace.environmentId}
-              keybindings={workspace.keybindings}
-              availableEditors={workspace.availableEditors}
-              openInCwd={workspace.openInCwd}
-            />
-          )}
-        </InspectorMenuRow>
-      ) : null}
-      {scripts ? (
-        <InspectorMenuRow
-          icon={<WrenchIcon aria-hidden className={ROW_ICON_CLASS_NAME} />}
-          label={scriptLabel}
-        >
-          {(close) => (
-            <ProjectScriptsControl
-              presentation="menu"
-              onRequestMenuClose={close}
-              scripts={scripts}
-              fileScripts={fileScripts}
-              keybindings={workspace.keybindings}
-              preferredScriptId={workspace.preferredScriptId}
-              onRunScript={workspace.onRunProjectScript}
-              onAddScript={workspace.onAddProjectScript}
-              onUpdateScript={workspace.onUpdateProjectScript}
-              onDeleteScript={workspace.onDeleteProjectScript}
-            />
-          )}
-        </InspectorMenuRow>
-      ) : null}
-      {workspace.worktreeSetup ? <WorktreeSetupRow workspace={workspace} /> : null}
-      <SectionDivider />
-    </div>
-  );
-}
-
-/**
- * Re-runs the setup script in the thread's worktree. When it exits cleanly the
- * server records the current script on the thread, which clears the Changed
- * badge; a failed run leaves it.
- */
-function WorktreeSetupRow({ workspace }: { workspace: InspectorWorkspace }) {
-  const setup = workspace.worktreeSetup;
-  if (!setup) return null;
-  return (
-    <button
-      type="button"
-      className={ROW_CLASS_NAME}
-      onClick={() => workspace.onRunProjectScript(setup.script)}
+    <DetailsSection
+      title="Plan"
+      meta={
+        <>
+          {done}/{plan.steps.length}
+          <span className="sr-only"> steps done</span>
+        </>
+      }
     >
-      <RefreshCwIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-      <span className="min-w-0 flex-1 truncate">Setup worktree</span>
-      {setup.changed ? (
-        <span className="shrink-0 rounded-sm bg-warning-surface px-1.5 py-px text-[11px] font-medium text-warning-foreground">
-          Changed
-          <span className="sr-only"> since this worktree ran it</span>
-        </span>
-      ) : (
-        <span className={cn("text-xs", MUTED)}>Run again</span>
-      )}
-    </button>
-  );
-}
-
-/** Branch, commit and change count. Values stay blank until status arrives. */
-function SourceControlSection({
-  workspace,
-  gitCwd,
-}: {
-  workspace: InspectorWorkspace;
-  gitCwd: string;
-}) {
-  const { data: status } = useEnvironmentQuery(
-    vcsEnvironment.status({ environmentId: workspace.environmentId, input: { cwd: gitCwd } }),
-  );
-  if (status && !status.isRepo) return null;
-  const files = status?.workingTree.files.length ?? 0;
-  const ahead = status?.aheadCount ?? 0;
-  const behind = status?.behindCount ?? 0;
-  const threadRef = scopeThreadRef(workspace.environmentId, workspace.threadId);
-  const commitMeta = !status
-    ? null
-    : files > 0
-      ? `${files} ${files === 1 ? "file" : "files"}`
-      : ahead > 0
-        ? `${ahead} to push`
-        : "Nothing to commit";
-  const changes = status ? (
-    <>
-      <span className="text-xs tabular-nums text-success-foreground">
-        +{status.workingTree.insertions}
-      </span>
-      <span className="text-xs tabular-nums text-destructive-foreground">
-        −{status.workingTree.deletions}
-      </span>
-    </>
-  ) : null;
-  return (
-    <div role="group" aria-label="Source control" className="flex flex-col">
-      <div className="flex h-8 min-w-0 items-center gap-2.5 px-2">
-        <GitBranchIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-        <span className={cn("min-w-0 flex-1 truncate text-xs", status ? "font-mono" : MUTED)}>
-          {status ? (status.refName ?? "Detached") : "Checking…"}
-        </span>
-        {ahead > 0 ? (
-          <span className={cn("text-xs tabular-nums", MUTED)}>
-            ↑{ahead}
-            <span className="sr-only"> ahead</span>
-          </span>
-        ) : null}
-        {behind > 0 ? (
-          <span className={cn("text-xs tabular-nums", MUTED)}>
-            ↓{behind}
-            <span className="sr-only"> behind</span>
-          </span>
-        ) : null}
-      </div>
-      <InspectorMenuRow
-        icon={<GitCommitHorizontalIcon aria-hidden className={ROW_ICON_CLASS_NAME} />}
-        label="Commit"
-        meta={commitMeta ? <span className={cn("text-xs", MUTED)}>{commitMeta}</span> : null}
-      >
-        {() => (
-          <GitActionsControl
-            presentation="menu"
-            gitCwd={gitCwd}
-            activeThreadRef={threadRef}
-            onOpenPullRequest={workspace.onOpenPullRequest}
-            {...(workspace.draftId ? { draftId: workspace.draftId } : {})}
-          />
-        )}
-      </InspectorMenuRow>
-      {workspace.onOpenDiff ? (
-        <button type="button" className={ROW_CLASS_NAME} onClick={workspace.onOpenDiff}>
-          <FileDiffIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-          <span className="min-w-0 flex-1 truncate">Changes</span>
-          {changes}
-        </button>
-      ) : (
-        <div className="flex h-8 min-w-0 items-center gap-2.5 px-2 text-[13px]">
-          <FileDiffIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-          <span className="min-w-0 flex-1 truncate">Changes</span>
-          {changes}
-        </div>
-      )}
-      <SectionDivider />
-    </div>
+      <ol className={cn(CARD_CLASS_NAME, "flex flex-col gap-[7px] text-[13px] leading-[18px]")}>
+        {plan.steps.map((step, index) => {
+          const { Icon, className } = PLAN_STEP_ICON[step.status];
+          return (
+            <li
+              key={keys[index]}
+              aria-current={step.status === "inProgress" ? "step" : undefined}
+              className={cn(
+                "flex min-w-0 items-center gap-2",
+                step.status === "completed" && MUTED,
+                step.status === "inProgress" && "font-medium",
+              )}
+            >
+              <Icon aria-hidden className={cn("size-3.5 shrink-0", className)} />
+              <span className="min-w-0 flex-1 truncate">{step.step}</span>
+              {step.status === "inProgress" ? (
+                <span className="shrink-0 text-[11px] font-normal text-primary-text">
+                  in progress
+                </span>
+              ) : (
+                <span className="sr-only">, {TASK_LIST_STEP_STATUS_LABELS[step.status]}</span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </DetailsSection>
   );
 }
 
 /**
  * How full the thread's context window is, from the latest usage the provider
  * reported. Providers that report none never render this section. The bar is
- * static: it moves only when a new snapshot arrives.
+ * static: it moves only when a new snapshot arrives. Providers report one total,
+ * so the bar has one fill and no history/files/tools split.
  */
 function ContextSection({ snapshot }: { snapshot: ContextWindowSnapshot }) {
   const usage = describeContextWindowUsage(snapshot);
+  const used = formatContextWindowTokens(snapshot.usedTokens);
+  const max =
+    snapshot.maxTokens !== null && snapshot.maxTokens !== undefined && snapshot.maxTokens > 0
+      ? formatContextWindowTokens(snapshot.maxTokens)
+      : null;
   return (
-    <div role="group" aria-label="Context" className="flex flex-col">
-      <div className="flex h-8 min-w-0 items-center gap-2.5 px-2 text-[13px]">
-        <GaugeIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-        <span className="shrink-0">Context</span>
-        <span className={cn("min-w-0 flex-1 truncate text-right text-xs tabular-nums", MUTED)}>
-          {usage.label}
-        </span>
-      </div>
+    <DetailsSection title="Context" meta={max ? `${used} of ${max}` : `${used} used`}>
       {usage.percent !== null ? (
         <div
           role="meter"
@@ -406,21 +249,117 @@ function ContextSection({ snapshot }: { snapshot: ContextWindowSnapshot }) {
           aria-valuemax={100}
           aria-valuenow={usage.percent}
           aria-valuetext={usage.label}
-          className="mr-2 mb-1 ml-[34px] h-1 overflow-hidden rounded-full bg-sidebar-muted-foreground/20"
+          className="h-1.5 overflow-hidden rounded-[2px] bg-surface-well"
         >
           <div
-            className={cn(
-              "h-full rounded-full",
-              usage.warning ? "bg-warning" : "bg-sidebar-muted-foreground/70",
-            )}
+            className={cn("h-full rounded-[2px]", usage.warning ? "bg-warning" : "bg-foreground")}
             style={{ width: `${usage.percent}%` }}
           />
         </div>
       ) : null}
-      {usage.compactionNote ? (
-        <p className={cn("mr-2 ml-[34px] pt-1 text-xs", MUTED)}>{usage.compactionNote}</p>
+      {usage.warning || usage.compactionNote ? (
+        <p className={cn("text-xs", usage.warning ? "text-warning-foreground" : MUTED)}>
+          {[usage.warning ? "Nearly full" : null, usage.compactionNote].filter(Boolean).join(" · ")}
+        </p>
       ) : null}
-      <SectionDivider />
+    </DetailsSection>
+  );
+}
+
+/**
+ * What the thread has cost across all its turns, summed by the server. Providers
+ * report a total, so there is no per-category split. Hidden when nothing was reported.
+ */
+function ThreadCostSection({ usageTotal }: { usageTotal: ThreadUsageTotal | null }) {
+  const usage = describeThreadUsage(usageTotal ?? undefined);
+  if (!usage) return null;
+  const approximate = usage.cost !== null && usageTotal?.costSource === "estimated";
+  return (
+    <DetailsSection
+      title="This thread"
+      meta={
+        <>
+          <span aria-hidden>{usage.cost ?? usage.tokens}</span>
+          <span className="sr-only">{usage.accessibilityLabel}</span>
+        </>
+      }
+      metaClassName={usage.cost ? "text-[13px] font-medium text-sidebar-foreground" : undefined}
+    >
+      {usage.cost ? (
+        <p aria-hidden className={cn("text-xs", MUTED)}>
+          {usage.tokens}
+          {approximate ? " · approximate, some turns were estimated or reported no cost" : null}
+        </p>
+      ) : null}
+    </DetailsSection>
+  );
+}
+
+/**
+ * The working tree at a glance, beside the header's commit actions: line counts,
+ * commits to push or pull, and a way into the Diff surface. Hidden until status
+ * arrives and outside Git repositories.
+ */
+function ChangesSection({ workspace, gitCwd }: { workspace: InspectorWorkspace; gitCwd: string }) {
+  const { data: status } = useEnvironmentQuery(
+    vcsEnvironment.status({ environmentId: workspace.environmentId, input: { cwd: gitCwd } }),
+  );
+  if (!status || !status.isRepo) return null;
+  const files = status.workingTree.files.length;
+  const ahead = status.aheadCount ?? 0;
+  const behind = status.behindCount ?? 0;
+  const summary = [
+    files > 0 ? `${files} ${files === 1 ? "file" : "files"} changed` : "No uncommitted changes",
+    ahead > 0 ? `${ahead} to push` : null,
+    behind > 0 ? `${behind} to pull` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <DetailsSection
+      title="Changes"
+      meta={
+        files > 0 ? (
+          <DiffStatLabel
+            additions={status.workingTree.insertions}
+            deletions={status.workingTree.deletions}
+            layout="inline"
+          />
+        ) : null
+      }
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn("min-w-0 flex-1 truncate text-xs", MUTED)}>{summary}</span>
+        {workspace.onOpenDiff && files > 0 ? (
+          <Button size="xs" variant="outline" className="shrink-0" onClick={workspace.onOpenDiff}>
+            Open diff
+          </Button>
+        ) : null}
+      </div>
+    </DetailsSection>
+  );
+}
+
+/**
+ * Shown only once the project's setup script changed since this worktree ran it. Running it
+ * again records the current script on the thread, which clears the notice; a failed run leaves it.
+ */
+function WorktreeSetupNotice({ workspace }: { workspace: InspectorWorkspace }) {
+  const setup = workspace.worktreeSetup;
+  if (!setup?.changed) return null;
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-[10px] bg-warning-surface px-3 py-2 text-xs">
+      <span className="min-w-0 flex-1 text-warning-foreground">
+        Setup script changed since this worktree ran it
+      </span>
+      <Button
+        size="xs"
+        variant="outline"
+        className="shrink-0"
+        onClick={() => workspace.onRunProjectScript(setup.script)}
+      >
+        Run again
+      </Button>
     </div>
   );
 }
@@ -432,89 +371,55 @@ export interface InspectorPlanLimits {
 }
 
 /**
- * What the thread has cost across all its turns, summed by the server, and
- * the provider limit it is closest to. Either part is left out when the
- * provider reports nothing for it; the whole section when neither has data.
+ * The provider limit the thread is closest to, pinned under the scrolling sections.
+ * Hidden when the provider reports no limits.
  */
-function UsageSection({
-  usageTotal,
-  planLimits,
-}: {
-  usageTotal: ThreadUsageTotal | null;
-  planLimits: InspectorPlanLimits | null;
-}) {
+function PlanLimitCard({ planLimits }: { planLimits: InspectorPlanLimits }) {
   const nowMinute = useNowMinute();
-  const usage = describeThreadUsage(usageTotal ?? undefined);
+  const headingId = useId();
   const limit = useMemo(
     () =>
-      planLimits
-        ? mostConstrainedLimit(
-            planLimits.report,
-            planLimits.providerLabel,
-            Date.parse(`${nowMinute}:00.000Z`),
-          )
-        : null,
+      mostConstrainedLimit(
+        planLimits.report,
+        planLimits.providerLabel,
+        Date.parse(`${nowMinute}:00.000Z`),
+      ),
     [nowMinute, planLimits],
   );
-  if (!usage && !limit) return null;
-  const PaceGlyph = limit?.pace ? PACE[limit.pace].icon : null;
+  if (!limit) return null;
   return (
-    <div role="group" aria-label="Usage" className="flex flex-col">
-      {usage ? (
+    <section aria-labelledby={headingId} className={cn(CARD_CLASS_NAME, "flex flex-col gap-1.5")}>
+      <div className="flex min-w-0 items-baseline gap-2">
+        <h2 id={headingId} className="min-w-0 flex-1 truncate text-xs leading-4 font-semibold">
+          {limit.title}
+        </h2>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums">{limit.remainingLabel}</span>
+      </div>
+      <div
+        role="meter"
+        aria-label={`${limit.title} remaining`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={limit.remainingPercent}
+        aria-valuetext={limit.accessibilityLabel}
+        className="h-1 overflow-hidden rounded-[2px] bg-surface-well"
+      >
         <div
-          role="group"
-          aria-label={usage.accessibilityLabel}
-          className="flex h-8 min-w-0 items-center gap-2.5 px-2 text-[13px]"
+          className={cn("h-full rounded-[2px]", limit.warning ? "bg-warning" : "bg-foreground")}
+          style={{ width: `${limit.remainingPercent}%` }}
+        />
+      </div>
+      {limit.detail ? (
+        <span
+          className={cn(
+            "min-w-0 truncate font-mono text-[11px] tabular-nums",
+            limit.warning ? "text-warning-foreground" : MUTED,
+          )}
         >
-          <CoinsIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
-          <span className="shrink-0">This thread</span>
-          <span className={cn("min-w-0 flex-1 truncate text-right text-xs tabular-nums", MUTED)}>
-            {usage.tokens}
-          </span>
-          {usage.cost ? (
-            <span className="shrink-0 font-mono text-xs tabular-nums">{usage.cost}</span>
-          ) : null}
-        </div>
+          {limit.detail}
+        </span>
       ) : null}
-      {limit ? (
-        <div
-          role="group"
-          aria-label={limit.accessibilityLabel}
-          className="mx-2 mt-1 mb-1 flex flex-col gap-1.5 rounded-lg border border-sidebar-border bg-sidebar-control-surface px-3 py-2.5"
-        >
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-xs font-medium">{limit.title}</span>
-            <span className="shrink-0 font-mono text-[11px] tabular-nums">
-              {limit.remainingLabel}
-            </span>
-          </div>
-          <div
-            aria-hidden
-            className="h-1 overflow-hidden rounded-full bg-sidebar-muted-foreground/20"
-          >
-            <div
-              className={cn(
-                "h-full rounded-full",
-                limit.warning ? "bg-warning" : "bg-sidebar-muted-foreground/70",
-              )}
-              style={{ width: `${limit.remainingPercent}%` }}
-            />
-          </div>
-          {limit.detail ? (
-            <span
-              className={cn(
-                "flex min-w-0 items-center gap-1.5 font-mono text-[11px] tabular-nums",
-                limit.warning ? "text-warning-foreground" : MUTED,
-              )}
-            >
-              {PaceGlyph ? <PaceGlyph aria-hidden className="size-3 shrink-0" /> : null}
-              <span className="min-w-0 truncate">{limit.detail}</span>
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      <SectionDivider />
-    </div>
+    </section>
   );
 }
 
@@ -861,7 +766,7 @@ function SubagentDetailCard({
       ref={cardRef}
       role="group"
       aria-label={`${agent.title} details`}
-      className="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-card px-2 py-3 text-card-foreground shadow-xs"
+      className="flex flex-col gap-3 rounded-[10px] border border-border bg-background px-3 py-3 text-foreground"
     >
       <div className="flex min-w-0 items-center gap-2.5">
         <SubagentTile driverKind={providerKind} size="lg" />
@@ -1019,11 +924,11 @@ function SubagentDetailCard({
   );
 }
 
-function LineageSection({
+/** Every subagent this thread spawned, in spawn order, with the selected one in detail. */
+function SubagentsSection({
   model,
   threadKey,
   providerKind,
-  threadModelLabel,
   environmentId,
   threadId,
   workspaceRoot,
@@ -1033,7 +938,6 @@ function LineageSection({
   model: AgentPanelModel;
   threadKey: string | null;
   providerKind: ProviderDriverKind | null;
-  threadModelLabel: string | null;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
   workspaceRoot: string | null;
@@ -1118,8 +1022,7 @@ function LineageSection({
     return members.length > 0 ? members : [node.agent];
   });
   const summary = summarizeSubagentStatuses(counted);
-  const header = [
-    "Lineage",
+  const meta = [
     summary.text || null,
     model.totalTokens > 0 ? `${formatSubagentTokenCount(model.totalTokens)} tok` : null,
   ]
@@ -1139,91 +1042,69 @@ function LineageSection({
   );
 
   return (
-    <div role="group" aria-label="Lineage" className="flex flex-col">
-      <div className="flex h-7 items-center px-2">
-        <span className={cn("truncate text-xs font-medium", MUTED)}>{header}</span>
-      </div>
-      <div className="flex h-7 min-w-0 items-center gap-2.5 px-2">
-        <SubagentTile driverKind={providerKind} size="xs" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">This thread</span>
-        {threadModelLabel ? (
-          <span className={cn("truncate text-xs", MUTED)}>{threadModelLabel}</span>
-        ) : null}
-      </div>
-      {model.hasAgents ? (
-        <>
-          <div
-            ref={listRef}
-            role="group"
-            aria-label="Subagents"
-            onKeyDown={moveLineageFocus}
-            className="ms-4 flex flex-col border-s border-sidebar-border ps-2.5"
-          >
-            {visible.map((node) => (
-              <div key={node.agent.id} className="flex flex-col">
-                {renderRow(node.agent)}
-                {node.phases.length > 0 || node.unphased.length > 0 ? (
-                  <div className="ms-4 flex flex-col border-s border-sidebar-border ps-2.5">
-                    {node.phases.map((phase) => (
-                      <div key={phase.index} className="flex flex-col">
-                        <div className={cn("flex h-6 items-center gap-1.5 px-2 text-xs", MUTED)}>
-                          <span className="min-w-0 truncate font-medium">{phase.title}</span>
-                          <span aria-hidden>·</span>
-                          <span className="shrink-0">{PHASE_STATE_WORD[phase.state]}</span>
-                        </div>
-                        {phase.members.map(renderRow)}
-                      </div>
-                    ))}
-                    {node.unphased.map(renderRow)}
+    <DetailsSection title="Subagents" meta={meta || null}>
+      <div
+        ref={listRef}
+        role="group"
+        aria-label="Subagents"
+        onKeyDown={moveLineageFocus}
+        className="-mx-2 flex flex-col"
+      >
+        {visible.map((node) => (
+          <div key={node.agent.id} className="flex flex-col">
+            {renderRow(node.agent)}
+            {node.phases.length > 0 || node.unphased.length > 0 ? (
+              <div className="ms-4 flex flex-col border-s border-sidebar-border ps-2.5">
+                {node.phases.map((phase) => (
+                  <div key={phase.index} className="flex flex-col">
+                    <div className={cn("flex h-6 items-center gap-1.5 px-2 text-xs", MUTED)}>
+                      <span className="min-w-0 truncate font-medium">{phase.title}</span>
+                      <span aria-hidden>·</span>
+                      <span className="shrink-0">{PHASE_STATE_WORD[phase.state]}</span>
+                    </div>
+                    {phase.members.map(renderRow)}
                   </div>
-                ) : null}
+                ))}
+                {node.unphased.map(renderRow)}
               </div>
-            ))}
-            {folding ? (
-              <button
-                type="button"
-                aria-expanded={showFolded}
-                onClick={() => setShowFolded((value) => !value)}
-                className={cn(
-                  "flex h-7 w-full items-center gap-2.5 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent/60 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
-                  MUTED,
-                )}
-              >
-                {showFolded ? (
-                  <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
-                ) : (
-                  <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
-                )}
-                <span className="flex-1">
-                  {showFolded ? `Hide ${folded.length} done` : `${folded.length} done`}
-                </span>
-              </button>
             ) : null}
           </div>
-          {selected ? (
-            <SubagentDetailCard
-              key={selected.id}
-              agent={selected}
-              providerKind={providerKind}
-              environmentId={environmentId}
-              threadId={threadId}
-              workspaceRoot={workspaceRoot}
-              onOpenTurnDiff={onOpenTurnDiff}
-              cardRef={cardRef}
-              stopControl={stopControl}
-            />
-          ) : null}
-        </>
-      ) : (
-        <div className="mx-2 mt-1 flex flex-col items-center gap-1.5 rounded-lg bg-accent/40 px-4 py-5 text-center">
-          <BotIcon aria-hidden className={cn("size-4.5", MUTED)} />
-          <p className="text-xs font-semibold">No subagents yet</p>
-          <p className={cn("max-w-56 text-xs", MUTED)}>
-            When an agent splits work, each subagent appears here with its status and running time.
-          </p>
-        </div>
-      )}
-    </div>
+        ))}
+        {folding ? (
+          <button
+            type="button"
+            aria-expanded={showFolded}
+            onClick={() => setShowFolded((value) => !value)}
+            className={cn(
+              "flex h-7 w-full items-center gap-2.5 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent/60 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+              MUTED,
+            )}
+          >
+            {showFolded ? (
+              <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
+            ) : (
+              <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
+            )}
+            <span className="flex-1">
+              {showFolded ? `Hide ${folded.length} done` : `${folded.length} done`}
+            </span>
+          </button>
+        ) : null}
+      </div>
+      {selected ? (
+        <SubagentDetailCard
+          key={selected.id}
+          agent={selected}
+          providerKind={providerKind}
+          environmentId={environmentId}
+          threadId={threadId}
+          workspaceRoot={workspaceRoot}
+          onOpenTurnDiff={onOpenTurnDiff}
+          cardRef={cardRef}
+          stopControl={stopControl}
+        />
+      ) : null}
+    </DetailsSection>
   );
 }
 
@@ -1231,9 +1112,10 @@ interface InspectorOverviewProps {
   model: AgentPanelModel;
   threadKey: string | null;
   providerKind: ProviderDriverKind | null;
-  threadModelLabel: string | null;
   workspace: InspectorWorkspace | null;
   subagentStop: InspectorSubagentStop | null;
+  /** The agent's latest task list; null when it has not published one. */
+  plan: ActivePlanState | null;
   /** Latest context window usage; null when the provider reports none. */
   contextWindow: ContextWindowSnapshot | null;
   /** Usage summed over every turn, from the thread shell; null when none was reported. */
@@ -1246,40 +1128,56 @@ function InspectorOverviewView({
   model,
   threadKey,
   providerKind,
-  threadModelLabel,
   workspace,
   subagentStop,
+  plan,
   contextWindow,
   usageTotal,
   planLimits,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
+  const hasUsage = describeThreadUsage(usageTotal ?? undefined) !== null;
+  const empty =
+    (plan === null || plan.steps.length === 0) &&
+    contextWindow === null &&
+    !hasUsage &&
+    !model.hasAgents;
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-sidebar surface-grain text-sidebar-foreground"
+      className="flex h-full min-h-0 flex-col bg-sidebar surface-grain text-[13px] leading-[18px] text-sidebar-foreground"
       data-inspector-overview
     >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col p-2">
-          {workspace?.activeProject ? <WorkspaceSection workspace={workspace} /> : null}
-          {workspace && gitCwd ? (
-            <SourceControlSection workspace={workspace} gitCwd={gitCwd} />
-          ) : null}
+        <div className="flex flex-col gap-4 p-4">
+          {plan && plan.steps.length > 0 ? <PlanSection plan={plan} /> : null}
           {contextWindow ? <ContextSection snapshot={contextWindow} /> : null}
-          <UsageSection usageTotal={usageTotal} planLimits={planLimits} />
-          <LineageSection
-            model={model}
-            threadKey={threadKey}
-            providerKind={providerKind}
-            threadModelLabel={threadModelLabel}
-            environmentId={workspace?.environmentId ?? null}
-            threadId={workspace?.threadId ?? null}
-            workspaceRoot={gitCwd}
-            onOpenTurnDiff={workspace?.onOpenTurnDiff ?? null}
-            stopControl={subagentStop}
-          />
+          <ThreadCostSection usageTotal={usageTotal} />
+          {workspace ? <WorktreeSetupNotice workspace={workspace} /> : null}
+          {workspace && gitCwd ? <ChangesSection workspace={workspace} gitCwd={gitCwd} /> : null}
+          {model.hasAgents ? (
+            <SubagentsSection
+              model={model}
+              threadKey={threadKey}
+              providerKind={providerKind}
+              environmentId={workspace?.environmentId ?? null}
+              threadId={workspace?.threadId ?? null}
+              workspaceRoot={gitCwd}
+              onOpenTurnDiff={workspace?.onOpenTurnDiff ?? null}
+              stopControl={subagentStop}
+            />
+          ) : null}
+          {empty ? (
+            <p className={cn("text-xs", MUTED)}>
+              The plan, context, cost and subagents appear here once the agent reports them.
+            </p>
+          ) : null}
         </div>
       </ScrollArea>
+      {planLimits ? (
+        <div className="shrink-0 px-4 pb-4">
+          <PlanLimitCard planLimits={planLimits} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1294,6 +1192,19 @@ function shallowEqualWorkspace(
   return (
     keys.length === Object.keys(right).length &&
     keys.every((key) => Object.is(left[key], right[key]))
+  );
+}
+
+/** The plan is re-derived whenever activities change; compare the steps it shows. */
+function samePlan(left: ActivePlanState | null, right: ActivePlanState | null): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  return (
+    left.steps.length === right.steps.length &&
+    left.steps.every(
+      (step, index) =>
+        step.step === right.steps[index]?.step && step.status === right.steps[index]?.status,
+    )
   );
 }
 
@@ -1334,8 +1245,8 @@ export const InspectorOverview = memo(
     previous.model === next.model &&
     previous.threadKey === next.threadKey &&
     previous.providerKind === next.providerKind &&
-    previous.threadModelLabel === next.threadModelLabel &&
     previous.subagentStop === next.subagentStop &&
+    samePlan(previous.plan, next.plan) &&
     sameContextWindow(previous.contextWindow, next.contextWindow) &&
     sameUsageTotal(previous.usageTotal, next.usageTotal) &&
     previous.planLimits === next.planLimits &&

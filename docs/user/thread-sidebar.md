@@ -131,16 +131,22 @@ for custom configuration.
 
 ## Inspect agent work
 
-On web and desktop, subagents appear as a card in the conversation while they work. Select a
-subagent to open it in the right panel's **Overview**, which also lists every subagent the thread
-spawned and the selected one's latest activity, tokens, tool calls, and the files it changed.
-Select a file to open its diff. On mobile, tap the **Overview** button in a thread's top bar to
-see each subagent's status and running time, plus the branch and its changes; tap a subagent to
-list its files. Files are listed for Claude and Codex subagents.
+On web and desktop, the right panel rests on **Run details** whenever no other tab is showing:
+the agent's plan, how full the context window is, what the thread has cost, the working tree's
+changes, and its subagents. Opening Diff, Terminal, Browser, Files, or another tab replaces it;
+close that tab, or choose **Run details** beside the open tabs, to come back. Hiding the panel
+on one thread hides it on threads you have not opened tabs in, until you show it again.
 
-On every client, **Overview** also shows how full the thread's context window is, once the
-provider reports usage. Claude and Codex threads report it; other providers show no context
-section.
+Subagents appear as a card in the conversation while they work. Select a subagent to show it in
+**Run details**, which lists every subagent the thread spawned and the selected one's latest
+activity, tokens, tool calls, and the files it changed. Select a file to open its diff. On
+mobile, tap the **Overview** button in a thread's top bar to see each subagent's status and
+running time, plus the branch and its changes; tap a subagent to list its files. Files are
+listed for Claude and Codex subagents.
+
+On every client, **Run details** (**Overview** on mobile) also shows how full the thread's
+context window is, once the provider reports usage. Claude and Codex threads report it; other
+providers show no context section.
 
 **This thread** totals the tokens and cost of every turn in the thread. A cost marked `≈` is
 approximate: some turns' costs were estimated from model prices, or some turns reported no
