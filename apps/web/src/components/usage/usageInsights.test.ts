@@ -1,7 +1,13 @@
 import { UsageDay } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePeriodChange, previousWindow, sharePercents, tokenSplit } from "./usageInsights";
+import {
+  cachedInputPercent,
+  describePeriodChange,
+  previousWindow,
+  sharePercents,
+  tokenSplit,
+} from "./usageInsights";
 
 describe("previousWindow", () => {
   it("covers the same number of calendar days just before the window", () => {
@@ -131,5 +137,34 @@ describe("tokenSplit", () => {
     });
     expect(split.reasoning.percentOfOutput).toBe(0);
     expect(split.parts[0]?.percent).toBe(100);
+  });
+});
+
+describe("cachedInputPercent", () => {
+  const totals = {
+    uncachedInputTokens: 200,
+    cachedInputTokens: 700,
+    cacheCreationTokens: 100,
+    outputTokens: 5_000,
+    reasoningTokens: 1_000,
+  };
+
+  it("divides cache reads by all input, counting cache writes as uncached", () => {
+    expect(cachedInputPercent(totals)).toBe(70);
+  });
+
+  it("ignores output entirely", () => {
+    expect(cachedInputPercent({ ...totals, outputTokens: 0, reasoningTokens: 0 })).toBe(70);
+  });
+
+  it("has no ratio without input", () => {
+    expect(
+      cachedInputPercent({
+        ...totals,
+        uncachedInputTokens: 0,
+        cachedInputTokens: 0,
+        cacheCreationTokens: 0,
+      }),
+    ).toBeNull();
   });
 });

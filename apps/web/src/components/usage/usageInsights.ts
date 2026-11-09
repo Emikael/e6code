@@ -92,6 +92,15 @@ export function sharePercents(values: readonly number[]): readonly number[] {
   return floored;
 }
 
+/**
+ * Whole-number percent of input read from cache, or null with no input. Cache
+ * writes count as input that did not come from cache.
+ */
+export function cachedInputPercent(totals: TokenTotals): number | null {
+  const input = totals.uncachedInputTokens + totals.cachedInputTokens + totals.cacheCreationTokens;
+  return input > 0 ? Math.round((totals.cachedInputTokens / input) * 100) : null;
+}
+
 interface TokenTotals {
   readonly uncachedInputTokens: number;
   readonly cachedInputTokens: number;

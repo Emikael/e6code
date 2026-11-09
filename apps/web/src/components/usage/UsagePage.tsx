@@ -65,7 +65,13 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
-import { describePeriodChange, previousWindow, sharePercents, tokenSplit } from "./usageInsights";
+import {
+  cachedInputPercent,
+  describePeriodChange,
+  previousWindow,
+  sharePercents,
+  tokenSplit,
+} from "./usageInsights";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
@@ -166,6 +172,7 @@ export function UsagePage() {
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
+  const cacheShare = cachedInputPercent(merged);
 
   const selectWindow = (days: number) => {
     if (!isUsageWindowDays(days)) return;
@@ -472,9 +479,13 @@ export function UsagePage() {
 
                 <section className="flex flex-col gap-2">
                   <h2 className="text-sm font-medium text-foreground">Totals</h2>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-3 xl:grid-cols-6">
                     <Metric label="Processed tokens" value={formatTokens(merged.totalTokens)} />
                     <Metric label="Cached input" value={formatTokens(merged.cachedInputTokens)} />
+                    <Metric
+                      label="Input from cache"
+                      value={cacheShare === null ? "—" : `${cacheShare}%`}
+                    />
                     <Metric
                       label="Uncached input"
                       value={formatTokens(merged.uncachedInputTokens)}
@@ -1063,15 +1074,20 @@ function UsageSkeleton() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-foreground">Totals</h2>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
-          {["Processed tokens", "Cached input", "Uncached input", "Output", "Cache savings"].map(
-            (label) => (
-              <div key={label} className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <Skeleton className="h-6 w-16" />
-              </div>
-            ),
-          )}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-3 xl:grid-cols-6">
+          {[
+            "Processed tokens",
+            "Cached input",
+            "Input from cache",
+            "Uncached input",
+            "Output",
+            "Cache savings",
+          ].map((label) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-xs text-muted-foreground">{label}</span>
+              <Skeleton className="h-6 w-16" />
+            </div>
+          ))}
         </div>
       </section>
 
