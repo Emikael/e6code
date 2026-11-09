@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
   EventId,
+  ForwardCompatibleOptional,
   IsoDateTime,
   NonNegativeInt,
   ProviderItemId,
@@ -15,7 +16,7 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
-import { ProviderApprovalOption } from "./orchestration.ts";
+import { ProviderApprovalOption, ThreadAgentState } from "./orchestration.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -231,6 +232,12 @@ const SessionStateChangedPayload = Schema.Struct({
   state: RuntimeSessionState,
   reason: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(Schema.Unknown),
+  /**
+   * What the agent is doing now, when it is not plain work; null ends it.
+   * Absent leaves it as is while the session runs or waits; any other state
+   * ends it. A kind this build does not know decodes as absent.
+   */
+  agentState: ForwardCompatibleOptional(Schema.NullOr(ThreadAgentState)),
 });
 export type SessionStateChangedPayload = typeof SessionStateChangedPayload.Type;
 

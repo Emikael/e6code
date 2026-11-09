@@ -12,6 +12,7 @@ import {
   ClientSurface,
   CommandId,
   EventId,
+  ForwardCompatibleOptional,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -882,6 +883,26 @@ export const OrchestrationProjectShell = Schema.Struct({
 });
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
+/**
+ * What a running agent is doing when it is not plain thinking: compacting its
+ * context, retrying a failed request, or paused until a usage limit resets.
+ * Adapters report it on `session.state.changed`; the server keeps it in memory
+ * and clears it on the next real progress or when the turn ends.
+ */
+export const ThreadAgentState = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("compacting") }),
+  Schema.Struct({
+    kind: Schema.Literal("retrying"),
+    attempt: Schema.optional(PositiveInt),
+    maxAttempts: Schema.optional(PositiveInt),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("rate-limited"),
+    resetsAt: Schema.optional(IsoDateTime),
+  }),
+]);
+export type ThreadAgentState = typeof ThreadAgentState.Type;
+
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -948,6 +969,12 @@ export const OrchestrationThreadShell = Schema.Struct({
       }),
     ),
   ),
+  /**
+   * Live agent state while a turn runs (see ThreadAgentState). Omitted when
+   * the agent is simply working, so idle threads pay nothing on the wire. A
+   * kind from a newer server decodes as absent instead of failing the shell.
+   */
+  agentState: ForwardCompatibleOptional(ThreadAgentState),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 

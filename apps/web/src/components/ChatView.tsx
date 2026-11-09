@@ -10375,6 +10375,11 @@ export default function ChatView(props: ChatViewProps) {
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
+                agentState={
+                  !paintOnlyDisplayedTimeline && isWorking
+                    ? (activeThreadShell?.agentState ?? null)
+                    : null
+                }
                 activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
                 worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
                 onCancelWorktreeSetup={onCancelWorktreeSetup}

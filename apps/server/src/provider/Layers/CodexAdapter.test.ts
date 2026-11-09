@@ -1880,41 +1880,91 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("maps retryable Codex error notifications to runtime.warning", () =>
+  it.effect("names retries in the working indicator and leaves only final failures as rows", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      for (const [index, willRetry] of [true, false].entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-codex-error-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          method: "error",
+          turnId: asTurnId("turn-1"),
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message: willRetry ? "Reconnecting... 2/5" : "Stream failed" },
+            willRetry,
+          },
+        } satisfies ProviderEvent);
+      }
 
-      yield* runtime.emit({
-        id: asEventId("evt-retryable-error"),
+      const [retry, failure] = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.equal(retry?.type, "session.state.changed");
+      NodeAssert.equal(failure?.type, "runtime.error");
+      if (failure?.type === "runtime.error") {
+        NodeAssert.equal(failure.turnId, "turn-1");
+        NodeAssert.equal(failure.payload.message, "Stream failed");
+      }
+    }),
+  );
+
+  it.effect("names Codex retries and auto-compaction as agent states", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const statesFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "session.state.changed"),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const base = {
         kind: "notification",
         provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
         createdAt: "2026-01-01T00:00:00.000Z",
-        method: "error",
         turnId: asTurnId("turn-1"),
+      } as const;
+      for (const [index, message] of ["Reconnecting... 2/5", "stream disconnected"].entries()) {
+        yield* runtime.emit({
+          ...base,
+          id: asEventId(`evt-retry-${index}`),
+          method: "error",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message },
+            willRetry: true,
+          },
+        } satisfies ProviderEvent);
+      }
+      yield* runtime.emit({
+        ...base,
+        id: asEventId("evt-compaction-started"),
+        method: "item/started",
         payload: {
           threadId: "thread-1",
           turnId: "turn-1",
-          error: {
-            message: "Reconnecting... 2/5",
-          },
-          willRetry: true,
+          startedAtMs: 1_778_000_000_000,
+          item: { id: "compact-item", type: "contextCompaction" },
         },
       } satisfies ProviderEvent);
 
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-
-      NodeAssert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
-      }
-      NodeAssert.equal(firstEvent.value.type, "runtime.warning");
-      if (firstEvent.value.type !== "runtime.warning") {
-        return;
-      }
-      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
-      NodeAssert.equal(firstEvent.value.payload.message, "Reconnecting... 2/5");
+      const states = Array.from(yield* Fiber.join(statesFiber)).map((event) =>
+        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      );
+      NodeAssert.deepStrictEqual(states, [
+        { kind: "retrying", attempt: 2, maxAttempts: 5 },
+        { kind: "retrying" },
+        { kind: "compacting" },
+      ]);
     }),
   );
 

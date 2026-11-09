@@ -98,6 +98,7 @@ import {
   FloatingWorkingControl,
 } from "./floating-working-control";
 import {
+  activeWorkFloatingStatus,
   connectionFloatingStatus,
   pendingAttentionFloatingStatus,
   type FloatingWorkingStatus,
@@ -417,13 +418,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };
     }
-    if (props.isCompacting && contentPresentationKind === "ready") {
-      return { kind: "compacting" };
+    if (contentPresentationKind !== "ready") {
+      return null;
     }
-    if (props.activeWorkStartedAt !== null && contentPresentationKind === "ready") {
-      return { kind: "working", startedAt: props.activeWorkStartedAt };
-    }
-    return null;
+    return activeWorkFloatingStatus({
+      isCompacting: props.isCompacting,
+      agentState: props.selectedThread.agentState,
+      activeWorkStartedAt: props.activeWorkStartedAt,
+    });
   })();
   const showWorkingControl = floatingStatus !== null;
   // Connection and working status occupy the same space. Keep the feed inset

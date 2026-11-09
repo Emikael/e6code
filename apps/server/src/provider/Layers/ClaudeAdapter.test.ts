@@ -25,6 +25,7 @@ import {
 import { createModelSelection } from "@e6tools/shared/model";
 import { assert, describe, it } from "@effect/vitest";
 import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -2803,6 +2804,88 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(errors[0]?.payload.message, expected);
       assert.equal(completedTurn(events).state, "failed");
       assert.equal(completedTurn(events).errorMessage, expected);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("reports compacting, retrying and usage-limit pauses as agent states", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "go", attachments: [] });
+      const nowMs = yield* Clock.currentTimeMillis;
+      const resetsAt = Math.floor(nowMs / 1000) + 4320;
+      for (const [index, message] of [
+        { type: "system", subtype: "status", status: "compacting" },
+        { type: "system", subtype: "status", status: null },
+        // A request heartbeat after a retry must not clear it.
+        { type: "system", subtype: "status", status: "requesting" },
+        {
+          type: "system",
+          subtype: "api_retry",
+          attempt: 2,
+          max_retries: 5,
+          retry_delay_ms: 1,
+          error_status: 529,
+          error: { type: "overloaded_error" },
+        },
+        { type: "system", subtype: "status", status: "requesting" },
+        {
+          type: "rate_limit_event",
+          rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt },
+        },
+        // The same parked window re-fires; it is not reported twice.
+        {
+          type: "rate_limit_event",
+          rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt },
+        },
+        {
+          type: "rate_limit_event",
+          rate_limit_info: { status: "allowed", rateLimitType: "five_hour", resetsAt },
+        },
+      ].entries()) {
+        harness.query.emit({
+          ...message,
+          session_id: "sdk-agent-state",
+          uuid: `agent-state-${index}`,
+        } as unknown as SDKMessage);
+      }
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "done",
+        session_id: "sdk-agent-state",
+        uuid: "agent-state-result",
+      } as unknown as SDKMessage);
+
+      const agentStates = Array.from(yield* Fiber.join(eventsFiber)).flatMap((event) =>
+        event.type === "session.state.changed" && event.payload.agentState !== undefined
+          ? [event.payload.agentState]
+          : [],
+      );
+      assert.deepEqual(agentStates, [
+        { kind: "compacting" },
+        null,
+        { kind: "retrying", attempt: 2, maxAttempts: 5 },
+        {
+          kind: "rate-limited",
+          resetsAt: DateTime.formatIso(DateTime.makeUnsafe(resetsAt * 1000)),
+        },
+        null,
+      ]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

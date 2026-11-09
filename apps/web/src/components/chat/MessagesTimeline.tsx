@@ -134,6 +134,7 @@ import {
   ChevronRightIcon,
   ChevronUpIcon,
   CircleAlertIcon,
+  CirclePauseIcon,
   DownloadIcon,
   EyeIcon,
   GlobeIcon,
@@ -142,6 +143,7 @@ import {
   Minimize2Icon,
   MousePointerClickIcon,
   PaintbrushIcon,
+  RotateCwIcon,
   SearchIcon,
   SmartphoneIcon,
   SquarePenIcon,
@@ -156,6 +158,7 @@ import type {
   ComposerContextId,
   ComposerContextRecord,
   KnownComposerContextRecord,
+  ThreadAgentState,
 } from "@e6tools/contracts";
 import { Button } from "../ui/button";
 import type { QueuedComposerMessage } from "../../queuedMessageStore";
@@ -227,8 +230,14 @@ import {
   type WorkGroupScrollAnchor,
   buildToolCallExpandedBody,
   workEntryRawCommand,
+  resolveWorkingRowStatus,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import {
+  agentStateLabelTicks,
+  formatAgentStateLabel,
+} from "@e6tools/client-runtime/state/agent-state";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -369,6 +378,8 @@ interface TimelineRowActivityState {
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
   /** What the turn is blocked on, if anything; the working row says so instead of "Working". */
   pendingAttention: PendingAttention;
+  /** What the running agent reports about itself (compacting, retrying, paused). */
+  agentState: ThreadAgentState | null;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -495,6 +506,7 @@ interface MessagesTimelineProps {
   onOpenAgents?: (agentId?: string) => void;
   subagentProviderKind?: ProviderDriverKind | null;
   pendingAttention?: PendingAttention;
+  agentState?: ThreadAgentState | null;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -585,6 +597,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenAgents = NOOP_OPEN_AGENTS,
   subagentProviderKind = null,
   pendingAttention = null,
+  agentState = null,
   listRef,
   timelineEntries,
   latestTurn,
@@ -1408,6 +1421,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     latestTurn?.startedAt != null
       ? worktreeSetup
       : null;
+  // Keyed by value: the shell object, and so this field, is new on every
+  // thread-shell patch, and the activity context re-renders every row.
+  const agentStateKey = agentState === null ? null : JSON.stringify(agentState);
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
@@ -1420,10 +1436,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       unsettledTurnId: deriveUnsettledTurnId(latestTurn ?? null, runningTurnId),
       backgroundWorktreeSetup,
       pendingAttention,
+      agentState: agentStateKey === null ? null : (JSON.parse(agentStateKey) as ThreadAgentState),
     }),
     [
       backgroundWorktreeSetup,
       pendingAttention,
+      agentStateKey,
       isCompacting,
       isRevertingCheckpoint,
       isWorking,
@@ -2775,29 +2793,47 @@ function ProposedPlanTimelineRow({
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup, pendingAttention } =
-    use(TimelineRowActivityCtx);
+  const {
+    isCompacting,
+    isPreparingWorktree,
+    backgroundWorktreeSetup,
+    pendingAttention,
+    agentState,
+  } = use(TimelineRowActivityCtx);
+  const status = resolveWorkingRowStatus({
+    isPreparingWorktree,
+    isCompacting,
+    pendingAttention,
+    agentState,
+  });
   // One span for every label so the setup-to-working handoff swaps text in
   // place instead of remounting the row.
-  const shimmer = isPreparingWorktree || isCompacting;
-  const waiting = !shimmer && pendingAttention !== null;
-  const label = isPreparingWorktree ? (
-    "Setting up worktree…"
-  ) : isCompacting ? (
-    <CompactingLabel />
-  ) : waiting ? (
-    pendingAttention === "approval" ? (
-      "Needs approval"
+  const shimmer = status.kind === "preparing" || status.kind === "compacting";
+  const paused = status.kind === "agent-state" && status.agentState.kind === "rate-limited";
+  const waiting = status.kind === "attention" || paused;
+  const label =
+    status.kind === "preparing" ? (
+      "Setting up worktree…"
+    ) : status.kind === "compacting" ? (
+      <CompactingLabel />
+    ) : status.kind === "attention" ? (
+      status.attention === "approval" ? (
+        "Needs approval"
+      ) : (
+        "Needs your answer"
+      )
+    ) : status.kind === "agent-state" ? (
+      <AgentStateLabel agentState={status.agentState} />
     ) : (
-      "Needs your answer"
-    )
-  ) : (
-    "Working"
-  );
+      "Working"
+    );
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
       <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
-        {shimmer ? null : waiting ? (
+        {shimmer ? null : paused ? (
+          // A pause is not progress, so the live accent steps aside.
+          <CirclePauseIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
+        ) : waiting ? (
           <TriangleAlertIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
         ) : (
           // The one live signal on screen: the accent, stepped pulse. When an
@@ -2980,11 +3016,13 @@ function ActivityGroupTimelineRow({
 }
 
 function ThinkingTimelineRow() {
-  const { isCompacting, isPreparingWorktree } = use(TimelineRowActivityCtx);
+  const { isCompacting, isPreparingWorktree, agentState } = use(TimelineRowActivityCtx);
   // Reserve the activity row during setup so the handoff keeps the same height.
+  // While the agent compacts, retries or waits, the working row says so and
+  // "Thinking" would be a lie.
   return (
     <div className="min-h-7">
-      {isPreparingWorktree || isCompacting ? null : (
+      {isPreparingWorktree || isCompacting || agentState !== null ? null : (
         <LiveActivityRow label="Thinking" iconName="brain" active shimmer />
       )}
     </div>
@@ -3178,6 +3216,32 @@ function CompactingLabel() {
       Compacting…
     </span>
   );
+}
+
+/** Compacting and retrying carry their own icon; a pause's icon leads the row. */
+function AgentStateLabel({ agentState }: { agentState: ThreadAgentState }) {
+  const Icon =
+    agentState.kind === "compacting"
+      ? Minimize2Icon
+      : agentState.kind === "retrying"
+        ? RotateCwIcon
+        : null;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {Icon ? <Icon aria-hidden="true" className="size-3" /> : null}
+      {agentStateLabelTicks(agentState) ? (
+        <AgentStateCountdownText agentState={agentState} />
+      ) : (
+        formatAgentStateLabel(agentState, 0)
+      )}
+    </span>
+  );
+}
+
+/** Only a countdown subscribes to the shared minute clock. */
+function AgentStateCountdownText({ agentState }: { agentState: ThreadAgentState }) {
+  const nowMinute = useNowMinute();
+  return formatAgentStateLabel(agentState, Date.parse(`${nowMinute}:00.000Z`));
 }
 
 // ---------------------------------------------------------------------------

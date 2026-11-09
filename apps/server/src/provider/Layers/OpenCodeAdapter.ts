@@ -1,4 +1,5 @@
 import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
+import { retryingAgentState } from "../agentState.ts";
 import {
   EventId,
   type OpenCodeSettings,
@@ -2540,6 +2541,9 @@ export function makeOpenCodeAdapter(
           break;
         }
         case "session.retry.scheduled": {
+          // Not a work-log row: the working indicator names the retry, and a
+          // final failure arrives as session.execution.failed. OpenCode
+          // reports the attempt but no cap.
           if (turnId) {
             yield* emit({
               ...(yield* buildEventBase({
@@ -2547,11 +2551,19 @@ export function makeOpenCodeAdapter(
                 turnId,
                 raw: event,
               })),
-              type: "runtime.warning",
-              payload: {
-                message: "OpenCode is retrying the current request.",
-                detail: event.data.error,
-              },
+              type: "session.state.changed",
+              payload: { state: "running", agentState: retryingAgentState(event.data.attempt) },
+            });
+          }
+          break;
+        }
+        case "session.compaction.started": {
+          // Cleared by session.compaction.ended (thread.state.changed "compacted").
+          if (turnId) {
+            yield* emit({
+              ...(yield* buildEventBase({ threadId: context.session.threadId, turnId })),
+              type: "session.state.changed",
+              payload: { state: "running", agentState: { kind: "compacting" } },
             });
           }
           break;

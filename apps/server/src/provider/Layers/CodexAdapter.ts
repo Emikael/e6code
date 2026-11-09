@@ -1,4 +1,5 @@
 import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
+import { retryingAgentState } from "../agentState.ts";
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
@@ -1717,7 +1718,21 @@ function mapToRuntimeEvents(
 
   if (event.method === "item/started") {
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
-    return started ? [started] : [];
+    if (!started) return [];
+    // Auto-compaction runs as an item; the working indicator names it until
+    // the item completes (thread.state.changed "compacted" clears it).
+    if (started.type === "item.started" && started.payload.itemType === "context_compaction") {
+      return [
+        started,
+        {
+          ...runtimeEventBase(event, canonicalThreadId),
+          eventId: EventId.make(`${event.id}:agent-compacting`),
+          type: "session.state.changed",
+          payload: { state: "running", agentState: { kind: "compacting" } },
+        },
+      ];
+    }
+    return [started];
   }
 
   if (event.method === "item/completed") {
@@ -2166,15 +2181,33 @@ function mapToRuntimeEvents(
   if (event.method === "error") {
     const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
     const message = payload?.error.message ?? event.message ?? "Provider runtime error";
-    const willRetry = payload?.willRetry === true;
+    if (payload?.willRetry !== true) {
+      return [
+        {
+          type: "runtime.error",
+          ...runtimeEventBase(event, canonicalThreadId),
+          payload: {
+            message,
+            class: "provider_error" as const,
+            ...(event.payload !== undefined ? { detail: event.payload } : {}),
+          },
+        },
+      ];
+    }
+    // A retry is not a work-log row: the working indicator names it until the
+    // stream resumes, and a final failure arrives as a non-retried error.
+    // Codex only reports its counters in the text.
+    const counters = /(\d+)\s*\/\s*(\d+)/.exec(message);
     return [
       {
-        type: willRetry ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
+        type: "session.state.changed",
         payload: {
-          message,
-          ...(!willRetry ? { class: "provider_error" as const } : {}),
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
+          state: "running",
+          agentState: retryingAgentState(
+            counters ? Number(counters[1]) : undefined,
+            counters ? Number(counters[2]) : undefined,
+          ),
         },
       },
     ];
