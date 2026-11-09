@@ -1616,6 +1616,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           : shouldRecede
             ? "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+    // Multi-selected rows carry a leading primary-edge bar (and aria-selected),
+    // a different shape from the open thread's ring, so both can show at once.
+    isSelected &&
+      "before:absolute before:inset-y-2 before:left-1 before:w-0.5 before:rounded-full before:bg-primary-edge",
     isFileDragOver && "ring-1 ring-inset ring-primary-edge",
     // The hover tint must not clobber an active/selected row's own surface.
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
@@ -1798,6 +1802,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 data-sidebar-row={threadKey}
                 data-sidebar-parent={props.navigationParent}
                 aria-current={props.isActive ? "page" : undefined}
+                aria-selected={isSelected || undefined}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
@@ -1966,6 +1971,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               data-sidebar-row={threadKey}
               data-sidebar-parent={props.navigationParent}
               aria-current={props.isActive ? "page" : undefined}
+              aria-selected={isSelected || undefined}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
