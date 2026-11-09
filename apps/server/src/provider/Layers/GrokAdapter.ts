@@ -2009,6 +2009,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 };
                 yield* clearTurnLiveness(ctx);
                 const completedStopReason = completedStopReasonFromPromptResponse(result);
+                // Usage is not supported: Grok is not known to send ACP's
+                // unstable prompt `usage` or `usage_update`, and
+                // prompt_complete's `agentResult` is undocumented. The turn
+                // carries no tokenUsage or turnCostUsd; the Usage page reads
+                // Grok's session files instead. Map them here if Grok starts
+                // sending them.
                 yield* offerRuntimeEvent({
                   type: "turn.completed",
                   ...(yield* makeEventStamp()),
