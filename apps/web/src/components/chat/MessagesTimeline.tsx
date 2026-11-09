@@ -3072,16 +3072,24 @@ function ThinkingTimelineRail({
 /**
  * A step's dot on the rail. The icon stays inside so the step reads without
  * colour; the live step gets a static ring rather than an animation.
+ *
+ * The dot is opaque so the rail stops at its edge. A row that tints on hover
+ * carries `group/step`; the dot repeats that exact `bg-accent/20` layer over
+ * its background, so it matches the row at rest and on hover.
  */
 function ThinkingTimelineMarker({ live, children }: { live: boolean; children: ReactNode }) {
   return (
     <span
       className={cn(
-        "flex size-5 items-center justify-center rounded-full bg-background",
+        "relative flex size-5 items-center justify-center rounded-full bg-background",
         live ? "ring-2 ring-primary-edge" : "ring-1 ring-border",
       )}
     >
-      {children}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-full bg-accent/20 opacity-0 transition-opacity group-hover/step:opacity-100"
+      />
+      <span className="relative flex">{children}</span>
     </span>
   );
 }
@@ -3180,7 +3188,7 @@ function ReasoningTraceBlock({
           type="button"
           aria-expanded={expanded}
           onClick={() => ctx.onToggleReasoning(first.id, !expanded, anchorKey)}
-          className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-start text-sm leading-relaxed transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          className="group/step flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-start text-sm leading-relaxed transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
             {timeline ? (
@@ -5473,7 +5481,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         isExpandedToolGroupEntry ? "py-0" : "py-0.5",
         expanded && "mb-1",
         canExpand &&
-          "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+          "group/step cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
       )}
       {...rowToggleProps}
     >
