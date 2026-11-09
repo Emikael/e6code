@@ -477,6 +477,26 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("carries a main-agent file change's line counts, never a subagent's", () => {
+    const edit = (agentId?: string) =>
+      makeActivity({
+        kind: "tool.completed",
+        turnId: "turn-1",
+        payload: {
+          itemType: "file_change",
+          status: "completed",
+          data: { input: { file_path: "/repo/src/a.ts" } },
+          changedFiles: [{ path: "/repo/src/a.ts", additions: 48, deletions: 12 }],
+          ...(agentId ? { agentId } : {}),
+        },
+      });
+    expect(deriveWorkLogEntries([edit()])[0]?.diffStat).toEqual({
+      additions: 48,
+      deletions: 12,
+    });
+    expect(deriveWorkLogEntries([edit("task-1")])[0]?.diffStat).toBeUndefined();
+  });
+
   it("shows each plan update as a Tasks row and keeps the latest task progress", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),

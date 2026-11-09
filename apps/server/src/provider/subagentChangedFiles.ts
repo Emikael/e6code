@@ -171,11 +171,15 @@ export function openCodeChangedFiles(
   toolName: string,
   input: Record<string, unknown> | undefined,
 ): ReadonlyArray<ItemChangedFile> | undefined {
-  const path = asPath(input?.filePath) ?? asPath(input?.path);
+  // The SDK types tool input as an open record, so the edit tool's own
+  // camelCase names come first, with the snake_case spelling as a fallback.
+  // An unrecognised shape only loses the counts, never the file.
+  const path = asPath(input?.filePath) ?? asPath(input?.file_path) ?? asPath(input?.path);
   if (!input || !path) return undefined;
+  const replaceAll = input.replaceAll === true || input.replace_all === true;
   const counts =
-    toolName.toLowerCase() === "edit" && input.replaceAll !== true
-      ? stringPairCounts(input.oldString, input.newString)
+    toolName.toLowerCase() === "edit" && !replaceAll
+      ? stringPairCounts(input.oldString ?? input.old_string, input.newString ?? input.new_string)
       : undefined;
   return [withCounts(path, counts)];
 }

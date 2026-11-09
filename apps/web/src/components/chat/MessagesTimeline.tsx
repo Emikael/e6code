@@ -5411,6 +5411,14 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           !toolIconAcceptsTint(entryIconName, entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
+          {workEntry.diffStat ? (
+            <DiffStatLabel
+              additions={workEntry.diffStat.additions}
+              deletions={workEntry.diffStat.deletions}
+              layout="inline"
+              className="shrink-0 text-xs"
+            />
+          ) : null}
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
           <span
             className={cn(

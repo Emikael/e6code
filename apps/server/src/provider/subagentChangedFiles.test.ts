@@ -68,6 +68,12 @@ describe("openCodeChangedFiles", () => {
     ).toEqual([{ path: "/repo/a.ts", additions: 2, deletions: 1 }]);
   });
 
+  it("reads the snake_case spelling too", () => {
+    expect(
+      openCodeChangedFiles("edit", { file_path: "/repo/a.ts", old_string: "a", new_string: "b" }),
+    ).toEqual([{ path: "/repo/a.ts", additions: 1, deletions: 1 }]);
+  });
+
   it("lists the file without counts when the input cannot say", () => {
     expect(openCodeChangedFiles("write", { filePath: "/repo/b.ts", content: "x\n" })).toEqual([
       { path: "/repo/b.ts" },
