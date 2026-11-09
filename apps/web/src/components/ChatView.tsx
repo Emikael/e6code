@@ -7278,6 +7278,16 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "composer.cycleEffort") {
+        // Models without effort steps leave the keys to the page.
+        if (!composerRef.current?.canCycleEffort()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        // Holding the keys steps once, like the other composer shortcuts.
+        if (!event.repeat) composerRef.current.cycleEffort();
+        return;
+      }
+
       if (command === "composer.branch") {
         event.preventDefault();
         event.stopPropagation();
