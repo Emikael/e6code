@@ -33,7 +33,8 @@
       --color-inline-skill-foreground: #14161b;
       --color-primary: #5b4ae0;
       --color-primary-foreground: #ffffff;
-      --color-primary-text: #5b4ae0;
+      --color-primary-text: #4a3ad0;
+      --color-primary-edge: #4a3ad0;
       --color-primary-shadow: #000000;
       --color-secondary: #eceef2;
       --color-secondary-foreground: #2a2d35;
@@ -70,7 +71,7 @@
       --color-status-bar: #ffffff;
       --color-md-body: #14161b;
       --color-md-strong: #14161b;
-      --color-md-link: #5b4ae0;
+      --color-md-link: #4a3ad0;
       --color-md-blockquote-border: #e3e5ea;
       --color-md-blockquote-bg: #f1f3f6;
       --color-md-code-bg: #fdfdfe;
@@ -83,7 +84,7 @@
       --color-user-bubble: #e9ebf0;
       --color-user-bubble-foreground: #14161b;
       --color-user-bubble-foreground-muted: rgba(20, 22, 27, 0.78);
-      --color-user-bubble-skill-foreground: #5b4ae0;
+      --color-user-bubble-skill-foreground: #4a3ad0;
       --color-backdrop: rgba(0, 0, 0, 0.22);
       --color-drawer: #f8f9fb;
       --color-drawer-foreground: #14161b;
@@ -93,6 +94,8 @@
       --color-dot-separator: rgba(90, 96, 109, 0.35);
       --color-wordmark: #14161b;
       --color-chevron: rgba(90, 96, 109, 0.42);
+      --color-diff-addition: oklch(50.8% 0.118 165.612);
+      --color-diff-deletion: oklch(51.4% 0.222 16.935);
       --color-adaptive-amber-50-950-a40: oklch(98.7% 0.022 95.277);
       --color-adaptive-amber-200-900-a60: oklch(92.4% 0.12 95.746);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 12%);
@@ -137,7 +140,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
       --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
-      --color-adaptive-rose-700-300: oklch(51.4% 0.222 16.935);
       --color-adaptive-violet-600-400: oklch(54.1% 0.281 293.009);
       --color-adaptive-violet-700-300: oklch(49.1% 0.27 292.581);
       --color-adaptive-white-neutral-950-a70: #fff;
@@ -183,7 +185,8 @@
       --color-inline-skill-foreground: #eceef3;
       --color-primary: #9b8cff;
       --color-primary-foreground: #14102e;
-      --color-primary-text: #9b8cff;
+      --color-primary-text: #b9afff;
+      --color-primary-edge: #9b8cff;
       --color-primary-shadow: #000000;
       --color-secondary: #1f2228;
       --color-secondary-foreground: #dfe2e8;
@@ -220,7 +223,7 @@
       --color-status-bar: #1a1d23;
       --color-md-body: #eceef3;
       --color-md-strong: #eceef3;
-      --color-md-link: #9b8cff;
+      --color-md-link: #b9afff;
       --color-md-blockquote-border: #2a2d33;
       --color-md-blockquote-bg: #1f2228;
       --color-md-code-bg: #1e2127;
@@ -233,7 +236,7 @@
       --color-user-bubble: #23262d;
       --color-user-bubble-foreground: #eceef3;
       --color-user-bubble-foreground-muted: rgba(236, 238, 243, 0.78);
-      --color-user-bubble-skill-foreground: #9b8cff;
+      --color-user-bubble-skill-foreground: #b9afff;
       --color-backdrop: rgba(0, 0, 0, 0.48);
       --color-drawer: #0c0d10;
       --color-drawer-foreground: #eceef3;
@@ -243,6 +246,8 @@
       --color-dot-separator: rgba(157, 163, 176, 0.35);
       --color-wordmark: #eceef3;
       --color-chevron: rgba(157, 163, 176, 0.42);
+      --color-diff-addition: oklch(84.5% 0.143 164.978);
+      --color-diff-deletion: oklch(81% 0.117 11.638);
       --color-adaptive-amber-50-950-a40: oklch(27.9% 0.077 45.635 / 40%);
       --color-adaptive-amber-200-900-a60: oklch(41.4% 0.112 45.904 / 60%);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 16%);
@@ -287,7 +292,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-700-300: oklch(81% 0.117 11.638);
       --color-adaptive-violet-600-400: oklch(70.2% 0.183 293.541);
       --color-adaptive-violet-700-300: oklch(81.1% 0.111 293.571);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
@@ -334,6 +338,7 @@
       --color-primary: #db2777;
       --color-primary-foreground: #ffffff;
       --color-primary-text: #d32572;
+      --color-primary-edge: #db2777;
       --color-primary-shadow: #000000;
       --color-secondary: #f1c4e6;
       --color-secondary-foreground: #77347c;
@@ -393,6 +398,8 @@
       --color-dot-separator: rgba(172, 22, 104, 0.35);
       --color-wordmark: #501854;
       --color-chevron: rgba(172, 22, 104, 0.42);
+      --color-diff-addition: oklch(50.8% 0.118 165.612);
+      --color-diff-deletion: oklch(51.4% 0.222 16.935);
       --color-adaptive-amber-50-950-a40: oklch(98.7% 0.022 95.277);
       --color-adaptive-amber-200-900-a60: oklch(92.4% 0.12 95.746);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 12%);
@@ -437,7 +444,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
       --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
-      --color-adaptive-rose-700-300: oklch(51.4% 0.222 16.935);
       --color-adaptive-violet-600-400: oklch(54.1% 0.281 293.009);
       --color-adaptive-violet-700-300: oklch(49.1% 0.27 292.581);
       --color-adaptive-white-neutral-950-a70: #fff;
@@ -484,6 +490,7 @@
       --color-primary: #a3004c;
       --color-primary-foreground: #fbd0e8;
       --color-primary-text: #cc729c;
+      --color-primary-edge: #bc467d;
       --color-primary-shadow: #000000;
       --color-secondary: #362d3d;
       --color-secondary-foreground: #d4c7e1;
@@ -543,6 +550,8 @@
       --color-dot-separator: rgba(231, 208, 221, 0.35);
       --color-wordmark: #f9f8fb;
       --color-chevron: rgba(231, 208, 221, 0.42);
+      --color-diff-addition: oklch(84.5% 0.143 164.978);
+      --color-diff-deletion: oklch(81% 0.117 11.638);
       --color-adaptive-amber-50-950-a40: oklch(27.9% 0.077 45.635 / 40%);
       --color-adaptive-amber-200-900-a60: oklch(41.4% 0.112 45.904 / 60%);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 16%);
@@ -587,7 +596,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-700-300: oklch(81% 0.117 11.638);
       --color-adaptive-violet-600-400: oklch(70.2% 0.183 293.541);
       --color-adaptive-violet-700-300: oklch(81.1% 0.111 293.571);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
@@ -634,6 +642,7 @@
       --color-primary: #8f6410;
       --color-primary-foreground: #fffaff;
       --color-primary-text: #8f6410;
+      --color-primary-edge: #8f6410;
       --color-primary-shadow: #000000;
       --color-secondary: #e2ede7;
       --color-secondary-foreground: #241523;
@@ -693,6 +702,8 @@
       --color-dot-separator: rgba(116, 108, 115, 0.35);
       --color-wordmark: #241523;
       --color-chevron: rgba(116, 108, 115, 0.42);
+      --color-diff-addition: oklch(50.8% 0.118 165.612);
+      --color-diff-deletion: oklch(51.4% 0.222 16.935);
       --color-adaptive-amber-50-950-a40: oklch(98.7% 0.022 95.277);
       --color-adaptive-amber-200-900-a60: oklch(92.4% 0.12 95.746);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 12%);
@@ -737,7 +748,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
       --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
-      --color-adaptive-rose-700-300: oklch(51.4% 0.222 16.935);
       --color-adaptive-violet-600-400: oklch(54.1% 0.281 293.009);
       --color-adaptive-violet-700-300: oklch(49.1% 0.27 292.581);
       --color-adaptive-white-neutral-950-a70: #fff;
@@ -784,6 +794,7 @@
       --color-primary: #e3b34e;
       --color-primary-foreground: #241523;
       --color-primary-text: #e3b34e;
+      --color-primary-edge: #e3b34e;
       --color-primary-shadow: #000000;
       --color-secondary: #2a4b39;
       --color-secondary-foreground: #fffaff;
@@ -843,6 +854,8 @@
       --color-dot-separator: rgba(145, 149, 149, 0.35);
       --color-wordmark: #fffaff;
       --color-chevron: rgba(145, 149, 149, 0.42);
+      --color-diff-addition: oklch(84.5% 0.143 164.978);
+      --color-diff-deletion: oklch(81% 0.117 11.638);
       --color-adaptive-amber-50-950-a40: oklch(27.9% 0.077 45.635 / 40%);
       --color-adaptive-amber-200-900-a60: oklch(41.4% 0.112 45.904 / 60%);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 16%);
@@ -887,7 +900,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-700-300: oklch(81% 0.117 11.638);
       --color-adaptive-violet-600-400: oklch(70.2% 0.183 293.541);
       --color-adaptive-violet-700-300: oklch(81.1% 0.111 293.571);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
@@ -934,6 +946,7 @@
       --color-primary: #0a6f75;
       --color-primary-foreground: #fffaff;
       --color-primary-text: #0a6f75;
+      --color-primary-edge: #0a6f75;
       --color-primary-shadow: #000000;
       --color-secondary: #e4ecf2;
       --color-secondary-foreground: #241523;
@@ -993,6 +1006,8 @@
       --color-dot-separator: rgba(116, 108, 117, 0.35);
       --color-wordmark: #241523;
       --color-chevron: rgba(116, 108, 117, 0.42);
+      --color-diff-addition: oklch(50.8% 0.118 165.612);
+      --color-diff-deletion: oklch(51.4% 0.222 16.935);
       --color-adaptive-amber-50-950-a40: oklch(98.7% 0.022 95.277);
       --color-adaptive-amber-200-900-a60: oklch(92.4% 0.12 95.746);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 12%);
@@ -1037,7 +1052,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
       --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
-      --color-adaptive-rose-700-300: oklch(51.4% 0.222 16.935);
       --color-adaptive-violet-600-400: oklch(54.1% 0.281 293.009);
       --color-adaptive-violet-700-300: oklch(49.1% 0.27 292.581);
       --color-adaptive-white-neutral-950-a70: #fff;
@@ -1084,6 +1098,7 @@
       --color-primary: #5bd0d6;
       --color-primary-foreground: #241523;
       --color-primary-text: #5bd0d6;
+      --color-primary-edge: #5bd0d6;
       --color-primary-shadow: #000000;
       --color-secondary: #293f52;
       --color-secondary-foreground: #fffaff;
@@ -1143,6 +1158,8 @@
       --color-dot-separator: rgba(141, 143, 151, 0.35);
       --color-wordmark: #fffaff;
       --color-chevron: rgba(141, 143, 151, 0.42);
+      --color-diff-addition: oklch(84.5% 0.143 164.978);
+      --color-diff-deletion: oklch(81% 0.117 11.638);
       --color-adaptive-amber-50-950-a40: oklch(27.9% 0.077 45.635 / 40%);
       --color-adaptive-amber-200-900-a60: oklch(41.4% 0.112 45.904 / 60%);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 16%);
@@ -1187,7 +1204,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-700-300: oklch(81% 0.117 11.638);
       --color-adaptive-violet-600-400: oklch(70.2% 0.183 293.541);
       --color-adaptive-violet-700-300: oklch(81.1% 0.111 293.571);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
@@ -1234,6 +1250,7 @@
       --color-primary: #b23535;
       --color-primary-foreground: #fffaff;
       --color-primary-text: #b23535;
+      --color-primary-edge: #b23535;
       --color-primary-shadow: #000000;
       --color-secondary: #f3eae5;
       --color-secondary-foreground: #241523;
@@ -1293,6 +1310,8 @@
       --color-dot-separator: rgba(118, 108, 116, 0.35);
       --color-wordmark: #241523;
       --color-chevron: rgba(118, 108, 116, 0.42);
+      --color-diff-addition: oklch(50.8% 0.118 165.612);
+      --color-diff-deletion: oklch(51.4% 0.222 16.935);
       --color-adaptive-amber-50-950-a40: oklch(98.7% 0.022 95.277);
       --color-adaptive-amber-200-900-a60: oklch(92.4% 0.12 95.746);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 12%);
@@ -1337,7 +1356,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
       --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
-      --color-adaptive-rose-700-300: oklch(51.4% 0.222 16.935);
       --color-adaptive-violet-600-400: oklch(54.1% 0.281 293.009);
       --color-adaptive-violet-700-300: oklch(49.1% 0.27 292.581);
       --color-adaptive-white-neutral-950-a70: #fff;
@@ -1384,6 +1402,7 @@
       --color-primary: #f78a7a;
       --color-primary-foreground: #241523;
       --color-primary-text: #f78a7a;
+      --color-primary-edge: #f78a7a;
       --color-primary-shadow: #000000;
       --color-secondary: #513728;
       --color-secondary-foreground: #fffaff;
@@ -1443,6 +1462,8 @@
       --color-dot-separator: rgba(150, 142, 143, 0.35);
       --color-wordmark: #fffaff;
       --color-chevron: rgba(150, 142, 143, 0.42);
+      --color-diff-addition: oklch(84.5% 0.143 164.978);
+      --color-diff-deletion: oklch(81% 0.117 11.638);
       --color-adaptive-amber-50-950-a40: oklch(27.9% 0.077 45.635 / 40%);
       --color-adaptive-amber-200-900-a60: oklch(41.4% 0.112 45.904 / 60%);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 16%);
@@ -1487,7 +1508,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-700-300: oklch(81% 0.117 11.638);
       --color-adaptive-violet-600-400: oklch(70.2% 0.183 293.541);
       --color-adaptive-violet-700-300: oklch(81.1% 0.111 293.571);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);
@@ -1534,6 +1554,7 @@
       --color-primary: #a82c87;
       --color-primary-foreground: #fffaff;
       --color-primary-text: #a82c87;
+      --color-primary-edge: #a82c87;
       --color-primary-shadow: #000000;
       --color-secondary: #edeaf4;
       --color-secondary-foreground: #241523;
@@ -1593,6 +1614,8 @@
       --color-dot-separator: rgba(118, 108, 118, 0.35);
       --color-wordmark: #241523;
       --color-chevron: rgba(118, 108, 118, 0.42);
+      --color-diff-addition: oklch(50.8% 0.118 165.612);
+      --color-diff-deletion: oklch(51.4% 0.222 16.935);
       --color-adaptive-amber-50-950-a40: oklch(98.7% 0.022 95.277);
       --color-adaptive-amber-200-900-a60: oklch(92.4% 0.12 95.746);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 12%);
@@ -1637,7 +1660,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 12%);
       --color-adaptive-rose-500-400: oklch(64.5% 0.246 16.439);
       --color-adaptive-rose-600-400: oklch(58.6% 0.253 17.585);
-      --color-adaptive-rose-700-300: oklch(51.4% 0.222 16.935);
       --color-adaptive-violet-600-400: oklch(54.1% 0.281 293.009);
       --color-adaptive-violet-700-300: oklch(49.1% 0.27 292.581);
       --color-adaptive-white-neutral-950-a70: #fff;
@@ -1684,6 +1706,7 @@
       --color-primary: #f099d8;
       --color-primary-foreground: #241523;
       --color-primary-text: #f099d8;
+      --color-primary-edge: #f099d8;
       --color-primary-shadow: #000000;
       --color-secondary: #362d51;
       --color-secondary-foreground: #fffaff;
@@ -1743,6 +1766,8 @@
       --color-dot-separator: rgba(142, 138, 149, 0.35);
       --color-wordmark: #fffaff;
       --color-chevron: rgba(142, 138, 149, 0.42);
+      --color-diff-addition: oklch(84.5% 0.143 164.978);
+      --color-diff-deletion: oklch(81% 0.117 11.638);
       --color-adaptive-amber-50-950-a40: oklch(27.9% 0.077 45.635 / 40%);
       --color-adaptive-amber-200-900-a60: oklch(41.4% 0.112 45.904 / 60%);
       --color-adaptive-amber-500-a12-a16: oklch(76.9% 0.188 70.08 / 16%);
@@ -1787,7 +1812,6 @@
       --color-adaptive-rose-500-a12-a16: oklch(64.5% 0.246 16.439 / 16%);
       --color-adaptive-rose-500-400: oklch(71.2% 0.194 13.428);
       --color-adaptive-rose-600-400: oklch(71.2% 0.194 13.428);
-      --color-adaptive-rose-700-300: oklch(81% 0.117 11.638);
       --color-adaptive-violet-600-400: oklch(70.2% 0.183 293.541);
       --color-adaptive-violet-700-300: oklch(81.1% 0.111 293.571);
       --color-adaptive-white-neutral-950-a70: oklch(14.5% 0 none / 70%);

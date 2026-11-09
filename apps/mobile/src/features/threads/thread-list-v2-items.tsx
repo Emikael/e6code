@@ -45,6 +45,7 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  formatResetClockTime,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
@@ -81,18 +82,6 @@ const STATUS_LABEL_BY_STATUS: Partial<
   working: { label: "Working", className: "text-info-foreground" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
-
-/** Usage-limit reset as a short local clock time, with the weekday when not today. */
-function formatResetClockTime(resetsAt: string): string {
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) return "";
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return date.toLocaleTimeString([], {
-    ...(sameDay ? {} : { weekday: "short" }),
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function threadTimeLabel(thread: EnvironmentThreadShell): string {
   return relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);

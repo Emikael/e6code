@@ -4407,11 +4407,21 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  const respondWithFeedback = (feedbackDelivered: boolean) =>
+  const respondWithFeedback = (outcome: boolean | "stale") =>
     Effect.gen(function* () {
       const harness = yield* Effect.promise(() => createHarness());
       const now = "2026-01-01T00:00:00.000Z";
-      harness.respondToRequest.mockImplementation(() => Effect.succeed({ feedbackDelivered }));
+      harness.respondToRequest.mockImplementation(() =>
+        outcome === "stale"
+          ? Effect.fail(
+              new ProviderAdapterRequestError({
+                provider: "opencode",
+                method: "permission.reply",
+                detail: "Unknown pending permission request: approval-request-1",
+              }),
+            )
+          : Effect.succeed({ feedbackDelivered: outcome }),
+      );
       yield* harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-for-feedback"),
@@ -4424,6 +4434,22 @@ describe("ProviderCommandReactor", () => {
           activeTurnId: null,
           lastError: null,
           updatedAt: now,
+        },
+        createdAt: now,
+      });
+      // Asked in a turn that has since ended: the session has no active turn.
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-approval-feedback-requested"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-approval-feedback-requested"),
+          tone: "approval",
+          kind: "approval.requested",
+          summary: "Command approval requested",
+          payload: { requestId: "approval-request-1", requestKind: "command" },
+          turnId: TurnId.make("turn-asked"),
+          createdAt: now,
         },
         createdAt: now,
       });
@@ -4486,10 +4512,33 @@ describe("ProviderCommandReactor", () => {
         expect(records).toHaveLength(1);
         expect(records?.[0]).toMatchObject({
           tone: "approval",
+          // The turn that asked, not the session's (now empty) active turn.
+          turnId: "turn-asked",
           summary: "Declined · Run the unit tests instead",
           payload: { requestId: "approval-request-1", feedback: "Run the unit tests instead" },
         });
         expect(records?.[0]?.payload).not.toHaveProperty("detail");
+      }),
+  );
+
+  effectIt.effect(
+    "reports instructions for an already answered request as stale, not declined",
+    () =>
+      Effect.gen(function* () {
+        const { harness, thread } = yield* respondWithFeedback("stale");
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        expect(
+          thread?.activities.some(
+            (activity) => activity.kind === "approval.declined-with-instructions",
+          ),
+        ).toBe(false);
+        const failure = thread?.activities.find(
+          (activity) => activity.kind === "provider.approval.respond.failed",
+        );
+        expect(failure?.payload).toMatchObject({
+          requestId: "approval-request-1",
+          detail: expect.stringContaining("Stale pending approval request: approval-request-1"),
+        });
       }),
   );
 

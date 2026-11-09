@@ -114,4 +114,24 @@ describe("acpChangedFiles", () => {
     }));
     expect(acpChangedFiles(content)).toHaveLength(64);
   });
+
+  it("lists a rewrite too large or too different to diff without counts", () => {
+    const lines = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => `${prefix}${index}\n`).join("");
+    // Small enough to diff, but every line changed: past the edit-length bound.
+    const rewritten = { oldText: lines("old", 3_000), newText: lines("new", 3_000) };
+    // Few changes, but past the size bound.
+    const huge = lines("same", 60_000);
+    expect(
+      acpChangedFiles([
+        { type: "diff", path: "/repo/rewritten.ts", ...rewritten },
+        { type: "diff", path: "/repo/huge.ts", oldText: huge, newText: `${huge}tail\n` },
+        { type: "diff", path: "/repo/small.ts", oldText: "a\n", newText: "b\n" },
+      ]),
+    ).toEqual([
+      { path: "/repo/rewritten.ts" },
+      { path: "/repo/huge.ts" },
+      { path: "/repo/small.ts", additions: 1, deletions: 1 },
+    ]);
+  });
 });

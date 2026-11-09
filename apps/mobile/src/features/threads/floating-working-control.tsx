@@ -31,6 +31,7 @@ import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus } from "./floating-working-status";
+import { useMinuteClock } from "../../lib/useMinuteClock";
 import { ShimmeringWorkContent } from "./thread-work-log";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
@@ -270,7 +271,7 @@ function CompactingLabel(props: { readonly onLayout: (event: LayoutChangeEvent) 
       <SymbolView
         name="arrow.down.right.and.arrow.up.left"
         size={13}
-        tintColorClassName="foreground"
+        tintColorClassName="accent-foreground"
         type="monochrome"
       />
       <Text className="font-e6-medium text-xs text-foreground">Compacting…</Text>
@@ -288,14 +289,8 @@ function AgentStateLabel(props: {
   readonly agentState: ThreadAgentState;
   readonly onLayout: (event: LayoutChangeEvent) => void;
 }) {
-  // Only a countdown needs a clock, and it moves by the minute.
-  const ticks = agentStateLabelTicks(props.agentState);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticks) return;
-    const intervalId = setInterval(() => setNowMs(Date.now()), 60_000);
-    return () => clearInterval(intervalId);
-  }, [ticks]);
+  // Only a countdown needs a clock, and it moves by the minute while shown.
+  const nowMs = useMinuteClock(agentStateLabelTicks(props.agentState));
   const label = formatAgentStateLabel(props.agentState, nowMs);
   const paused = props.agentState.kind === "rate-limited";
   return (
@@ -303,7 +298,7 @@ function AgentStateLabel(props: {
       <SymbolView
         name={AGENT_STATE_SYMBOL[props.agentState.kind]}
         size={13}
-        tintColorClassName={paused ? "accent-warning-foreground" : "foreground"}
+        tintColorClassName={paused ? "accent-warning-foreground" : "accent-foreground"}
         type="monochrome"
       />
       <Text
@@ -412,7 +407,7 @@ function FloatingStatusLabel(props: {
         <SymbolView
           name="arrow.triangle.branch"
           size={13}
-          tintColorClassName="foreground"
+          tintColorClassName="accent-foreground"
           type="monochrome"
         />
         <ShimmeringWorkContent

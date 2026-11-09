@@ -41,6 +41,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from "react-native";
@@ -242,7 +243,8 @@ function SwitchRow(props: {
 
 /**
  * Fast / Balanced / Deep above the effort row, which still opens every level. The checked step is
- * filled and bold, never colour alone, and each step names its real level for screen readers.
+ * a raised card thumb with a hairline edge and bold text, so it shows in every theme without
+ * relying on colour, and each step names its real level for screen readers.
  */
 function EffortStepsRow(props: {
   readonly steps: NonNullable<ReturnType<typeof resolveEffortSteps>>;
@@ -269,16 +271,19 @@ function EffortStepsRow(props: {
                 void Haptics.selectionAsync();
                 props.onSelect(steps.segments.values[segment]);
               }}
-              style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
+              style={[
+                Platform.OS === "android" ? { minHeight: 48 } : undefined,
+                checked ? { borderWidth: StyleSheet.hairlineWidth } : undefined,
+              ]}
               className={cn(
                 "h-9 flex-1 items-center justify-center rounded-full",
-                checked && "bg-secondary",
+                checked && "border-border bg-card",
               )}
             >
               <Text
                 className={cn(
                   "text-sm",
-                  checked ? "font-e6-medium text-secondary-foreground" : "text-foreground-muted",
+                  checked ? "font-e6-bold text-foreground" : "text-foreground-muted",
                 )}
               >
                 {EFFORT_SEGMENT_LABELS[segment]}

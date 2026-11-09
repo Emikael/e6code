@@ -45,7 +45,7 @@ export function pendingAttentionFloatingStatus(input: {
     return {
       kind: "attention",
       tone: "approval",
-      label: "Approval waiting",
+      label: "Needs approval",
       onPress: input.onPress,
     };
   }
@@ -53,7 +53,7 @@ export function pendingAttentionFloatingStatus(input: {
     return {
       kind: "attention",
       tone: "input",
-      label: "Question waiting",
+      label: "Needs your answer",
       onPress: input.onPress,
     };
   }

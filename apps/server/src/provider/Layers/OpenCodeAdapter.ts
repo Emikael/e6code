@@ -534,6 +534,8 @@ interface OpenCodeTurnTokenUsageAccumulator {
   cacheCreationTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  /** USD OpenCode reported for the same steps the tokens count. */
+  costUsd: number;
   complete: boolean;
   hasSubagents: boolean;
 }
@@ -551,15 +553,21 @@ function makeOpenCodeTurnTokenUsageAccumulator(
     cacheCreationTokens: 0,
     outputTokens: 0,
     reasoningTokens: 0,
+    costUsd: 0,
     complete: true,
     hasSubagents: false,
   };
 }
 
+/**
+ * Takes the turn's token usage and the cost OpenCode reported for the same
+ * steps. The cost is absent when OpenCode reported none (it prices unknown
+ * models at zero), so ingestion estimates it from the model's rates instead.
+ */
 function takeOpenCodeTurnTokenUsage(
   context: OpenCodeSessionContext,
   complete: boolean,
-): TurnTokenUsage {
+): { readonly tokenUsage: TurnTokenUsage; readonly turnCostUsd: number | undefined } {
   const usage = context.turnTokenUsage;
   context.turnTokenUsage = undefined;
   if (
@@ -569,11 +577,24 @@ function takeOpenCodeTurnTokenUsage(
       usage.pendingAssistantMessageIds.size === 0)
   ) {
     return {
-      usageStatus: "unavailable",
-      usageScope: "main_agent",
-      hasSubagents: usage?.hasSubagents ?? false,
+      tokenUsage: {
+        usageStatus: "unavailable",
+        usageScope: "main_agent",
+        hasSubagents: usage?.hasSubagents ?? false,
+      },
+      turnCostUsd: undefined,
     };
   }
+  return {
+    turnCostUsd: usage.costUsd > 0 ? usage.costUsd : undefined,
+    tokenUsage: openCodeTurnTokenUsage(usage, complete),
+  };
+}
+
+function openCodeTurnTokenUsage(
+  usage: OpenCodeTurnTokenUsageAccumulator,
+  complete: boolean,
+): TurnTokenUsage {
   return {
     usageStatus:
       complete &&
@@ -1163,7 +1184,7 @@ export function makeOpenCodeAdapter(
       ) {
         context.pendingIdleReconciliation = undefined;
       }
-      const tokenUsage = takeOpenCodeTurnTokenUsage(context, true);
+      const { tokenUsage, turnCostUsd } = takeOpenCodeTurnTokenUsage(context, true);
       context.activeTurnId = undefined;
       context.activeAgent = undefined;
       context.activeVariant = undefined;
@@ -1195,6 +1216,7 @@ export function makeOpenCodeAdapter(
         payload: {
           state: "completed",
           tokenUsage,
+          ...(turnCostUsd !== undefined ? { turnCostUsd } : {}),
         },
       });
     });
@@ -1332,7 +1354,7 @@ export function makeOpenCodeAdapter(
         deleteContextIfCurrent(context);
         return;
       }
-      const tokenUsage = takeOpenCodeTurnTokenUsage(context, false);
+      const { tokenUsage, turnCostUsd } = takeOpenCodeTurnTokenUsage(context, false);
       context.promptAdmission = undefined;
       context.activeTurnId = undefined;
       context.activeAgent = undefined;
@@ -1356,6 +1378,7 @@ export function makeOpenCodeAdapter(
           state: "failed",
           errorMessage: detail,
           tokenUsage,
+          ...(turnCostUsd !== undefined ? { turnCostUsd } : {}),
         },
       });
       yield* emit({
@@ -1537,7 +1560,7 @@ export function makeOpenCodeAdapter(
         hasSubagents: false,
       };
       if (context.activeTurnId === turnId) {
-        tokenUsage = takeOpenCodeTurnTokenUsage(context, false);
+        tokenUsage = takeOpenCodeTurnTokenUsage(context, false).tokenUsage;
         context.activeTurnId = undefined;
         context.activeAgent = undefined;
         context.activeVariant = undefined;
@@ -2611,6 +2634,9 @@ export function makeOpenCodeAdapter(
               usage.cacheCreationTokens += event.data.tokens.cache.write;
               usage.outputTokens += event.data.tokens.output + event.data.tokens.reasoning;
               usage.reasoningTokens += event.data.tokens.reasoning;
+              if (Number.isFinite(event.data.cost) && event.data.cost > 0) {
+                usage.costUsd += event.data.cost;
+              }
             } else {
               usage.hasUnresolvedSteps = true;
             }
@@ -2740,7 +2766,7 @@ export function makeOpenCodeAdapter(
           context.reconcileIdleStatus = false;
           yield* schedulePendingRequestRecovery(context);
           if (activeTurnId) {
-            const tokenUsage = takeOpenCodeTurnTokenUsage(context, false);
+            const { tokenUsage, turnCostUsd } = takeOpenCodeTurnTokenUsage(context, false);
             context.activeTurnId = undefined;
             context.activeAgent = undefined;
             context.activeVariant = undefined;
@@ -2757,7 +2783,12 @@ export function makeOpenCodeAdapter(
                 raw: event,
               })),
               type: "turn.completed",
-              payload: { state: "failed", errorMessage: message, tokenUsage },
+              payload: {
+                state: "failed",
+                errorMessage: message,
+                tokenUsage,
+                ...(turnCostUsd !== undefined ? { turnCostUsd } : {}),
+              },
             });
           }
           yield* emit({
@@ -3396,7 +3427,7 @@ export function makeOpenCodeAdapter(
                         }
                         return;
                       }
-                      const tokenUsage = takeOpenCodeTurnTokenUsage(context, false);
+                      const { tokenUsage } = takeOpenCodeTurnTokenUsage(context, false);
                       context.promptAdmission = undefined;
                       context.activeTurnId = undefined;
                       context.activeAgent = undefined;
@@ -3444,7 +3475,7 @@ export function makeOpenCodeAdapter(
                       });
                       return;
                     }
-                    const tokenUsage = takeOpenCodeTurnTokenUsage(context, false);
+                    const { tokenUsage } = takeOpenCodeTurnTokenUsage(context, false);
                     context.promptAdmission = undefined;
                     context.activeTurnId = undefined;
                     context.activeAgent = undefined;
@@ -3787,14 +3818,20 @@ export function makeOpenCodeAdapter(
       const context = yield* ensureSessionContext(sessions, threadId);
       const request = context.pendingPermissions.get(requestId);
       if (!request) {
-        if (context.emittedTerminalRequestIds.has(requestId)) return;
+        const terminal = context.emittedTerminalRequestIds.has(requestId);
+        // Repeating a reply to an answered request is harmless, but its decline
+        // instructions can no longer reach OpenCode: succeeding would report
+        // them as delivered for a tool that already ran, so it is stale.
+        if (terminal && feedback === undefined) return;
+        const loading =
+          !terminal &&
+          (context.pendingRequestRecovery || context.requestRelationRetries.has(requestId));
         return yield* new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "permission.reply",
-          detail:
-            context.pendingRequestRecovery || context.requestRelationRetries.has(requestId)
-              ? "OpenCode is still loading this permission request. Try again."
-              : `Unknown pending permission request: ${requestId}`,
+          detail: loading
+            ? "OpenCode is still loading this permission request. Try again."
+            : `Unknown pending permission request: ${requestId}`,
         });
       }
 

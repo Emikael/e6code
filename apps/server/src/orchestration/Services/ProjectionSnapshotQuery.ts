@@ -26,6 +26,7 @@ import type {
   OrchestrationThreadShell,
   ProjectId,
   ThreadId,
+  TurnId,
 } from "@e6tools/contracts";
 import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
@@ -82,6 +83,15 @@ export interface ProjectionSnapshotQueryShape {
     readonly threadId: ThreadId;
     readonly requestId: ApprovalRequestId;
   }) => Effect.Effect<Option.Option<OrchestrationThreadActivity>, ProjectionRepositoryError>;
+
+  /**
+   * The turn an approval request was opened in, from its pending-approval row.
+   * None when the request is unknown or was opened outside a turn.
+   */
+  readonly getApprovalRequestTurnId: (input: {
+    readonly threadId: ThreadId;
+    readonly requestId: ApprovalRequestId;
+  }) => Effect.Effect<Option.Option<TurnId>, ProjectionRepositoryError>;
 
   /**
    * Read every activity of one kind across active (not deleted, not archived)

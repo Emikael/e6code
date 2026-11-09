@@ -64,6 +64,7 @@ export function materialYouPaletteToMobileThemeVariables(
     "--color-primary": palette.primary,
     "--color-primary-foreground": palette.onPrimary,
     "--color-primary-text": palette.primary,
+    "--color-primary-edge": palette.primary,
     "--color-primary-shadow": withAlpha(palette.scrim, dark ? 0.22 : 0.18),
     "--color-secondary": palette.secondaryContainer,
     "--color-secondary-foreground": palette.onSecondaryContainer,

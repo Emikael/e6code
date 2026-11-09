@@ -2572,6 +2572,18 @@ describe("ProviderRuntimeIngestion", () => {
       2_000,
       threadId,
     );
+    await harness.emitAndDrain([
+      {
+        type: "session.state.changed",
+        eventId: asEventId("evt-steered-over-retrying"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId,
+        turnId: oldTurnId,
+        payload: { state: "running", agentState: { kind: "retrying", attempt: 1 } },
+      },
+    ]);
+    expect((await harness.readThreadShell()).agentState).toEqual({ kind: "retrying", attempt: 1 });
 
     // The steer: a user-requested turn start while the old turn still runs.
     await Effect.runPromise(
@@ -2621,6 +2633,9 @@ describe("ProviderRuntimeIngestion", () => {
     expect(threadAfterSteer.session?.activeTurnId).toBe(newTurnId);
     expect(threadAfterSteer.latestTurn?.turnId).toBe(newTurnId);
     expect(threadAfterSteer.latestTurn?.state).toBe("running");
+    // The superseded turn's working state does not carry over to the new turn.
+    await harness.drain();
+    expect((await harness.readThreadShell()).agentState).toBeUndefined();
   });
 
   it("does not mark the source proposed plan implemented for an unrelated turn.started when no thread active turn is tracked", async () => {
@@ -5499,6 +5514,40 @@ describe("ProviderRuntimeIngestion", () => {
           },
         },
       ]);
+    });
+
+    it("estimates cost at the model the turn started on", async () => {
+      const pricedModels: string[] = [];
+      const harness = await createHarness({
+        estimateCostUsd: (model) => {
+          pricedModels.push(model);
+          return Effect.succeed(0.5);
+        },
+      });
+      await harness.emitAndDrain([
+        {
+          type: "turn.started",
+          eventId: asEventId("evt-usage-turn-model-started"),
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:04.000Z",
+          turnId: asTurnId("turn-usage-turn-model"),
+          payload: { model: "anthropic/claude-fable-5" },
+        },
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-turn-model-completed"),
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-turn-model"),
+          payload: { state: "completed", tokenUsage: completeUsage },
+        },
+      ]);
+
+      const [activity] = await turnUsageActivities(harness);
+      expect(activity?.payload).toMatchObject({ costUsd: 0.5, costSource: "estimated" });
+      expect(pricedModels).toEqual(["anthropic/claude-fable-5"]);
     });
 
     it("records tokens only when the model has no price", async () => {

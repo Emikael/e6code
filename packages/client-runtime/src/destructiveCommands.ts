@@ -11,6 +11,9 @@ export interface DestructiveCommand {
   readonly reason: string;
 }
 
+/** How long a destructive approval must be held before it is allowed, on every client. */
+export const HOLD_TO_CONFIRM_MS = 1000;
+
 const PROTECTED_BRANCH =
   /^(?:main|master|trunk|develop|development|production|prod|release(?:[/-].+)?)$/i;
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);

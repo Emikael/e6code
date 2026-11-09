@@ -195,6 +195,7 @@ import {
 import { PullRequestGlyph } from "./pullRequestIcons";
 import { usePullRequestMergeCommandStore } from "./pullRequestMergeCommand";
 import { isEditableFocused } from "~/lib/editableFocus";
+import { destructiveApprovalPendingIn } from "../chat/holdToConfirm";
 
 type DetailTab = "summary" | "timeline" | "code";
 
@@ -1645,6 +1646,9 @@ export function PullRequestDetailPanel({
   const canMergeFromShortcut = shortcutsEnabled && primaryAction === "merge" && !actionPending;
   const mergeFromShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (!canMergeFromShortcut || event.defaultPrevented || isCommandPaletteOpen()) return;
+    // ⌘↵ also holds to allow a destructive command; while one waits in this
+    // view the merge stands down, so one keypress can never do both.
+    if (destructiveApprovalPendingIn(document)) return;
     const panel = panelRef.current;
     if (panel === null) return;
     const command = resolveShortcutCommand(event, keybindings, {
@@ -1653,7 +1657,7 @@ export function PullRequestDetailPanel({
     if (command !== "pullRequest.merge") return;
     if (!panel.contains(document.activeElement) && !pointerInPanel.current) return;
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
     if (!event.repeat) setConfirmation({ open: true, action: "merge" });
   });
   useEffect(() => {

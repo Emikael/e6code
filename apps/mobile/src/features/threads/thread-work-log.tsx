@@ -45,6 +45,7 @@ import {
   type AgentSpawnSummary,
   type ThreadFeedActivity,
   type ThreadTimelineStep,
+  timelineRowStep,
   workEntryRowLabel,
   workEntryRowStats,
 } from "../../lib/threadActivity";
@@ -448,23 +449,37 @@ interface ThreadWorkLogProps {
 }
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
-  const timeline = props.timelineStep !== undefined;
+  const timelineStep = props.timelineStep;
+  const rowHeight = props.rowSizing.estimatedRowHeight;
+  const rowCount = props.activities.length;
+  // Each row draws its own rail piece around its header dot, so an opened
+  // body or a wrapped label never moves where the rail starts or ends.
   const renderRow = useCallback(
-    (row: ThreadFeedActivity) => (
-      <ThreadWorkLogRow
-        key={row.id}
-        row={row}
-        anchorKey={props.anchorKey}
-        copied={props.copiedRowId === row.id}
-        expanded={props.expandedRows[row.id] ?? false}
-        environmentId={props.environmentId}
-        iconSubtleColor={props.iconSubtleColor}
-        onCopyRow={props.onCopyRow}
-        onToggleRow={props.onToggleRow}
-        renderImage={props.renderImage}
-        themeAppearance={props.themeAppearance}
-        timeline={timeline}
-      />
+    (row: ThreadFeedActivity, index: number) => (
+      <View key={row.id} className={index < rowCount - 1 ? "pb-px" : undefined}>
+        {timelineStep ? (
+          <ThreadTimelineRail
+            step={timelineRowStep(timelineStep, index, rowCount)}
+            rowHeight={rowHeight}
+            trailingGap={0}
+            className="left-0.5"
+          />
+        ) : null}
+        <ThreadWorkLogRow
+          row={row}
+          anchorKey={props.anchorKey}
+          copied={props.copiedRowId === row.id}
+          expanded={props.expandedRows[row.id] ?? false}
+          environmentId={props.environmentId}
+          iconSubtleColor={props.iconSubtleColor}
+          onCopyRow={props.onCopyRow}
+          onToggleRow={props.onToggleRow}
+          renderImage={props.renderImage}
+          themeAppearance={props.themeAppearance}
+          timeline={timelineStep !== undefined}
+          rowHeight={rowHeight}
+        />
+      </View>
     ),
     [
       props.anchorKey,
@@ -476,21 +491,23 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
       props.onToggleRow,
       props.renderImage,
       props.themeAppearance,
-      timeline,
+      rowCount,
+      rowHeight,
+      timelineStep,
     ],
   );
 
-  if (props.activities.length === 0) {
+  if (rowCount === 0) {
     return null;
   }
 
   return (
     <View className="-mx-1 mb-1 px-1 py-0">
-      {props.timelineStep ? (
-        <ThreadTimelineRail
-          step={props.timelineStep}
-          rowHeight={props.rowSizing.estimatedRowHeight}
-          trailingGap={WORK_LOG_BOTTOM_MARGIN}
+      {timelineStep === "first" || timelineStep === "middle" ? (
+        // The rail crosses this log's bottom margin to the next step's row.
+        <ThreadTimelineRailLine
+          className="left-1.5"
+          style={{ bottom: -WORK_LOG_BOTTOM_MARGIN, height: WORK_LOG_BOTTOM_MARGIN }}
         />
       ) : null}
       {props.activities[0]?.groupedToolDetail ? (
@@ -504,7 +521,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
           renderRow={renderRow}
         />
       ) : (
-        <View className="gap-px">{props.activities.map(renderRow)}</View>
+        <View>{props.activities.map(renderRow)}</View>
       )}
     </View>
   );
@@ -517,7 +534,7 @@ function ThreadWorkGroupList(props: {
   readonly groupId: string;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   readonly scrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
-  readonly renderRow: (row: ThreadFeedActivity) => ReactNode;
+  readonly renderRow: (row: ThreadFeedActivity, index: number) => ReactNode;
 }) {
   const estimatedRowsHeight = workLogRowsHeight(
     props.activities,
@@ -654,13 +671,10 @@ function ThreadWorkGroupList(props: {
         : props.rowSizing.fixedRowHeight + (index < props.activities.length - 1 ? WORK_ROW_GAP : 0),
     [props.activities.length, props.expandedRows, props.rowSizing.fixedRowHeight],
   );
+  const { renderRow } = props;
   const renderItem = useCallback(
-    ({ item, index }: { item: ThreadFeedActivity; index: number }) => (
-      <View className={index < props.activities.length - 1 ? "pb-px" : undefined}>
-        {props.renderRow(item)}
-      </View>
-    ),
-    [props.activities.length, props.renderRow],
+    ({ item, index }: { item: ThreadFeedActivity; index: number }) => renderRow(item, index),
+    [renderRow],
   );
 
   return (
@@ -767,15 +781,15 @@ function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
       accessible
       accessibilityLabel={`${additions} additions, ${deletions} deletions`}
     >
-      <Text className="text-2xs tabular-nums text-adaptive-emerald-700-300">+{additions}</Text>
-      <Text className="text-2xs tabular-nums text-adaptive-rose-700-300">−{deletions}</Text>
+      <Text className="text-2xs tabular-nums text-diff-addition">+{additions}</Text>
+      <Text className="text-2xs tabular-nums text-diff-deletion">−{deletions}</Text>
     </View>
   );
 }
 
 /**
  * A step's dot on the thinking timeline, holding the step's icon so it reads
- * without colour. The running step gets a static, thicker primary ring, never
+ * without colour. The running step gets a static, thicker primary-edge ring, never
  * an animation. The dot is opaque so the rail stops at its edge; while the row
  * is pressed it repeats the row's `bg-subtle` tint so the two still match.
  */
@@ -790,7 +804,7 @@ function ThreadTimelineMarker(props: {
     <View
       className={cn(
         "h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-screen",
-        props.running ? "border-2 border-primary" : "border border-border",
+        props.running ? "border-2 border-primary-edge" : "border border-border",
       )}
     >
       {props.pressed ? <View className="absolute inset-0 bg-subtle" /> : null}
@@ -799,40 +813,50 @@ function ThreadTimelineMarker(props: {
   );
 }
 
-/**
- * One row's piece of the timeline rail, drawn behind the row's dots and
- * outside any scrolling list so nothing repaints. The feed lists an opened
- * group's tools and thoughts as separate rows, so each draws its own piece:
- * the first starts at its dot, the last ends at its dot, and the others run
- * through `trailingGap` to meet the next row. A row whose only dot sits in
- * its header (`dotAtTop`) ends the rail there, above any opened body.
- */
-function ThreadTimelineRail(props: {
-  readonly step: ThreadTimelineStep;
-  readonly rowHeight: number;
-  readonly trailingGap: number;
-  readonly dotAtTop?: boolean;
+/** A static stretch of the timeline rail, centred on the dot column. */
+function ThreadTimelineRailLine(props: {
+  readonly className: string;
+  readonly style: { readonly top?: number; readonly bottom?: number; readonly height?: number };
 }) {
-  const half = props.rowHeight / 2;
-  const startsAtDot = props.step === "first" || props.step === "only";
-  const endsAtDot = props.step === "last" || props.step === "only";
-  if (props.dotAtTop && startsAtDot && endsAtDot) return null;
-  const top = startsAtDot ? half : 0;
-  const position = !endsAtDot
-    ? { top, bottom: -props.trailingGap }
-    : props.dotAtTop
-      ? { top, height: half }
-      : { top, bottom: half };
   return (
     <View
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      className="absolute left-1.5 w-6 items-center"
-      style={position}
+      className={cn("absolute w-6 items-center", props.className)}
+      style={props.style}
     >
       <View className="w-px flex-1 bg-border" />
     </View>
+  );
+}
+
+/**
+ * One row's piece of the timeline rail, drawn behind the row's dot. Every
+ * timeline dot sits in a band `rowHeight` tall at the top of its row, so the
+ * first piece starts at that dot, the last ends there (above any opened
+ * body), and the others run the full row plus `trailingGap` to meet the next.
+ */
+function ThreadTimelineRail(props: {
+  readonly step: ThreadTimelineStep;
+  readonly rowHeight: number;
+  readonly trailingGap: number;
+  /** Left offset that lines the rail up with the row's dot column. */
+  readonly className: string;
+}) {
+  const half = props.rowHeight / 2;
+  const startsAtDot = props.step === "first" || props.step === "only";
+  const endsAtDot = props.step === "last" || props.step === "only";
+  if (startsAtDot && endsAtDot) return null;
+  return (
+    <ThreadTimelineRailLine
+      className={props.className}
+      style={
+        endsAtDot
+          ? { top: 0, height: half }
+          : { top: startsAtDot ? half : 0, bottom: -props.trailingGap }
+      }
+    />
   );
 }
 
@@ -860,6 +884,8 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
     readonly copied: boolean;
     readonly expanded: boolean;
     readonly timeline: boolean;
+    /** The dot band height; a timeline dot stays in it when the label wraps. */
+    readonly rowHeight: number;
   },
 ) {
   const { row, expanded, timeline } = props;
@@ -928,7 +954,14 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
               />
             ) : (
               <>
-                <View className="h-6 w-6 shrink-0 items-center justify-center">
+                {/* A timeline dot keeps to the first line's band so the rail can meet it there. */}
+                <View
+                  className={cn(
+                    "w-6 shrink-0 items-center justify-center",
+                    timeline ? "self-start" : "h-6",
+                  )}
+                  style={timeline ? { height: props.rowHeight } : undefined}
+                >
                   <ThreadTimelineMarker enabled={timeline} running={running} pressed={pressed}>
                     {toolIcon ? (
                       <ToolActivityIconView
@@ -1550,7 +1583,7 @@ export function ThreadReasoningRow(props: {
           step={props.timelineStep}
           rowHeight={props.rowSizing.estimatedRowHeight}
           trailingGap={0}
-          dotAtTop
+          className="left-1.5"
         />
       ) : null}
       <Pressable
