@@ -2572,6 +2572,18 @@ describe("ProviderRuntimeIngestion", () => {
       2_000,
       threadId,
     );
+    await harness.emitAndDrain([
+      {
+        type: "session.state.changed",
+        eventId: asEventId("evt-steered-over-retrying"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId,
+        turnId: oldTurnId,
+        payload: { state: "running", agentState: { kind: "retrying", attempt: 1 } },
+      },
+    ]);
+    expect((await harness.readThreadShell()).agentState).toEqual({ kind: "retrying", attempt: 1 });
 
     // The steer: a user-requested turn start while the old turn still runs.
     await Effect.runPromise(
@@ -2621,6 +2633,9 @@ describe("ProviderRuntimeIngestion", () => {
     expect(threadAfterSteer.session?.activeTurnId).toBe(newTurnId);
     expect(threadAfterSteer.latestTurn?.turnId).toBe(newTurnId);
     expect(threadAfterSteer.latestTurn?.state).toBe("running");
+    // The superseded turn's working state does not carry over to the new turn.
+    await harness.drain();
+    expect((await harness.readThreadShell()).agentState).toBeUndefined();
   });
 
   it("does not mark the source proposed plan implemented for an unrelated turn.started when no thread active turn is tracked", async () => {

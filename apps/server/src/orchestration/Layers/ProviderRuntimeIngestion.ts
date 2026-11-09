@@ -1971,11 +1971,12 @@ const make = Effect.gen(function* () {
       // Working-indicator agent state (compacting / retrying / paused). Recorded
       // before the lifecycle dispatch below so that dispatch's shell refetch
       // reads it. Events from a superseded turn neither set nor clear it;
-      // session.exited always clears.
-      const agentStateChange =
-        event.type === "session.exited" || !conflictsWithActiveTurn
-          ? agentStateTransition(event)
-          : null;
+      // session.exited always clears. A turn.started follows the lifecycle
+      // decision, so a steer's new turn clears the superseded turn's state.
+      const agentStateApplies =
+        event.type === "session.exited" ||
+        (event.type === "turn.started" ? shouldApplyThreadLifecycle : !conflictsWithActiveTurn);
+      const agentStateChange = agentStateApplies ? agentStateTransition(event) : null;
       const agentStateChanged =
         agentStateChange !== null &&
         threadAgentState.setThreadAgentState(thread.id, agentStateChange.state);
