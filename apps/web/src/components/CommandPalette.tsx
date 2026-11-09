@@ -167,6 +167,7 @@ import {
   buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildThreadStopActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -1884,57 +1885,14 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (threadStopCommands?.stopTurn) {
-    const stopTurn = threadStopCommands.stopTurn;
-    actionItems.push({
-      kind: "action",
-      value: "action:stop-turn",
-      searchTerms: ["stop", "interrupt", "cancel", "agent", "turn"],
-      title: "Stop the agent",
-      icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "thread.stop",
-      run: async () => {
-        stopTurn();
-      },
-    });
-  }
-
-  const stoppableSubagents = threadStopCommands?.subagents ?? [];
-  const stopSubagentItem = (
-    subagent: (typeof stoppableSubagents)[number],
-  ): CommandPaletteActionItem => ({
-    kind: "action",
-    value: `action:stop-subagent:${subagent.id}`,
-    searchTerms: ["stop", "subagent", "agent", subagent.title],
-    title: stoppableSubagents.length === 1 ? "Stop subagent" : subagent.title,
-    ...(stoppableSubagents.length === 1 ? { description: subagent.title } : {}),
-    icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      subagent.stop();
-    },
-  });
-  if (stoppableSubagents.length === 1) {
-    actionItems.push({
-      ...stopSubagentItem(stoppableSubagents[0]!),
-      shortcutCommand: "thread.stopSubagent",
-    });
-  } else if (stoppableSubagents.length > 1) {
-    actionItems.push({
-      kind: "submenu",
-      value: "action:stop-subagent",
-      searchTerms: ["stop", "subagent", "agent"],
-      title: "Stop subagent...",
-      icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
-      addonIcon: <CircleStopIcon className={ADDON_ICON_CLASS} />,
-      shortcutCommand: "thread.stopSubagent",
-      groups: [
-        {
-          value: "subagents",
-          label: "Running subagents",
-          items: stoppableSubagents.map(stopSubagentItem),
-        },
-      ],
-    });
+  if (threadStopCommands !== null) {
+    actionItems.push(
+      ...buildThreadStopActionItems({
+        commands: threadStopCommands,
+        icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <CircleStopIcon className={ADDON_ICON_CLASS} />,
+      }),
+    );
   }
 
   if (activeThreadReferenceCopyTarget !== null) {
