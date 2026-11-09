@@ -84,8 +84,6 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
-  /** The Inspector's Overview shows these actions, so the header leaves them out. */
-  workspaceActionsInPanel?: boolean;
   gitCwd: string | null;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
@@ -278,7 +276,6 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   rightPanelOpen,
-  workspaceActionsInPanel = false,
   gitCwd,
   onOpenPullRequest,
   onNewThreadInProject,
@@ -308,16 +305,14 @@ export const ChatHeader = memo(function ChatHeader({
     activeProjectScripts ? activeProjectCwd : null,
   );
   const remoteOpenState = useRemoteOpenState(activeThreadEnvironmentId);
-  const showOpenInPicker =
-    !workspaceActionsInPanel &&
-    shouldShowOpenInPicker({
-      activeProjectName,
-      activeThreadEnvironmentId,
-      primaryEnvironmentId,
-      remoteOpenMode: remoteOpenState.mode,
-    });
-  const showProjectScripts = workspaceActionsInPanel ? undefined : activeProjectScripts;
-  const showGitActions = !workspaceActionsInPanel && Boolean(activeProjectName && gitCwd);
+  const showOpenInPicker = shouldShowOpenInPicker({
+    activeProjectName,
+    activeThreadEnvironmentId,
+    primaryEnvironmentId,
+    remoteOpenMode: remoteOpenState.mode,
+  });
+  const showProjectScripts = activeProjectScripts;
+  const showGitActions = Boolean(activeProjectName && gitCwd);
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],

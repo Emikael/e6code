@@ -3,9 +3,14 @@ import {
   emptyAgentPanelModel,
   type RuntimeSubagent,
 } from "@e6tools/client-runtime/state/subagentRuntime";
+import { EventId, type OrchestrationThreadActivity, TurnId } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveInspectorLineage, subagentSessionIsLive } from "./thread-inspector-lineage";
+import {
+  deriveInspectorLineage,
+  deriveRunDetailsPlanSteps,
+  subagentSessionIsLive,
+} from "./thread-inspector-lineage";
 
 function agent(
   id: string,
@@ -109,13 +114,13 @@ describe("deriveInspectorLineage", () => {
       }),
     );
 
-    expect(lineage.label).toBe("Lineage · 1 working · 1 failed · 1 done · 1.5k tok");
+    expect(lineage.label).toBe("Subagents · 1 working · 1 failed · 1 done · 1.5K tok");
   });
 
   it("is a bare label with no rows when the thread has no subagents", () => {
     expect(deriveInspectorLineage(emptyAgentPanelModel())).toEqual({
       rows: [],
-      label: "Lineage",
+      label: "Subagents",
     });
   });
 });
@@ -127,5 +132,54 @@ describe("subagentSessionIsLive", () => {
     expect(subagentSessionIsLive({ status: "error" })).toBe(false);
     expect(subagentSessionIsLive({ status: "ready" })).toBe(true);
     expect(subagentSessionIsLive({ status: "running" })).toBe(true);
+  });
+});
+
+function planActivity(
+  id: string,
+  turnId: string,
+  createdAt: string,
+  plan: ReadonlyArray<{ step: string; status: string }>,
+): OrchestrationThreadActivity {
+  return {
+    id: EventId.make(id),
+    tone: "info",
+    kind: "turn.plan.updated",
+    summary: "Plan updated",
+    payload: { plan },
+    turnId: TurnId.make(turnId),
+    createdAt,
+  };
+}
+
+describe("deriveRunDetailsPlanSteps", () => {
+  const earlier = planActivity("p1", "turn-1", "2026-08-01T10:00:00.000Z", [
+    { step: "Read code", status: "completed" },
+    { step: "Write fix", status: "inProgress" },
+  ]);
+
+  it("keeps the latest plan across follow-up turns that publish none", () => {
+    expect(deriveRunDetailsPlanSteps([earlier], TurnId.make("turn-2"))).toEqual([
+      { step: "Read code", status: "completed" },
+      { step: "Write fix", status: "inProgress" },
+    ]);
+  });
+
+  it("prefers the latest turn's plan over a later plan from another turn", () => {
+    const current = planActivity("p2", "turn-2", "2026-08-01T10:01:00.000Z", [
+      { step: "Ship", status: "pending" },
+    ]);
+    const stray = planActivity("p3", "turn-1", "2026-08-01T10:02:00.000Z", [
+      { step: "Old", status: "completed" },
+    ]);
+    expect(deriveRunDetailsPlanSteps([current, stray], TurnId.make("turn-2"))).toEqual([
+      { step: "Ship", status: "pending" },
+    ]);
+  });
+
+  it("shows no plan once the agent clears it", () => {
+    const cleared = planActivity("p2", "turn-1", "2026-08-01T10:01:00.000Z", []);
+    expect(deriveRunDetailsPlanSteps([cleared, earlier], TurnId.make("turn-1"))).toBeNull();
+    expect(deriveRunDetailsPlanSteps([], null)).toBeNull();
   });
 });

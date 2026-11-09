@@ -66,6 +66,7 @@ import {
 } from "./GitActionsControl.logic";
 import { WizardPopup, WizardHeader, WizardSteps, WizardPanel, WizardFooter } from "./ui/wizard";
 import { StartTruncatedPath } from "./StartTruncatedPath";
+import { DiffStat } from "./DiffStat";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -1974,15 +1975,11 @@ export default function GitActionsControl({
                                   {isExcluded ? (
                                     <span className="text-muted-foreground">Excluded</span>
                                   ) : (
-                                    <>
-                                      <span className="text-diff-addition-foreground">
-                                        +{file.insertions}
-                                      </span>
-                                      <span className="text-muted-foreground"> / </span>
-                                      <span className="text-diff-deletion-foreground">
-                                        -{file.deletions}
-                                      </span>
-                                    </>
+                                    <DiffStat
+                                      additions={file.insertions}
+                                      deletions={file.deletions}
+                                      notation="full"
+                                    />
                                   )}
                                 </span>
                               </button>
@@ -1991,14 +1988,12 @@ export default function GitActionsControl({
                         })}
                       </div>
                     </ScrollArea>
-                    <div className="flex justify-end font-mono">
-                      <span className="text-diff-addition-foreground">
-                        +{selectedFiles.reduce((sum, f) => sum + f.insertions, 0)}
-                      </span>
-                      <span className="text-muted-foreground"> / </span>
-                      <span className="text-diff-deletion-foreground">
-                        -{selectedFiles.reduce((sum, f) => sum + f.deletions, 0)}
-                      </span>
+                    <div className="flex justify-end">
+                      <DiffStat
+                        additions={selectedFiles.reduce((sum, f) => sum + f.insertions, 0)}
+                        deletions={selectedFiles.reduce((sum, f) => sum + f.deletions, 0)}
+                        notation="full"
+                      />
                     </div>
                   </div>
                 )}
