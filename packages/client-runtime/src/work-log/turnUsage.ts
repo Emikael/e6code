@@ -68,6 +68,20 @@ function formatTurnCost(costUsd: number, costSource: TurnUsageActivityPayload["c
 }
 
 /**
+ * A turn's usage on its own: `48.6k tokens · $0.12`. Turns without a fold row
+ * show this beside their final answer instead. Null when there is nothing to show.
+ */
+export function formatTurnUsage(usage: TurnUsageActivityPayload | undefined): string | null {
+  if (!usage || usage.totalTokens <= 0) return null;
+  const tokens = `${formatCompactTokens(usage.totalTokens)} tokens`;
+  const cost =
+    usage.costUsd !== undefined && Number.isFinite(usage.costUsd) && usage.costUsd > 0
+      ? ` · ${formatTurnCost(usage.costUsd, usage.costSource)}`
+      : "";
+  return `${tokens}${cost}`;
+}
+
+/**
  * Appends a turn's usage to its fold label:
  * `Worked for 22s · 48.6k tokens · $0.12`. Without usage the label is unchanged.
  */
@@ -75,11 +89,6 @@ export function appendTurnUsage(
   label: string,
   usage: TurnUsageActivityPayload | undefined,
 ): string {
-  if (!usage || usage.totalTokens <= 0) return label;
-  const tokens = `${formatCompactTokens(usage.totalTokens)} tokens`;
-  const cost =
-    usage.costUsd !== undefined && Number.isFinite(usage.costUsd) && usage.costUsd > 0
-      ? ` · ${formatTurnCost(usage.costUsd, usage.costSource)}`
-      : "";
-  return `${label} · ${tokens}${cost}`;
+  const formatted = formatTurnUsage(usage);
+  return formatted ? `${label} · ${formatted}` : label;
 }

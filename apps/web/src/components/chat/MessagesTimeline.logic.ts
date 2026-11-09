@@ -44,7 +44,7 @@ import {
   type TurnUsageActivityPayload,
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
-import { appendTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
+import { appendTurnUsage, formatTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 
 const TIMELINE_MINIMAP_ITEM_SPACING = 8;
@@ -426,6 +426,8 @@ export type MessagesTimelineRow =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      /** Turn usage for a settled turn with no "Worked for ..." row to carry it. */
+      assistantUsageLabel?: string | undefined;
     }
   | {
       kind: "assistant-meta";
@@ -434,6 +436,7 @@ export type MessagesTimelineRow =
       message: ChatMessage;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
+      assistantUsageLabel?: string | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -916,13 +919,19 @@ function attachTrailingToolGroupsToAssistant(
       message: row.message,
       showAssistantCopyButton: row.showAssistantCopyButton,
       assistantCopyStreaming: row.assistantCopyStreaming,
+      assistantUsageLabel: row.assistantUsageLabel,
     });
   }
 
   const result: MessagesTimelineRow[] = [];
   for (const [index, row] of rows.entries()) {
     if (row.kind === "message" && messageRowsWithoutMeta.has(row.id)) {
-      result.push({ ...row, showAssistantMeta: false, showAssistantCopyButton: false });
+      result.push({
+        ...row,
+        showAssistantMeta: false,
+        showAssistantCopyButton: false,
+        assistantUsageLabel: undefined,
+      });
     } else {
       result.push(row);
     }
@@ -1027,8 +1036,10 @@ export function deriveMessagesTimelineRows(input: {
     unfoldedTurnIds: activeVisualResponseTurnIds,
     turnUsageByTurnId: input.turnUsageByTurnId,
   });
+  const foldedTurnIds = new Set<TurnId>();
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
+    foldedTurnIds.add(fold.turnId);
     if (!input.expandedTurnIds?.has(fold.turnId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
@@ -1409,6 +1420,13 @@ export function deriveMessagesTimelineRows(input: {
       timelineEntry.message.role === "assistant" &&
       terminalAssistantMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
+    // The fold row carries a turn's usage. A turn without one (no tool calls)
+    // shows it beside its final answer instead, never in both places.
+    const usageTurnId = showAssistantMeta ? (timelineEntry.message.turnId ?? null) : null;
+    const assistantUsageLabel =
+      usageTurnId !== null && !foldedTurnIds.has(usageTurnId)
+        ? (formatTurnUsage(input.turnUsageByTurnId?.get(usageTurnId)) ?? undefined)
+        : undefined;
 
     nextRows.push({
       kind: "message",
@@ -1427,6 +1445,7 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
+      assistantUsageLabel,
     });
   }
 
@@ -1644,7 +1663,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.createdAt === bm.createdAt &&
         a.message === bm.message &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
-        a.assistantCopyStreaming === bm.assistantCopyStreaming
+        a.assistantCopyStreaming === bm.assistantCopyStreaming &&
+        a.assistantUsageLabel === bm.assistantUsageLabel
       );
     }
 
@@ -1712,7 +1732,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.assistantUsageLabel === bm.assistantUsageLabel
       );
     }
   }

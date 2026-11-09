@@ -10,7 +10,7 @@ import {
   UserInputAttachmentAnswerPayload,
   isToolLifecycleItemType,
 } from "@e6tools/contracts";
-import { appendTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
+import { appendTurnUsage, formatTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
@@ -1901,6 +1901,38 @@ function deriveThreadFeedTurnFolds(
     });
   }
   return foldsByAnchorId;
+}
+
+/**
+ * Usage for settled turns whose presented feed has no "Worked for ..." row,
+ * keyed by the turn's final assistant message, which shows it in its meta.
+ * A turn with a fold row carries usage there instead, so it never shows twice.
+ */
+export function deriveAssistantUsageLabels(
+  presentedFeed: ReadonlyArray<ThreadFeedEntry>,
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined,
+): ReadonlyMap<string, string> {
+  const labels = new Map<string, string>();
+  if (!turnUsageByTurnId || turnUsageByTurnId.size === 0) return labels;
+  const foldedTurnIds = new Set<TurnId>();
+  const terminalMessageIdByTurn = new Map<TurnId, string>();
+  for (const entry of presentedFeed) {
+    if (entry.type === "turn-fold") {
+      foldedTurnIds.add(entry.turnId);
+    } else if (
+      entry.type === "message" &&
+      entry.message.role === "assistant" &&
+      entry.message.turnId
+    ) {
+      terminalMessageIdByTurn.set(entry.message.turnId, entry.message.id);
+    }
+  }
+  for (const [turnId, messageId] of terminalMessageIdByTurn) {
+    if (foldedTurnIds.has(turnId)) continue;
+    const label = formatTurnUsage(turnUsageByTurnId.get(turnId));
+    if (label) labels.set(messageId, label);
+  }
+  return labels;
 }
 
 export function deriveThreadFeedPresentation(

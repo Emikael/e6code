@@ -1,7 +1,7 @@
 import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { appendTurnUsage, deriveTurnUsageByTurnId } from "./turnUsage.ts";
+import { appendTurnUsage, deriveTurnUsageByTurnId, formatTurnUsage } from "./turnUsage.ts";
 
 const activity = (
   overrides: Partial<OrchestrationThreadActivity> & Pick<OrchestrationThreadActivity, "payload">,
@@ -54,6 +54,21 @@ describe("appendTurnUsage", () => {
       "You stopped after 5s · 1.2k tokens",
     );
     expect(appendTurnUsage("Worked for 5s", undefined)).toBe("Worked for 5s");
+  });
+});
+
+describe("formatTurnUsage", () => {
+  it("formats usage without a label for turns that have no fold row", () => {
+    expect(
+      formatTurnUsage({
+        totalTokens: 48_600,
+        costUsd: 0.12,
+        costSource: "estimated",
+        partial: false,
+      }),
+    ).toBe("48.6k tokens · ≈$0.12");
+    expect(formatTurnUsage({ totalTokens: 0, costUsd: 0.12, partial: false })).toBeNull();
+    expect(formatTurnUsage(undefined)).toBeNull();
   });
 });
 

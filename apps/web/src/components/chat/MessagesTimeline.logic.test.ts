@@ -1907,6 +1907,69 @@ describe("deriveMessagesTimelineRows", () => {
     ).toBe("Worked for 22s · 48.6k tokens · ≈$0.12");
   });
 
+  it("shows usage on the final answer only when its turn has no fold row", () => {
+    const turnId = TurnId.make("turn-1");
+    const usage = {
+      totalTokens: 48_600,
+      partial: false,
+      costUsd: 0.12,
+      costSource: "reported" as const,
+    };
+    const message = (id: string, role: "user" | "assistant", at: string) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at,
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        turnId: role === "user" ? null : turnId,
+        createdAt: at,
+        updatedAt: at,
+        streaming: false,
+      },
+    });
+    const toolCall = {
+      id: "work-entry",
+      kind: "work" as const,
+      createdAt: "2026-01-01T00:00:05Z",
+      entry: {
+        id: "work",
+        createdAt: "2026-01-01T00:00:05Z",
+        turnId,
+        label: "Ran command",
+        tone: "tool" as const,
+      },
+    };
+    const user = message("user", "user", "2026-01-01T00:00:00Z");
+    const answer = message("assistant", "assistant", "2026-01-01T00:00:22Z");
+    const rowsFor = (
+      timelineEntries: Parameters<typeof deriveMessagesTimelineRows>[0]["timelineEntries"],
+    ) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+        turnUsageByTurnId: new Map([[turnId, usage]]),
+      });
+    const answerUsage = (rows: ReadonlyArray<MessagesTimelineRow>) => {
+      const row = rows.find((row) => row.kind === "message" && row.message.role === "assistant");
+      return row?.kind === "message" ? row.assistantUsageLabel : undefined;
+    };
+
+    const withoutTools = rowsFor([user, answer]);
+    expect(withoutTools.some((row) => row.kind === "turn-fold")).toBe(false);
+    expect(answerUsage(withoutTools)).toBe("48.6k tokens · $0.12");
+
+    const withTools = rowsFor([user, toolCall, answer]);
+    expect(withTools.find((row) => row.kind === "turn-fold")?.label).toBe(
+      "Worked for 22s · 48.6k tokens · $0.12",
+    );
+    expect(answerUsage(withTools)).toBeUndefined();
+  });
+
   it("keeps a tool group after the terminal response visible when the turn is folded", () => {
     const turnId = TurnId.make("turn-1");
     const timelineEntries = [

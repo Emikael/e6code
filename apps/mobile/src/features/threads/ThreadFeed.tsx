@@ -150,6 +150,7 @@ import {
   resolveMarkdownLinkPresentation,
 } from "@e6tools/mobile-markdown-text/links";
 import {
+  deriveAssistantUsageLabels,
   deriveThreadFeedPresentation,
   deriveUnsettledTurnId,
   isContextCompactionActivityGroup,
@@ -1369,6 +1370,8 @@ function renderFeedEntry(
     readonly workRowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
+    /** Usage for turns without a "Worked for ..." row, by final assistant message id. */
+    readonly assistantUsageLabels: ReadonlyMap<string, string>;
     readonly unsettledTurnId: TurnId | null;
     readonly isWorking: boolean;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
@@ -1538,6 +1541,7 @@ function renderFeedEntry(
       props.terminalAssistantMessageIds.has(message.id) &&
       !assistantTurnStillInProgress &&
       !message.streaming;
+    const usageLabel = showAssistantMeta ? props.assistantUsageLabels.get(message.id) : undefined;
 
     if (isUser) {
       const referenceIds = new Set(
@@ -1745,6 +1749,11 @@ function renderFeedEntry(
             <Text className="font-e6-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
+            {usageLabel ? (
+              <Text className="font-e6-medium text-xs tabular-nums text-foreground-secondary">
+                {` · ${usageLabel}`}
+              </Text>
+            ) : null}
           </View>
         ) : null}
       </Animated.View>
@@ -2509,6 +2518,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     return new Set(terminalIdsByTurn.values());
   }, [props.feed]);
+  const assistantUsageLabels = useMemo(
+    () => deriveAssistantUsageLabels(presentedFeed, props.turnUsageByTurnId),
+    [presentedFeed, props.turnUsageByTurnId],
+  );
   useEffect(() => {
     const previous = previousLatestTurnRef.current;
     previousLatestTurnRef.current = props.latestTurn;
@@ -2765,6 +2778,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             workRowSizing,
             workGroupScrollPositions,
             terminalAssistantMessageIds,
+            assistantUsageLabels,
             unsettledTurnId,
             isWorking: props.activeWorkStartedAt !== null,
             onCopyWorkRow,
@@ -2811,6 +2825,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       workRowSizing,
       workGroupScrollPositions,
       terminalAssistantMessageIds,
+      assistantUsageLabels,
       unsettledTurnId,
       props.activeWorkStartedAt,
       iconSubtleColor,
