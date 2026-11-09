@@ -11,7 +11,7 @@ export interface TaskListStep {
 }
 
 /** Text marks for a step's status, used where a step list is plain text (copy, web detail). */
-export const TASK_LIST_STEP_MARKS = {
+const TASK_LIST_STEP_MARKS = {
   completed: "✓",
   inProgress: "→",
   pending: "○",
@@ -54,7 +54,7 @@ export function taskListStepsFromPayload(payload: unknown): TaskListStep[] | nul
 }
 
 /** The step being worked on: the first in progress, else the first still pending. */
-export function currentTaskListStep(steps: ReadonlyArray<TaskListStep>): TaskListStep | undefined {
+function currentTaskListStep(steps: ReadonlyArray<TaskListStep>): TaskListStep | undefined {
   return (
     steps.find((step) => step.status === "inProgress") ??
     steps.find((step) => step.status === "pending")
