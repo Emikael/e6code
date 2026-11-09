@@ -270,6 +270,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     appearance,
     themeAppearance: appearanceScheme,
     themeId,
+    stockAccent,
     setTerminalFontSize,
     themeVariables,
   } = useAppearancePreferences();
@@ -559,7 +560,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     [hostOs, selectedEnvironmentConnection?.environmentLabel],
   );
 
-  const terminalTheme = getMobileTerminalTheme(themeId, appearanceScheme);
+  const terminalTheme = getMobileTerminalTheme(themeId, appearanceScheme, stockAccent);
   const pendingModifier =
     pendingModifierState.terminalId === terminalId ? pendingModifierState.value : null;
   const headerSubtitle = selectedThreadProject?.title ?? "";
