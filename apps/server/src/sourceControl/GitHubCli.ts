@@ -27,6 +27,14 @@ import {
 } from "./gitHubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * For the host's cheapest calls (the quota probe, the signed-in identity), which a reachable
+ * host answers in well under a second. A read waits on one of them before anything else, so a
+ * host that is not answering fails the read here instead of after a read's own 30 seconds.
+ */
+export const PROBE_TIMEOUT_MS = 5_000;
+/** How long a failed quota probe is believed, so the reads queued behind it do not each ask again. */
+const FAILED_PROBE_TTL = Duration.seconds(5);
 
 /** Server-local credential scope; never put its value in RPC payloads or cache keys. */
 export const PinnedGitHubCredential = Context.Reference<{
@@ -291,6 +299,11 @@ export class GitHubCli extends Context.Service<
       readonly maxOutputBytes?: number;
       readonly rateLimitHost?: string;
       readonly allowReserve?: boolean;
+      /**
+       * Wait on the host's quota probe first, as `pr list` and `repo view` always do. For reads
+       * that report their own cost but should still fail fast when the host is not answering.
+       */
+      readonly probeHost?: boolean;
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
     readonly listOpenPullRequests: (input: {
@@ -443,6 +456,7 @@ export const make = Effect.gen(function* () {
       const host = key.split("\0")[0]!;
       return executeRaw({
         cwd: globalThis.process.cwd(),
+        timeoutMs: PROBE_TIMEOUT_MS,
         args: [
           "api",
           "rate_limit",
@@ -458,19 +472,21 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: 32,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.seconds(30) : Duration.zero),
+      // A failure is held too, briefly: a read that finds the probe failed never runs, and a
+      // page's reads arrive together, so an unreachable host would otherwise be probed again —
+      // and waited on again — by each of them.
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.seconds(30) : FAILED_PROBE_TTL),
     },
   );
+  const quotaKey = (host: string, credential: { readonly credentialFingerprint: string } | null) =>
+    `${host}\0${credential?.credentialFingerprint ?? ""}`;
   const execute: GitHubCli["Service"]["execute"] = Effect.fn("GitHubCli.execute")(
     function* (input) {
       const [command, action] = input.args;
-      if (
-        !(
-          (command === "pr" && (action === "list" || action === "view")) ||
-          (command === "repo" && action === "view")
-        )
-      )
-        return yield* executeRaw(input);
+      const guardedRead =
+        (command === "pr" && (action === "list" || action === "view")) ||
+        (command === "repo" && action === "view");
+      if (!guardedRead && input.probeHost !== true) return yield* executeRaw(input);
       const credential = yield* PinnedGitHubCredential;
       if (credential !== null && !targetsVerifiedHost(input.args, credential.host))
         return yield* executeRaw(input);
@@ -483,11 +499,15 @@ export const make = Effect.gen(function* () {
         globalThis.process.env.GH_HOST ??
         "github.com"
       ).toLowerCase();
+      if (!guardedRead) {
+        yield* Cache.get(quota, quotaKey(host, credential));
+        return yield* executeRaw(input);
+      }
       const key = { provider: "github" as const, host };
       const guarded = Effect.gen(function* () {
         const lease = yield* limits.check(key, allowReserve ? { allowPaused: true } : undefined);
         return yield* Effect.gen(function* () {
-          yield* Cache.get(quota, `${host}\0${credential?.credentialFingerprint ?? ""}`);
+          yield* Cache.get(quota, quotaKey(host, credential));
           yield* budget.query(host, "query {}", allowReserve ? { allowReserve: true } : undefined);
           return yield* executeRaw(input);
         }).pipe(

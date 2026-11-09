@@ -2788,6 +2788,34 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect(
+    "gives up on a host that does not answer the account lookup within the probe timeout",
+    () =>
+      Effect.gen(function* () {
+        // A host that never answers: the lookup runs until the timeout it was given.
+        const unanswered: GitHubCli.GitHubCli["Service"]["execute"] = (input) =>
+          Effect.sleep(input.timeoutMs ?? 30_000).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new GitHubCli.GitHubCliCommandError({ command: "gh", cwd: input.cwd, cause: null }),
+              ),
+            ),
+          );
+        mockedExecute
+          .mockReturnValueOnce(Effect.succeed(output("unanswered-test-credential")))
+          .mockImplementationOnce(unanswered);
+        const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+        const lookup = yield* Effect.flip(
+          cli.getViewerLogin({ cwd: "/w", host: "github.unanswered.test" }),
+        ).pipe(Effect.forkChild);
+        yield* TestClock.adjust(GitHubCli.PROBE_TIMEOUT_MS);
+        const error = yield* Fiber.join(lookup);
+
+        assert.strictEqual(error._tag, "GitHubViewerLoginUnavailableError");
+      }),
+  );
+
   it.effect("looks up the authenticated account on the requested enterprise host", () =>
     Effect.gen(function* () {
       mockedExecute

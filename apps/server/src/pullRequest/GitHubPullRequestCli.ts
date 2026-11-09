@@ -1141,6 +1141,9 @@ export const make = Effect.gen(function* () {
               const response = yield* github
                 .execute({
                   cwd: input.cwd,
+                  // Every listing waits on this lookup, so a host that is not answering should
+                  // say so in seconds, not at a read's own timeout.
+                  timeoutMs: GitHubCli.PROBE_TIMEOUT_MS,
                   args: ["api", "user", "--hostname", host],
                   env: {
                     GH_HOST: host,
@@ -1310,6 +1313,8 @@ export const make = Effect.gen(function* () {
     readonly host: string;
     readonly operation: string;
     readonly allowReserve?: boolean | undefined;
+    /** Wait on the host's quota probe first; see `GitHubCli.execute`. */
+    readonly probeHost?: boolean | undefined;
     /** Variables as `-f` flags, for values this module composed itself. */
     readonly variables?: ReadonlyArray<readonly [string, string]>;
     /**
@@ -1333,6 +1338,7 @@ export const make = Effect.gen(function* () {
             input.privateVariables === undefined
               ? {
                   cwd: input.cwd,
+                  ...(input.probeHost === true ? { probeHost: true } : {}),
                   args: [
                     "api",
                     "graphql",
@@ -1345,6 +1351,7 @@ export const make = Effect.gen(function* () {
                 }
               : {
                   cwd: input.cwd,
+                  ...(input.probeHost === true ? { probeHost: true } : {}),
                   args: ["api", "graphql", "--hostname", input.host, "--input", "-"],
                   stdin: encodeGraphQlRequestJson({
                     query,
@@ -1902,6 +1909,9 @@ export const make = Effect.gen(function* () {
         cwd: input.cwd,
         host: input.host,
         operation: "searchPullRequests",
+        // The page's first read of the host. Without the probe in front, a host that is not
+        // answering costs this search's full timeout before the read even reaches the fallback.
+        probeHost: true,
         // The reader's own words are in the query, so it travels over stdin rather than in argv.
         privateVariables: { q: query },
         query: pullRequestSearchGraphQlQuery(rows, input.host === "github.com"),

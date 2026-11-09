@@ -4,12 +4,17 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { VcsProcessExitError, VcsProcessSpawnError } from "@e6tools/contracts";
+import {
+  VcsProcessExitError,
+  VcsProcessSpawnError,
+  VcsProcessTimeoutError,
+} from "@e6tools/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubCli from "./GitHubCli.ts";
@@ -94,6 +99,66 @@ it.effect("shares quota checks, preserves the reserve, and resumes after reset",
     yield* Effect.all([read("list"), read("repo")], { concurrency: 2 });
     assert.strictEqual(probes, 3);
     assert.deepStrictEqual(commands.slice(3).toSorted(), ["pr list", "repo view"]);
+  }).pipe(Effect.provide(Layer.merge(GitHubGraphQlBudget.layer, SourceControlRateLimit.layer))),
+);
+
+it.effect("fails reads within the probe timeout when the host does not answer", () =>
+  Effect.gen(function* () {
+    let probes = 0;
+    const commands: string[] = [];
+    // A host that never answers: every process runs until its own timeout.
+    const gh = yield* GitHubCli.make.pipe(
+      Effect.provideService(VcsProcess.VcsProcess, {
+        run: (input) => {
+          if (input.args[1] === "rate_limit") probes++;
+          else commands.push(input.args.slice(0, 2).join(" "));
+          const timeoutMs = input.timeoutMs ?? 30_000;
+          return Effect.sleep(timeoutMs).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new VcsProcessTimeoutError({
+                  operation: input.operation,
+                  command: input.command,
+                  cwd: input.cwd,
+                  timeoutMs,
+                }),
+              ),
+            ),
+          );
+        },
+      }),
+    );
+    const list = gh.execute({
+      cwd: "/repo",
+      args: ["pr", "list", "--repo=enterprise.test/acme/web", "--json", "number"],
+    });
+    const search = gh.execute({
+      cwd: "/repo",
+      probeHost: true,
+      args: ["api", "graphql", "--hostname", "enterprise.test", "--input", "-"],
+    });
+
+    const reads = yield* Effect.all([Effect.flip(list), Effect.flip(search)], {
+      concurrency: "unbounded",
+    }).pipe(Effect.forkChild);
+    yield* TestClock.adjust(GitHubCli.PROBE_TIMEOUT_MS);
+    const failures = yield* Fiber.join(reads);
+    assert.deepStrictEqual(
+      failures.map((failure) => failure._tag),
+      ["GitHubCliCommandError", "GitHubCliCommandError"],
+    );
+    assert.strictEqual(probes, 1);
+    assert.deepStrictEqual(commands, []);
+
+    // The reads that follow a failed probe fail at once rather than asking the host again.
+    yield* Effect.flip(list);
+    assert.strictEqual(probes, 1);
+    yield* TestClock.adjust("5 seconds");
+    const retry = yield* Effect.flip(list).pipe(Effect.forkChild);
+    yield* TestClock.adjust(GitHubCli.PROBE_TIMEOUT_MS);
+    yield* Fiber.join(retry);
+    assert.strictEqual(probes, 2);
+    assert.deepStrictEqual(commands, []);
   }).pipe(Effect.provide(Layer.merge(GitHubGraphQlBudget.layer, SourceControlRateLimit.layer))),
 );
 
