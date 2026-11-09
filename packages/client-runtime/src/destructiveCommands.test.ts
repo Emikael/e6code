@@ -80,4 +80,8 @@ describe("classifyDestructiveApproval", () => {
     );
     expect(classifyDestructiveApproval({ requestKind: "command" })).toBeNull();
   });
+
+  it("does not flag a long run of fork-bomb-like fragments", () => {
+    expect(reasonOf(":(){{".repeat(5000))).toBeNull();
+  });
 });

@@ -22,7 +22,7 @@ function select(
     type: "select",
     options: levels.split(",").map((level) => {
       const isDefault = level.endsWith("*");
-      const optionId = level.replace("*", "");
+      const optionId = isDefault ? level.slice(0, -1) : level;
       return { id: optionId, label: optionId, ...(isDefault ? { isDefault: true } : {}) };
     }),
     ...extra,
