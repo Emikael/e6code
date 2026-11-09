@@ -563,7 +563,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
   // Working and paused rows add the agent state or plan step, matching the
-  // web sidebar: "Working · step 4 of 6", "Paused · resets 14:20".
+  // web sidebar: "Working · step 4 of 6", "Waiting for usage limit · resets 14:20".
   const statusText =
     status === "working" || status === "paused"
       ? joinThreadRowStatus(

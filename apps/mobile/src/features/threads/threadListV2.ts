@@ -171,7 +171,7 @@ export function formatResetClockTime(resetsAt: string): string {
 /**
  * The open thread's status in words for its header, worded like web's header
  * pill: "Needs approval", "Needs your answer", "Working · step 4 of 6",
- * "Paused · resets 14:20", "Failed". A resting thread reads Done only after a
+ * "Waiting for usage limit · resets 14:20", "Failed". A resting thread reads Done only after a
  * completed turn; a fresh or stopped thread has no status.
  */
 export function resolveThreadHeaderStatusText(

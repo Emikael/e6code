@@ -132,10 +132,10 @@ describe("resolveThreadHeaderStatus", () => {
         planProgress,
         agentState: { kind: "rate-limited", resetsAt: "2026-03-09T14:20:00.000Z" },
       }),
-    ).toBe("Paused · resets 14:20");
+    ).toBe("Waiting for usage limit · resets 14:20");
     expect(
       fullText({ session, agentState: { kind: "retrying", attempt: 2, maxAttempts: 10 } }),
-    ).toBe("Retrying · 2 of 10");
+    ).toBe("Retrying · attempt 2 of 10");
     expect(fullText({ session, planProgress, agentState: { kind: "compacting" } })).toBe(
       "Compacting",
     );
@@ -148,7 +148,9 @@ describe("resolveThreadHeaderStatus", () => {
       "Needs approval",
     );
     expect(label({ hasPendingUserInput: true, session })).toBe("Needs your answer");
-    expect(label({ session, agentState: { kind: "rate-limited" } })).toBe("Paused");
+    expect(label({ session, agentState: { kind: "rate-limited" } })).toBe(
+      "Waiting for usage limit",
+    );
     expect(label({ session })).toBe("Working");
     expect(label({ backgroundLiveness: "monitoring" })).toBe("Monitoring");
     expect(label({ session: { ...session, status: "error", lastError: "boom" } })).toBe("Failed");

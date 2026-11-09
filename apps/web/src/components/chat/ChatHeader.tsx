@@ -138,7 +138,7 @@ interface ThreadHeaderStatus {
 /**
  * Header status pill for the open thread. Uses the sidebar's resolution and
  * the shared running-status detail so both surfaces agree ("Working · step 4
- * of 6", "Paused · resets 14:20"), with full wording for attention states
+ * of 6", "Waiting for usage limit · resets 14:20"), with full wording for attention states
  * since the header has room. A resting thread reads Done only after a
  * completed turn; a fresh or stopped thread shows no pill.
  */
