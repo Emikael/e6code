@@ -1,11 +1,34 @@
-import { SearchIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleDotIcon,
+  CircleXIcon,
+  ClockIcon,
+  EyeIcon,
+  SearchIcon,
+  TriangleAlertIcon,
+  UserRoundXIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { PullRequestStackPopover } from "./PullRequestStackPopover";
 import { memo, type RefCallback } from "react";
 
 import { cn } from "~/lib/utils";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 
+import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { PullRequestGlyph } from "./pullRequestIcons";
+import { PullRequestRowThreads } from "./PullRequestRowThreads";
+import {
+  pullRequestRowStatusStatesReview,
+  pullRequestRowThreadKey,
+  resolvePullRequestRowStatus,
+  type PullRequestRowStatus,
+  type PullRequestRowStatusKind,
+  type PullRequestStatusTone,
+} from "./pullRequestTriage.logic";
 import { PullRequestChecksPopover } from "./PullRequestChecksPopover";
 import type { EnvironmentPullRequestEntry } from "./pullRequestList.logic";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
@@ -53,6 +76,40 @@ function PullRequestRowLabels({ labels }: { labels: EnvironmentPullRequestEntry[
   );
 }
 
+const STATUS_TONE_BADGE = {
+  success: "success",
+  warning: "warning",
+  destructive: "error",
+  info: "info",
+  muted: "secondary",
+} as const satisfies Record<PullRequestStatusTone, string>;
+
+const STATUS_ICONS: Record<PullRequestRowStatusKind, LucideIcon> = {
+  ready: CircleCheckIcon,
+  review: EyeIcon,
+  "changes-requested": UserRoundXIcon,
+  "checks-failing": CircleXIcon,
+  conflicts: TriangleAlertIcon,
+  "checks-running": CircleDashedIcon,
+  "awaiting-review": ClockIcon,
+  "checks-passed": CheckIcon,
+  draft: PullRequestGlyph.draft,
+  open: CircleDotIcon,
+  merged: PullRequestGlyph.merged,
+  closed: PullRequestGlyph.closed,
+};
+
+/** A row's worded state: icon and words in one semantic tone, so colour never carries it alone. */
+function PullRequestStatusChip({ status }: { status: PullRequestRowStatus }) {
+  const Icon = STATUS_ICONS[status.kind];
+  return (
+    <Badge size="sm" variant={STATUS_TONE_BADGE[status.tone]} className="gap-1">
+      <Icon aria-hidden className="size-3" />
+      {status.label}
+    </Badge>
+  );
+}
+
 /**
  * The page row keeps a little more room around the shared lines than the panel, which sits in
  * a narrow column. The intrinsic size is the content box a skipped row reserves, which is the
@@ -72,12 +129,15 @@ function PullRequestRowImpl({
   showProvider,
   environmentLabel,
   matchedElsewhere,
+  authoredByViewer,
   statsKey,
   statsRef,
   onSelect,
 }: {
   entry: EnvironmentPullRequestEntry;
   selected: boolean;
+  /** The signed-in account on this row's host wrote it, which turns "review" into "yours". */
+  authoredByViewer: boolean;
   showProjectTitle: boolean;
   /** Only when the list spans more than one host, where the repository alone is ambiguous. */
   showProvider: boolean;
@@ -94,6 +154,7 @@ function PullRequestRowImpl({
   onSelect: (entry: PullRequestRowTarget) => void;
 }) {
   const { Icon, providerName } = getSourceControlPresentationForKind(entry.provider);
+  const status = resolvePullRequestRowStatus(entry, authoredByViewer);
   return (
     <button
       ref={statsRef}
@@ -112,11 +173,10 @@ function PullRequestRowImpl({
         selected ? "bg-accent" : "hover:bg-accent/60",
       )}
     >
+      {/* No conflict badge on the glyph: the status chip always words a conflict. */}
       <PullRequestRowGlyph
         state={entry.state}
         isDraft={entry.isDraft}
-        mergeability={entry.mergeability}
-        baseBranch={entry.baseBranch}
         // On the title line rather than between the lines, as main aligns it.
         className="mt-0.75 self-start"
       />
@@ -142,6 +202,8 @@ function PullRequestRowImpl({
         title={entry.title}
         signals={
           <>
+            <PullRequestStatusChip status={status} />
+            {/* Kept beside the chip because it opens the check list, which the words cannot. */}
             {entry.checksState === undefined ? null : (
               <PullRequestChecksPopover
                 checksState={entry.checksState}
@@ -156,14 +218,16 @@ function PullRequestRowImpl({
             {/* Only a verdict the host actually reports: an approval, a request for changes,
                 or a review the branch rules still require. No glyph on the common case of a
                 pull request nobody has reviewed, so a row only wears a person when the person
-                has said something. */}
-            {entry.reviewDecision === undefined ? null : (
+                has said something, and only where the chip has not already said it. */}
+            {entry.reviewDecision === undefined ||
+            pullRequestRowStatusStatesReview(status.kind) ? null : (
               <PullRequestReviewDecisionGlyph decision={entry.reviewDecision} />
             )}
           </>
         }
         status={
           <>
+            <PullRequestRowThreads threadKey={pullRequestRowThreadKey(entry)} />
             {entry.stack ? (
               <PullRequestStackPopover
                 environmentId={entry.environmentId}
@@ -218,6 +282,7 @@ function PullRequestRowImpl({
               className="min-w-3.5 max-w-40"
               labelClassName="sr-only @xs/pr-row-meta:not-sr-only @xs/pr-row-meta:truncate"
             />
+            {status.detail ? <span className="shrink-0">{status.detail}</span> : null}
             {showProjectTitle ? <span className="truncate">{entry.repository}</span> : null}
             {environmentLabel ? (
               <span className="min-w-0 max-w-32 truncate">{environmentLabel}</span>

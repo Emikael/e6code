@@ -506,6 +506,69 @@ describe("deriveWorkLogEntries", () => {
     expect(long!.detail).toBe(full);
   });
 
+  it("keeps when a step started and the line counts its file change reported", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        kind: "tool.started",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        sequence: 0,
+        payload: { itemType: "file_change", toolCallId: "edit-1", title: "Edit" },
+      }),
+      makeActivity({
+        id: "edit-updated",
+        kind: "tool.updated",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        sequence: 1,
+        payload: {
+          itemType: "file_change",
+          toolCallId: "edit-1",
+          title: "Edit",
+          status: "inProgress",
+        },
+      }),
+      makeActivity({
+        kind: "tool.completed",
+        createdAt: "2026-02-23T00:00:02.200Z",
+        turnId: "turn-1",
+        sequence: 2,
+        payload: {
+          itemType: "file_change",
+          toolCallId: "edit-1",
+          title: "Edit",
+          status: "completed",
+          changedFiles: [
+            { path: "src/a.ts", additions: 40, deletions: 2 },
+            { path: "src/b.ts", additions: 8, deletions: 10 },
+          ],
+        },
+      }),
+    ]);
+    expect(entry).toMatchObject({
+      startedAt: "2026-02-23T00:00:01.000Z",
+      createdAt: "2026-02-23T00:00:02.200Z",
+      toolLifecycleStatus: "completed",
+      diffStat: { additions: 48, deletions: 12 },
+    });
+  });
+
+  it("leaves the diff stat out when a file has no line counts", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        kind: "tool.completed",
+        payload: {
+          itemType: "file_change",
+          toolCallId: "edit-2",
+          status: "completed",
+          changedFiles: [{ path: "src/a.ts", additions: 1, deletions: 0 }, { path: "src/b.ts" }],
+        },
+      }),
+    ]);
+    expect(entry?.diffStat).toBeUndefined();
+    expect(entry?.startedAt).toBeUndefined();
+  });
+
   it("shows each plan update as a Tasks row and keeps the latest task progress", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),

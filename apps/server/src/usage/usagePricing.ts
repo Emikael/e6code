@@ -8,6 +8,7 @@
  * @module usagePricing
  */
 import type {
+  ModelPriceTier,
   UsageCostSource,
   UsageModelPriceOverride,
   UsageTokenTotals,
@@ -213,4 +214,59 @@ export function cacheSavingsUsd(
   const rate = overrides?.get(model.trim()) ?? lookupRate(table, model);
   if (rate === null) return 0;
   return totals.cachedInputTokens * (rate.inputCostPerToken - rate.cacheReadCostPerToken);
+}
+
+/**
+ * Blended USD per million tokens: three input tokens per output token, the
+ * usual convention for comparing list prices. Coding agents read far more than
+ * they write, so this tracks real spend better than an even split.
+ */
+function blendedCostPerMillionTokens(rate: ModelRate): number {
+  return ((3 * rate.inputCostPerToken + rate.outputCostPerToken) / 4) * 1_000_000;
+}
+
+/**
+ * Exclusive upper bounds, in blended USD per million tokens, of picker price
+ * tiers 1 and 2; anything at or above the second is tier 3. Drawn from the
+ * table's own spread: mini, flash, and haiku-class models sit under $2,
+ * mid-size coding models between $2 and $7.50, frontier models above.
+ */
+const PRICE_TIER_UPPER_BOUNDS_USD = [2, 7.5] as const;
+
+function priceTierForRate(rate: ModelRate): ModelPriceTier {
+  const blended = blendedCostPerMillionTokens(rate);
+  if (blended < PRICE_TIER_UPPER_BOUNDS_USD[0]) return 1;
+  if (blended < PRICE_TIER_UPPER_BOUNDS_USD[1]) return 2;
+  return 3;
+}
+
+/**
+ * Reasoning-effort suffixes some providers bake into model IDs, such as
+ * Antigravity's `gemini-3.8-flash-high`. The effort changes how many tokens a
+ * turn uses, not the per-token rate.
+ */
+const EFFORT_SUFFIX = /-(?:minimal|low|medium|high|xhigh|max)$/i;
+
+/**
+ * The model picker's price tier for a slug, or undefined when nothing prices
+ * it. Custom prices win, as on the Usage page. Otherwise the slug is tried as
+ * is, then as its bare model name when provider-qualified (OpenCode's
+ * `anthropic/claude-…`), then without an effort suffix. Each fallback only
+ * finds a rate the table holds unambiguously: a canonical entry, or a bare
+ * alias every qualified entry agrees on.
+ */
+export function lookupModelPriceTier(
+  table: RateTable,
+  model: string,
+  overrides?: RateTable,
+): ModelPriceTier | undefined {
+  const trimmed = model.trim();
+  const bareName = bareModelName(trimmed);
+  const withoutEffort = bareName.replace(EFFORT_SUFFIX, "");
+  const rate =
+    overrides?.get(trimmed) ??
+    lookupRate(table, trimmed) ??
+    (bareName !== trimmed ? lookupRate(table, bareName) : null) ??
+    (withoutEffort !== bareName ? lookupRate(table, withoutEffort) : null);
+  return rate === null ? undefined : priceTierForRate(rate);
 }

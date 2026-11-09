@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   cacheSavingsUsd,
   createOverrideRateTable,
+  lookupModelPriceTier,
   lookupRate,
   parseRateTable,
   priceUsage,
@@ -129,5 +130,80 @@ describe("usage pricing", () => {
     expect(lookupRate(table, "provider-a/example-model")?.inputCostPerToken).toBe(1);
     expect(lookupRate(table, "provider-b/example-model")?.inputCostPerToken).toBe(3);
     expect(lookupRate(table, "example-model")).toBeNull();
+  });
+});
+
+describe("model price tiers", () => {
+  // USD per million tokens; blended is (3 * input + output) / 4.
+  const perMillion = (input: number, output: number) => ({
+    input_cost_per_token: input / 1_000_000,
+    output_cost_per_token: output / 1_000_000,
+  });
+  const table = parseRateTable({
+    "nano-model": perMillion(0.1, 0.5), // blended 0.2
+    "just-under-two": perMillion(1, 4.99), // blended 1.9975
+    "haiku-class": perMillion(1, 5), // blended 2
+    "sonnet-class": perMillion(2, 10), // blended 4
+    "just-under-seven-fifty": perMillion(4, 17.99), // blended 7.4975
+    "opus-class": perMillion(4, 18), // blended 7.5
+    "frontier-class": perMillion(10, 50), // blended 20
+    "anthropic/qualified-only": perMillion(2, 10),
+  });
+
+  it("buckets blended rates at $2 and $7.50 per million tokens", () => {
+    expect(
+      [
+        "nano-model",
+        "just-under-two",
+        "haiku-class",
+        "sonnet-class",
+        "just-under-seven-fifty",
+        "opus-class",
+        "frontier-class",
+      ].map((model) => lookupModelPriceTier(table, model)),
+    ).toEqual([1, 1, 2, 2, 2, 3, 3]);
+  });
+
+  it("leaves models without a price, and unpriceable family names, without a tier", () => {
+    expect(lookupModelPriceTier(table, "unknown-model")).toBeUndefined();
+    expect(lookupModelPriceTier(table, "opus")).toBeUndefined();
+    expect(lookupModelPriceTier(new Map(), "frontier-class")).toBeUndefined();
+  });
+
+  it("falls back to the bare name for provider-qualified slugs", () => {
+    expect(lookupModelPriceTier(table, "opencode/frontier-class")).toBe(3);
+    expect(lookupModelPriceTier(table, "anthropic/qualified-only")).toBe(2);
+    expect(lookupModelPriceTier(table, "other/missing")).toBeUndefined();
+  });
+
+  it("falls back to the slug without an effort suffix", () => {
+    const effortTable = parseRateTable({
+      "gemini-flash": perMillion(0.75, 3.75), // blended 1.5
+      "gemini-flash-high": perMillion(4, 20), // a real model of that name wins
+      "vertex/gemini-pro": perMillion(2, 12),
+      "other/gemini-pro": perMillion(4, 20),
+    });
+
+    expect(
+      ["gemini-flash-low", "gemini-flash-medium", "gemini-flash-xhigh", "Gemini-Flash-HIGH"].map(
+        (model) => lookupModelPriceTier(effortTable, model),
+      ),
+    ).toEqual([1, 1, 1, 3]);
+    expect(lookupModelPriceTier(effortTable, "gemini-flash-high")).toBe(3);
+    expect(lookupModelPriceTier(effortTable, "google/gemini-flash-low")).toBe(1);
+    // Qualified entries disagree on the bare name's rate, so it stays unpriced.
+    expect(lookupModelPriceTier(effortTable, "gemini-pro-high")).toBeUndefined();
+    // Only effort words count as a suffix.
+    expect(lookupModelPriceTier(effortTable, "gemini-flash-lite")).toBeUndefined();
+  });
+
+  it("prefers custom prices over the public table", () => {
+    const overrides = createOverrideRateTable({
+      "frontier-class": { inputCostPerMillionTokens: 0.1, outputCostPerMillionTokens: 0.4 },
+      "custom-model": { inputCostPerMillionTokens: 3, outputCostPerMillionTokens: 15 },
+    });
+
+    expect(lookupModelPriceTier(table, "frontier-class", overrides)).toBe(1);
+    expect(lookupModelPriceTier(table, "custom-model", overrides)).toBe(2);
   });
 });

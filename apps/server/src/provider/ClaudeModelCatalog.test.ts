@@ -116,6 +116,36 @@ describe("Claude model catalog", () => {
     );
   });
 
+  it("reports the default selection's context window on each model", () => {
+    const base = manifest();
+    const synthetic = base.providers!.claudeAgent!.profiles.synthetic!;
+    const input: ModelManifestData = {
+      ...base,
+      providers: {
+        ...base.providers,
+        claudeAgent: {
+          profiles: {
+            synthetic: {
+              ...synthetic,
+              adapter: { claudeCode: { contextWindowTokens: { small: 1, large: 1_000_000 } } },
+            },
+            fixed: { adapter: { claudeCode: { fixedContextWindowTokens: 400_000 } } },
+          },
+          models: [
+            ...base.providers!.claudeAgent!.models,
+            { slug: "claude-fixed", name: "Fixed", status: "current", profile: "fixed" },
+            { slug: "claude-unknown", name: "Unknown", status: "current" },
+          ],
+        },
+      },
+    };
+
+    assert.deepStrictEqual(
+      resolveClaudeModelCatalog(input).models.map((entry) => entry.model.contextWindowTokens),
+      [1_000_000, 400_000, undefined],
+    );
+  });
+
   it("keeps a shared versioned alias available to older CLIs and defers raw dispatch to Claude Code", () => {
     const base = manifest();
     const input: ModelManifestData = {

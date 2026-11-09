@@ -15,6 +15,9 @@ On wide screens, **Chat width** in **Settings → Appearance** lets messages and
 beyond the default column: choose Wide or Full.
 **Effort display** in the same section shows a model's reasoning effort in the composer as
 its name, such as High, or as bars.
+**Show the thinking timeline** draws an opened work log as a timeline of steps, with how long each
+tool call took and the lines a file edit changed when the provider reports them. Turn it off for
+the plain list.
 
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.

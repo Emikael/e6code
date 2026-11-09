@@ -38,7 +38,12 @@ export interface EnvironmentPullRequestError extends PullRequestListProjectError
   readonly environmentId: EnvironmentId;
 }
 
-export type PullRequestGroupKey = "reviewRequested" | "authored" | "others";
+export type PullRequestGroupKey =
+  | "reviewRequested"
+  | "authored"
+  | "others"
+  | "needsYou"
+  | "waitingOnOthers";
 
 export interface PullRequestGroup<Entry extends PullRequestListEntry = PullRequestListEntry> {
   readonly key: PullRequestGroupKey;
@@ -74,6 +79,8 @@ const GROUP_LABELS: Record<PullRequestGroupKey, string> = {
   reviewRequested: "Review requested",
   authored: "Authored",
   others: "Others",
+  needsYou: "Needs you",
+  waitingOnOthers: "Waiting on others",
 };
 
 function normalize(value: string | null | undefined): string | null {
@@ -152,7 +159,7 @@ export function pullRequestEntryViewer(
  * GitHub, GitLab and a GitHub Enterprise install, and the account that owns one says nothing
  * about the others.
  */
-function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
+export function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
   const viewer = pullRequestEntryViewer(entry, viewers);
   return viewer !== null && normalize(entry.author?.login) === viewer;
 }
@@ -404,7 +411,7 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
-  const buckets: Record<PullRequestGroupKey, Entry[]> = {
+  const buckets: Record<"reviewRequested" | "authored" | "others", Entry[]> = {
     reviewRequested: [],
     authored: [],
     others: [],
@@ -1006,6 +1013,24 @@ export function rankPullRequestMatches<Entry extends PullRequestListEntry>(
 }
 
 /**
+ * Where a row sits in the readiness queue below, lowest first. The worded row status reads the
+ * same answer, so a row's chip and its place in the default order cannot disagree.
+ */
+export function pullRequestMergeReadinessTier(
+  entry: Pick<
+    PullRequestListEntry,
+    "mergeability" | "state" | "isDraft" | "checksState" | "reviewDecision"
+  >,
+): 0 | 1 | 2 | 3 | 4 {
+  if (entry.mergeability === "conflicting") return 4;
+  if (entry.state !== "open") return 3;
+  if (entry.isDraft) return 2;
+  if (entry.checksState === "passing" && entry.reviewDecision === "approved") return 0;
+  if (entry.checksState === "passing") return 1;
+  return 2;
+}
+
+/**
  * The default review queue: work that is green and approved, then green work still waiting on a
  * verdict, then everything else still open. Drafts stay in that third tier because their author
  * has not made them mergeable yet. Finished work follows open work when all states are visible. A
@@ -1017,14 +1042,7 @@ export function rankPullRequestsByMergeReadiness<Entry extends PullRequestListEn
   entries: ReadonlyArray<Entry>,
   hasMeasuredSize: (entry: Entry) => boolean = (entry) => entry.additions + entry.deletions > 0,
 ): ReadonlyArray<Entry> {
-  const tier = (entry: Entry) => {
-    if (entry.mergeability === "conflicting") return 4;
-    if (entry.state !== "open") return 3;
-    if (entry.isDraft) return 2;
-    if (entry.checksState === "passing" && entry.reviewDecision === "approved") return 0;
-    if (entry.checksState === "passing") return 1;
-    return 2;
-  };
+  const tier = pullRequestMergeReadinessTier;
   return entries.toSorted((left, right) => {
     const byTier = tier(left) - tier(right);
     if (byTier !== 0) return byTier;
@@ -1089,8 +1107,16 @@ export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   }
   if (sort === "blocked") {
     if (searchText.trim().length > 0) return groups;
-    const role = (key: PullRequestGroupKey) =>
-      key === "others" ? involvement : key === "authored" ? "authored" : "reviewing";
+    // "Needs you" mixes the reader's own work with reviews asked of them, so it keeps its order;
+    // "Waiting on others" is the reader's work blocked on reviewers, ranked as such.
+    const role = (key: PullRequestGroupKey): PullRequestInvolvement =>
+      key === "others"
+        ? involvement
+        : key === "needsYou"
+          ? "all"
+          : key === "authored"
+            ? "authored"
+            : "reviewing";
     return groups.map((group) => {
       const groupRole = role(group.key);
       if (groupRole === "all") return group;
@@ -1139,4 +1165,21 @@ export function withDiffStat<
   if (entry.additions !== 0 || entry.deletions !== 0) return entry;
   const stat = statsByRow.get(pullRequestDiffStatKey(entry));
   return stat === undefined ? entry : { ...entry, ...stat };
+}
+
+/**
+ * When the rows on screen were read from their hosts, as the oldest read among them: a server
+ * cache keeps the time its read started, so a page mixing fresh and cached repositories is only
+ * as current as its stalest. An ISO instant, for the relative-time formatter; null where no row
+ * says, which is every server from before rows carried it.
+ */
+export function pullRequestListSyncedAt(
+  entries: ReadonlyArray<Pick<PullRequestListEntry, "observedAt">>,
+): string | null {
+  let oldest: number | null = null;
+  for (const { observedAt } of entries) {
+    if (observedAt === undefined || !Number.isFinite(observedAt) || observedAt <= 0) continue;
+    oldest = oldest === null ? observedAt : Math.min(oldest, observedAt);
+  }
+  return oldest === null ? null : new Date(oldest).toISOString();
 }
