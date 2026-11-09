@@ -108,20 +108,60 @@ function structuredPatchCounts(value: unknown): LineCounts | undefined {
 
 /**
  * Bounds on line-diffing a pair of texts during ingestion, which runs on the
- * event loop. ACP diffs carry whole files, and jsdiff is O(N·D): a big rewrite
- * would stall every session. Past these bounds the file is listed without
- * counts rather than guessed at.
+ * event loop. ACP diffs carry whole files, and jsdiff is O(N·D): a small edit
+ * in a big file is cheap, but a large rewrite is not. The edit-length bound and
+ * a time budget shared by every diff in one event do the real limiting, so a
+ * batch costs at most one budget rather than one timeout per file. jsdiff only
+ * checks its timeout between edit steps, so the size and line caps bound the
+ * linear tokenizing work it does first; they only stop pathological inputs.
+ * Past these bounds the file is listed without counts rather than guessed at.
  */
-const DIFF_MAX_TEXT_LENGTH = 512 * 1024;
+const DIFF_MAX_TEXT_LENGTH = 2 * 1024 * 1024;
+const DIFF_MAX_LINES = 20_000;
 const DIFF_MAX_EDIT_LENGTH = 2_000;
-const DIFF_TIMEOUT_MS = 50;
+const DIFF_BUDGET_MS = 20;
 
-function stringPairCounts(oldString: unknown, newString: unknown): LineCounts | undefined {
+/** Monotonic milliseconds; injectable so tests can drive the budget. */
+type Clock = () => number;
+
+const systemClock: Clock = () => performance.now();
+
+/** The event-loop time left for line diffs while ingesting one event. */
+interface DiffBudget {
+  readonly now: Clock;
+  readonly deadline: number;
+}
+
+function startDiffBudget(now: Clock): DiffBudget {
+  return { now, deadline: now() + DIFF_BUDGET_MS };
+}
+
+/** Whether `text` has more than `max` newline-terminated lines, scanning no further than needed. */
+function exceedsLines(text: string, max: number): boolean {
+  let lines = 0;
+  for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
+    lines += 1;
+    if (lines > max) return true;
+  }
+  return false;
+}
+
+function stringPairCounts(
+  oldString: unknown,
+  newString: unknown,
+  budget: DiffBudget,
+): LineCounts | undefined {
   if (typeof oldString !== "string" || typeof newString !== "string") return undefined;
+  // Checked before every diff, so a file reached after the budget is spent is never diffed.
+  const remaining = budget.deadline - budget.now();
+  if (remaining <= 0) return undefined;
   if (oldString.length + newString.length > DIFF_MAX_TEXT_LENGTH) return undefined;
+  if (exceedsLines(oldString, DIFF_MAX_LINES) || exceedsLines(newString, DIFF_MAX_LINES)) {
+    return undefined;
+  }
   const parts = diffLines(oldString, newString, {
     maxEditLength: DIFF_MAX_EDIT_LENGTH,
-    timeout: DIFF_TIMEOUT_MS,
+    timeout: remaining,
   });
   if (parts === undefined) return undefined;
   let additions = 0;
@@ -134,14 +174,17 @@ function stringPairCounts(oldString: unknown, newString: unknown): LineCounts | 
 }
 
 /** Edit and MultiEdit counts from the tool input. replace_all hits an unknown number of sites. */
-function claudeEditInputCounts(input: Record<string, unknown>): LineCounts | undefined {
+function claudeEditInputCounts(
+  input: Record<string, unknown>,
+  budget: DiffBudget,
+): LineCounts | undefined {
   const edits = Array.isArray(input.edits) ? input.edits : [input];
   let additions = 0;
   let deletions = 0;
   for (const entry of edits) {
     const edit = asRecord(entry);
     if (!edit || edit.replace_all === true) return undefined;
-    const counts = stringPairCounts(edit.old_string, edit.new_string);
+    const counts = stringPairCounts(edit.old_string, edit.new_string, budget);
     if (!counts) return undefined;
     additions += counts.additions;
     deletions += counts.deletions;
@@ -158,6 +201,7 @@ export function claudeChangedFiles(
   toolName: string,
   input: Record<string, unknown>,
   toolUseResult: Record<string, unknown> | undefined,
+  now: Clock = systemClock,
 ): ReadonlyArray<ItemChangedFile> | undefined {
   const tool = toolName.toLowerCase();
   const path = asPath(input.file_path) ?? asPath(input.notebook_path) ?? asPath(input.path);
@@ -165,7 +209,7 @@ export function claudeChangedFiles(
   const patchCounts = structuredPatchCounts(toolUseResult?.structuredPatch);
   let counts: LineCounts | undefined;
   if (tool === "edit" || tool === "multiedit") {
-    counts = patchCounts ?? claudeEditInputCounts(input);
+    counts = patchCounts ?? claudeEditInputCounts(input, startDiffBudget(now));
   } else if (tool === "write") {
     counts =
       patchCounts ??
@@ -186,6 +230,7 @@ export function claudeChangedFiles(
 export function openCodeChangedFiles(
   toolName: string,
   input: Record<string, unknown> | undefined,
+  now: Clock = systemClock,
 ): ReadonlyArray<ItemChangedFile> | undefined {
   // The SDK types tool input as an open record, so the edit tool's own
   // camelCase names come first, with the snake_case spelling as a fallback.
@@ -195,7 +240,11 @@ export function openCodeChangedFiles(
   const replaceAll = input.replaceAll === true || input.replace_all === true;
   const counts =
     toolName.toLowerCase() === "edit" && !replaceAll
-      ? stringPairCounts(input.oldString ?? input.old_string, input.newString ?? input.new_string)
+      ? stringPairCounts(
+          input.oldString ?? input.old_string,
+          input.newString ?? input.new_string,
+          startDiffBudget(now),
+        )
       : undefined;
   return [withCounts(path, counts)];
 }
@@ -204,8 +253,12 @@ export function openCodeChangedFiles(
  * ACP `diff` tool-call content (Cursor, Grok, Antigravity). A missing
  * `oldText` means the file was created, so every line is an addition.
  */
-export function acpChangedFiles(content: unknown): ReadonlyArray<ItemChangedFile> | undefined {
+export function acpChangedFiles(
+  content: unknown,
+  now: Clock = systemClock,
+): ReadonlyArray<ItemChangedFile> | undefined {
   if (!Array.isArray(content)) return undefined;
+  const budget = startDiffBudget(now);
   const files: ItemChangedFile[] = [];
   for (const entry of content) {
     if (files.length >= CHANGED_FILES_CAP) break;
@@ -215,7 +268,7 @@ export function acpChangedFiles(content: unknown): ReadonlyArray<ItemChangedFile
     const counts =
       diff.oldText === undefined || diff.oldText === null
         ? { additions: countTextLines(diff.newText), deletions: 0 }
-        : stringPairCounts(diff.oldText, diff.newText);
+        : stringPairCounts(diff.oldText, diff.newText, budget);
     files.push(withCounts(path, counts));
   }
   return files.length > 0 ? files : undefined;
