@@ -237,15 +237,17 @@ export const mergeProviderSnapshot = (
 const applyModelPriceTiers = (
   provider: ServerProvider,
   priceTierOf: (model: string) => ModelPriceTier | undefined,
-): ServerProvider => ({
-  ...provider,
-  models: provider.models.map((model) => {
+): ServerProvider => {
+  let changed = false;
+  const models = provider.models.map((model) => {
     const priceTier = priceTierOf(model.slug);
     if (priceTier === model.priceTier) return model;
+    changed = true;
     const { priceTier: _previous, ...rest } = model;
     return priceTier === undefined ? rest : { ...rest, priceTier };
-  }),
-});
+  });
+  return changed ? { ...provider, models } : provider;
+};
 
 const haveProvidersChanged = (
   previousProviders: ReadonlyArray<ServerProvider>,
@@ -500,6 +502,28 @@ export const ProviderRegistryLive = Layer.effect(
       }
 
       return providers;
+    });
+
+    /**
+     * Re-stamps every held snapshot after the rate table or custom prices
+     * change, so tiers do not wait for each provider's next refresh. Stamps
+     * inside the ref update: a snapshot read first could overwrite a newer one.
+     */
+    const restampPriceTiers = Effect.fn("restampPriceTiers")(function* (
+      usage: UsageService["Service"],
+    ) {
+      const priceTierOf = yield* usage.modelPriceTiers;
+      const [changedProviders, providers] = yield* Ref.modify(providersRef, (previous) => {
+        const next = previous.map((provider) => applyModelPriceTiers(provider, priceTierOf));
+        const changed = next.filter((provider, index) => provider !== previous[index]);
+        return [[changed, next] as const, next];
+      });
+      if (changedProviders.length === 0) return;
+      yield* Effect.forEach(changedProviders, persistProvider, {
+        concurrency: "unbounded",
+        discard: true,
+      });
+      yield* PubSub.publish(changesPubSub, providers);
     });
 
     const syncProvider = Effect.fn("syncProvider")(function* (
@@ -777,7 +801,16 @@ export const ProviderRegistryLive = Layer.effect(
     // resolves. Cached snapshots (already in `providersRef`) merge with
     // these via `upsertProviders` so on-disk state wins where present
     // and pending fallbacks fill the gaps.
+    // Subscribed first, so the rate snapshot this upsert may load is not missed.
+    const priceTierChanges = Option.isSome(usageService)
+      ? yield* usageService.value.subscribeModelPriceTierChanges
+      : undefined;
     yield* upsertProviders(fallbackProviders, { publish: false });
+    if (priceTierChanges && Option.isSome(usageService)) {
+      yield* Stream.runForEach(priceTierChanges, () => restampPriceTiers(usageService.value)).pipe(
+        Effect.forkScoped,
+      );
+    }
     // Subscribe to registry mutations BEFORE running the initial sync.
     // `subscribeChanges` acquires the dequeue synchronously in this
     // fibre; the subscription is active the instant this `yield*`

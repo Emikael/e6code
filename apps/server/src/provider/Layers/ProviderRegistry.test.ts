@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -1895,7 +1896,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
-      it.effect("stamps model price tiers from the usage rate table", () =>
+      it.effect("stamps model price tiers and re-stamps them when prices change", () =>
         Effect.gen(function* () {
           const codexDriver = ProviderDriverKind.make("codex");
           const codexInstanceId = ProviderInstanceId.make("codex");
@@ -1960,18 +1961,35 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               ),
             },
           );
+          // Stands in for the rate table: a refresh or a custom-price edit
+          // swaps the lookup and pings subscribers.
+          let tiers: Partial<Record<string, 1 | 2 | 3>> = { "priced-model": 3 };
+          const tierChanges = yield* PubSub.unbounded<void>();
           const usageLayer = Layer.succeed(UsageService, {
             readSummary: () => Effect.die("unused"),
             refreshRates: Effect.die("unused"),
             estimateCostUsd: () => Effect.die("unused"),
-            modelPriceTiers: Effect.succeed((model: string) =>
-              model === "priced-model" ? (3 as const) : undefined,
+            modelPriceTiers: Effect.sync(() => {
+              const current = tiers;
+              return (model: string) => current[model];
+            }),
+            subscribeModelPriceTierChanges: PubSub.subscribe(tierChanges).pipe(
+              Effect.map(Stream.fromSubscription),
             ),
           });
 
-          const providers = yield* Effect.gen(function* () {
+          const [providers, restamped] = yield* Effect.gen(function* () {
             const registry = yield* ProviderRegistry.ProviderRegistry;
-            return yield* registry.refresh();
+            const refreshed = yield* registry.refresh();
+            const nextUpdate = yield* registry.streamChanges.pipe(
+              Stream.take(1),
+              Stream.runHead,
+              Effect.forkScoped,
+            );
+            yield* Effect.yieldNow;
+            tiers = { "priced-model": 3, "unpriced-model": 2 };
+            yield* PubSub.publish(tierChanges, undefined);
+            return [refreshed, yield* Fiber.join(nextUpdate)] as const;
           }).pipe(
             Effect.provide(
               ProviderRegistryLive.pipe(
@@ -1991,6 +2009,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           assert.deepStrictEqual(providers[0]?.models, [
             { ...provider.models[0], priceTier: 3 },
             { slug: "unpriced-model", name: "Unpriced", isCustom: false, capabilities: null },
+          ]);
+          // A price change re-stamps the held snapshot without a provider refresh.
+          assert.deepStrictEqual(Option.getOrUndefined(restamped)?.[0]?.models, [
+            { ...provider.models[0], priceTier: 3 },
+            { ...provider.models[1], priceTier: 2 },
           ]);
         }),
       );

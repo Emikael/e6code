@@ -356,6 +356,7 @@ describe("ProviderRuntimeIngestion", () => {
             refreshRates: Effect.die("unused"),
             estimateCostUsd,
             modelPriceTiers: Effect.die("unused"),
+            subscribeModelPriceTierChanges: Effect.die("unused"),
           });
     const layer = ProviderRuntimeIngestionLive.pipe(
       Layer.provide(usageLayer),
