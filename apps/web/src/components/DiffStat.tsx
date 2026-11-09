@@ -12,7 +12,8 @@ export function hasNonZeroStat(stat: { additions: number; deletions: number }): 
  * reader hears "48 additions, 12 deletions" instead.
  *
  * Counts are compact ("1.2K") unless `notation="full"`. `layout="aligned"` puts the two counts in
- * fixed-width, right-aligned columns so a stack of file headers lines up.
+ * fixed-width, right-aligned columns so a stack of file headers lines up. Each column fits the
+ * widest compact count with its sign, "+1.23K", so keep it in step with `formatCompactCount`.
  */
 export const DiffStat = memo(function DiffStat(props: {
   additions: number;
@@ -29,7 +30,7 @@ export const DiffStat = memo(function DiffStat(props: {
       className={cn(
         "font-mono tabular-nums",
         layout === "aligned"
-          ? "inline-grid grid-cols-[4ch_4ch] gap-2 text-right align-middle"
+          ? "inline-grid grid-cols-[6ch_6ch] gap-2 text-right align-middle"
           : "inline-flex items-center gap-1",
         className,
       )}
