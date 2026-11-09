@@ -32,7 +32,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus } from "./floating-working-status";
 import { useMinuteClock } from "../../lib/useMinuteClock";
-import { ShimmeringWorkContent } from "./thread-work-log";
+import { LiveWorkContent } from "./thread-work-log";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
 // The collapsed composer capsule starts 6 below its overlay's top edge, so
@@ -410,7 +410,7 @@ function FloatingStatusLabel(props: {
           tintColorClassName="accent-foreground"
           type="monochrome"
         />
-        <ShimmeringWorkContent
+        <LiveWorkContent
           className="flex-none"
           textClassName="font-e6-medium"
           compact
