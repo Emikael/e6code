@@ -18,8 +18,12 @@ vi.mock("@shikijs/core", async (importOriginal) => {
       return {
         ...highlighter,
         codeToTokensBase: (...input: Parameters<typeof highlighter.codeToTokensBase>) => {
-          tokenization.calls.push(input[0]);
-          const result = highlighter.codeToTokensBase(...input);
+          const [code, options] = input;
+          tokenization.calls.push(code);
+          // Shiki stops a line after 500ms by default; a slow CI runner can hit that on the
+          // first, cold tokenization and leave the rest of the line plain. These tests compare
+          // grammar state, so they lift the limit.
+          const result = highlighter.codeToTokensBase(code, { ...options, tokenizeTimeLimit: 0 });
           tokenization.afterCall?.();
           return result;
         },
