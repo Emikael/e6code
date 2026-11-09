@@ -11,6 +11,7 @@ import "./index.css";
 import { isElectron } from "./env";
 import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
+import { trackSettingsBackDestination } from "./components/settings/settingsBackDestination";
 import {
   syncDocumentElectronPlatformClasses,
   syncDocumentWindowControlsOverlayClass,
@@ -23,6 +24,7 @@ import { installMotionTokens } from "./lib/motion";
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 
 const router = getRouter(history);
+trackSettingsBackDestination(router);
 
 installMotionTokens();
 
