@@ -98,6 +98,7 @@ function makeFakeBrowserWindow() {
     close: vi.fn(),
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
@@ -127,6 +128,7 @@ function makeFakeBrowserWindow() {
   return {
     window: window as unknown as Electron.BrowserWindow,
     getBounds: window.getBounds,
+    getContentBounds: window.getContentBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
     isFullScreen: window.isFullScreen,
@@ -760,10 +762,13 @@ describe("DesktopWindow", () => {
           yield* desktopWindow.zoomMain(direction);
           const position = fakeWindow.setWindowButtonPosition.mock.lastCall?.[0];
           assert.isDefined(position);
-          // The 14-point native buttons should share the zoomed 52px header's center.
-          const headerCenter = 26 * fakeWindow.window.webContents.getZoomFactor();
+          // The 14-point native buttons share the zoomed 52px header's center,
+          // inset with the floating sidebar while the window is wide enough for it.
+          const zoom = fakeWindow.window.webContents.getZoomFactor();
+          const inset = 1100 >= 768 * zoom ? 9 * zoom : 0;
+          const headerCenter = 26 * zoom + inset;
           assert.isAtMost(Math.abs(position.y + 7 - headerCenter), 0.5);
-          assert.equal(position.x, 16);
+          assert.equal(position.x, Math.round(16 + inset));
         }
 
         fakeWindow.isFullScreen.mockReturnValue(true);
@@ -773,6 +778,12 @@ describe("DesktopWindow", () => {
 
         fakeWindow.isFullScreen.mockReturnValue(false);
         fakeWindow.windowListeners.get("leave-full-screen")?.();
+        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 25, y: 28 }]);
+
+        // Narrower than the breakpoint, the sidebar is a sheet and the buttons
+        // go back to the window corner.
+        fakeWindow.getContentBounds.mockReturnValue({ x: 0, y: 0, width: 700, height: 780 });
+        fakeWindow.windowListeners.get("resize")?.();
         assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 16, y: 19 }]);
       }).pipe(Effect.provide(layer));
     }),

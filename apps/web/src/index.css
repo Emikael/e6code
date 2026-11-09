@@ -1040,9 +1040,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --panel-gap: 0.5rem;
   --radius-panel: 14px;
   --floating-controls-top: 0px;
+  --floating-controls-left: 0px;
 
   @media (width >= 48rem) {
     --floating-controls-top: calc(var(--panel-gap) + 1px);
+    --floating-controls-left: calc(var(--panel-gap) + 1px);
   }
   --app-chrome-background: var(--background);
   --toolbar-background: var(--app-chrome-background);
