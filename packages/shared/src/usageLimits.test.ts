@@ -19,6 +19,7 @@ import {
   collectLimitPools,
   elapsedShare,
   formatResetsIn,
+  limitPaceReading,
   limitsNotice,
   mostConstrainedLimit,
   paceOf,
@@ -1011,6 +1012,16 @@ describe("isUsageLimitsCommand", () => {
   });
 });
 
+describe("limitPaceReading", () => {
+  it("keeps the pace until little is left, then reads as running low unless running fast", () => {
+    expect(limitPaceReading("under", 64)).toBe("under");
+    expect(limitPaceReading("under", 20)).toBe("low");
+    expect(limitPaceReading("on", 4)).toBe("low");
+    expect(limitPaceReading("ahead", 4)).toBe("ahead");
+    expect(limitPaceReading(null, 4)).toBeNull();
+  });
+});
+
 describe("mostConstrainedLimit", () => {
   const weekly = {
     id: "seven_day",
@@ -1122,6 +1133,20 @@ describe("mostConstrainedLimit", () => {
       title: "Claude · Credits limit",
       remainingLabel: "15% left",
       detail: "",
+      pace: null,
+      warning: true,
+    });
+  });
+
+  it("says running low, not under pace, when little is left", () => {
+    // An hour before a weekly reset nearly all the window has gone, so 90% used is under pace.
+    const lateWeekly = { ...weekly, usedPercent: 90, resetsAt: "2026-09-03T13:00:00.000Z" };
+    expect(paceOf(lateWeekly, now)).toBe("under");
+    expect(
+      mostConstrainedLimit({ accounts: [account([lateWeekly])] }, "Claude", now),
+    ).toMatchObject({
+      remainingLabel: "10% left",
+      detail: "resets in 1h 0m · running low",
       pace: null,
       warning: true,
     });

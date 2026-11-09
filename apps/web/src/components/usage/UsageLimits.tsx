@@ -14,11 +14,13 @@ import {
   elapsedShare,
   formatDuration,
   formatResetsIn,
-  type LimitPace,
+  LIMIT_PACE_WORDS,
+  type LimitPaceReading,
+  limitPaceReading,
   paceOf,
   remainingPercent,
 } from "@e6tools/shared/usageLimits";
-import { GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
+import { BatteryLowIcon, GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
@@ -41,22 +43,24 @@ import { getDriverOption } from "../settings/providerDriverMeta";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
-/** Pace in words and as a glyph; the glyph never stands without its words. */
+/**
+ * Pace as a glyph with a fuller label; the glyph never stands without words. The short words
+ * are the shared `LIMIT_PACE_WORDS`, so web and mobile say the same thing.
+ */
 export const PACE: Record<
-  LimitPace,
-  { readonly label: string; readonly words: string; readonly icon: typeof GaugeIcon }
+  LimitPaceReading,
+  { readonly label: string; readonly icon: typeof GaugeIcon }
 > = {
   ahead: {
-    label: "Ahead of pace: spending faster than the window elapses",
-    words: "running fast",
+    label: "Running fast: spending faster than the window elapses",
     icon: TrendingUpIcon,
   },
-  on: { label: "On pace with the window", words: "on pace", icon: GaugeIcon },
+  on: { label: "On pace with the window", icon: GaugeIcon },
   under: {
     label: "Under pace: headroom left for the rest of the window",
-    words: "plenty left",
     icon: TrendingDownIcon,
   },
+  low: { label: "Running low: little of this window's quota is left", icon: BatteryLowIcon },
 };
 
 /** The series colour the cost chart uses for this driver, so the two views read as one. */
@@ -67,7 +71,7 @@ export function barColor(driver: ServerProvider["driver"]): string {
 }
 
 /** Pace as a glyph with the words on hover. */
-export function PaceIcon({ pace }: { readonly pace: LimitPace }) {
+export function PaceIcon({ pace }: { readonly pace: LimitPaceReading }) {
   const Icon = PACE[pace].icon;
   return (
     <Tooltip>
@@ -187,7 +191,7 @@ export function LimitWindows({
       }
     >
       {windows.map((window) => {
-        const pace = paceOf(window, now);
+        const pace = limitPaceReading(paceOf(window, now), remainingPercent(window));
         const resetsIn = formatResetsIn(window, now);
         return (
           <Fragment key={window.id}>
@@ -393,7 +397,8 @@ export function UsagePlanLimits({
                 : nextReset.at <= now
                   ? "resets now"
                   : `resets in ${formatDuration(nextReset.at - now)}`;
-            const pace = window.pace ? PACE[window.pace] : null;
+            const reading = limitPaceReading(window.pace, window.remainingPercent);
+            const pace = reading ? { ...PACE[reading], words: LIMIT_PACE_WORDS[reading] } : null;
             const PaceGlyph = pace?.icon;
             return (
               <li
