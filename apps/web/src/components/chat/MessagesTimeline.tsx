@@ -52,7 +52,7 @@ import {
   describeSpawnBatchStatus,
   subagentTone,
 } from "@e6tools/client-runtime/state/subagentRuntime";
-import { DiffStatCounts } from "./DiffStatLabel";
+import { DiffStat } from "../DiffStat";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
@@ -5391,7 +5391,7 @@ function SubagentBatchRow({
     formatSubagentModelLabel(agent.model, agent.effort),
     files ? formatSubagentFileCount(files.files.length) : null,
     files && files.additions !== null && files.deletions !== null ? (
-      <DiffStatCounts additions={files.additions} deletions={files.deletions} />
+      <DiffStat additions={files.additions} deletions={files.deletions} />
     ) : null,
     agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : null,
     agent.usage?.toolUses !== undefined ? `${agent.usage.toolUses} tools` : null,
@@ -5647,7 +5647,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               {timeline && stepMeta ? (
                 <ThinkingTimelineMeta>
                   {stepMeta.diffStat ? (
-                    <DiffStatCounts
+                    <DiffStat
                       additions={stepMeta.diffStat.additions}
                       deletions={stepMeta.diffStat.deletions}
                     />
@@ -5667,7 +5667,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
           {inlineDiffStat ? (
-            <DiffStatCounts
+            <DiffStat
               additions={inlineDiffStat.additions}
               deletions={inlineDiffStat.deletions}
               className="shrink-0 text-xs"

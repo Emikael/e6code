@@ -20,7 +20,7 @@ import { useGitStackedAction } from "~/state/sourceControlActions";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 
-import { DiffStatLabel, hasNonZeroStat } from "../chat/DiffStatLabel";
+import { DiffStat, hasNonZeroStat } from "../DiffStat";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -470,10 +470,9 @@ const ChangeRow = memo(function ChangeRow(props: {
       </div>
       {entry.stat &&
       hasNonZeroStat({ additions: entry.stat.insertions, deletions: entry.stat.deletions }) ? (
-        <DiffStatLabel
+        <DiffStat
           additions={entry.stat.insertions}
           deletions={entry.stat.deletions}
-          layout="inline"
           className="text-[10px] group-focus-within/row:hidden group-hover/row:hidden pointer-coarse:hidden"
         />
       ) : null}

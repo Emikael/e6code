@@ -89,7 +89,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 import { useSubagentSelectionStore } from "~/subagentSelectionStore";
 import type { ActivePlanState } from "~/session-logic";
-import { DiffStatLabel } from "./chat/DiffStatLabel";
+import { DiffStat } from "./DiffStat";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
@@ -320,10 +320,9 @@ function ChangesSection({ workspace, gitCwd }: { workspace: InspectorWorkspace; 
       title="Changes"
       meta={
         files > 0 ? (
-          <DiffStatLabel
+          <DiffStat
             additions={status.workingTree.insertions}
             deletions={status.workingTree.deletions}
-            layout="inline"
           />
         ) : null
       }
@@ -657,7 +656,7 @@ function SubagentFilesSection({
         <span className="font-semibold">Files</span>
         <span>{formatSubagentFileCount(files.length)}</span>
         {additions !== null && deletions !== null ? (
-          <DiffStatLabel additions={additions} deletions={deletions} layout="inline" />
+          <DiffStat additions={additions} deletions={deletions} />
         ) : null}
       </span>
       <ul className="-mx-1 flex flex-col">
@@ -673,10 +672,9 @@ function SubagentFilesSection({
                 {directory}
               </span>
               {file.additions !== null && file.deletions !== null ? (
-                <DiffStatLabel
+                <DiffStat
                   additions={file.additions}
                   deletions={file.deletions}
-                  layout="inline"
                   className="shrink-0 text-[11px]"
                 />
               ) : null}

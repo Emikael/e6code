@@ -147,8 +147,11 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                 >
                   Files
                 </Text>
-                <Text className="text-foreground-muted text-xs leading-normal">
-                  {selectedFiles.length} selected · +{selectedInsertions} / -{selectedDeletions}
+                <Text
+                  className="text-foreground-muted text-xs leading-normal"
+                  accessibilityLabel={`${selectedFiles.length} selected, ${selectedInsertions} additions, ${selectedDeletions} deletions`}
+                >
+                  {selectedFiles.length} selected · +{selectedInsertions} / −{selectedDeletions}
                 </Text>
               </View>
               <View className="flex-row items-center gap-2">
@@ -204,11 +207,17 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                     <Text className="text-foreground flex-1 text-sm font-medium" numberOfLines={1}>
                       {file.path}
                     </Text>
-                    <Text className="text-xs font-e6-bold text-diff-addition">
+                    <Text
+                      className="text-xs font-e6-bold text-diff-addition"
+                      accessibilityLabel={`${file.insertions} additions`}
+                    >
                       +{file.insertions}
                     </Text>
-                    <Text className="text-xs font-e6-bold text-diff-deletion">
-                      -{file.deletions}
+                    <Text
+                      className="text-xs font-e6-bold text-diff-deletion"
+                      accessibilityLabel={`${file.deletions} deletions`}
+                    >
+                      −{file.deletions}
                     </Text>
                   </View>
                 ))}
@@ -288,11 +297,17 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                           ) : null}
                         </View>
                         <View className="items-end gap-1">
-                          <Text className="text-xs font-e6-bold text-diff-addition">
+                          <Text
+                            className="text-xs font-e6-bold text-diff-addition"
+                            accessibilityLabel={`${file.insertions} additions`}
+                          >
                             +{file.insertions}
                           </Text>
-                          <Text className="text-xs font-e6-bold text-diff-deletion">
-                            -{file.deletions}
+                          <Text
+                            className="text-xs font-e6-bold text-diff-deletion"
+                            accessibilityLabel={`${file.deletions} deletions`}
+                          >
+                            −{file.deletions}
                           </Text>
                         </View>
                       </View>
