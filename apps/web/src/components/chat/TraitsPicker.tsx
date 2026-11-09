@@ -406,6 +406,7 @@ export function useEffortSegmentControl(
       value: segments.values[segment],
     });
   return {
+    segments,
     selected: effortSegmentForValue(segments, selected.effort),
     /** The exact level name, for when it sits between or beyond the three steps. */
     currentLabel: descriptor.options.find((option) => option.id === selected.effort)?.label ?? null,
@@ -523,6 +524,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 </div>
               ) : null}
               <MenuRadioGroup
+                aria-label={descriptor.label}
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
@@ -572,6 +574,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 {descriptor.label}
               </div>
               <MenuRadioGroup
+                aria-label={descriptor.label}
                 value={selectedValue}
                 onValueChange={(value) => {
                   updateDescriptors(
@@ -748,7 +751,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   const accessibleLabel = effortGlyph
     ? [
         `Effort: ${effortGlyph.label}`,
-        showFastModeIcon ? "Fast" : null,
+        showFastModeIcon ? "Fast mode" : null,
         ...otherLabels,
         extraMenuHint,
       ]
@@ -817,7 +820,15 @@ export const TraitsPicker = memo(function TraitsPicker({
           {effortGlyph ? (
             <span className="flex items-center gap-1.5">
               {effortWord === null ? (
-                <EffortGlyph count={effortGlyph.count} filled={effortGlyph.filled} size={size} />
+                <>
+                  <EffortGlyph count={effortGlyph.count} filled={effortGlyph.filled} size={size} />
+                  {/* Stands in for the bars when the composer's effort steps show them. */}
+                  <GaugeIcon
+                    aria-hidden="true"
+                    data-composer-effort-steps-icon
+                    className="hidden size-3.5"
+                  />
+                </>
               ) : (
                 <>
                   <span data-composer-control-label>{effortWord}</span>

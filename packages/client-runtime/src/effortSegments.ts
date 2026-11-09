@@ -7,6 +7,12 @@ type SelectDescriptor = Extract<ProviderOptionDescriptor, { type: "select" }>;
 export const EFFORT_SEGMENTS = ["fast", "balanced", "deep"] as const;
 export type EffortSegment = (typeof EFFORT_SEGMENTS)[number];
 
+export const EFFORT_SEGMENT_LABELS: Readonly<Record<EffortSegment, string>> = {
+  fast: "Fast",
+  balanced: "Balanced",
+  deep: "Deep",
+};
+
 // Workflow and ceiling levels stay out of the quick steps: Max and Ultracode cost far more than a
 // step up, and prompt-injected levels such as Ultrathink edit the prompt instead.
 const EXCLUDED_LEVELS: ReadonlySet<string> = new Set(["max", "ultracode", "none", "off"]);
@@ -14,6 +20,8 @@ const EXCLUDED_LEVELS: ReadonlySet<string> = new Set(["max", "ultracode", "none"
 export interface EffortSegments {
   /** Option ids keyed by segment. */
   readonly values: Readonly<Record<EffortSegment, string>>;
+  /** The model's own label for each segment's level, such as "Extra High". */
+  readonly levelLabels: Readonly<Record<EffortSegment, string>>;
   /** The ordinary levels the segments were picked from, lowest first. */
   readonly levels: ReadonlyArray<string>;
 }
@@ -37,10 +45,21 @@ export function resolveEffortSegments(
     inner.find((option) => option.isDefault) ??
     inner.find((option) => option.id === "medium") ??
     inner[Math.floor((inner.length - 1) / 2)]!;
+  const fast = levels[0]!;
+  const deep = levels.at(-1)!;
   return {
-    values: { fast: levels[0]!.id, balanced: balanced.id, deep: levels.at(-1)!.id },
+    values: { fast: fast.id, balanced: balanced.id, deep: deep.id },
+    levelLabels: { fast: fast.label, balanced: balanced.label, deep: deep.label },
     levels: levels.map((option) => option.id),
   };
+}
+
+/**
+ * Tooltip and accessible name for a step. It says "Effort" and the real level, so Fast never
+ * reads as fast mode: "Effort: Balanced · High".
+ */
+export function effortSegmentName(segments: EffortSegments, segment: EffortSegment): string {
+  return `Effort: ${EFFORT_SEGMENT_LABELS[segment]} · ${segments.levelLabels[segment]}`;
 }
 
 /** The segment whose level is selected, or null when the model sits on another level. */

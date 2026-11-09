@@ -4825,7 +4825,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   // From md up the quick steps sit by the model; narrower screens keep the menu alone.
                   <EffortSegmentedControl
                     control={effortSegmentControl}
-                    labels="composer"
                     size={composerControlsInStrip ? "xs" : "sm"}
                     className="hidden md:inline-flex"
                   />
@@ -4836,7 +4835,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     // Beside the steps the menu trigger shrinks to its icon, unless the level sits
                     // between or beyond the steps and its name is the only place it shows.
                     effortSegmentControl?.selected &&
-                      "md:[&_[data-composer-control-label]]:pointer-events-none md:[&_[data-composer-control-label]]:invisible md:[&_[data-composer-control-label]]:absolute md:[&_[data-composer-control-compact-icon]]:[visibility:inherit] md:[&_[data-composer-control-compact-icon]]:relative",
+                      "md:[&_[data-composer-control-label]]:pointer-events-none md:[&_[data-composer-control-label]]:invisible md:[&_[data-composer-control-label]]:absolute md:[&_[data-composer-control-compact-icon]]:[visibility:inherit] md:[&_[data-composer-control-compact-icon]]:relative md:[&_[data-composer-effort-glyph]]:hidden md:[&_[data-composer-effort-steps-icon]]:block",
                   )}
                 >
                   {restingProviderTraitsPicker}

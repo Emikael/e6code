@@ -1053,7 +1053,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 <span className="text-muted-foreground text-xs" aria-hidden="true">
                   Effort
                 </span>
-                <EffortSegmentedControl control={props.effortControl} labels="picker" />
+                <EffortSegmentedControl control={props.effortControl} />
                 {props.effortControl.selected === null && props.effortControl.currentLabel ? (
                   <span className="truncate text-muted-foreground text-xs">
                     {props.effortControl.currentLabel}

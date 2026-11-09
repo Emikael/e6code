@@ -7269,7 +7269,8 @@ export default function ChatView(props: ChatViewProps) {
         if (!composerRef.current?.canCycleEffort()) return;
         event.preventDefault();
         event.stopPropagation();
-        composerRef.current.cycleEffort();
+        // Holding the keys steps once, like the other composer shortcuts.
+        if (!event.repeat) composerRef.current.cycleEffort();
         return;
       }
 

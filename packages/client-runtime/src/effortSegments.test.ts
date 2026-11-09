@@ -2,6 +2,7 @@ import type { ProviderOptionDescriptor } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  effortSegmentName,
   effortSegmentForValue,
   nextEffortSegment,
   resolveEffortSegments,
@@ -86,6 +87,22 @@ describe("effort segment state", () => {
   const segments = resolveEffortSegments(
     claude("low,medium,high*,xhigh,max,ultracode,ultrathink"),
   )!;
+
+  it("names each step as effort with the model's real level", () => {
+    const labelled = resolveEffortSegments({
+      id: "reasoningEffort",
+      label: "Reasoning",
+      type: "select",
+      options: [
+        { id: "low", label: "Low" },
+        { id: "medium", label: "Medium", isDefault: true },
+        { id: "xhigh", label: "Extra High" },
+      ],
+    })!;
+    expect(effortSegmentName(labelled, "fast")).toBe("Effort: Fast · Low");
+    expect(effortSegmentName(labelled, "balanced")).toBe("Effort: Balanced · Medium");
+    expect(effortSegmentName(labelled, "deep")).toBe("Effort: Deep · Extra High");
+  });
 
   it("selects the segment for a mapped level and none for others", () => {
     expect(effortSegmentForValue(segments, "high")).toBe("balanced");
