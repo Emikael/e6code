@@ -555,6 +555,18 @@ export function SettingsPageContainer({
   );
 }
 
+/**
+ * A page that cannot show its settings right now (nothing connected, nothing
+ * selected). It keeps the page header so the page still names itself.
+ */
+export function SettingsPageNotice({ children }: { children: ReactNode }) {
+  return (
+    <SettingsPageContainer>
+      <p className="text-sm text-muted-foreground">{children}</p>
+    </SettingsPageContainer>
+  );
+}
+
 /** `Settings / <group>`, the page title, and one line on what the page is for. */
 function SettingsPageHeader({ group, title, description }: SettingsPageHeading) {
   return (

@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
 
 import { SettingsScopeBreadcrumb } from "../components/settings/SettingsBreadcrumb";
+import { SettingsPageNotice } from "../components/settings/settingsLayout";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { isElectron } from "../env";
@@ -97,14 +98,9 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
   if (DEVICE_ONLY_PATHS.has(pathname) || pathname === "/settings/projects") {
     return children;
   }
-  if (scope.kind === "unavailable")
-    return <p className="p-8 text-sm text-muted-foreground">{scope.message}</p>;
+  if (scope.kind === "unavailable") return <SettingsPageNotice>{scope.message}</SettingsPageNotice>;
   if (scope.kind === "environment" && connectedEnvironments.length === 0) {
-    return (
-      <p className="p-8 text-sm text-muted-foreground">
-        Reconnect {scope.label} to change its settings.
-      </p>
-    );
+    return <SettingsPageNotice>Reconnect {scope.label} to change its settings.</SettingsPageNotice>;
   }
   return children;
 }
