@@ -91,17 +91,11 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
         </Text>
       ) : null}
       <View className="flex-row flex-wrap gap-2.5">
-        {options.map((option) => {
-          // Typed instructions turn Decline into "Decline and tell <agent>";
-          // clearing the field makes it a plain decline again.
-          const sendsFeedback =
-            option.decision === "decline" &&
-            feedbackAgentName !== null &&
-            feedbackDraft.status !== "empty";
-          return (
+        {options.flatMap((option) => {
+          const button = (
             <RequestActionButton
               key={option.decision}
-              label={sendsFeedback ? `Decline and tell ${feedbackAgentName}` : option.label}
+              label={option.label}
               tone={
                 option.decision === "accept"
                   ? "primary"
@@ -109,18 +103,32 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
                     ? "danger"
                     : "secondary"
               }
-              disabled={responding || (sendsFeedback && feedbackDraft.status !== "ready")}
-              onPress={() =>
-                void props.onRespond(
-                  props.approval.requestId,
-                  option.decision,
-                  sendsFeedback && feedbackDraft.status === "ready"
-                    ? feedbackDraft.feedback
-                    : undefined,
-                )
-              }
+              disabled={responding}
+              onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
             />
           );
+          // Typed instructions add "Decline and tell <agent>" beside a plain
+          // Decline, so declining without them never means clearing the field.
+          if (
+            option.decision !== "decline" ||
+            feedbackAgentName === null ||
+            feedbackDraft.status === "empty"
+          ) {
+            return [button];
+          }
+          return [
+            button,
+            <RequestActionButton
+              key="decline-with-feedback"
+              label={`Decline and tell ${feedbackAgentName}`}
+              tone="danger"
+              disabled={responding || feedbackDraft.status !== "ready"}
+              onPress={() => {
+                if (feedbackDraft.status !== "ready") return;
+                void props.onRespond(props.approval.requestId, "decline", feedbackDraft.feedback);
+              }}
+            />,
+          ];
         })}
       </View>
     </View>
