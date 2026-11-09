@@ -37,7 +37,7 @@ export function resolveThreadStatus(
   if (thread.hasPendingApprovals) {
     return {
       kind: "pending-approval",
-      label: "Needs Approval",
+      label: "Needs approval",
       pillClassName: "bg-warning",
       textClassName: "text-warning-foreground",
     };
@@ -46,7 +46,7 @@ export function resolveThreadStatus(
   if (thread.hasPendingUserInput) {
     return {
       kind: "awaiting-input",
-      label: "Awaiting Input",
+      label: "Needs your answer",
       pillClassName: "bg-primary/10",
       textClassName: "text-primary-text",
     };

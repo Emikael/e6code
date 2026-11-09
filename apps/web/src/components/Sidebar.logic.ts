@@ -519,7 +519,7 @@ export interface ThreadStatusPill {
     | "Connecting"
     | "Completed"
     | "Needs approval"
-    | "Awaiting Input"
+    | "Needs your answer"
     | "Paused"
     | "Plan Ready";
   colorClass: string;
@@ -533,7 +533,7 @@ export interface ThreadStatusPill {
 // usage-limit pause outranks Working so a stalled sibling is not hidden.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Needs approval": 7,
-  "Awaiting Input": 6,
+  "Needs your answer": 6,
   Paused: 5,
   Working: 4,
   Connecting: 4,
@@ -1198,7 +1198,7 @@ export function resolveThreadStatusPill(input: {
 
   if (thread.hasPendingUserInput) {
     return {
-      label: "Awaiting Input",
+      label: "Needs your answer",
       colorClass: "text-primary-text",
       dotClass: "bg-primary",
     };

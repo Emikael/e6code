@@ -193,9 +193,14 @@ describe("resolveThreadListV2Status", () => {
 
     // The legacy list says the same, between input and working.
     expect(resolveThreadStatus(paused)).toMatchObject({ kind: "paused", label: "Paused" });
-    expect(resolveThreadStatus({ ...paused, hasPendingUserInput: true })?.kind).toBe(
-      "awaiting-input",
-    );
+    expect(resolveThreadStatus({ ...paused, hasPendingUserInput: true })).toMatchObject({
+      kind: "awaiting-input",
+      label: "Needs your answer",
+    });
+    expect(resolveThreadStatus({ ...paused, hasPendingApprovals: true })).toMatchObject({
+      kind: "pending-approval",
+      label: "Needs approval",
+    });
     expect(resolveThreadStatus({ ...paused, agentState: undefined })?.kind).toBe("working");
   });
 

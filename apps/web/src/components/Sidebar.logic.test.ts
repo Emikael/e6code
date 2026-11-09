@@ -2054,14 +2054,14 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Needs approval" });
   });
 
-  it("shows paused between awaiting input and working", () => {
+  it("shows paused between needing an answer and working", () => {
     const paused = { ...baseThread, agentState: { kind: "rate-limited" as const } };
     expect(resolveThreadStatusPill({ thread: paused })).toMatchObject({
       label: "Paused",
     });
     expect(
       resolveThreadStatusPill({ thread: { ...paused, hasPendingUserInput: true } }),
-    ).toMatchObject({ label: "Awaiting Input" });
+    ).toMatchObject({ label: "Needs your answer" });
     expect(
       resolveProjectStatusIndicator([
         resolveThreadStatusPill({ thread: baseThread }),
@@ -2070,7 +2070,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Paused" });
   });
 
-  it("shows awaiting input when plan mode is blocked on user answers", () => {
+  it("asks for an answer when plan mode is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -2078,7 +2078,7 @@ describe("resolveThreadStatusPill", () => {
           hasPendingUserInput: true,
         },
       }),
-    ).toMatchObject({ label: "Awaiting Input" });
+    ).toMatchObject({ label: "Needs your answer" });
   });
 
   it("falls back to working when the thread is actively running without blockers", () => {
