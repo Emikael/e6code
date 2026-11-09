@@ -20,10 +20,21 @@ function stockAccentVariableName(role: keyof StockAccentColors, appearance: Them
   return appearance === "dark" ? `${name}-dark` : name;
 }
 
+/** `#rrggbb` as space-separated `rgb()` with an alpha, the form index.css uses. */
+function translucentHex(hex: string, alphaPercent: number): string {
+  const [r, g, b] = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  return `rgb(${r} ${g} ${b} / ${alphaPercent}%)`;
+}
+
+// Selection washes match the stock Iris tokens: 18% on Porcelain, 22% on Slate.
+const TERMINAL_SELECTION_ALPHA = { light: 18, dark: 22 } as const;
+
 /**
  * Inline variables the stock tokens in index.css read before their Iris
  * fallbacks. Both appearances are written at once so a light/dark switch
- * needs no re-run. Iris writes nothing and lets the stylesheet stand.
+ * needs no re-run. Iris writes nothing and lets the stylesheet stand. The
+ * terminal colors are resolved here rather than with color-mix() because the
+ * terminal reads them back as computed values.
  */
 export function stockAccentVariables(accent: StockAccent): Readonly<Record<string, string>> {
   if (accent === "iris") return {};
@@ -36,18 +47,27 @@ export function stockAccentVariables(accent: StockAccent): Readonly<Record<strin
       variables[stockAccentVariableName(role, appearance)] = value;
     }
   }
+  variables["--stock-terminal-selection"] = translucentHex(
+    palette.light.primary,
+    TERMINAL_SELECTION_ALPHA.light,
+  );
+  variables["--stock-terminal-selection-dark"] = translucentHex(
+    palette.dark.primary,
+    TERMINAL_SELECTION_ALPHA.dark,
+  );
+  // Porcelain's cursor is ink, not accent; only Slate's follows the accent.
+  variables["--stock-terminal-cursor-dark"] = palette.dark.primary;
   return variables;
 }
 
+const STOCK_ACCENT_VARIABLES = Object.keys(stockAccentVariables("cobalt"));
+
 export function applyStockAccent(root: HTMLElement, accent: StockAccent): void {
   const variables = stockAccentVariables(accent);
-  for (const appearance of ["light", "dark"] as const) {
-    for (const role of Object.keys(STOCK_ACCENT_VARIABLE_NAMES) as Array<keyof StockAccentColors>) {
-      const name = stockAccentVariableName(role, appearance);
-      const value = variables[name];
-      if (value) root.style.setProperty(name, value);
-      else root.style.removeProperty(name);
-    }
+  for (const name of STOCK_ACCENT_VARIABLES) {
+    const value = variables[name];
+    if (value) root.style.setProperty(name, value);
+    else root.style.removeProperty(name);
   }
 }
 

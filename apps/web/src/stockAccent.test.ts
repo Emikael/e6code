@@ -5,6 +5,7 @@ import {
   E6_CODE_LIGHT_THEME_COLORS,
   STOCK_ACCENT_PALETTES,
 } from "@e6tools/shared/themePalettes";
+import { differenceCiede2000 } from "culori/fn";
 import { describe, expect, it } from "vite-plus/test";
 
 import { isStockThemeActive, stockAccentVariables } from "./stockAccent";
@@ -16,6 +17,8 @@ function relativeLuminance(hex: string): number {
   });
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
 }
+
+const colorDifference = differenceCiede2000();
 
 function contrastRatio(first: string, second: string): number {
   const a = relativeLuminance(first);
@@ -93,7 +96,23 @@ describe("stockAccentVariables", () => {
       "--stock-primary-hover-dark": cobalt.dark.primaryHover,
       "--stock-primary-edge-dark": cobalt.dark.primaryEdge,
       "--stock-primary-text-dark": cobalt.dark.primaryText,
+      "--stock-terminal-selection": "rgb(13 71 161 / 18%)",
+      "--stock-terminal-selection-dark": "rgb(99 135 246 / 22%)",
+      "--stock-terminal-cursor-dark": cobalt.dark.primary,
     });
+  });
+
+  it("keeps every accent visibly apart from the info/update blue", () => {
+    for (const accent of StockAccent.literals) {
+      for (const [appearance, stock] of [
+        ["light", E6_CODE_LIGHT_THEME_COLORS],
+        ["dark", E6_CODE_DARK_THEME_COLORS],
+      ] as const) {
+        expect(
+          colorDifference(STOCK_ACCENT_PALETTES[accent][appearance].primary, stock.update),
+        ).toBeGreaterThanOrEqual(8);
+      }
+    }
   });
 });
 

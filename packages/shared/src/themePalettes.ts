@@ -306,19 +306,21 @@ export const STOCK_ACCENT_PALETTES: Readonly<
   },
   cobalt: {
     label: "Cobalt",
+    // Deeper than the info/update blue and cooler than Iris, so it reads as
+    // neither.
     light: {
-      primary: "#2563eb",
+      primary: "#0d47a1",
       primaryForeground: "#ffffff",
-      primaryHover: "#1d4ed8",
-      primaryEdge: "#1d4ed8",
-      primaryText: "#1d4ed8",
+      primaryHover: "#0b3d8f",
+      primaryEdge: "#0d47a1",
+      primaryText: "#0d47a1",
     },
     dark: {
-      primary: "#6ea2ff",
-      primaryForeground: "#0b1a3a",
-      primaryHover: "#8bb5ff",
-      primaryEdge: "#6ea2ff",
-      primaryText: "#9ec1ff",
+      primary: "#6387f6",
+      primaryForeground: "#0a1433",
+      primaryHover: "#7d9bf8",
+      primaryEdge: "#6387f6",
+      primaryText: "#9db4fa",
     },
   },
   rose: {

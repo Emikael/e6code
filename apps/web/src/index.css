@@ -1124,7 +1124,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --terminal-background: var(--background);
   --terminal-foreground: var(--foreground);
   --terminal-cursor: #14161b;
-  --terminal-selection-background: rgb(91 74 224 / 18%);
+  --terminal-selection-background: var(--stock-terminal-selection, rgb(91 74 224 / 18%));
 
   @variant dark {
     color-scheme: dark;
@@ -1181,8 +1181,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --sidebar-row-active: var(--accent);
     --sidebar-row-selected: var(--muted);
     --sidebar-stage-fade: var(--sidebar);
-    --terminal-cursor: #9b8cff;
-    --terminal-selection-background: rgb(155 140 255 / 22%);
+    --terminal-cursor: var(--stock-terminal-cursor-dark, #9b8cff);
+    --terminal-selection-background: var(--stock-terminal-selection-dark, rgb(155 140 255 / 22%));
   }
 }
 
