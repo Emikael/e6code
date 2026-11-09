@@ -11,6 +11,7 @@ import {
   getMobileThemeVariables,
   DEFAULT_MOBILE_THEME_ID,
   type MobileThemeAppearance,
+  type MobileThemeVariables,
 } from "../src/lib/mobileTheme.ts";
 
 const APPEARANCES = ["light", "dark"] as const;
@@ -132,7 +133,6 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
   "--color-adaptive-rose-500-a12-a16": [color("rose", 500, 0.12), color("rose", 500, 0.16)],
   "--color-adaptive-rose-500-400": [color("rose", 500), color("rose", 400)],
   "--color-adaptive-rose-600-400": [color("rose", 600), color("rose", 400)],
-  "--color-adaptive-violet-700-300": [color("violet", 700), color("violet", 300)],
   "--color-adaptive-white-neutral-950-a70": [color("white"), color("neutral", 950, 0.7)],
   "--color-adaptive-zinc-500-a12-a16": [color("zinc", 500, 0.12), color("zinc", 500, 0.16)],
   "--color-adaptive-zinc-500-400": [color("zinc", 500), color("zinc", 400)],
@@ -261,19 +261,80 @@ const renderWidgetStatusColors = () => {
   return `${lines.join("\n")}\n`;
 };
 
-const renderWidgetSource = (filename: string) => {
+/** Replace the block between `start` and `end` (both kept) in a hand-written file. */
+const replaceGeneratedBlock = (filename: string, start: string, end: string, block: string) => {
   const source = NodeFS.readFileSync(filename, "utf8");
-  const start = source.indexOf(WIDGET_STATUS_COLORS_START);
-  const end = source.indexOf(WIDGET_STATUS_COLORS_END);
-  if (start === -1 || end < start) {
-    throw new Error(`${filename} has no generated widget-status-colors block.`);
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end);
+  if (startIndex === -1 || endIndex < startIndex) {
+    throw new Error(
+      `${filename} has no generated block between ${start.trim()} and ${end.trim()}.`,
+    );
   }
-  return (
-    source.slice(0, start) +
-    renderWidgetStatusColors() +
-    source.slice(end + WIDGET_STATUS_COLORS_END.length)
-  );
+  return source.slice(0, startIndex) + block + source.slice(endIndex + end.length);
 };
+
+const renderWidgetSource = (filename: string) =>
+  replaceGeneratedBlock(
+    filename,
+    WIDGET_STATUS_COLORS_START,
+    WIDGET_STATUS_COLORS_END,
+    renderWidgetStatusColors(),
+  );
+
+// Android widgets and notifications read colour resources. Each file keeps
+// its hand-written frame; the generator owns the colours between the markers
+// in the default (light) and values-night (dark) resource directories.
+const ANDROID_COLORS_START = "<!-- <generated android-colors> -->\n";
+const ANDROID_COLORS_END = "<!-- </generated android-colors> -->\n";
+
+const ANDROID_COLOR_RESOURCE_SOURCES = [
+  {
+    resDir: "../modules/e6-agent-notifications/android/src/main/res",
+    file: "agent_activity_colors.xml",
+    indent: "    ",
+    // Phase tints match the iOS Live Activity and the web sidebar's status line.
+    colors: (variables: MobileThemeVariables) => ({
+      agent_activity_working: variables["--color-primary-text"],
+      agent_activity_attention: variables["--color-warning-foreground"],
+      agent_activity_input: variables["--color-update-foreground"],
+      agent_activity_waiting: variables["--color-foreground-muted"],
+      agent_activity_done: variables["--color-success-foreground"],
+      agent_activity_failed: variables["--color-danger-foreground"],
+    }),
+  },
+  {
+    resDir: "../modules/e6-subscription-widget/android/src/main/res",
+    file: "colors.xml",
+    indent: "  ",
+    colors: (variables: MobileThemeVariables) => ({
+      e6_widget_background: variables["--color-screen"],
+      e6_widget_foreground: variables["--color-foreground"],
+      e6_widget_secondary: variables["--color-foreground-muted"],
+    }),
+  },
+] as const;
+
+const renderAndroidColorResources = () =>
+  ANDROID_COLOR_RESOURCE_SOURCES.flatMap(({ resDir, file, indent, colors }) =>
+    APPEARANCES.map((appearance) => {
+      const filename = NodePath.resolve(
+        import.meta.dirname,
+        resDir,
+        appearance === "light" ? "values" : "values-night",
+        file,
+      );
+      const start = `${indent}${ANDROID_COLORS_START}`;
+      const end = `${indent}${ANDROID_COLORS_END}`;
+      const entries = Object.entries(
+        colors(getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, appearance)),
+      ).map(([name, value]) => `${indent}<color name="${name}">${value}</color>\n`);
+      return [
+        filename,
+        replaceGeneratedBlock(filename, start, end, [start, ...entries, end].join("")),
+      ] as const;
+    }),
+  );
 
 export const renderDefaultThemeVariablesJSON = () =>
   `${JSON.stringify(
@@ -298,6 +359,7 @@ export const getGeneratedUniwindThemeOutputs = (): ReadonlyArray<
     `${JSON.stringify({ colors: clerkColorsFor("light"), darkColors: clerkColorsFor("dark"), design: { borderRadius: 18 } }, null, 2)}\n`,
   ],
   ...WIDGET_SOURCE_PATHS.map((filename) => [filename, renderWidgetSource(filename)] as const),
+  ...renderAndroidColorResources(),
 ];
 
 const writeFileAtomically = (filename: string, contents: string) => {

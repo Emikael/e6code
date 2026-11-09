@@ -30,7 +30,7 @@ export interface ThreadPrPresentation {
 }
 
 const PR_STATE_TEXT_CLASS: Record<ThreadPr["state"], string> = {
-  open: "text-adaptive-emerald-600-400",
+  open: "text-success-foreground",
   merged: "text-merged-foreground",
   closed: "text-foreground-muted",
 };
@@ -98,7 +98,7 @@ export function presentThreadLinkedPullRequests(
       state === null || isDraft
         ? "text-foreground-muted"
         : isMultiple && state === "closed"
-          ? "text-adaptive-rose-600-400"
+          ? "text-danger-foreground"
           : PR_STATE_TEXT_CLASS[state],
   };
 }

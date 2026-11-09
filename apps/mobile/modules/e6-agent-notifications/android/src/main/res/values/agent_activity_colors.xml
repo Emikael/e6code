@@ -1,9 +1,11 @@
-<!-- Phase tints shared with the web sidebar pills and the iOS Live Activity (600 stops). -->
+<!-- Phase tints shared with the web sidebar and the iOS Live Activity. Written by apps/mobile/scripts/generate-uniwind-themes.mts from the stock palette. -->
 <resources>
-    <color name="agent_activity_working">#0284C7</color>
-    <color name="agent_activity_attention">#D97706</color>
-    <color name="agent_activity_input">#4F46E5</color>
-    <color name="agent_activity_waiting">#64748B</color>
-    <color name="agent_activity_done">#059669</color>
-    <color name="agent_activity_failed">#DC2626</color>
+    <!-- <generated android-colors> -->
+    <color name="agent_activity_working">#4a3ad0</color>
+    <color name="agent_activity_attention">#92400e</color>
+    <color name="agent_activity_input">#1d4ed8</color>
+    <color name="agent_activity_waiting">#5a606d</color>
+    <color name="agent_activity_done">#096b5f</color>
+    <color name="agent_activity_failed">#b42318</color>
+    <!-- </generated android-colors> -->
 </resources>
