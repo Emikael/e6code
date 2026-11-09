@@ -22,6 +22,8 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
+import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -1930,11 +1932,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
   it.effect("sums every turn's usage into the shell, beyond the detail activity window", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const activities = yield* ProjectionThreadActivityRepository;
       const sql = yield* SqlClient.SqlClient;
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
       yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_usage_totals`;
 
       yield* sql`
         INSERT INTO projection_projects (
@@ -1947,7 +1951,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-04-02T00:00:00.000Z', '2026-04-02T00:00:01.000Z', NULL
         )
       `;
-      for (const threadId of ["thread-reported", "thread-mixed", "thread-tokens", "thread-none"]) {
+      for (const threadId of [
+        "thread-reported",
+        "thread-mixed",
+        "thread-tokens",
+        "thread-none",
+        "thread-archived",
+      ]) {
+        const archivedAt = threadId === "thread-archived" ? "2026-04-02T00:00:05.000Z" : null;
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
@@ -1958,22 +1969,22 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           VALUES (
             ${threadId}, 'project-1', 'Thread', '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access', 'default', NULL, NULL, NULL, NULL, 0, 0, 0,
-            '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', NULL, NULL
+            '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', ${archivedAt}, NULL
           )
         `;
       }
       const insertActivity = (threadId: string, index: number, kind: string, payload: unknown) =>
-        sql`
-          INSERT INTO projection_thread_activities (
-            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence,
-            created_at
-          )
-          VALUES (
-            ${`${threadId}-${kind}-${index}`}, ${threadId}, ${`${threadId}-turn-${index}`},
-            'info', ${kind}, 'Activity', ${JSON.stringify(payload)}, ${index},
-            '2026-04-02T00:00:04.000Z'
-          )
-        `;
+        activities.upsert({
+          activityId: asEventId(`${threadId}-${kind}-${index}`),
+          threadId: ThreadId.make(threadId),
+          turnId: asTurnId(`${threadId}-turn-${index}`),
+          tone: "info",
+          kind,
+          summary: "Activity",
+          payload,
+          sequence: index,
+          createdAt: "2026-04-02T00:00:04.000Z",
+        });
       // More turns than the detail read keeps, each followed by tool noise, so
       // the oldest usage rows fall outside any client's activity window.
       for (let index = 0; index < 600; index += 1) {
@@ -1999,6 +2010,41 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       yield* insertActivity("thread-tokens", 0, "turn.usage", { totalTokens: 900, partial: true });
       yield* insertActivity("thread-none", 0, "tool.completed", {});
+      yield* insertActivity("thread-archived", 0, "turn.usage", {
+        totalTokens: 300,
+        partial: false,
+        costUsd: 0.125,
+        costSource: "reported",
+      });
+
+      // The stored totals match the per-snapshot aggregation they replace.
+      const legacyTotals = yield* sql`
+        SELECT
+          thread_id AS "threadId",
+          COUNT(*) AS "turnCount",
+          SUM(json_extract(payload_json, '$.totalTokens')) AS "totalTokens",
+          SUM(json_extract(payload_json, '$.costUsd')) AS "costUsd",
+          COUNT(json_extract(payload_json, '$.costUsd')) AS "costedTurnCount",
+          COUNT(
+            CASE WHEN json_extract(payload_json, '$.costSource') = 'estimated' THEN 1 END
+          ) AS "estimatedTurnCount"
+        FROM projection_thread_activities
+        WHERE kind = 'turn.usage'
+        GROUP BY thread_id
+        ORDER BY thread_id
+      `;
+      const storedTotals = yield* sql`
+        SELECT
+          thread_id AS "threadId",
+          turn_count AS "turnCount",
+          total_tokens AS "totalTokens",
+          cost_usd AS "costUsd",
+          costed_turn_count AS "costedTurnCount",
+          estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals
+        ORDER BY thread_id
+      `;
+      assert.deepEqual(storedTotals, legacyTotals);
 
       const byId = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-reported"));
       const reported = Option.getOrUndefined(byId)?.usageTotal;
@@ -2016,7 +2062,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       assert.deepEqual(usageOf("thread-tokens"), { totalTokens: 900 });
       assert.equal(usageOf("thread-none"), undefined);
-    }),
+      assert.equal(usageOf("thread-archived"), undefined);
+
+      const archivedShells = (yield* snapshotQuery.getArchivedShellSnapshot()).threads;
+      assert.deepEqual(
+        archivedShells.find((thread) => thread.id === "thread-archived")?.usageTotal,
+        { totalTokens: 300, costUsd: 0.125, costSource: "reported" },
+      );
+    }).pipe(Effect.provide(ProjectionThreadActivityRepositoryLive)),
   );
 
   it.effect("uses projection_threads.latest_turn_id for bulk command and shell snapshots", () =>
