@@ -130,6 +130,17 @@ function nativeColors(colors: ThemeColors): ThemeColors {
   ) as ThemeColors;
 }
 
+// Info (in-flight work) and success keep one hue in every theme, like web's
+// independent --info/--success tokens in apps/web/src/index.css.
+const INFO_COLORS: Readonly<Record<MobileThemeAppearance, string>> = {
+  light: "#1d4ed8",
+  dark: "#93c5fd",
+};
+const SUCCESS_COLORS: Readonly<Record<MobileThemeAppearance, string>> = {
+  light: "#0b7a6c",
+  dark: "#5eead4",
+};
+
 function withAlpha(color: string, alpha: number): string {
   const hex = color.startsWith("#") ? color.slice(1) : "";
   if (hex.length !== 6) return color;
@@ -302,6 +313,10 @@ export function createMobileThemeVariables(
     "--color-danger-foreground": c.errorForeground,
     "--color-update": c.updateSurface,
     "--color-update-foreground": c.updateForeground,
+    "--color-info": withAlpha(INFO_COLORS[appearance], appearance === "dark" ? 0.16 : 0.1),
+    "--color-info-foreground": readableTextColor(INFO_COLORS[appearance], textSurfaces),
+    "--color-success": withAlpha(SUCCESS_COLORS[appearance], appearance === "dark" ? 0.16 : 0.1),
+    "--color-success-foreground": readableTextColor(SUCCESS_COLORS[appearance], textSurfaces),
     "--color-input": c.surface,
     "--color-input-border": c.input,
     "--color-sidebar-search": c.sidebarControlSurface,
