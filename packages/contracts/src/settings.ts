@@ -321,6 +321,15 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
+  /**
+   * Draws an opened work log as a rail with one dot per step. Off restores the
+   * plain icon rows. A malformed stored value falls back to on rather than
+   * failing the whole settings decode.
+   */
+  showThinkingTimeline: Schema.Boolean.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome(true)),
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   stockAccent: StockAccent.pipe(
@@ -1616,6 +1625,7 @@ export const ClientSettingsPatch = Schema.Struct({
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   effortDisplay: Schema.optionalKey(EffortDisplay),
+  showThinkingTimeline: Schema.optionalKey(Schema.Boolean),
   stockAccent: Schema.optionalKey(StockAccent),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),

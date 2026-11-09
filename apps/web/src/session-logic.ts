@@ -73,6 +73,13 @@ export interface WorkLogEntry {
   command?: string;
   rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
+  /**
+   * When the step began, kept from the first lifecycle row once later rows
+   * (which move `createdAt` forward) merge into it. Absent on single-row steps.
+   */
+  startedAt?: string;
+  /** Lines a completed file change added and removed, when the provider counted every file. */
+  diffStat?: WorkLogDiffStat;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
@@ -99,6 +106,11 @@ export interface WorkLogEntry {
     workflowId: string | null;
     agentTaskIds: ReadonlyArray<string>;
   };
+}
+
+export interface WorkLogDiffStat {
+  readonly additions: number;
+  readonly deletions: number;
 }
 
 const workLogCollapseKey = Symbol();
@@ -458,6 +470,8 @@ export function deriveWorkLogEntries(
     ),
   );
   const entries: DerivedWorkLogEntry[] = [];
+  // tool.started rows never render, but their timestamp is when the step began.
+  const toolStartedAtById = new Map<string, string>();
   for (const activity of foldUserInputActivities(ordered)) {
     if (
       isWorktreeSetupActivity(activity.kind) &&
@@ -465,7 +479,13 @@ export function deriveWorkLogEntries(
     ) {
       continue;
     }
-    if (activity.kind === "tool.started") continue;
+    if (activity.kind === "tool.started") {
+      const toolCallId = extractToolCallId(asRecord(activity.payload));
+      if (toolCallId && !toolStartedAtById.has(toolCallId)) {
+        toolStartedAtById.set(toolCallId, activity.createdAt);
+      }
+      continue;
+    }
     // Agent task.started rows are CTA seeds: they carry the true spawn turn,
     // which is the batch key (completions of background subagents arrive
     // under later synthetic turns and must not start new batches). They
@@ -487,6 +507,11 @@ export function deriveWorkLogEntries(
     if (isAgentInternalActivity(activity)) continue;
     if (isPlanToolActivity(activity, planUpdateTurnIds)) continue;
     const entry = toDerivedWorkLogEntry(activity);
+    if (entry.startedAt === undefined && entry.toolCallId) {
+      // The start is immutable, so stamping the cached entry is idempotent.
+      const startedAt = toolStartedAtById.get(entry.toolCallId);
+      if (startedAt !== undefined && startedAt !== entry.createdAt) entry.startedAt = startedAt;
+    }
     // Native agent launches get their visible row from task.started. Defer
     // their active tool row so another launch cannot duplicate the batch.
     if (
@@ -649,6 +674,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
+  }
+  const diffStat = extractWorkLogDiffStat(payload);
+  if (diffStat) {
+    entry.diffStat = diffStat;
   }
   if (title) {
     entry.toolTitle = title;
@@ -893,6 +922,11 @@ function mergeDerivedWorkLogEntries(
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolData = next.toolData ?? previous.toolData;
+  const diffStat = next.diffStat ?? previous.diffStat;
+  const startedAt =
+    previous.startedAt ??
+    next.startedAt ??
+    (previous.createdAt !== next.createdAt ? previous.createdAt : undefined);
   return {
     ...previous,
     ...next,
@@ -911,6 +945,8 @@ function mergeDerivedWorkLogEntries(
     ...(toolCallId ? { toolCallId } : {}),
     ...(toolLifecycleStatus !== undefined ? { toolLifecycleStatus } : {}),
     ...(toolData !== undefined ? { toolData } : {}),
+    ...(diffStat ? { diffStat } : {}),
+    ...(startedAt ? { startedAt } : {}),
   };
 }
 
@@ -1412,6 +1448,27 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
       return;
     }
   }
+}
+
+/**
+ * Totals the per-file line counts an adapter put on a completed file change
+ * (`changedFiles[].additions/deletions`). One file without counts makes the
+ * total unknown, so nothing is returned rather than an undercount.
+ */
+function extractWorkLogDiffStat(payload: Record<string, unknown> | null): WorkLogDiffStat | null {
+  const files = payload?.changedFiles;
+  if (!Array.isArray(files) || files.length === 0) return null;
+  let additions = 0;
+  let deletions = 0;
+  for (const file of files) {
+    const record = asRecord(file);
+    const added = record?.additions;
+    const removed = record?.deletions;
+    if (typeof added !== "number" || typeof removed !== "number") return null;
+    additions += added;
+    deletions += removed;
+  }
+  return { additions, deletions };
 }
 
 function extractChangedFiles(payload: Record<string, unknown> | null): string[] {

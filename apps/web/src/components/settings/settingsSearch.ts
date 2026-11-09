@@ -222,6 +222,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
   },
   {
+    id: "thinking-timeline",
+    title: "Show the thinking timeline",
+    to: "/settings/appearance",
+    searchTerms: ["work log steps rail tool calls duration diff reasoning thought activity"],
+  },
+  {
     id: "chat-width",
     title: "Chat width",
     to: "/settings/appearance",
