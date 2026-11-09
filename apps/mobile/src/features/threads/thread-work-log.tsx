@@ -744,7 +744,7 @@ function workLogRowKey(row: ThreadFeedActivity): string {
   return row.id;
 }
 
-/** "+48 −12" for a file change; the signs carry the meaning, the roles only tint it. */
+/** "+48 −12" for a file change, coloured like the other mobile diff counts; the signs carry the meaning. */
 function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
   const { additions, deletions } = props.stat;
   return (
@@ -753,8 +753,8 @@ function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
       accessible
       accessibilityLabel={`${additions} additions, ${deletions} deletions`}
     >
-      <Text className="text-2xs tabular-nums text-success-foreground">+{additions}</Text>
-      <Text className="text-2xs tabular-nums text-danger-foreground">−{deletions}</Text>
+      <Text className="text-2xs tabular-nums text-adaptive-emerald-700-300">+{additions}</Text>
+      <Text className="text-2xs tabular-nums text-adaptive-rose-700-300">−{deletions}</Text>
     </View>
   );
 }
