@@ -118,6 +118,8 @@ import { useOpenPrLink } from "~/lib/openPullRequestLink";
 
 interface GitActionsControlProps {
   presentation?: "toolbar" | "menu";
+  /** Row height in the "menu" presentation: touch rows on phones, compact on desktop. */
+  menuDensity?: "default" | "touch";
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
@@ -956,6 +958,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
 export default function GitActionsControl({
   presentation = "toolbar",
+  menuDensity = "touch",
   gitCwd,
   activeThreadRef,
   draftId,
@@ -1673,7 +1676,7 @@ export default function GitActionsControl({
         if (item.disabled && disabledReason && presentation === "menu") {
           return (
             <div key={`${item.id}-${item.label}`}>
-              <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+              <MenuItem density={presentation === "menu" ? menuDensity : "default"} disabled>
                 <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
                 <MenuItemLabel>{item.label}</MenuItemLabel>
               </MenuItem>
@@ -1690,7 +1693,7 @@ export default function GitActionsControl({
                 render={<span className="block w-max cursor-not-allowed" />}
               >
                 <MenuItem
-                  density={presentation === "menu" ? "touch" : "default"}
+                  density={presentation === "menu" ? menuDensity : "default"}
                   className="w-full"
                   disabled
                 >
@@ -1707,7 +1710,7 @@ export default function GitActionsControl({
 
         return (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
             key={`${item.id}-${item.label}`}
             disabled={item.disabled}
             onClick={() => {
@@ -1721,7 +1724,7 @@ export default function GitActionsControl({
       })}
       {canPublishRepository ? (
         <MenuItem
-          density={presentation === "menu" ? "touch" : "default"}
+          density={presentation === "menu" ? menuDensity : "default"}
           disabled={isGitActionRunning}
           onClick={() => {
             setIsPublishDialogOpen(true);
@@ -1756,7 +1759,7 @@ export default function GitActionsControl({
       {presentation === "menu" ? (
         !isRepo ? (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
 
             disabled={initAction.isPending}
             onClick={initializeGit}
@@ -1769,7 +1772,7 @@ export default function GitActionsControl({
         ) : (
           <>
             <MenuItem
-              density={presentation === "menu" ? "touch" : "default"}
+              density={presentation === "menu" ? menuDensity : "default"}
 
               disabled={isGitActionRunning || quickAction.disabled || !!quickActionDisabledReason}
               onClick={runQuickAction}
@@ -1791,7 +1794,7 @@ export default function GitActionsControl({
                 if (open) requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
               }}
             >
-              <MenuSubTrigger density="touch" disabled={isGitActionRunning}>
+              <MenuSubTrigger density={menuDensity} disabled={isGitActionRunning}>
                 <SourceControlIcon className="size-4" />
                 <MenuItemLabel>Git actions</MenuItemLabel>
               </MenuSubTrigger>

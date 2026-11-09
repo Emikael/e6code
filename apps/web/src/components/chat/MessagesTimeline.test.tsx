@@ -465,7 +465,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("whitespace-nowrap");
     expect(markup).toContain("size-3");
     expect(markup).not.toContain('aria-label="Collapse all folders"');
-    expect(markup).toContain('aria-label="Open diff"');
+    expect(markup).toContain(">Open diff</button>");
     expect(markup).toContain("1 changed file");
   });
 
@@ -1046,7 +1046,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    expect(markup).toContain("rounded-[14px_14px_4px_14px] bg-message px-3.5 py-2.5");
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {
@@ -1645,9 +1645,7 @@ describe("MessagesTimeline", () => {
           );
         });
         await act(() => renderer!.root.findByProps({ "aria-expanded": false }).props.onClick());
-        const text = renderer!.root.findByProps({
-          className: "relative min-w-0 flex-1 truncate text-secondary-label",
-        });
+        const text = renderer!.root.findByProps({ "data-thought-preview": true });
         const preview = text.parent!;
         expect(
           text
@@ -1656,7 +1654,8 @@ describe("MessagesTimeline", () => {
             .filter((child) => typeof child === "string")
             .join(""),
         ).toBe(
-          (streaming && expected === "Thought" ? "Thinking" : expected).repeat(streaming ? 2 : 1),
+          // The thinking timeline marks the live thought with its ring, not a shimmer copy.
+          streaming && expected === "Thought" ? "Thinking" : expected,
         );
         expect(
           preview.findAll((node) =>

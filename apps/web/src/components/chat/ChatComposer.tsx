@@ -85,7 +85,7 @@ import {
   formatAssistantCitationForComposer,
   replaceTextRange,
 } from "../../composer-logic";
-import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
+import { resolveComposerPlaceholder } from "../../composerPlaceholder";
 import { listContinuationForEnter, listIndentForTab } from "../../composer-list-continuation";
 import {
   deriveComposerSendState,
@@ -926,7 +926,7 @@ import {
   FileIcon,
   BotIcon,
   CircleAlertIcon,
-  PaperclipIcon,
+  PlusIcon,
   PencilRulerIcon,
   PlayIcon,
   ShieldIcon,
@@ -1212,6 +1212,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
+  stopShortcutLabel: string | null;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -1245,6 +1246,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isPreparingWorktree={props.isPreparingWorktree}
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
+        stopShortcutLabel={props.stopShortcutLabel}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
@@ -5011,10 +5013,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         keybindings={keybindings}
         modelOptionsByInstance={modelOptionsByInstance}
         size={composerControlsInStrip ? "xs" : "sm"}
+        {...(composerControlsInStrip ? {} : { triggerVariant: "outline" as const })}
         triggerClassName={
           composerControlsInStrip
             ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-            : "-ms-2.5 min-w-13"
+            : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
         }
         terminalOpen={terminalOpen}
         open={isComposerModelPickerOpen}
@@ -6229,7 +6232,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             data-chat-composer-surface="true"
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
             className={cn(
-              "rounded-[20px] transition-[background-color] duration-200",
+              "rounded-2xl transition-[background-color] duration-200",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-primary-edge" : null,
               projectSelectionRequired ? "opacity-75" : null,
               composerProviderState.composerSurfaceClassName,
@@ -6759,25 +6762,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onPaste={
                       isComposerApprovalState ? ignoreApprovalFeedbackPaste : onComposerPaste
                     }
-                    placeholder={
-                      isComposerApprovalState
-                        ? approvalFeedbackAgentName !== null
-                          ? `Tell ${approvalFeedbackAgentName} what to do instead…`
-                          : "Resolve this approval request to continue"
-                        : activePendingProgress
-                          ? isChoiceOnlyPendingQuestion
-                            ? "Choose an option above"
-                            : "Type your own answer, or leave this blank to use the selected option"
-                          : showPlanFollowUpPrompt && activeProposedPlan
-                            ? "Add feedback to refine the plan, or leave this blank to implement it"
-                            : projectSelectionRequired
-                              ? "Choose a project above to start a thread"
-                              : showProviderUnavailable
-                                ? "Enable a provider in Settings to send a message"
-                                : phase === "disconnected"
-                                  ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
-                    }
+                    placeholder={resolveComposerPlaceholder({
+                      approval: isComposerApprovalState
+                        ? { agentName: approvalFeedbackAgentName }
+                        : null,
+                      pendingQuestion: activePendingProgress
+                        ? { choiceOnly: isChoiceOnlyPendingQuestion }
+                        : null,
+                      planFollowUp: Boolean(showPlanFollowUpPrompt && activeProposedPlan),
+                      projectSelectionRequired,
+                      providerUnavailable: showProviderUnavailable,
+                      phase,
+                    })}
                     disabled={
                       isConnecting ||
                       (isComposerApprovalState &&
@@ -6844,12 +6840,54 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     "absolute bottom-px right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
                 )}
               >
+                {/* Attach leads the footer as a quiet outline square, outside the measured
+                    controls so it never moves into their overflow. */}
+                {showComposerAttachAction && !isComposerResting ? (
+                  <div className="flex shrink-0 items-center pe-1.5">
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.currentTarget.files ?? []);
+                        event.currentTarget.value = "";
+                        // Inserting a chip refocuses the editor after the draft renders;
+                        // focusing synchronously here would report the editor's stale text
+                        // over the prompt that was just written.
+                        void addComposerAttachments(files).then((inserted) => {
+                          if (!inserted) focusComposer();
+                        });
+                      }}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            className="size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => attachmentInputRef.current?.click()}
+                            aria-label="Attach files"
+                          />
+                        }
+                      >
+                        <PlusIcon className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipPopup>Attach files</TooltipPopup>
+                    </Tooltip>
+                  </div>
+                ) : null}
                 <div
                   ref={expandedControlsLayout.attachControls}
                   data-chat-composer-controls="left"
                   data-chat-composer-footer-controls="true"
                   className={cn(
-                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    "relative -m-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    // Beside Attach the focus-ring gutter stays small so it never covers the button.
+                    showComposerAttachAction ? "-ms-1 ps-1" : "-ms-3.5 ps-3.5",
                     isComposerResting && "hidden",
                   )}
                 >
@@ -6865,43 +6903,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {showComposerAttachAction ? (
-                    <>
-                      <input
-                        ref={attachmentInputRef}
-                        type="file"
-                        multiple
-                        className="hidden"
-                        onChange={(event) => {
-                          const files = Array.from(event.currentTarget.files ?? []);
-                          event.currentTarget.value = "";
-                          // Inserting a chip refocuses the editor after the draft renders;
-                          // focusing synchronously here would report the editor's stale text
-                          // over the prompt that was just written.
-                          void addComposerAttachments(files).then((inserted) => {
-                            if (!inserted) focusComposer();
-                          });
-                        }}
-                      />
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              onPointerDown={(event) => event.preventDefault()}
-                              onClick={() => attachmentInputRef.current?.click()}
-                              aria-label="Attach files"
-                            />
-                          }
-                        >
-                          <PaperclipIcon />
-                        </TooltipTrigger>
-                        <TooltipPopup>Attach files</TooltipPopup>
-                      </Tooltip>
-                    </>
-                  ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={
@@ -6926,6 +6927,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={composerSendState.hasSendableContent}
                     preserveComposerFocusOnPointerDown={isMobileViewport || isComposerResting}
+                    stopShortcutLabel={shortcutLabelForCommand(keybindings, "thread.stop")}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

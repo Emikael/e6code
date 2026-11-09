@@ -104,7 +104,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --glass-opacity: 80%;
   --glass-saturation: 1.14;
   --desktop-window-right-resize-inset: 0px;
-  --workspace-topbar-height: 52px;
+  --workspace-topbar-height: 56px;
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
@@ -123,7 +123,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 }
 
 .wco {
-  --workspace-topbar-height: env(titlebar-area-height, 52px);
+  --workspace-topbar-height: env(titlebar-area-height, 56px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
   --workspace-controls-right: calc(
@@ -2138,7 +2138,7 @@ code {
 
 /* Chat timeline and composer column width, set from the Chat width setting. */
 :root {
-  --chat-max-width: 48rem;
+  --chat-max-width: 42.5rem;
 }
 
 :root[data-chat-width="wide"] {

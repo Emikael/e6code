@@ -122,6 +122,85 @@ export function workEntryIsVisibleInGroup(
   );
 }
 
+/** Elapsed time between two instants: "42s" under a minute, then "3m 40s". Null when unparsable. */
+export function formatWorkingTimer(startIso: string, endIso: string): string | null {
+  const startedAtMs = Date.parse(startIso);
+  const endedAtMs = Date.parse(endIso);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return null;
+  }
+  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s`;
+  }
+  return formatDuration(elapsedSeconds * 1_000);
+}
+
+interface ThinkingTimelineHeading {
+  /** When the group's first step began; a running group counts up from here. */
+  readonly startedAt: string | null;
+  /** "3m 40s" for a settled group; null while it runs or when the times are unknown. */
+  readonly duration: string | null;
+  /** "4 steps". */
+  readonly stepsLabel: string;
+}
+
+/**
+ * The closed heading of a thinking timeline: "Working for 3m 40s · 4 steps" while the group runs,
+ * "Worked for 3m 40s · 4 steps" once it settles. The span runs from the earliest step start to the
+ * latest step update, so a step that merged later lifecycle rows still counts its whole run.
+ */
+export function deriveThinkingTimelineHeading(input: {
+  readonly active: boolean;
+  readonly entries: ReadonlyArray<{
+    readonly createdAt: string;
+    readonly startedAt?: string | undefined;
+  }>;
+  readonly stepCount: number;
+}): ThinkingTimelineHeading {
+  let startedAt: string | null = null;
+  let startedAtMs = Number.POSITIVE_INFINITY;
+  let endedAt: string | null = null;
+  let endedAtMs = Number.NEGATIVE_INFINITY;
+  for (const entry of input.entries) {
+    const start = entry.startedAt ?? entry.createdAt;
+    const startMs = Date.parse(start);
+    if (Number.isFinite(startMs) && startMs < startedAtMs) {
+      startedAtMs = startMs;
+      startedAt = start;
+    }
+    const endMs = Date.parse(entry.createdAt);
+    if (Number.isFinite(endMs) && endMs > endedAtMs) {
+      endedAtMs = endMs;
+      endedAt = entry.createdAt;
+    }
+  }
+  const duration =
+    input.active || startedAt === null || endedAt === null
+      ? null
+      : formatWorkingTimer(startedAt, endedAt);
+  return {
+    startedAt,
+    duration,
+    stepsLabel: `${input.stepCount} step${input.stepCount === 1 ? "" : "s"}`,
+  };
+}
+
+/**
+ * Whether an activity group draws the thinking timeline (with the setting on): it needs at least
+ * one visible step to put on the rail. A live group that does carries the "Working for" heading.
+ */
+export function activityGroupHasTimelineSteps(row: {
+  readonly active: boolean;
+  readonly entries: ReadonlyArray<
+    { readonly kind: "work"; readonly entry: WorkLogEntry } | { readonly kind: "message" }
+  >;
+}): boolean {
+  return row.entries.some(
+    (entry) => entry.kind === "work" && workEntryIsVisibleInGroup(entry.entry, row.active),
+  );
+}
+
 export interface WorkGroupScrollAnchor {
   readonly entryId: string;
   readonly offset: number;
