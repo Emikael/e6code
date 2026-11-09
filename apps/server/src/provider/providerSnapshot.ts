@@ -222,6 +222,9 @@ export function buildServerProvider(input: {
       ? { supportsConversationRollback: input.presentation.supportsConversationRollback }
       : {}),
     ...(input.presentation.supportsSubagentStop === true ? { supportsSubagentStop: true } : {}),
+    // Every driver takes decline instructions: natively where the protocol has
+    // a denial reason, otherwise as the next user message (ProviderCommandReactor).
+    supportsApprovalFeedback: true,
     ...(input.presentation.badgeLabel ? { badgeLabel: input.presentation.badgeLabel } : {}),
     ...(typeof input.presentation.showInteractionModeToggle === "boolean"
       ? { showInteractionModeToggle: input.presentation.showInteractionModeToggle }

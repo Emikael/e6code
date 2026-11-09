@@ -8,6 +8,7 @@ import {
 } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { resolveWorkEntryToolPresentation } from "@e6tools/client-runtime/work-log/presentation";
+import { workEntryDisplayLabel } from "./components/chat/MessagesTimeline.logic";
 
 import {
   createMessageAttachmentPreviewProjector,
@@ -495,6 +496,34 @@ describe("deriveWorkLogEntries", () => {
       deletions: 12,
     });
     expect(deriveWorkLogEntries([edit("task-1")])[0]?.diffStat).toBeUndefined();
+  });
+
+  it("shows a declined approval with the instructions the provider received", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "approval-feedback:approval-1",
+        kind: "approval.declined-with-instructions",
+        tone: "approval",
+        summary: "Declined · Only delete build/cache",
+        payload: { requestId: "approval-1", feedback: "Only delete build/cache" },
+      }),
+    ]);
+    expect(entries.map((entry) => workEntryDisplayLabel(entry, undefined))).toEqual([
+      "Declined · Only delete build/cache",
+    ]);
+
+    // Long instructions keep the short label; the full text is the expanded detail.
+    const full = `Only delete build/cache\nKeep ${"the fixtures ".repeat(20).trim()}`;
+    const [long] = deriveWorkLogEntries([
+      makeActivity({
+        kind: "approval.declined-with-instructions",
+        tone: "approval",
+        summary: "Declined · Only delete build/cache",
+        payload: { requestId: "approval-2", feedback: full, detail: full },
+      }),
+    ]);
+    expect(workEntryDisplayLabel(long!, undefined)).toBe("Declined · Only delete build/cache");
+    expect(long!.detail).toBe(full);
   });
 
   it("keeps when a step started and the line counts its file change reported", () => {

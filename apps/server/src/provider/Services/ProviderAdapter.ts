@@ -53,6 +53,12 @@ export interface ProviderAdapterCapabilities {
   readonly promptlessTurnContinuation?: boolean;
   /** False when native conversation history cannot be rewound. */
   readonly supportsConversationRollback?: boolean;
+  /**
+   * "native" when the provider protocol carries a reason with a denied
+   * approval, so respondToRequest receives the user's instructions. Omitted
+   * means the orchestration layer sends them as the next user message.
+   */
+  readonly approvalFeedback?: "native";
 }
 
 export interface ProviderThreadTurnSnapshot {
@@ -114,12 +120,14 @@ export interface ProviderAdapterShape<TError> {
   readonly stopSubagent?: (threadId: ThreadId, subagentId: string) => Effect.Effect<void, TError>;
 
   /**
-   * Respond to an interactive approval request.
+   * Respond to an interactive approval request. `feedback` arrives only with a
+   * "decline" and only when capabilities.approvalFeedback is "native".
    */
   readonly respondToRequest: (
     threadId: ThreadId,
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
+    feedback?: string,
   ) => Effect.Effect<void, TError>;
 
   /**

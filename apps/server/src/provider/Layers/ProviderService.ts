@@ -2046,11 +2046,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.thread_id": input.threadId,
           "provider.request_id": input.requestId,
         });
-        yield* routed.adapter.respondToRequest(routed.threadId, input.requestId, input.decision);
+        const feedback =
+          input.decision === "decline" && routed.adapter.capabilities.approvalFeedback === "native"
+            ? input.feedback
+            : undefined;
+        yield* routed.adapter.respondToRequest(
+          routed.threadId,
+          input.requestId,
+          input.decision,
+          feedback,
+        );
         yield* analytics.record("provider.request.responded", {
           provider: routed.adapter.provider,
           decision: input.decision,
         });
+        return { feedbackDelivered: feedback !== undefined };
       }).pipe(
         withMetrics({
           counter: providerTurnsTotal,
