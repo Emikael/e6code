@@ -266,7 +266,9 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   hasProviderTraitsControls,
+  useProviderEffortSegmentControl,
 } from "./composerProviderState";
+import { EffortSegmentedControl } from "./EffortSegmentedControl";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -1272,6 +1274,9 @@ export interface ChatComposerHandle {
   openModelPicker: () => void;
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
+  /** Steps Fast → Balanced → Deep. False when the model has no effort steps. */
+  cycleEffort: () => boolean;
+  canCycleEffort: () => boolean;
   isModelPickerOpen: () => boolean;
   compactContext: () => void;
   readSnapshot: () => {
@@ -2673,6 +2678,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       : {}),
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
+  const effortSegmentControl = useProviderEffortSegmentControl(providerTraitsPickerInput);
+  // Read through a ref so the imperative handle does not rebuild on every render.
+  const effortSegmentControlRef = useRef(effortSegmentControl);
+  useLayoutEffect(() => {
+    effortSegmentControlRef.current = effortSegmentControl;
+  });
   const {
     controlsRef: restingComposerControlsRef,
     attachControls: attachRestingComposerControls,
@@ -4810,7 +4821,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             content: (
               <>
                 <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
+                {effortSegmentControl ? (
+                  // From md up the quick steps sit by the model; narrower screens keep the menu alone.
+                  <EffortSegmentedControl
+                    control={effortSegmentControl}
+                    labels="composer"
+                    size={composerControlsInStrip ? "xs" : "sm"}
+                    className="hidden md:inline-flex"
+                  />
+                ) : null}
+                <div
+                  className={cn(
+                    "contents",
+                    // Beside the steps the menu trigger shrinks to its icon, unless the level sits
+                    // between or beyond the steps and its name is the only place it shows.
+                    effortSegmentControl?.selected &&
+                      "md:[&_[data-composer-control-label]]:pointer-events-none md:[&_[data-composer-control-label]]:invisible md:[&_[data-composer-control-label]]:absolute md:[&_[data-composer-control-compact-icon]]:[visibility:inherit] md:[&_[data-composer-control-compact-icon]]:relative",
+                  )}
+                >
+                  {restingProviderTraitsPicker}
+                </div>
               </>
             ),
           },
@@ -4943,6 +4973,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           onProviderModelSelect(instanceId, model);
         }}
         onOpenProviderSetup={onOpenProviderSetup}
+        effortControl={effortSegmentControl}
       />
 
       <>
@@ -5739,6 +5770,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         trigger.focus({ preventScroll: true });
         trigger.click();
       },
+      cycleEffort: () => {
+        const control = effortSegmentControlRef.current;
+        if (!control || control.disabled) return false;
+        control.cycle();
+        return true;
+      },
+      canCycleEffort: () =>
+        effortSegmentControlRef.current !== null && !effortSegmentControlRef.current.disabled,
       compactContext: compactThreadContext,
       isModelPickerOpen: () => isComposerModelPickerOpen,
       readSnapshot: () => {

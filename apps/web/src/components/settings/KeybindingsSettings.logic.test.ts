@@ -22,6 +22,7 @@ describe("KeybindingsSettings.logic", () => {
     for (const command of [
       "composer.host",
       "composer.effort",
+      "composer.cycleEffort",
       "composer.mode",
       "composer.workspace",
       "composer.branch",

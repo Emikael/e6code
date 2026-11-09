@@ -40,6 +40,9 @@ import { cn } from "~/lib/utils";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import { TooltipProvider } from "../ui/tooltip";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
+import { EffortSegmentedControl } from "./EffortSegmentedControl";
+import type { EffortSegmentControl } from "./TraitsPicker";
 import {
   isProviderInstancePickerReady,
   isProviderInstancePickerVisible,
@@ -181,6 +184,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  /** Effort steps for the composer's current model; the row hides without them. */
+  effortControl?: EffortSegmentControl | null;
 }) {
   const {
     keybindings: providedKeybindings,
@@ -730,6 +735,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     }
     return mapping.size > 0 ? mapping : EMPTY_MODEL_JUMP_LABELS;
   }, [keybindings, modelJumpCommandByKey, modelJumpShortcutContext]);
+  const effortShortcutLabel = props.effortControl
+    ? shortcutLabelForCommand(keybindings, "composer.cycleEffort")
+    : null;
   const modelListExtraData = useMemo(
     () => ({ favoritesSet, modelJumpLabelByKey, activeModelKey, selectedModelKeySet }),
     [favoritesSet, modelJumpLabelByKey, activeModelKey, selectedModelKeySet],
@@ -1040,6 +1048,22 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 />
               </ComboboxListVirtualized>
             </div>
+            {props.effortControl ? (
+              <div className="flex shrink-0 items-center gap-2.5 border-t border-border/70 px-3 py-2">
+                <span className="text-muted-foreground text-xs" aria-hidden="true">
+                  Effort
+                </span>
+                <EffortSegmentedControl control={props.effortControl} labels="picker" />
+                {props.effortControl.selected === null && props.effortControl.currentLabel ? (
+                  <span className="truncate text-muted-foreground text-xs">
+                    {props.effortControl.currentLabel}
+                  </span>
+                ) : null}
+                {effortShortcutLabel ? (
+                  <Kbd className="ms-auto bg-transparent">{effortShortcutLabel}</Kbd>
+                ) : null}
+              </div>
+            ) : null}
             {providerSetupEntries.length > 0 ? (
               <div className="max-h-44 shrink-0 overflow-y-auto border-t border-border/70 p-2">
                 {providerSetupEntries.map((entry) => (
