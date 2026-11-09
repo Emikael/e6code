@@ -459,6 +459,8 @@ interface ClaudeSessionContext {
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastKnownTotalProcessedTokens: number | undefined;
+  /** The session's running `total_cost_usd` as of the last result. */
+  lastReportedTotalCostUsd: number | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
   /** Limits already announced for the running turn, keyed `window:resetsAt`. */
@@ -823,6 +825,26 @@ function normalizeClaudeActiveTokenUsage(
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(totalProcessedTokens !== undefined ? { totalProcessedTokens } : {}),
   });
+}
+
+/**
+ * One turn's share of Claude's `total_cost_usd`, which is a running total for
+ * the query session. A total below the previous one means the session reset
+ * it (a mid-session /clear), so the new total is this turn's cost. Zeroed
+ * totals from crashed results report nothing.
+ */
+function claudeTurnCostUsd(
+  previousTotalCostUsd: number | undefined,
+  totalCostUsd: number | undefined,
+): number | undefined {
+  if (totalCostUsd === undefined || !Number.isFinite(totalCostUsd) || totalCostUsd <= 0) {
+    return undefined;
+  }
+  if (previousTotalCostUsd === undefined || totalCostUsd < previousTotalCostUsd) {
+    return totalCostUsd;
+  }
+  const turnCostUsd = totalCostUsd - previousTotalCostUsd;
+  return turnCostUsd > 0 ? turnCostUsd : undefined;
 }
 
 function normalizeClaudeTurnTokenUsage(
@@ -2837,6 +2859,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       rawPayload: result ?? { status },
     });
 
+    const turnCostUsd = claudeTurnCostUsd(context.lastReportedTotalCostUsd, result?.total_cost_usd);
+    if (typeof result?.total_cost_usd === "number" && Number.isFinite(result.total_cost_usd)) {
+      context.lastReportedTotalCostUsd = result.total_cost_usd;
+    }
+
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "turn.completed",
@@ -2853,6 +2880,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(typeof result?.total_cost_usd === "number"
           ? { totalCostUsd: result.total_cost_usd }
           : {}),
+        ...(turnCostUsd !== undefined ? { turnCostUsd } : {}),
         ...(errorMessage ? { errorMessage } : {}),
         tokenUsage: normalizeClaudeTurnTokenUsage(result, turnState.hasSubagents, status),
       },
@@ -5100,6 +5128,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastKnownContextWindow: initialContextWindow,
         lastKnownTokenUsage: undefined,
         lastKnownTotalProcessedTokens: undefined,
+        lastReportedTotalCostUsd: undefined,
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
         announcedUsageLimits: undefined,

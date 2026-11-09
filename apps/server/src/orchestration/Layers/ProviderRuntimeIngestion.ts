@@ -18,6 +18,10 @@ import {
   type ProviderRuntimeEvent,
   type ResponseStreamingMode,
   RuntimeRequestId,
+  TURN_USAGE_ACTIVITY_KIND,
+  type TurnTokenUsage,
+  type TurnUsageActivityPayload,
+  type UsageTokenTotals,
 } from "@e6tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -57,6 +61,7 @@ import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
+import { UsageService } from "../../usage/UsageService.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 // Suffixed, not prefixed: `clearTurnStateForSession` sweeps by thread prefix.
@@ -358,6 +363,50 @@ function compactedTokenCountsFromActivities(
     return undefined;
   }
   return { beforeTokens, afterTokens };
+}
+
+/**
+ * The token half of a `turn.usage` payload, or undefined when the provider
+ * reported nothing usable for the turn.
+ */
+function turnUsageTokens(
+  tokenUsage: TurnTokenUsage | undefined,
+): TurnUsageActivityPayload | undefined {
+  if (!tokenUsage || tokenUsage.usageStatus === "unavailable") return undefined;
+  const { inputTokens, outputTokens } = tokenUsage;
+  const totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
+  if (totalTokens === 0) return undefined;
+  return {
+    totalTokens,
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(tokenUsage.cachedInputTokens !== undefined
+      ? { cachedInputTokens: tokenUsage.cachedInputTokens }
+      : {}),
+    ...(tokenUsage.cacheCreationTokens !== undefined
+      ? { cacheCreationTokens: tokenUsage.cacheCreationTokens }
+      : {}),
+    ...(tokenUsage.reasoningTokens !== undefined
+      ? { reasoningTokens: tokenUsage.reasoningTokens }
+      : {}),
+    partial: tokenUsage.usageStatus !== "complete",
+  };
+}
+
+/** Splits a turn's input into the buckets model rates are quoted in. */
+function turnUsagePricingTotals(usage: TurnUsageActivityPayload): UsageTokenTotals {
+  const cachedInputTokens = usage.cachedInputTokens ?? 0;
+  const cacheCreationTokens = usage.cacheCreationTokens ?? 0;
+  return {
+    uncachedInputTokens: Math.max(
+      0,
+      (usage.inputTokens ?? 0) - cachedInputTokens - cacheCreationTokens,
+    ),
+    cachedInputTokens,
+    cacheCreationTokens,
+    outputTokens: usage.outputTokens ?? 0,
+    reasoningTokens: usage.reasoningTokens ?? 0,
+  };
 }
 
 function normalizeRuntimeTurnState(
@@ -1033,6 +1082,9 @@ const make = Effect.gen(function* () {
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
   const serverSettingsService = yield* ServerSettingsService;
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
+  // Optional so harnesses without usage pricing still ingest; turns then
+  // record tokens and only provider-reported cost.
+  const usageService = yield* Effect.serviceOption(UsageService);
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1758,6 +1810,52 @@ const make = Effect.gen(function* () {
       });
     },
   );
+
+  /**
+   * Builds the `turn.usage` activity for a finished turn. Cost is the
+   * provider's own figure when it reports one, otherwise an estimate at the
+   * thread model's rates, otherwise absent. The id is stable per turn, so a
+   * redelivered completion replaces the row instead of adding one.
+   */
+  const turnUsageActivity = Effect.fn("turnUsageActivity")(function* (
+    event: Extract<ProviderRuntimeEvent, { readonly type: "turn.completed" | "turn.aborted" }>,
+    threadId: ThreadId,
+  ) {
+    const turnId = toTurnId(event.turnId);
+    const usage = turnUsageTokens(event.payload.tokenUsage);
+    if (!turnId || !usage) return undefined;
+
+    const reportedCostUsd = event.type === "turn.completed" ? event.payload.turnCostUsd : undefined;
+    let cost: Pick<TurnUsageActivityPayload, "costUsd" | "costSource"> = {};
+    if (reportedCostUsd !== undefined && Number.isFinite(reportedCostUsd) && reportedCostUsd > 0) {
+      cost = { costUsd: reportedCostUsd, costSource: "reported" };
+    } else if (Option.isSome(usageService)) {
+      const model = yield* projectionSnapshotQuery.getThreadShellById(threadId).pipe(
+        Effect.map((shell) => Option.getOrUndefined(shell)?.modelSelection.model),
+        Effect.orElseSucceed(() => undefined),
+      );
+      const estimatedCostUsd = model
+        ? yield* usageService.value.estimateCostUsd(model, turnUsagePricingTotals(usage))
+        : null;
+      if (estimatedCostUsd !== null && Number.isFinite(estimatedCostUsd) && estimatedCostUsd > 0) {
+        cost = { costUsd: estimatedCostUsd, costSource: "estimated" };
+      }
+    }
+
+    const sessionSequence = (event as ProviderRuntimeEvent & { sessionSequence?: number })
+      .sessionSequence;
+    const activity: OrchestrationThreadActivity = {
+      id: EventId.make(`turn-usage:${threadId}:${turnId}`),
+      createdAt: event.createdAt,
+      tone: "info",
+      kind: TURN_USAGE_ACTIVITY_KIND,
+      summary: "Turn usage",
+      payload: { ...usage, ...cost } satisfies TurnUsageActivityPayload,
+      turnId,
+      ...(sessionSequence !== undefined ? { sequence: sessionSequence } : {}),
+    };
+    return activity;
+  });
 
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
@@ -2602,7 +2700,14 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const activities = runtimeEventToActivities(activityEvent, taskTitle);
+      const usageActivity =
+        event.type === "turn.completed" || event.type === "turn.aborted"
+          ? yield* turnUsageActivity(event, thread.id)
+          : undefined;
+      const activities = [
+        ...runtimeEventToActivities(activityEvent, taskTitle),
+        ...(usageActivity ? [usageActivity] : []),
+      ];
       yield* Effect.forEach(activities, (activity) =>
         providerCommandId(event, "thread-activity-append").pipe(
           Effect.flatMap((commandId) =>

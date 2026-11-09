@@ -22,6 +22,7 @@ import {
   type ServerProviderSkill,
   type ToolActivityIcon,
   type TurnId,
+  type TurnUsageActivityPayload,
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
 import { parseScopedThreadKey } from "@e6tools/client-runtime/environment";
@@ -508,6 +509,8 @@ interface MessagesTimelineProps {
   latestTurn: TimelineLatestTurn | null;
   runningTurnId: TurnId | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
+  /** Settled turns' tokens and cost, shown on their "Worked for ..." row. */
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
   routeThreadKey: string;
   /**
    * Thread whose entries are currently painted. Differs from `routeThreadKey`
@@ -587,6 +590,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   latestTurn,
   runningTurnId,
   turnDiffSummaries,
+  turnUsageByTurnId,
   routeThreadKey,
   displayThreadKey,
   onOpenTurnDiff,
@@ -873,6 +877,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         liveAgentTaskIds,
         worktreeSetup,
         queuedMessages,
+        turnUsageByTurnId,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -896,6 +901,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     liveAgentTaskIds,
     worktreeSetup,
     queuedMessages,
+    turnUsageByTurnId,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);

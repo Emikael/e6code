@@ -25,6 +25,7 @@ import {
   type UsagePricing,
   type UsageSummary,
   type UsageSummaryInput,
+  type UsageTokenTotals,
   UsageReadError,
 } from "@e6tools/contracts";
 import { HostProcessEnvironment } from "@e6tools/shared/hostProcess";
@@ -52,7 +53,12 @@ import {
   summarizeSystemOneUsage,
   SystemOneUsageTracker,
 } from "../systemOne/systemOneUsageTracker.ts";
-import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
+import {
+  createOverrideRateTable,
+  parseRateTable,
+  priceUsage,
+  type RateTable,
+} from "./usagePricing.ts";
 import {
   listTranscriptFiles,
   readDirectoryVolumeId,
@@ -117,6 +123,11 @@ export class UsageService extends Context.Service<
     readonly readSummary: (input: UsageSummaryInput) => Effect.Effect<UsageSummary, UsageReadError>;
     /** Refetches the rate table ahead of its TTL. See `ensureRates`. */
     readonly refreshRates: Effect.Effect<UsagePricing>;
+    /** API-equivalent USD for `totals` at `model`'s rates, or null when unpriced. */
+    readonly estimateCostUsd: (
+      model: string,
+      totals: UsageTokenTotals,
+    ) => Effect.Effect<number | null>;
   }
 >()("e6/usage/UsageService") {}
 
@@ -144,6 +155,7 @@ export const layerTest = Layer.succeed(
         scanDurationMs: 0,
       }),
     refreshRates: Effect.succeed(EMPTY_PRICING),
+    estimateCostUsd: () => Effect.succeed(null),
   }),
 );
 
@@ -188,6 +200,21 @@ export const make = Effect.gen(function* () {
     knownModels: rates.size,
   });
 
+  /** Adopts the on-disk rate snapshot when no table has been loaded yet. */
+  const loadRatesSnapshot = Effect.gen(function* () {
+    if (ratesFetchedAtMs !== null) return;
+    const fromDisk = yield* fileSystem.readFileString(ratesCachePath).pipe(
+      Effect.flatMap((raw) => decodeRatesCache(raw)),
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
+    if (fromDisk === null || ratesFetchedAtMs !== null) return;
+    const parsed = parseRateTable(fromDisk.document);
+    if (parsed.size === 0) return;
+    rates = parsed;
+    ratesFetchedAtMs = fromDisk.fetchedAtMs;
+    ratesStatus = "cached";
+  });
+
   /**
    * Loads the LiteLLM rate table, preferring a fresh copy and falling back to
    * the on-disk snapshot. With neither, every model reports as unpriced rather
@@ -199,21 +226,8 @@ export const make = Effect.gen(function* () {
     const maxAgeMs = force ? RATES_REFRESH_FLOOR_MS : RATES_TTL_MS;
     if (ratesFetchedAtMs !== null && now - ratesFetchedAtMs < maxAgeMs) return;
 
-    if (ratesFetchedAtMs === null) {
-      const fromDisk = yield* fileSystem.readFileString(ratesCachePath).pipe(
-        Effect.flatMap((raw) => decodeRatesCache(raw)),
-        Effect.catchCause(() => Effect.succeed(null)),
-      );
-      if (fromDisk !== null) {
-        const parsed = parseRateTable(fromDisk.document);
-        if (parsed.size > 0) {
-          rates = parsed;
-          ratesFetchedAtMs = fromDisk.fetchedAtMs;
-          ratesStatus = "cached";
-          if (now - fromDisk.fetchedAtMs < maxAgeMs) return;
-        }
-      }
-    }
+    yield* loadRatesSnapshot;
+    if (ratesFetchedAtMs !== null && now - ratesFetchedAtMs < maxAgeMs) return;
 
     const fetched = yield* httpClient.get(LITELLM_RATES_URL).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -247,6 +261,40 @@ export const make = Effect.gen(function* () {
     Effect.map(pricing),
     Effect.withSpan("UsageService.refreshRates"),
   );
+
+  let refreshingInBackground = false;
+
+  /**
+   * Prices one turn's tokens at the model's rates, honoring custom prices.
+   * Never waits on the network: it prices against the loaded table (or the
+   * on-disk snapshot) and refreshes a stale table in the background.
+   */
+  const estimateCostUsd: UsageService["Service"]["estimateCostUsd"] = Effect.fn(
+    "UsageService.estimateCostUsd",
+  )(function* (model, totals) {
+    yield* loadRatesSnapshot;
+    const now = yield* Clock.currentTimeMillis;
+    if (
+      !refreshingInBackground &&
+      (ratesFetchedAtMs === null || now - ratesFetchedAtMs >= RATES_TTL_MS)
+    ) {
+      refreshingInBackground = true;
+      yield* ensureRates(false).pipe(
+        Effect.ensuring(Effect.sync(() => (refreshingInBackground = false))),
+        Effect.forkDetach,
+      );
+    }
+    const settings = yield* settingsService.getSettings.pipe(Effect.option);
+    if (Option.isNone(settings)) return null;
+    const priced = priceUsage(
+      rates,
+      model,
+      totals,
+      null,
+      createOverrideRateTable(settings.value.usagePriceOverrides),
+    );
+    return priced.costSource === "unpriced" ? null : priced.costUsd;
+  });
 
   // A settings failure must not silently discard custom rates or transcript homes.
   const readSettings = settingsService.getSettings.pipe(
@@ -710,7 +758,7 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(deferred);
   });
 
-  return { readSummary, refreshRates } as const;
+  return { readSummary, refreshRates, estimateCostUsd } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

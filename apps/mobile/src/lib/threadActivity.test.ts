@@ -1,4 +1,5 @@
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import { deriveTurnUsageByTurnId } from "@e6tools/client-runtime/work-log/turn-usage";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -1902,6 +1903,33 @@ describe("buildThreadFeed", () => {
     );
     expect(retimed[1]).toMatchObject({ type: "turn-fold", label: "Worked for 23s" });
     expect(collapsed[1]).toMatchObject({ type: "turn-fold", label: "Worked for 17s" });
+
+    // The turn's usage record joins the fold label and never becomes a row.
+    const usageActivities = [
+      ...thread.activities,
+      makeActivity({
+        id: EventId.make("turn-usage"),
+        kind: "turn.usage",
+        tone: "info",
+        summary: "Turn usage",
+        createdAt: "2026-04-01T00:00:18.000Z",
+        turnId,
+        payload: { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" },
+      }),
+    ];
+    const withUsage = deriveThreadFeedPresentation(
+      buildThreadFeed({ ...thread, activities: usageActivities }),
+      thread.latestTurn,
+      new Set(),
+      new Set(),
+      null,
+      deriveTurnUsageByTurnId(usageActivities),
+    );
+    expect(withUsage.map((entry) => entry.id)).toEqual(collapsed.map((entry) => entry.id));
+    expect(withUsage[1]).toMatchObject({
+      type: "turn-fold",
+      label: "Worked for 17s · 48.6k tokens · ≈$0.12",
+    });
   });
 
   it("folds assistant messages between the first and terminal messages", () => {
