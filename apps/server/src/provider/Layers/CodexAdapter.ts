@@ -1338,6 +1338,31 @@ function mapCollabAgentEvent(
   }
 }
 
+const CODEX_RETRY_COUNTERS =
+  /\b(?:reconnecting|retrying)\b\W{0,8}(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/i;
+const CODEX_MAX_RETRY_ATTEMPTS = 100;
+
+/**
+ * Retry counters from a retryable Codex `error` message. The app-server
+ * protocol has no structured attempt or limit fields (the notification carries
+ * only `willRetry`, the message, and an error kind), so the counters come from
+ * Codex's own wording: "Reconnecting... 2/5", or "retrying 2/5 in 1s" on older
+ * builds. Only a pair right after that word counts, and an implausible pair is
+ * dropped whole, so the indicator falls back to plain "Retrying".
+ */
+function codexRetryCounters(
+  message: string,
+): { readonly attempt: number; readonly maxAttempts: number } | undefined {
+  const match = CODEX_RETRY_COUNTERS.exec(message);
+  if (!match) return undefined;
+  const attempt = Number(match[1]);
+  const maxAttempts = Number(match[2]);
+  if (attempt < 1 || attempt > maxAttempts || maxAttempts > CODEX_MAX_RETRY_ATTEMPTS) {
+    return undefined;
+  }
+  return { attempt, maxAttempts };
+}
+
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
@@ -2196,18 +2221,14 @@ function mapToRuntimeEvents(
     }
     // A retry is not a work-log row: the working indicator names it until the
     // stream resumes, and a final failure arrives as a non-retried error.
-    // Codex only reports its counters in the text.
-    const counters = /(\d+)\s*\/\s*(\d+)/.exec(message);
+    const counters = codexRetryCounters(message);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "session.state.changed",
         payload: {
           state: "running",
-          agentState: retryingAgentState(
-            counters ? Number(counters[1]) : undefined,
-            counters ? Number(counters[2]) : undefined,
-          ),
+          agentState: retryingAgentState(counters?.attempt, counters?.maxAttempts),
         },
       },
     ];

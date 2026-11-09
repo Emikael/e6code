@@ -3,11 +3,14 @@ import { Pressable, View } from "react-native";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { ScopedTheme, ScopedVariables } from "uniwind";
 
+import { StockAccent, type StockAccent as StockAccentId } from "@e6tools/contracts/settings";
+import { STOCK_ACCENT_PALETTES } from "@e6tools/shared/themePalettes";
 import { mixThemePreviewBase, THEME_PREVIEW_RENDER_SPECS } from "@e6tools/shared/themePreview";
 
 import { SymbolView } from "../../../../components/AppSymbol";
 import { AppText as Text } from "../../../../components/AppText";
 import {
+  DEFAULT_MOBILE_THEME_ID,
   getMobileThemePreviewColors,
   MOBILE_THEME_OPTIONS,
   type MobileThemeAppearance,
@@ -284,6 +287,77 @@ function SectionLabel({ children }: { readonly children: string }) {
   return <Text className="px-2 text-sm font-e6-medium text-foreground-muted">{children}</Text>;
 }
 
+function AccentSwatch(props: {
+  readonly accent: StockAccentId;
+  readonly appearance: MobileThemeAppearance;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+  readonly selected: boolean;
+}) {
+  const palette = STOCK_ACCENT_PALETTES[props.accent];
+  return (
+    <Pressable
+      accessibilityLabel={`${palette.label} accent`}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: props.selected, disabled: props.disabled }}
+      className={cn(
+        "h-11 flex-row items-center gap-2 rounded-full px-3 active:scale-[0.97]",
+        props.selected
+          ? "border-2 border-primary bg-subtle"
+          : "border border-border bg-grouped-card",
+        props.disabled && "opacity-60",
+      )}
+      disabled={props.disabled}
+      onPress={props.onPress}
+    >
+      <View
+        className="size-4 rounded-full border border-border"
+        style={{ backgroundColor: palette[props.appearance].primary }}
+      />
+      <Text className="text-base text-foreground">{palette.label}</Text>
+      {props.selected ? (
+        <SymbolView name="checkmark" size={14} tintColorClassName="accent-icon" weight="semibold" />
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * Accent for the stock E6 Code theme. Disabled, with a note, while the visible
+ * appearance wears another theme, which brings its own accent.
+ */
+function AccentSection() {
+  const { isReady, setStockAccent, stockAccent, themeAppearance, themeIds } =
+    useAppearancePreferences();
+  const stockThemeActive = themeIds[themeAppearance] === DEFAULT_MOBILE_THEME_ID;
+  return (
+    <View className="gap-2">
+      <SectionLabel>Accent</SectionLabel>
+      <View
+        accessibilityLabel="Accent"
+        accessibilityRole="radiogroup"
+        className="flex-row flex-wrap gap-2"
+      >
+        {StockAccent.literals.map((accent) => (
+          <AccentSwatch
+            accent={accent}
+            appearance={themeAppearance}
+            disabled={!isReady || !stockThemeActive}
+            key={accent}
+            onPress={() => setStockAccent(accent)}
+            selected={accent === stockAccent}
+          />
+        ))}
+      </View>
+      <Text className="px-2 text-sm text-foreground-muted">
+        {stockThemeActive
+          ? "The color of the next action and a working agent."
+          : "Applies to the E6 Code theme. The active theme brings its own accent."}
+      </Text>
+    </View>
+  );
+}
+
 export function ThemeAppearanceSection() {
   const {
     isReady,
@@ -333,6 +407,8 @@ export function ThemeAppearanceSection() {
           ))}
         </View>
       </View>
+
+      <AccentSection />
     </View>
   );
 }
