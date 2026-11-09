@@ -278,8 +278,8 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
                 }
               : {}),
             icon: { name: "info.circle", type: "sfSymbol" },
-            identifier: "thread-right-overview",
-            label: "Overview",
+            identifier: "thread-right-run-details",
+            label: "Run details",
             onPress: props.inspectorControl.onPress,
             sharesBackground: true,
             type: "button",

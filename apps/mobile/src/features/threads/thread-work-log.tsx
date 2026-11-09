@@ -1114,7 +1114,7 @@ const TASK_LIST_STEP_SYMBOLS = {
 } as const satisfies Record<TaskListStepStatus, AppSymbolName>;
 
 /** A task list's steps, each with its status as an icon and a word. Only the live step uses primary. */
-function TaskListSteps(props: { readonly steps: ReadonlyArray<TaskListStep> }) {
+export function TaskListSteps(props: { readonly steps: ReadonlyArray<TaskListStep> }) {
   // Steps have no id and their text may repeat, so key by text and occurrence.
   const occurrences = new Map<string, number>();
   return (

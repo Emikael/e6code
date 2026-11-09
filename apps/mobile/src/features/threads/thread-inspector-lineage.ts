@@ -1,4 +1,8 @@
-import type { OrchestrationSession } from "@e6tools/contracts";
+import type { OrchestrationSession, OrchestrationThreadActivity, TurnId } from "@e6tools/contracts";
+import {
+  type TaskListStep,
+  taskListStepsFromPayload,
+} from "@e6tools/client-runtime/work-log/task-list";
 import {
   type AgentPanelModel,
   type AgentPanelWorkflowGroup,
@@ -26,7 +30,7 @@ export type InspectorLineageRow =
 
 export interface InspectorLineage {
   readonly rows: ReadonlyArray<InspectorLineageRow>;
-  /** Section label: "Lineage · 3 working · 1 done", plus tokens once known. */
+  /** Section label: "Subagents · 3 working · 1 done", plus tokens once known. */
   readonly label: string;
 }
 
@@ -34,7 +38,7 @@ export interface InspectorLineage {
  * Flattens the panel model into the Inspector's lineage list. Top-level rows
  * keep spawn order; a workflow is followed by its members, phase by phase,
  * then any members whose phase is unknown. The label counts the members of a
- * workflow instead of its coordinator, matching the web Overview.
+ * workflow instead of its coordinator, matching web's Run details.
  */
 export function deriveInspectorLineage(model: AgentPanelModel): InspectorLineage {
   const nodes = [
@@ -76,7 +80,7 @@ export function deriveInspectorLineage(model: AgentPanelModel): InspectorLineage
 
   const summary = summarizeSubagentStatuses(counted);
   const label = [
-    "Lineage",
+    "Subagents",
     summary.text || null,
     model.totalTokens > 0 ? `${formatSubagentTokenCount(model.totalTokens)} tok` : null,
   ]
@@ -100,6 +104,50 @@ export function subagentSessionIsLive(session: Pick<OrchestrationSession, "statu
 
 /** The header button's label carries the count the badge shows. */
 export function inspectorButtonAccessibilityLabel(liveCount: number): string {
-  if (liveCount <= 0) return "Open overview";
-  return `Open overview, ${liveCount} ${liveCount === 1 ? "subagent" : "subagents"} running`;
+  if (liveCount <= 0) return "Open run details";
+  return `Open run details, ${liveCount} ${liveCount === 1 ? "subagent" : "subagents"} running`;
+}
+
+/** Web's activity order: sequenced activities after unsequenced ones, then time, then id. */
+function comparePlanActivities(
+  left: OrchestrationThreadActivity,
+  right: OrchestrationThreadActivity,
+): number {
+  if (left.sequence !== undefined && right.sequence !== undefined) {
+    if (left.sequence !== right.sequence) return left.sequence - right.sequence;
+  } else if (left.sequence !== undefined) {
+    return 1;
+  } else if (right.sequence !== undefined) {
+    return -1;
+  }
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+/**
+ * The agent's current plan for Run details: the latest `turn.plan.updated` of
+ * the latest turn, else the latest from any turn so a plan persists across
+ * follow-ups. A cleared plan shows none. Mirrors web's deriveActivePlanState,
+ * without its step durations.
+ */
+export function deriveRunDetailsPlanSteps(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  latestTurnId: TurnId | null | undefined,
+): ReadonlyArray<TaskListStep> | null {
+  let latest: OrchestrationThreadActivity | null = null;
+  let latestOfTurn: OrchestrationThreadActivity | null = null;
+  for (const activity of activities) {
+    if (activity.kind !== "turn.plan.updated") continue;
+    if (latest === null || comparePlanActivities(activity, latest) > 0) latest = activity;
+    if (
+      latestTurnId &&
+      activity.turnId === latestTurnId &&
+      (latestOfTurn === null || comparePlanActivities(activity, latestOfTurn) > 0)
+    ) {
+      latestOfTurn = activity;
+    }
+  }
+  const chosen = latestOfTurn ?? latest;
+  if (chosen === null) return null;
+  const steps = taskListStepsFromPayload(chosen.payload);
+  return steps && steps.length > 0 ? steps : null;
 }
