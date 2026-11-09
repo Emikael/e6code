@@ -2018,6 +2018,128 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
+      it.effect("keeps a re-stamp that lands while a provider refresh is in flight", () =>
+        Effect.gen(function* () {
+          const codexDriver = ProviderDriverKind.make("codex");
+          const codexInstanceId = ProviderInstanceId.make("codex");
+          const provider = {
+            instanceId: codexInstanceId,
+            driver: codexDriver,
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" },
+            checkedAt: "2026-04-14T00:00:00.000Z",
+            version: "1.0.0",
+            models: [{ slug: "priced-model", name: "Priced", isCustom: false, capabilities: null }],
+            slashCommands: [],
+            skills: [],
+          } as const satisfies ServerProvider;
+          const instance = {
+            instanceId: codexInstanceId,
+            driverKind: codexDriver,
+            continuationIdentity: {
+              driverKind: codexDriver,
+              continuationKey: "codex:instance:codex",
+            },
+            displayName: undefined,
+            enabled: true,
+            snapshot: {
+              resolveMaintenance: () =>
+                Effect.succeed(
+                  makeManualOnlyProviderMaintenanceCapabilities({
+                    provider: codexDriver,
+                    packageName: null,
+                  }),
+                ),
+              getSnapshot: Effect.succeed(provider),
+              refresh: Effect.succeed(provider),
+              streamChanges: Stream.empty,
+              applyUsageLimits: () => Effect.void,
+            },
+            adapter: {} as ProviderInstance["adapter"],
+            textGeneration: {} as ProviderInstance["textGeneration"],
+          } satisfies ProviderInstance;
+          const instanceRegistryLayer = Layer.succeed(
+            ProviderInstanceRegistry.ProviderInstanceRegistry,
+            {
+              getInstance: (instanceId) =>
+                Effect.succeed(instanceId === codexInstanceId ? instance : undefined),
+              listInstances: Effect.succeed([instance]),
+              listUnavailable: Effect.succeed([]),
+              streamChanges: Stream.empty,
+              subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
+                PubSub.subscribe(pubsub),
+              ),
+            },
+          );
+          let tiers: Partial<Record<string, 1 | 2 | 3>> = { "priced-model": 1 };
+          // Holds one lookup after it has read the table, the window in which
+          // an upsert used to sit on old tiers while a re-stamp landed.
+          let holdNextLookup = false;
+          const lookupHeld = yield* Deferred.make<void>();
+          const releaseLookup = yield* Deferred.make<void>();
+          const tierChanges = yield* PubSub.unbounded<void>();
+          const usageLayer = Layer.succeed(UsageService, {
+            readSummary: () => Effect.die("unused"),
+            refreshRates: Effect.die("unused"),
+            estimateCostUsd: () => Effect.die("unused"),
+            modelPriceTiers: Effect.suspend(() => {
+              const current = tiers;
+              const lookup = (model: string) => current[model];
+              if (!holdNextLookup) return Effect.succeed(lookup);
+              holdNextLookup = false;
+              return Deferred.succeed(lookupHeld, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseLookup)),
+                Effect.as(lookup),
+              );
+            }),
+            subscribeModelPriceTierChanges: PubSub.subscribe(tierChanges).pipe(
+              Effect.map(Stream.fromSubscription),
+            ),
+          });
+
+          const providers = yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            holdNextLookup = true;
+            const refreshing = yield* registry.refresh().pipe(Effect.forkScoped);
+            // Either the refresh parks inside a held lookup or it never asks.
+            yield* Effect.raceFirst(Deferred.await(lookupHeld), Fiber.await(refreshing));
+            holdNextLookup = false;
+
+            const restamp = yield* registry.streamChanges.pipe(
+              Stream.take(1),
+              Stream.runHead,
+              Effect.forkScoped,
+            );
+            yield* Effect.yieldNow;
+            tiers = { "priced-model": 3 };
+            yield* PubSub.publish(tierChanges, undefined);
+            yield* Fiber.join(restamp);
+
+            yield* Deferred.succeed(releaseLookup, undefined);
+            yield* Fiber.join(refreshing);
+            return yield* registry.getProviders;
+          }).pipe(
+            Effect.provide(
+              ProviderRegistryLive.pipe(
+                Layer.provideMerge(instanceRegistryLayer),
+                Layer.provideMerge(usageLayer),
+                Layer.provideMerge(
+                  ServerConfig.layerTest(process.cwd(), {
+                    prefix: "e6-provider-registry-price-tier-race-",
+                  }),
+                ),
+                Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+                Layer.provideMerge(NodeServices.layer),
+              ),
+            ),
+          );
+
+          assert.deepStrictEqual(providers[0]?.models, [{ ...provider.models[0], priceTier: 3 }]);
+        }).pipe(Effect.scoped),
+      );
+
       it.effect(
         "persists authoritative OpenCode removals without resurrecting them on a failed live refresh",
         () =>
