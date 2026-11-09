@@ -15,6 +15,10 @@
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"
     },
+    "./minute-clock": {
+      "types": "./src/minuteClock.ts",
+      "default": "./src/minuteClock.ts"
+    },
     "./load-balancing": {
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"

@@ -31,6 +31,7 @@ import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus } from "./floating-working-status";
+import { useMinuteClock } from "../../lib/useMinuteClock";
 import { ShimmeringWorkContent } from "./thread-work-log";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
@@ -288,14 +289,8 @@ function AgentStateLabel(props: {
   readonly agentState: ThreadAgentState;
   readonly onLayout: (event: LayoutChangeEvent) => void;
 }) {
-  // Only a countdown needs a clock, and it moves by the minute.
-  const ticks = agentStateLabelTicks(props.agentState);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticks) return;
-    const intervalId = setInterval(() => setNowMs(Date.now()), 60_000);
-    return () => clearInterval(intervalId);
-  }, [ticks]);
+  // Only a countdown needs a clock, and it moves by the minute while shown.
+  const nowMs = useMinuteClock(agentStateLabelTicks(props.agentState));
   const label = formatAgentStateLabel(props.agentState, nowMs);
   const paused = props.agentState.kind === "rate-limited";
   return (

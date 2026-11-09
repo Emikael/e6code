@@ -64,6 +64,7 @@ import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import { providerDisplayLabel } from "../../lib/modelOptions";
+import { useMinuteClock } from "../../lib/useMinuteClock";
 import { uuidv4 } from "../../lib/uuid";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useEnvironmentServerConfig } from "../../state/entities";
@@ -561,16 +562,6 @@ const PACE_SYMBOL = {
   under: "arrow.down",
 } as const satisfies Record<LimitPace, AppSymbolName>;
 
-/** The current UTC minute, refreshed once a minute while mounted. */
-function useMinuteNow(): number {
-  const [minute, setMinute] = useState(() => new Date().toISOString().slice(0, 16));
-  useEffect(() => {
-    const id = setInterval(() => setMinute(new Date().toISOString().slice(0, 16)), 60_000);
-    return () => clearInterval(id);
-  }, []);
-  return Date.parse(`${minute}:00.000Z`);
-}
-
 /**
  * What the thread has cost across all its turns, summed by the server, and
  * the provider limit it is closest to. Either row is left out when the
@@ -583,7 +574,10 @@ function UsageCard(props: {
   readonly usageTotal: ThreadUsageTotal | undefined;
 }) {
   const serverConfig = useEnvironmentServerConfig(props.environmentId);
-  const now = useMinuteNow();
+  // The shared clock ticks only once the limit shows a countdown or pace;
+  // the flag is adjusted during render to follow the limit computed below.
+  const [countdownShown, setCountdownShown] = useState(false);
+  const now = useMinuteClock(countdownShown);
   const usage = describeThreadUsage(props.usageTotal);
   const limit = useMemo(() => {
     if (props.providerInstanceId === null || !serverConfig) return null;
@@ -602,6 +596,8 @@ function UsageCard(props: {
       ? mostConstrainedLimit(report, providerDisplayLabel(provider), now)
       : null;
   }, [now, props.providerInstanceId, serverConfig]);
+  const limitHasCountdown = Boolean(limit?.detail);
+  if (countdownShown !== limitHasCountdown) setCountdownShown(limitHasCountdown);
   if (!usage && !limit) return null;
 
   return (
