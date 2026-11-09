@@ -28,7 +28,8 @@ const PREFIX_COMMANDS = new Set([
   "nice",
 ]);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const FORK_BOMB = /:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:/;
+// Bounded quantifiers keep matching linear on long or adversarial command text.
+const FORK_BOMB = /:\s{0,8}\(\s{0,8}\)\s{0,8}\{[^}:]{0,64}:\s{0,8}\|\s{0,8}:/;
 const SQL_DROP = /\bdrop\s+(table|database|schema)\b/i;
 const SQL_CLIENTS = new Set([
   "psql",
