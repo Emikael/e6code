@@ -193,6 +193,7 @@ import {
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
+  resolveSidebarThreadTitleTone,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
   sidebarListItemId,
@@ -207,6 +208,7 @@ import {
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
+  type SidebarThreadTitleTone,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
@@ -1127,6 +1129,12 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+const titleToneClassName: Record<SidebarThreadTitleTone, string> = {
+  unread: "font-semibold text-foreground",
+  emphasis: "font-medium text-foreground",
+  read: "font-normal text-secondary-label",
+};
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1622,7 +1630,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
-    variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     // The open thread lifts like a macOS source-list selection: a white card
     // with a hairline shadow on Porcelain, a flat tint on Slate.
     props.isActive
@@ -1632,7 +1639,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         : hasUnsentDraft
           ? cn(draftSurfaceClassName, "text-sidebar-foreground")
           : shouldRecede
-            ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+            ? "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
     isFileDragOver && "ring-1 ring-inset ring-primary-edge",
     // The hover tint must not clobber an active/selected row's own surface.
@@ -1673,6 +1680,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       </span>
     ) : null;
 
+  // Read titles take the plain muted role at full strength; unread is carried
+  // by weight, and settled/receded rows by their shelf, slim layout, and
+  // grayscale favicon rather than by fading the text.
+  const titleTone = resolveSidebarThreadTitleTone({
+    variant,
+    recedes: shouldRecede,
+    status,
+    isUnread,
+    isWoke,
+    isActive: props.isActive,
+  });
   const title = isRenaming ? (
     <input
       autoFocus
@@ -1689,33 +1707,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   ) : (
     <span
       className={cn(
-        "min-w-0 flex-1 text-sm transition-opacity motion-reduce:transition-none",
-        shouldRecede ? "font-normal" : "font-medium",
-        variant === "card"
-          ? cn(
-              "truncate",
-              shouldRecede
-                ? "text-secondary-label"
-                : isUnread || isWoke || status === "input"
-                  ? "text-foreground"
-                  : status === "failed"
-                    ? "text-foreground/95"
-                    : "text-foreground/90",
-            )
-          : cn(
-              "truncate group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
-              shouldRecede
-                ? "text-secondary-label/70"
-                : props.isActive || isWoke || status === "input"
-                  ? "text-foreground"
-                  : isUnread
-                    ? "text-muted-foreground"
-                    : "text-secondary-label/70",
-            ),
+        "min-w-0 flex-1 truncate text-sm transition-opacity motion-reduce:transition-none",
+        variant === "slim" &&
+          "group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
+        titleToneClassName[titleTone],
         isRegeneratingTitle && "opacity-[0.55]",
       )}
     >
       {thread.title}
+      {titleTone === "unread" ? <span className="sr-only">, unread</span> : null}
     </span>
   );
 
@@ -2351,7 +2351,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
                 "flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none",
                 props.isHighlighted || props.isRouteActive
                   ? "bg-sidebar-row-active text-sidebar-foreground"
-                  : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                  : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
                 isFileDragOver && "ring-1 ring-inset ring-primary-edge",
                 isFileDragOver && !props.isRouteActive && "bg-sidebar-row-hover",
               )}

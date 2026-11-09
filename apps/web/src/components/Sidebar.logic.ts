@@ -775,6 +775,7 @@ export function isContextMenuPointerDown(input: {
 export function resolveThreadRowClassName(input: {
   isActive: boolean;
   isSelected: boolean;
+  isUnread?: boolean;
 }): string {
   const baseClassName =
     "h-8 w-full translate-x-0 cursor-pointer justify-start rounded-md px-2 text-left text-sm select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
@@ -800,9 +801,14 @@ export function resolveThreadRowClassName(input: {
     );
   }
 
+  // Read rows sit on the plain muted role (no alpha, so titles keep 4.5:1);
+  // unread rows are told apart by weight and full foreground.
   return cn(
     baseClassName,
-    "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+    input.isUnread
+      ? "font-semibold text-sidebar-foreground"
+      : "font-normal text-sidebar-muted-foreground",
+    "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
   );
 }
 
@@ -837,6 +843,29 @@ export function shouldRecedeSidebarThread(input: {
     return !input.isUnread && !input.isWoke;
   }
   return false;
+}
+
+/**
+ * How strongly a sidebar row draws its title. Unread is carried by weight
+ * (plus the row's accessible name), never by fading read titles: read titles
+ * sit on the plain muted role so they keep 4.5:1 contrast.
+ */
+export type SidebarThreadTitleTone = "unread" | "emphasis" | "read";
+
+export function resolveSidebarThreadTitleTone(input: {
+  variant: "card" | "slim";
+  recedes: boolean;
+  status: SidebarThreadStatus;
+  isUnread: boolean;
+  isWoke: boolean;
+  isActive: boolean;
+}): SidebarThreadTitleTone {
+  // Receded background work stays quiet even with an unseen earlier completion.
+  if (input.recedes) return "read";
+  if (input.isUnread) return "unread";
+  if (input.isActive || input.isWoke || input.status === "input") return "emphasis";
+  // Remaining cards (failed, or selected) keep a strong title; slim rows are history.
+  return input.variant === "card" ? "emphasis" : "read";
 }
 
 type SidebarThreadStatusInput = Pick<
