@@ -8,6 +8,7 @@
  * @module usagePricing
  */
 import type {
+  ModelPriceTier,
   UsageCostSource,
   UsageModelPriceOverride,
   UsageTokenTotals,
@@ -213,4 +214,46 @@ export function cacheSavingsUsd(
   const rate = overrides?.get(model.trim()) ?? lookupRate(table, model);
   if (rate === null) return 0;
   return totals.cachedInputTokens * (rate.inputCostPerToken - rate.cacheReadCostPerToken);
+}
+
+/**
+ * Blended USD per million tokens: three input tokens per output token, the
+ * usual convention for comparing list prices. Coding agents read far more than
+ * they write, so this tracks real spend better than an even split.
+ */
+function blendedCostPerMillionTokens(rate: ModelRate): number {
+  return ((3 * rate.inputCostPerToken + rate.outputCostPerToken) / 4) * 1_000_000;
+}
+
+/**
+ * Exclusive upper bounds, in blended USD per million tokens, of picker price
+ * tiers 1 and 2; anything at or above the second is tier 3. Drawn from the
+ * table's own spread: mini, flash, and haiku-class models sit under $2,
+ * mid-size coding models between $2 and $7.50, frontier models above.
+ */
+const PRICE_TIER_UPPER_BOUNDS_USD = [2, 7.5] as const;
+
+function priceTierForRate(rate: ModelRate): ModelPriceTier {
+  const blended = blendedCostPerMillionTokens(rate);
+  if (blended < PRICE_TIER_UPPER_BOUNDS_USD[0]) return 1;
+  if (blended < PRICE_TIER_UPPER_BOUNDS_USD[1]) return 2;
+  return 3;
+}
+
+/**
+ * The model picker's price tier for a slug, or undefined when nothing prices
+ * it. Custom prices win, as on the Usage page. A provider-qualified slug
+ * (OpenCode's `anthropic/claude-…`) falls back to its bare model name, which
+ * the table holds only when every qualified entry agrees on the rate.
+ */
+export function lookupModelPriceTier(
+  table: RateTable,
+  model: string,
+  overrides?: RateTable,
+): ModelPriceTier | undefined {
+  const rate =
+    overrides?.get(model.trim()) ??
+    lookupRate(table, model) ??
+    (model.includes("/") ? lookupRate(table, bareModelName(model.trim())) : null);
+  return rate === null ? undefined : priceTierForRate(rate);
 }

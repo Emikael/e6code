@@ -1,5 +1,6 @@
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
+  type ModelPriceTier,
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
@@ -60,6 +61,8 @@ type ModelPickerItem = {
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
+  contextWindowTokens?: number | undefined;
+  priceTier?: ModelPriceTier | undefined;
 };
 
 export function resolveModelPickerSelectedModel(input: {
@@ -383,6 +386,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           ...(model.badge ? { badge: model.badge } : {}),
           ...(model.isLegacy ? { isLegacy: true } : {}),
           ...(model.isUnavailable ? { isUnavailable: true } : {}),
+          ...(model.contextWindowTokens ? { contextWindowTokens: model.contextWindowTokens } : {}),
+          ...(model.priceTier ? { priceTier: model.priceTier } : {}),
           instanceId,
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,

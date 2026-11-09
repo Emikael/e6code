@@ -1,4 +1,4 @@
-import { ProviderDriverKind } from "@e6tools/contracts";
+import { type ModelPriceTier, ProviderDriverKind } from "@e6tools/contracts";
 import {
   AntigravityIcon,
   ClaudeAI,
@@ -28,6 +28,8 @@ export type ModelEsque = {
   badge?: "new" | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
+  contextWindowTokens?: number | undefined;
+  priceTier?: ModelPriceTier | undefined;
 };
 
 function escapeRegExp(value: string): string {

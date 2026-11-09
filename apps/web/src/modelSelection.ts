@@ -3,6 +3,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
+  type ModelPriceTier,
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -89,6 +90,8 @@ export interface AppModelOption {
   isDefault?: boolean;
   isLegacy?: boolean;
   isUnavailable?: boolean;
+  contextWindowTokens?: number;
+  priceTier?: ModelPriceTier;
 }
 
 function appendUnavailableDynamicModelSelection(
@@ -124,6 +127,8 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
   if (model.badge) option.badge = model.badge;
   if (model.isDefault) option.isDefault = true;
   if (model.isLegacy) option.isLegacy = true;
+  if (model.contextWindowTokens) option.contextWindowTokens = model.contextWindowTokens;
+  if (model.priceTier) option.priceTier = model.priceTier;
   return option;
 }
 

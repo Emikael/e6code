@@ -49,6 +49,7 @@ import {
 } from "./ProviderRegistry.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettingsModule from "../../serverSettings.ts";
+import { UsageService } from "../../usage/UsageService.ts";
 import {
   readProviderStatusCache,
   resolveProviderStatusCachePath,
@@ -1891,6 +1892,106 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               models: [...initialProvider.models],
             });
           }).pipe(Effect.provide(runtimeServices));
+        }),
+      );
+
+      it.effect("stamps model price tiers from the usage rate table", () =>
+        Effect.gen(function* () {
+          const codexDriver = ProviderDriverKind.make("codex");
+          const codexInstanceId = ProviderInstanceId.make("codex");
+          const provider = {
+            instanceId: codexInstanceId,
+            driver: codexDriver,
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" },
+            checkedAt: "2026-04-14T00:00:00.000Z",
+            version: "1.0.0",
+            models: [
+              { slug: "priced-model", name: "Priced", isCustom: false, capabilities: null },
+              // A tier the rate table no longer backs must not survive.
+              {
+                slug: "unpriced-model",
+                name: "Unpriced",
+                isCustom: false,
+                capabilities: null,
+                priceTier: 1,
+              },
+            ],
+            slashCommands: [],
+            skills: [],
+          } as const satisfies ServerProvider;
+          const instance = {
+            instanceId: codexInstanceId,
+            driverKind: codexDriver,
+            continuationIdentity: {
+              driverKind: codexDriver,
+              continuationKey: "codex:instance:codex",
+            },
+            displayName: undefined,
+            enabled: true,
+            snapshot: {
+              resolveMaintenance: () =>
+                Effect.succeed(
+                  makeManualOnlyProviderMaintenanceCapabilities({
+                    provider: codexDriver,
+                    packageName: null,
+                  }),
+                ),
+              getSnapshot: Effect.succeed(provider),
+              refresh: Effect.succeed(provider),
+              streamChanges: Stream.empty,
+              applyUsageLimits: () => Effect.void,
+            },
+            adapter: {} as ProviderInstance["adapter"],
+            textGeneration: {} as ProviderInstance["textGeneration"],
+          } satisfies ProviderInstance;
+          const instanceRegistryLayer = Layer.succeed(
+            ProviderInstanceRegistry.ProviderInstanceRegistry,
+            {
+              getInstance: (instanceId) =>
+                Effect.succeed(instanceId === codexInstanceId ? instance : undefined),
+              listInstances: Effect.succeed([instance]),
+              listUnavailable: Effect.succeed([]),
+              streamChanges: Stream.empty,
+              subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
+                PubSub.subscribe(pubsub),
+              ),
+            },
+          );
+          const usageLayer = Layer.succeed(UsageService, {
+            readSummary: () => Effect.die("unused"),
+            refreshRates: Effect.die("unused"),
+            estimateCostUsd: () => Effect.die("unused"),
+            modelPriceTiers: Effect.succeed((model: string) =>
+              model === "priced-model" ? (3 as const) : undefined,
+            ),
+          });
+
+          const providers = yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            return yield* registry.refresh();
+          }).pipe(
+            Effect.provide(
+              ProviderRegistryLive.pipe(
+                Layer.provideMerge(instanceRegistryLayer),
+                Layer.provideMerge(usageLayer),
+                Layer.provideMerge(
+                  ServerConfig.layerTest(process.cwd(), {
+                    prefix: "e6-provider-registry-price-tiers-",
+                  }),
+                ),
+                Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+                Layer.provideMerge(NodeServices.layer),
+              ),
+            ),
+          );
+
+          assert.deepStrictEqual(providers[0]?.models, [
+            { ...provider.models[0], priceTier: 3 },
+            { slug: "unpriced-model", name: "Unpriced", isCustom: false, capabilities: null },
+          ]);
         }),
       );
 
