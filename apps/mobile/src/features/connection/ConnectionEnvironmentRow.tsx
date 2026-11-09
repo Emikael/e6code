@@ -83,7 +83,7 @@ export function ConnectionEnvironmentRow(props: {
       >
         <ConnectionStatusDot
           state={enabled || unsupported ? props.environment.connectionState : "available"}
-          pulse={isRetrying}
+          halo={isRetrying}
           size={8}
         />
 

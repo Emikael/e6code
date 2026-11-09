@@ -364,13 +364,12 @@ describe("ServerUpdateProgress", () => {
 
     expect(markup).toContain("Restarting…");
     // The wait state is monochrome and calm: no versions, no step rail, no
-    // success/warning colors, one duty-cycled pulse on the dot.
+    // success/warning colors, and a static dot rather than a looping animation.
     expect(markup).not.toContain("0.0.30");
     expect(markup).not.toContain("Resum");
     expect(markup).not.toContain("text-success");
     expect(markup).not.toContain("text-primary");
-    expect(markup).toContain("animate-status-pulse");
-    expect(markup).not.toContain("animate-spin");
+    expect(markup).not.toContain("animate-");
   });
 
   it("folds the sub-second installing handoff into the download phase", () => {
@@ -404,6 +403,5 @@ describe("ServerUpdateProgress", () => {
 
     expect(markup).toContain('role="alert"');
     expect(markup).toContain("The package could not be verified.");
-    expect(markup).not.toContain("animate-status-pulse");
   });
 });

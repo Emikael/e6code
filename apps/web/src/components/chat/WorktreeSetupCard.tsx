@@ -15,12 +15,10 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { Spinner } from "~/components/ui/spinner";
 import { MiddleTruncate } from "../ui/middle-truncate";
-import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
 
 interface WorktreeSetupCardProps {
@@ -61,7 +59,13 @@ function StageIcon({ status }: { status: WorktreeSetupStage["status"] }) {
     case "done":
       return <CheckIcon aria-hidden className={className} />;
     case "running":
-      return <Spinner className={className} />;
+      // The timeline's static live mark; a spinner would loop for the whole stage.
+      return (
+        <span
+          aria-hidden
+          className="size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
+        />
+      );
     case "failed":
       return <XIcon aria-hidden className={className} />;
     case "warning":
@@ -82,24 +86,11 @@ function stageRowClassName(status: WorktreeSetupStage["status"]): string {
     case "pending":
       return "text-secondary-label opacity-40";
     case "running":
+      return "text-primary-text";
     case "skipped":
     case "done":
       return "text-secondary-label";
   }
-}
-
-/** Same shimmer treatment as the live tool rows in the timeline. */
-function ShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">{children}</span>
-      </span>
-    </span>
-  );
 }
 
 function headerLabel(snapshot: WorktreeSetupSnapshot): string {
@@ -133,11 +124,14 @@ function SetupHeaderRow({
   const finishedWithFailedStage =
     snapshot.phase === "done" && snapshot.stages.some((stage) => stage.status === "failed");
   const text = headerLabel(snapshot);
+  // Running reads as live through the static primary label, like the timeline's live step.
   const tone = failed
     ? "text-destructive-foreground"
     : finishedWithFailedStage
       ? "text-warning-foreground"
-      : "text-muted-foreground";
+      : running
+        ? "font-medium text-primary-text"
+        : "text-muted-foreground";
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
       <div
@@ -146,13 +140,7 @@ function SetupHeaderRow({
           tone,
         )}
       >
-        <span
-          ref={running ? observeVisibleAnimation : undefined}
-          className="relative min-w-0 shrink overflow-hidden whitespace-nowrap"
-        >
-          <span className="block truncate">{text}</span>
-          {running ? <ShimmerOverlay>{text}</ShimmerOverlay> : null}
-        </span>
+        <span className="min-w-0 shrink truncate whitespace-nowrap">{text}</span>
         {totalElapsed !== null ? (
           <span className="ml-auto shrink-0 text-xs text-muted-foreground">
             {formatDuration(totalElapsed)}
@@ -187,7 +175,6 @@ function StageRow({
           : stage.detail;
   return (
     <div
-      ref={running ? observeVisibleAnimation : undefined}
       className={cn(
         "relative flex min-h-6 min-w-0 items-center gap-1.5 overflow-hidden rounded-md px-0.5 py-0.5 text-sm leading-relaxed",
         stageRowClassName(stage.status),
@@ -208,16 +195,6 @@ function StageRow({
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {formatDuration(elapsed)}
         </span>
-      ) : null}
-      {running ? (
-        <ShimmerOverlay>
-          <span className="flex min-h-6 items-center gap-1.5 px-0.5 py-0.5">
-            <span className="flex size-6 shrink-0 items-center justify-center">
-              <StageIcon status={stage.status} />
-            </span>
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-          </span>
-        </ShimmerOverlay>
       ) : null}
     </div>
   );

@@ -59,7 +59,7 @@ import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
-import { DiffStatLabel } from "./chat/DiffStatLabel";
+import { DiffStat } from "./DiffStat";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPanel";
 import { DiffFileTree } from "./diffs/DiffFileTree";
@@ -939,11 +939,10 @@ export default function DiffPanel({
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         {codeViewFiles.length > 0 || (!selectedTurn && selectedGitSource?.files?.length) ? (
-          <DiffStatLabel
+          <DiffStat
             additions={diffLineStat.additions}
             deletions={diffLineStat.deletions}
             className="mr-1 text-[11px]"
-            layout="inline"
           />
         ) : null}
         {canRefreshGitDiff && (
@@ -1226,9 +1225,10 @@ export default function DiffPanel({
                           renderHeaderMetadata: (fileDiff: FileDiffMetadata) => {
                             const stat = fileStats.get(resolveFileDiffPath(fileDiff));
                             return stat ? (
-                              <DiffStatLabel
+                              <DiffStat
                                 additions={stat.additions}
                                 deletions={stat.deletions}
+                                layout="aligned"
                               />
                             ) : null;
                           },

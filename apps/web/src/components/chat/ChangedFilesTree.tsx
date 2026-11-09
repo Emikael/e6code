@@ -8,7 +8,7 @@ import {
 } from "../../lib/turnDiffTree";
 import { ChevronRightIcon, FolderIcon, FolderTreeIcon, FolderClosedIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { DiffStatCounts, hasNonZeroStat } from "./DiffStatLabel";
+import { DiffStat, hasNonZeroStat } from "../DiffStat";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -60,7 +60,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
           {files.length} changed file{files.length === 1 ? "" : "s"}
         </span>
         {hasNonZeroStat(summaryStat) && (
-          <DiffStatCounts
+          <DiffStat
             additions={summaryStat.additions}
             deletions={summaryStat.deletions}
             className="text-[11px] leading-4"
@@ -130,7 +130,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
                   className="text-foreground/85 group-hover:text-foreground"
                 />
                 {typeof file.additions === "number" && typeof file.deletions === "number" ? (
-                  <DiffStatCounts
+                  <DiffStat
                     additions={file.additions}
                     deletions={file.deletions}
                     className="ms-auto shrink-0"
@@ -227,7 +227,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
             </span>
             {hasNonZeroStat(node.stat) && (
               <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-                <DiffStatCounts additions={node.stat.additions} deletions={node.stat.deletions} />
+                <DiffStat additions={node.stat.additions} deletions={node.stat.deletions} />
               </span>
             )}
           </button>
@@ -269,7 +269,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
         />
         {node.stat && (
           <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-            <DiffStatCounts additions={node.stat.additions} deletions={node.stat.deletions} />
+            <DiffStat additions={node.stat.additions} deletions={node.stat.deletions} />
           </span>
         )}
       </button>

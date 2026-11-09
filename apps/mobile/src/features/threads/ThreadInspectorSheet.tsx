@@ -1,10 +1,11 @@
 /**
- * Thread Overview: a sheet over the thread with source control at a glance,
- * how full the context window is, what the thread has cost against the
- * provider's nearest limit, and the lineage of every subagent the
- * thread spawned. Selecting a live
- * subagent offers Stop, which ends that subagent and not the turn; otherwise
- * read-only apart from closing. The web Overview is the full surface.
+ * Run details: a sheet over the thread, in web's order. The agent's plan, how
+ * full the context window is, what the thread has cost, the working tree's
+ * changes, and the lineage of every subagent the thread spawned, with the
+ * provider's nearest plan limit last. Only what providers report is shown.
+ * Selecting a live subagent offers Stop, which ends that subagent and not the
+ * turn; otherwise read-only apart from closing. Web's Run details is the full
+ * surface.
  */
 import {
   CommandId,
@@ -22,6 +23,7 @@ import {
   mostConstrainedLimit,
 } from "@e6tools/shared/usageLimits";
 import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
+import type { TaskListStep } from "@e6tools/client-runtime/work-log/task-list";
 import {
   type AgentPanelModel,
   canStopSubagent,
@@ -67,6 +69,7 @@ import { providerDisplayLabel } from "../../lib/modelOptions";
 import { useMinuteClock } from "../../lib/useMinuteClock";
 import { uuidv4 } from "../../lib/uuid";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { TaskListSteps } from "./thread-work-log";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { threadEnvironment } from "../../state/threads";
@@ -76,6 +79,7 @@ import { useThreadSelection } from "../../state/use-thread-selection";
 import { vcsEnvironment } from "../../state/vcs";
 import {
   deriveInspectorLineage,
+  deriveRunDetailsPlanSteps,
   type InspectorLineageRow,
   subagentSessionIsLive,
 } from "./thread-inspector-lineage";
@@ -151,6 +155,11 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
     () => (activities ? deriveLatestContextWindowSnapshot(activities) : null),
     [activities],
   );
+  const latestTurnId = detail?.latestTurn?.turnId ?? null;
+  const planSteps = useMemo(
+    () => (activities ? deriveRunDetailsPlanSteps(activities, latestTurnId) : null),
+    [activities, latestTurnId],
+  );
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
@@ -199,10 +208,10 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
           className="min-w-0 flex-1 font-e6-bold text-xl text-foreground"
           numberOfLines={1}
         >
-          Overview
+          Run details
         </Text>
         <Pressable
-          accessibilityLabel="Close overview"
+          accessibilityLabel="Close run details"
           accessibilityRole="button"
           // Android's 48dp target around the 31.5dp circle.
           hitSlop={Platform.OS === "android" ? 9 : 4}
@@ -224,63 +233,56 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
         contentContainerClassName="gap-2 px-4 pt-2"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SourceControlCard
-          hasWorkspace={selectedThreadCwd !== null}
-          status={gitStatus.data}
-          statusFailed={gitStatus.error !== null}
-          threadBranch={selectedThread?.branch ?? null}
-        />
+        {planSteps ? <PlanCard steps={planSteps} /> : null}
         {contextWindow ? <ContextCard snapshot={contextWindow} /> : null}
-        <UsageCard
+        <ThreadCostCard usageTotal={selectedThread?.usageTotal} />
+        {selectedThreadCwd !== null ? <ChangesCard status={gitStatus.data} /> : null}
+        {lineage.rows.length > 0 ? (
+          <>
+            <Text
+              accessibilityRole="header"
+              className="px-1 pt-3 pb-1 font-e6-medium text-sm text-foreground-muted"
+              numberOfLines={1}
+            >
+              {lineage.label}
+            </Text>
+            <View className={cn(CARD_CLASS_NAME, "py-1")}>
+              {lineage.rows.map((row) => (
+                <LineageRow
+                  key={row.key}
+                  row={row}
+                  selected={row.kind === "agent" && row.agent.id === selectedAgentId}
+                  onSelect={onSelectAgent}
+                  workspaceRoot={selectedThreadCwd}
+                  stop={
+                    row.kind === "agent" &&
+                    row.agent.id === selectedAgentId &&
+                    subagentStop.canStop(row.agent)
+                      ? {
+                          pending: subagentStop.pendingIds.has(row.agent.id),
+                          onStop: subagentStop.stop,
+                        }
+                      : null
+                  }
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
+        <PlanLimitCard
           environmentId={selectedThread?.environmentId ?? null}
           providerInstanceId={providerInstanceId}
-          usageTotal={selectedThread?.usageTotal}
         />
-        <Text
-          accessibilityRole="header"
-          className="px-1 pt-3 pb-1 font-e6-medium text-sm text-foreground-muted"
-          numberOfLines={1}
-        >
-          {lineage.label}
-        </Text>
         {detail === null ? (
-          <View className={cn(CARD_CLASS_NAME, "min-h-12 justify-center px-4 py-3")}>
-            <Text className="text-sm text-foreground-muted">Loading activity…</Text>
-          </View>
-        ) : lineage.rows.length === 0 ? (
-          <View className={cn(CARD_CLASS_NAME, "items-center gap-1.5 px-6 py-7")}>
-            <SubagentTile />
-            <Text className="mt-1.5 font-e6-semibold text-base text-foreground">
-              No subagents yet
-            </Text>
-            <Text className="text-center text-sm leading-normal text-foreground-muted">
-              When an agent splits work, each subagent appears here with its status and running
-              time.
-            </Text>
-          </View>
-        ) : (
-          <View className={cn(CARD_CLASS_NAME, "py-1")}>
-            {lineage.rows.map((row) => (
-              <LineageRow
-                key={row.key}
-                row={row}
-                selected={row.kind === "agent" && row.agent.id === selectedAgentId}
-                onSelect={onSelectAgent}
-                workspaceRoot={selectedThreadCwd}
-                stop={
-                  row.kind === "agent" &&
-                  row.agent.id === selectedAgentId &&
-                  subagentStop.canStop(row.agent)
-                    ? {
-                        pending: subagentStop.pendingIds.has(row.agent.id),
-                        onStop: subagentStop.stop,
-                      }
-                    : null
-                }
-              />
-            ))}
-          </View>
-        )}
+          <Text className="px-1 pt-1 text-sm text-foreground-muted">Loading activity…</Text>
+        ) : !planSteps &&
+          !contextWindow &&
+          !describeThreadUsage(selectedThread?.usageTotal) &&
+          lineage.rows.length === 0 ? (
+          <Text className="px-1 pt-1 text-sm leading-normal text-foreground-muted">
+            The plan, context, cost and subagents appear here once the agent reports them.
+          </Text>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -403,105 +405,71 @@ function SubagentTile() {
   );
 }
 
-function RowDivider() {
-  return <View className="ml-[46px] h-px bg-border-subtle" />;
-}
-
 /**
- * Branch, changes and commit for the thread's working tree. Values stay blank
- * until status arrives; without a workspace only the thread's branch is known.
+ * The working tree at a glance: line counts and commits to push or pull.
+ * Hidden until status arrives and outside Git repositories.
  */
-function SourceControlCard(props: {
-  readonly hasWorkspace: boolean;
-  readonly status: VcsStatusResult | null;
-  readonly statusFailed: boolean;
-  readonly threadBranch: string | null;
-}) {
+function ChangesCard(props: { readonly status: VcsStatusResult | null }) {
   const { status } = props;
-  if (status !== null && !status.isRepo) return null;
-  if (!props.hasWorkspace && props.threadBranch === null) return null;
-
-  const branch = status !== null ? (status.refName ?? "Detached HEAD") : props.threadBranch;
-  const ahead = status?.aheadCount ?? 0;
-  const behind = status?.behindCount ?? 0;
-  const files = status?.workingTree.files.length ?? 0;
-  const commitDetail =
-    status === null
-      ? null
-      : files > 0
-        ? `${files} ${files === 1 ? "file" : "files"}`
-        : ahead > 0
-          ? `${ahead} to push`
-          : "Nothing to commit";
-
+  if (status === null || !status.isRepo) return null;
+  const files = status.workingTree.files.length;
+  const ahead = status.aheadCount ?? 0;
+  const behind = status.behindCount ?? 0;
+  const summary = [
+    files > 0 ? `${files} ${files === 1 ? "file" : "files"} changed` : "No uncommitted changes",
+    ahead > 0 ? `${ahead} to push` : null,
+    behind > 0 ? `${behind} to pull` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <View className={CARD_CLASS_NAME}>
       <InfoRow
-        icon="arrow.triangle.branch"
+        icon="doc.text"
         accessibilityLabel={[
-          branch !== null
-            ? `Branch ${branch}`
-            : props.statusFailed
-              ? "Branch status unavailable"
-              : "Checking branch",
-          ahead > 0 ? `${ahead} ahead` : null,
-          behind > 0 ? `${behind} behind` : null,
+          "Changes",
+          summary,
+          files > 0
+            ? `${status.workingTree.insertions} insertions, ${status.workingTree.deletions} deletions`
+            : null,
         ]
           .filter(Boolean)
           .join(", ")}
       >
-        <Text
-          className={cn(
-            "min-w-0 flex-1 text-base",
-            branch === null ? "text-foreground-muted" : "font-mono text-foreground",
-          )}
-          numberOfLines={1}
-          ellipsizeMode="middle"
-        >
-          {branch ?? (props.statusFailed ? "Status unavailable" : "Checking…")}
-        </Text>
-        {ahead > 0 ? (
-          <Text className="text-sm tabular-nums text-foreground-muted">↑{ahead}</Text>
-        ) : null}
-        {behind > 0 ? (
-          <Text className="text-sm tabular-nums text-foreground-muted">↓{behind}</Text>
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="text-base text-foreground">Changes</Text>
+          <Text className="text-sm text-foreground-muted" numberOfLines={1}>
+            {summary}
+          </Text>
+        </View>
+        {files > 0 ? (
+          <LineCounts
+            additions={status.workingTree.insertions}
+            deletions={status.workingTree.deletions}
+          />
         ) : null}
       </InfoRow>
-      {props.hasWorkspace ? (
-        <>
-          <RowDivider />
-          <InfoRow
-            icon="doc.text"
-            accessibilityLabel={
-              status === null
-                ? "Changes"
-                : `Changes, ${status.workingTree.insertions} insertions, ${status.workingTree.deletions} deletions`
-            }
-          >
-            <Text className="min-w-0 flex-1 text-base text-foreground">Changes</Text>
-            {status !== null ? (
-              <>
-                <Text className="text-sm tabular-nums text-diff-addition">
-                  +{status.workingTree.insertions}
-                </Text>
-                <Text className="text-sm tabular-nums text-diff-deletion">
-                  −{status.workingTree.deletions}
-                </Text>
-              </>
-            ) : null}
-          </InfoRow>
-          <RowDivider />
-          <InfoRow
-            icon="checkmark.circle"
-            accessibilityLabel={commitDetail ? `Commit, ${commitDetail}` : "Commit"}
-          >
-            <Text className="min-w-0 flex-1 text-base text-foreground">Commit</Text>
-            {commitDetail ? (
-              <Text className="text-sm text-foreground-muted">{commitDetail}</Text>
-            ) : null}
-          </InfoRow>
-        </>
-      ) : null}
+    </View>
+  );
+}
+
+/** The agent's latest task list, with a done/total count. Each step pairs its icon with a word. */
+function PlanCard(props: { readonly steps: ReadonlyArray<TaskListStep> }) {
+  const done = props.steps.filter((step) => step.status === "completed").length;
+  return (
+    <View className={cn(CARD_CLASS_NAME, "gap-2 px-4 py-3")}>
+      <View
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={`Plan, ${done} of ${props.steps.length} steps done`}
+        className="flex-row items-baseline gap-2"
+      >
+        <Text className="min-w-0 flex-1 text-base text-foreground">Plan</Text>
+        <Text className="text-sm tabular-nums text-foreground-muted">
+          {done}/{props.steps.length}
+        </Text>
+      </View>
+      <TaskListSteps steps={props.steps} />
     </View>
   );
 }
@@ -550,8 +518,17 @@ function ContextCard(props: { readonly snapshot: ContextWindowSnapshot }) {
             />
           </View>
         ) : null}
-        {usage.compactionNote ? (
-          <Text className="text-sm text-foreground-muted">{usage.compactionNote}</Text>
+        {usage.warning || usage.compactionNote ? (
+          <Text
+            className={cn(
+              "text-sm",
+              usage.warning ? "text-warning-foreground" : "text-foreground-muted",
+            )}
+          >
+            {[usage.warning ? "Nearly full" : null, usage.compactionNote]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
         ) : null}
       </View>
     </View>
@@ -565,22 +542,44 @@ const PACE_SYMBOL = {
 } as const satisfies Record<LimitPace, AppSymbolName>;
 
 /**
- * What the thread has cost across all its turns, summed by the server, and
- * the provider limit it is closest to. Either row is left out when the
- * provider reports nothing for it. Pace and remaining quota are always in
- * words, so the warning tint is never the only signal.
+ * What the thread has cost across all its turns, summed by the server.
+ * Providers report a total, so there is no split. Hidden when none was reported.
  */
-function UsageCard(props: {
+function ThreadCostCard(props: { readonly usageTotal: ThreadUsageTotal | undefined }) {
+  const usage = describeThreadUsage(props.usageTotal);
+  if (!usage) return null;
+  return (
+    <View className={CARD_CLASS_NAME}>
+      <InfoRow icon="bolt.circle" accessibilityLabel={usage.accessibilityLabel}>
+        <Text className="text-base text-foreground">This thread</Text>
+        <Text
+          className="min-w-0 flex-1 text-right text-sm tabular-nums text-foreground-muted"
+          numberOfLines={1}
+        >
+          {usage.tokens}
+        </Text>
+        {usage.cost ? (
+          <Text className="font-mono text-sm tabular-nums text-foreground">{usage.cost}</Text>
+        ) : null}
+      </InfoRow>
+    </View>
+  );
+}
+
+/**
+ * The provider limit the thread is closest to, last in the sheet as on web.
+ * Hidden when the provider reports no limits. Pace and remaining quota are
+ * always in words, so the warning tint is never the only signal.
+ */
+function PlanLimitCard(props: {
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId: ProviderInstanceId | null;
-  readonly usageTotal: ThreadUsageTotal | undefined;
 }) {
   const serverConfig = useEnvironmentServerConfig(props.environmentId);
   // The shared clock ticks only once the limit shows a countdown or pace;
   // the flag is adjusted during render to follow the limit computed below.
   const [countdownShown, setCountdownShown] = useState(false);
   const now = useMinuteClock(countdownShown);
-  const usage = describeThreadUsage(props.usageTotal);
   const limit = useMemo(() => {
     if (props.providerInstanceId === null || !serverConfig) return null;
     const provider = serverConfig.providers.find(
@@ -600,83 +599,62 @@ function UsageCard(props: {
   }, [now, props.providerInstanceId, serverConfig]);
   const limitHasCountdown = Boolean(limit?.detail);
   if (countdownShown !== limitHasCountdown) setCountdownShown(limitHasCountdown);
-  if (!usage && !limit) return null;
+  if (!limit) return null;
 
   return (
-    <View className={CARD_CLASS_NAME}>
-      {usage ? (
-        <InfoRow icon="bolt.circle" accessibilityLabel={usage.accessibilityLabel}>
-          <Text className="text-base text-foreground">This thread</Text>
-          <Text
-            className="min-w-0 flex-1 text-right text-sm tabular-nums text-foreground-muted"
-            numberOfLines={1}
-          >
-            {usage.tokens}
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={limit.accessibilityLabel}
+      accessibilityValue={{ min: 0, max: 100, now: limit.remainingPercent }}
+      className={cn(CARD_CLASS_NAME, "flex-row items-start gap-3 px-4 py-3")}
+    >
+      <SymbolView
+        name="chart.bar.xaxis"
+        size={18}
+        tintColorClassName="accent-icon-muted"
+        type="monochrome"
+      />
+      <View className="min-w-0 flex-1 gap-1">
+        <View className="flex-row items-baseline gap-2">
+          <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={1}>
+            {limit.title}
           </Text>
-          {usage.cost ? (
-            <Text className="font-mono text-sm tabular-nums text-foreground">{usage.cost}</Text>
-          ) : null}
-        </InfoRow>
-      ) : null}
-      {usage && limit ? <RowDivider /> : null}
-      {limit ? (
-        <View
-          accessible
-          accessibilityRole="progressbar"
-          accessibilityLabel={limit.accessibilityLabel}
-          accessibilityValue={{ min: 0, max: 100, now: limit.remainingPercent }}
-          className="flex-row items-start gap-3 px-4 py-3"
-        >
-          <SymbolView
-            name="chart.bar.xaxis"
-            size={18}
-            tintColorClassName="accent-icon-muted"
-            type="monochrome"
-          />
-          <View className="min-w-0 flex-1 gap-1">
-            <View className="flex-row items-baseline gap-2">
-              <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={1}>
-                {limit.title}
-              </Text>
-              <Text className="text-sm tabular-nums text-foreground-muted">
-                {limit.remainingLabel}
-              </Text>
-            </View>
-            <View className="mt-1 h-1 overflow-hidden rounded-full bg-foreground-muted/20">
-              <View
-                className={cn(
-                  "h-full rounded-full",
-                  limit.warning ? "bg-warning-foreground" : "bg-foreground-muted",
-                )}
-                style={{ width: `${limit.remainingPercent}%` }}
-              />
-            </View>
-            {limit.detail ? (
-              <View className="flex-row items-center gap-1.5">
-                {limit.pace ? (
-                  <SymbolView
-                    name={PACE_SYMBOL[limit.pace]}
-                    size={12}
-                    tintColorClassName={
-                      limit.warning ? "accent-warning-foreground" : "accent-icon-muted"
-                    }
-                    type="monochrome"
-                  />
-                ) : null}
-                <Text
-                  className={cn(
-                    "min-w-0 flex-1 text-sm tabular-nums",
-                    limit.warning ? "text-warning-foreground" : "text-foreground-muted",
-                  )}
-                  numberOfLines={1}
-                >
-                  {limit.detail}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+          <Text className="text-sm tabular-nums text-foreground-muted">{limit.remainingLabel}</Text>
         </View>
-      ) : null}
+        <View className="mt-1 h-1 overflow-hidden rounded-full bg-foreground-muted/20">
+          <View
+            className={cn(
+              "h-full rounded-full",
+              limit.warning ? "bg-warning-foreground" : "bg-foreground-muted",
+            )}
+            style={{ width: `${limit.remainingPercent}%` }}
+          />
+        </View>
+        {limit.detail ? (
+          <View className="flex-row items-center gap-1.5">
+            {limit.pace ? (
+              <SymbolView
+                name={PACE_SYMBOL[limit.pace]}
+                size={12}
+                tintColorClassName={
+                  limit.warning ? "accent-warning-foreground" : "accent-icon-muted"
+                }
+                type="monochrome"
+              />
+            ) : null}
+            <Text
+              className={cn(
+                "min-w-0 flex-1 text-sm tabular-nums",
+                limit.warning ? "text-warning-foreground" : "text-foreground-muted",
+              )}
+              numberOfLines={1}
+            >
+              {limit.detail}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }

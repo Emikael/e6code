@@ -18,34 +18,25 @@ export function connectionPhaseDotClassName(phase: EnvironmentConnectionPhase): 
   }
 }
 
-/** Ping halo for transitional phases; null renders no ping. */
-export function connectionPhasePingClassName(phase: EnvironmentConnectionPhase): string | null {
-  return phase === "connecting" || phase === "reconnecting" ? "bg-warning/60 duration-2000" : null;
+/** Static halo for transitional phases; null renders no halo. */
+export function connectionPhaseHaloClassName(phase: EnvironmentConnectionPhase): string | null {
+  return phase === "connecting" || phase === "reconnecting" ? "ring-2 ring-warning/30" : null;
 }
 
 type ConnectionStatusDotProps = {
   tooltipText?: string | null;
   dotClassName: string;
-  pingClassName?: string | null;
+  /** Ring classes marking an in-progress or live state. Static: no looping animation. */
+  haloClassName?: string | null;
 };
 
 export function ConnectionStatusDot({
   tooltipText,
   dotClassName,
-  pingClassName,
+  haloClassName,
 }: ConnectionStatusDotProps) {
   const dotContent = (
-    <>
-      {pingClassName ? (
-        <span
-          className={cn(
-            "absolute inline-flex h-full w-full animate-status-ping rounded-full",
-            pingClassName,
-          )}
-        />
-      ) : null}
-      <span className={cn("relative inline-flex size-2 rounded-full", dotClassName)} />
-    </>
+    <span className={cn("relative inline-flex size-2 rounded-full", dotClassName, haloClassName)} />
   );
 
   if (!tooltipText) {

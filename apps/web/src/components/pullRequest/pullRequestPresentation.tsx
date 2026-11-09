@@ -22,6 +22,7 @@ import { Children, type CSSProperties, isValidElement, type ReactNode, useState 
 
 import { cn } from "~/lib/utils";
 
+import { DiffStat, hasNonZeroStat } from "../DiffStat";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { PullRequestReviewOutcome } from "./pullRequestDetail.logic";
@@ -506,7 +507,7 @@ export function PullRequestActorLabel({
   );
 }
 
-/** Added and removed lines, coloured the way every host colours them. */
+/** A pull request's line counts, written out in full rather than compacted. */
 export function PullRequestDiffStat({
   additions,
   deletions,
@@ -516,26 +517,18 @@ export function PullRequestDiffStat({
   deletions: number;
   className?: string;
 }) {
-  // Not every host reports line counts. Showing "+0 -0" would read as an empty change set
+  // Not every host reports line counts. Showing "+0 −0" would read as an empty change set
   // rather than as a missing one, so the stat is left out instead.
-  if (additions === 0 && deletions === 0) {
+  if (!hasNonZeroStat({ additions, deletions })) {
     return null;
   }
   return (
-    <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)}>
-      {/* A true minus sign, which screen readers do not always voice, so the words go alongside. */}
-      <span className="text-diff-addition-foreground">
-        <span aria-hidden>+{additions.toLocaleString()}</span>
-        <span className="sr-only">{additions.toLocaleString()} additions</span>
-      </span>
-      <span className="text-diff-deletion-foreground">
-        <span aria-hidden>
-          {"−"}
-          {deletions.toLocaleString()}
-        </span>
-        <span className="sr-only">{deletions.toLocaleString()} deletions</span>
-      </span>
-    </span>
+    <DiffStat
+      additions={additions}
+      deletions={deletions}
+      notation="full"
+      className={cn("items-baseline", className)}
+    />
   );
 }
 

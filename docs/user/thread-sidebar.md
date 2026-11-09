@@ -140,12 +140,12 @@ on one thread hides it on threads you have not opened tabs in, until you show it
 Subagents appear as a card in the conversation while they work. Select a subagent to show it in
 **Run details**, which lists every subagent the thread spawned and the selected one's latest
 activity, tokens, tool calls, and the files it changed. Select a file to open its diff. On
-mobile, tap the **Overview** button in a thread's top bar to see each subagent's status and
-running time, plus the branch and its changes; tap a subagent to list its files. Files are
+mobile, tap **Run details** in a thread's top bar to see the same plan, context, cost, changes,
+and each subagent's status and running time; tap a subagent to list its files. Files are
 listed for Claude and Codex subagents.
 
-On every client, **Run details** (**Overview** on mobile) also shows how full the thread's
-context window is, once the provider reports usage. Claude and Codex threads report it; other
+On every client, **Run details** also shows how full the thread's context window is, once the
+provider reports usage. Claude and Codex threads report it; other
 providers show no context section.
 
 **This thread** totals the tokens and cost of every turn in the thread. A cost marked `≈` is
