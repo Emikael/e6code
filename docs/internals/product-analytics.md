@@ -30,9 +30,12 @@ Provider send and completion counts need not match. Providers can emit synthetic
 turns without a send request. Collection is best effort, with no scan or backfill
 of provider history.
 
-Token totals cover the main agent. Child agents and model rerouting prevent a turn
-from representing one provider/model combination's full cost. For provider
-comparisons, require complete usage, no observed subagents, and no mixed models;
+`usageScope` says what token totals cover: `main_agent` is the main agent loop
+only; `all_agents` (Claude) also counts subagents and internal calls such as
+compaction, matching the provider's reported cost. Child agents and model
+rerouting prevent a turn from representing one provider/model combination's full
+cost. For provider comparisons, require complete usage, no observed subagents,
+and no mixed models;
 compare matching model, effort, interaction mode, and terminal status. Aggregate
 output/input ratios should divide the summed totals. Averaging per-turn ratios
 lets small-input turns dominate.
