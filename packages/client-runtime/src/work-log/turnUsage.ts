@@ -84,7 +84,7 @@ export function formatTurnUsage(usage: TurnUsageActivityPayload | undefined): st
 
 /**
  * A thread's summed usage for the Overview: `cost` is `$1.84`, `≈$1.84` when
- * any part is estimated, or null when no turn had a cost; `tokens` is
+ * some turns were estimated or reported no cost, or null when no turn had a cost; `tokens` is
  * `1.2m tokens`. Null when the thread has no usage to show.
  */
 export function describeThreadUsage(total: ThreadUsageTotal | undefined): {
@@ -101,8 +101,11 @@ export function describeThreadUsage(total: ThreadUsageTotal | undefined): {
   return {
     cost,
     tokens,
+    // `estimated` covers turns that reported no cost too, so the sum is only approximate.
     accessibilityLabel: cost
-      ? `This thread cost ${total.costSource === "estimated" ? "about " : ""}${cost.replace("≈", "")}, ${tokens}`
+      ? total.costSource === "estimated"
+        ? `This thread cost about ${cost.replace("≈", "")}, approximate because some turns were estimated or reported no cost, ${tokens}`
+        : `This thread cost ${cost}, ${tokens}`
       : `This thread used ${tokens}`,
   };
 }

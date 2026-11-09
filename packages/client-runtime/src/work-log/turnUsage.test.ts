@@ -34,7 +34,8 @@ describe("describeThreadUsage", () => {
     ).toEqual({
       cost: "≈<$0.01",
       tokens: "48.6k tokens",
-      accessibilityLabel: "This thread cost about <$0.01, 48.6k tokens",
+      accessibilityLabel:
+        "This thread cost about <$0.01, approximate because some turns were estimated or reported no cost, 48.6k tokens",
     });
   });
 

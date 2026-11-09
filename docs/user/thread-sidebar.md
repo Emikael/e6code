@@ -143,9 +143,12 @@ provider reports usage. Claude and Codex threads report it; other providers show
 section.
 
 **This thread** totals the tokens and cost of every turn in the thread. A cost marked `≈` is
-partly estimated from model prices. Below it, a card shows the provider's limit window with the
-least quota left, when it resets, and whether you are spending faster than the window elapses.
-Providers that report no usage or limits leave these rows out; see **Usage** for every window.
+approximate: some turns' costs were estimated from model prices, or some turns reported no
+cost at all. Below it, a card shows the provider's limit window with the least quota left, when
+it resets, and whether you are spending faster than the window elapses. When more than one
+account or proxy reports limits for the provider, the card names the account it shows, as on
+**Usage**. Providers that report no usage or limits leave these rows out; see **Usage** for
+every window.
 
 To stop one running subagent without stopping the turn, choose **Stop** on its card or in its
 row's menu, or press `mod+.` while it is selected. On mobile, select the subagent and tap

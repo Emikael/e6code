@@ -496,21 +496,49 @@ export interface LimitHeadline {
   readonly accessibilityLabel: string;
 }
 
+/** One account in a limit report, as far as the limit card needs it. */
+interface LimitReportAccount {
+  readonly label: string;
+  readonly displayName?: string | undefined;
+  readonly email?: string | undefined;
+  readonly limits: ServerProviderUsageLimits;
+}
+
+/**
+ * The account's name as Usage → Limits shows it, without printing an email:
+ * its configured name, else the email's initials (`someone@example.com` →
+ * `SE`), else the report's own label.
+ */
+function limitAccountName(account: LimitReportAccount): string {
+  const displayName = account.displayName?.trim();
+  if (displayName) return displayName;
+  if (account.email) {
+    const [local = "", domain = ""] = account.email.split("@");
+    const initials = `${local[0] ?? ""}${domain[0] ?? ""}`.toUpperCase();
+    if (initials) return initials;
+  }
+  return account.label.replace(/\.json$/i, "");
+}
+
 /**
  * The most constrained window across a provider's limit report: least quota
  * left, and of equals the one that resets last. Accounts whose limits could
- * not be read are skipped; null when no window remains.
+ * not be read are skipped; null when no window remains. When more than one
+ * account or proxy reports limits, the title names the one picked:
+ * `Claude (work) · 5-hour limit`.
  */
 export function mostConstrainedLimit(
-  report: { readonly accounts: ReadonlyArray<{ readonly limits: ServerProviderUsageLimits }> },
+  report: { readonly accounts: ReadonlyArray<LimitReportAccount> },
   providerLabel: string,
   now: number,
 ): LimitHeadline | null {
+  const readable = report.accounts.filter((account) => limitsNotice(account.limits) === null);
+  let picked: LimitReportAccount | null = null;
   let chosen: ServerProviderUsageWindow | null = null;
-  for (const account of report.accounts) {
-    if (limitsNotice(account.limits) !== null) continue;
+  for (const account of readable) {
     for (const window of account.limits.windows) {
       if (chosen === null) {
+        picked = account;
         chosen = window;
         continue;
       }
@@ -518,13 +546,18 @@ export function mostConstrainedLimit(
       const later =
         (resetMillis(window) ?? Number.POSITIVE_INFINITY) >
         (resetMillis(chosen) ?? Number.POSITIVE_INFINITY);
-      if (left < 0 || (left === 0 && later)) chosen = window;
+      if (left < 0 || (left === 0 && later)) {
+        picked = account;
+        chosen = window;
+      }
     }
   }
-  if (chosen === null) return null;
+  if (chosen === null || picked === null) return null;
   const remaining = remainingPercent(chosen);
   const pace = paceOf(chosen, now);
-  const title = `${providerLabel} · ${limitWindowName(chosen)}`;
+  const owner =
+    readable.length > 1 ? `${providerLabel} (${limitAccountName(picked)})` : providerLabel;
+  const title = `${owner} · ${limitWindowName(chosen)}`;
   const remainingLabel = `${remaining}% left`;
   const detail = [formatResetsIn(chosen, now), pace ? LIMIT_PACE_WORDS[pace] : null]
     .filter((part): part is string => part !== null)

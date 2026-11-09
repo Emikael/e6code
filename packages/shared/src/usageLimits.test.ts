@@ -1020,7 +1020,13 @@ describe("mostConstrainedLimit", () => {
     windowDurationMins: 7 * 24 * 60,
     resetsAt: "2026-09-08T12:00:00.000Z",
   } as const;
-  const account = (windows: ReadonlyArray<ServerProviderUsageWindow>, unavailable = false) => ({
+  const account = (
+    windows: ReadonlyArray<ServerProviderUsageWindow>,
+    unavailable = false,
+    who: { displayName?: string; email?: string; label?: string } = {},
+  ) => ({
+    label: "Codex [codex]",
+    ...who,
     limits: {
       checkedAt: "2026-09-03T11:00:00.000Z",
       windows,
@@ -1044,20 +1050,60 @@ describe("mostConstrainedLimit", () => {
     });
   });
 
-  it("picks across accounts, skips unreadable ones, and prefers the later reset on a tie", () => {
+  it("picks across accounts, skips unreadable ones, and names the account it picked", () => {
     const headline = mostConstrainedLimit(
       {
         accounts: [
-          account([{ ...window, usedPercent: 99 }], true),
-          account([window]),
-          account([{ ...weekly, usedPercent: 40 }]),
+          account([{ ...window, usedPercent: 99 }], true, { displayName: "broken" }),
+          account([window], false, { displayName: "personal" }),
+          account([{ ...weekly, usedPercent: 40 }], false, { displayName: " work " }),
         ],
       },
       "Codex",
       now,
     );
-    expect(headline?.title).toBe("Codex · Weekly limit");
+    // A tie on quota left goes to the window that resets last.
+    expect(headline?.title).toBe("Codex (work) · Weekly limit");
     expect(headline?.remainingPercent).toBe(60);
+  });
+
+  it("names an unnamed account by its email's initials, else by its report label", () => {
+    const byEmail = mostConstrainedLimit(
+      {
+        accounts: [
+          account([{ ...window, usedPercent: 90 }], false, { email: "someone@example.com" }),
+          account([weekly], false, { label: "CLI Proxy · team.json" }),
+        ],
+      },
+      "Claude",
+      now,
+    );
+    expect(byEmail?.title).toBe("Claude (SE) · 5-hour limit");
+    const byLabel = mostConstrainedLimit(
+      {
+        accounts: [
+          account([window], false, { email: "someone@example.com" }),
+          account([{ ...weekly, usedPercent: 90 }], false, { label: "CLI Proxy · team.json" }),
+        ],
+      },
+      "Claude",
+      now,
+    );
+    expect(byLabel?.title).toBe("Claude (CLI Proxy · team) · Weekly limit");
+  });
+
+  it("keeps the plain title when only one account reports limits", () => {
+    const headline = mostConstrainedLimit(
+      {
+        accounts: [
+          account([window], false, { displayName: "work" }),
+          account([weekly], true, { displayName: "broken" }),
+        ],
+      },
+      "Claude",
+      now,
+    );
+    expect(headline?.title).toBe("Claude · 5-hour limit");
   });
 
   it("warns when running fast or nearly spent, and says so in words", () => {
