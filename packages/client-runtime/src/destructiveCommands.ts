@@ -11,6 +11,12 @@ export interface DestructiveCommand {
   readonly reason: string;
 }
 
+/**
+ * How long a destructive approval must be held before it goes through, on
+ * every client, so the gesture feels the same on web, desktop and mobile.
+ */
+export const HOLD_TO_CONFIRM_MS = 1000;
+
 const PROTECTED_BRANCH =
   /^(?:main|master|trunk|develop|development|production|prod|release(?:[/-].+)?)$/i;
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
