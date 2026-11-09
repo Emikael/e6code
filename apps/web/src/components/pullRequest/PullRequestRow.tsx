@@ -174,8 +174,9 @@ function PullRequestRowImpl({
         // viewport shows, not what the pages have loaded. The intrinsic size keeps the
         // scrollbar honest while a row is skipped.
         "[content-visibility:auto]",
-        // The selection is a wash and a ring, so it reads without relying on the fill alone.
-        selected ? "bg-primary-surface ring-1 ring-primary/25 ring-inset" : "hover:bg-accent/60",
+        // The selection is a neutral wash and a primary-edge ring, so it reads without relying
+        // on the fill; the overlay button below carries aria-current for assistive tech.
+        selected ? "bg-accent ring-1 ring-primary-edge ring-inset" : "hover:bg-accent/60",
       )}
     >
       <button

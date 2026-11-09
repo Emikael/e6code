@@ -390,7 +390,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                               isActive={isActive}
                               aria-current={isActive ? "page" : undefined}
                               onClick={() => handleSectionClick(item.to)}
-                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-border"
+                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-primary-edge"
                             >
                               <span className="min-w-0 flex-1 truncate">{item.label}</span>
                               {badge ? (

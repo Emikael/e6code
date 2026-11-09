@@ -1604,10 +1604,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left outline-none select-none",
-    // The open thread lifts into a raised card: the raised surface, a line-2
-    // hairline ring and a small shadow on Porcelain, ring only on Slate.
+    // The open thread lifts into a raised card: the raised surface, a
+    // primary-edge hairline ring and a small shadow on Porcelain, ring only on
+    // Slate. The row also carries aria-current, so the state is not colour-only.
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground shadow-xs ring-1 ring-sidebar-foreground/14 dark:shadow-none"
+      ? "bg-sidebar-row-active text-sidebar-foreground shadow-xs ring-1 ring-primary-edge dark:shadow-none"
       : isSelected
         ? "bg-sidebar-row-selected text-sidebar-foreground"
         : hasUnsentDraft
