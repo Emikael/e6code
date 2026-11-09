@@ -38,7 +38,12 @@ export interface EnvironmentPullRequestError extends PullRequestListProjectError
   readonly environmentId: EnvironmentId;
 }
 
-export type PullRequestGroupKey = "reviewRequested" | "authored" | "others";
+export type PullRequestGroupKey =
+  | "reviewRequested"
+  | "authored"
+  | "others"
+  | "needsYou"
+  | "waitingOnOthers";
 
 export interface PullRequestGroup<Entry extends PullRequestListEntry = PullRequestListEntry> {
   readonly key: PullRequestGroupKey;
@@ -74,6 +79,8 @@ const GROUP_LABELS: Record<PullRequestGroupKey, string> = {
   reviewRequested: "Review requested",
   authored: "Authored",
   others: "Others",
+  needsYou: "Needs you",
+  waitingOnOthers: "Waiting on others",
 };
 
 function normalize(value: string | null | undefined): string | null {
@@ -404,7 +411,7 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
-  const buckets: Record<PullRequestGroupKey, Entry[]> = {
+  const buckets: Record<"reviewRequested" | "authored" | "others", Entry[]> = {
     reviewRequested: [],
     authored: [],
     others: [],
@@ -1100,8 +1107,16 @@ export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   }
   if (sort === "blocked") {
     if (searchText.trim().length > 0) return groups;
-    const role = (key: PullRequestGroupKey) =>
-      key === "others" ? involvement : key === "authored" ? "authored" : "reviewing";
+    // "Needs you" mixes the reader's own work with reviews asked of them, so it keeps its order;
+    // "Waiting on others" is the reader's work blocked on reviewers, ranked as such.
+    const role = (key: PullRequestGroupKey): PullRequestInvolvement =>
+      key === "others"
+        ? involvement
+        : key === "needsYou"
+          ? "all"
+          : key === "authored"
+            ? "authored"
+            : "reviewing";
     return groups.map((group) => {
       const groupRole = role(group.key);
       if (groupRole === "all") return group;

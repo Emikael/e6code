@@ -1,6 +1,16 @@
-import type { PullRequestListEntry } from "@e6tools/contracts";
+import type {
+  PullRequestInvolvement,
+  PullRequestListEntry,
+  PullRequestListState,
+} from "@e6tools/contracts";
 
-import { pullRequestMergeReadinessTier } from "./pullRequestList.logic";
+import {
+  isAuthoredByViewer,
+  pullRequestEntryKey,
+  pullRequestMergeReadinessTier,
+  type PullRequestGroup,
+  type PullRequestViewers,
+} from "./pullRequestList.logic";
 
 /** The semantic role a worded status is drawn in; each maps to a theme role, never a palette hue. */
 export type PullRequestStatusTone = "success" | "warning" | "destructive" | "info" | "muted";
@@ -106,4 +116,212 @@ export function resolvePullRequestRowStatus(
 /** Whether the status chip already states the review verdict, so a separate glyph would repeat it. */
 export function pullRequestRowStatusStatesReview(kind: PullRequestRowStatusKind): boolean {
   return kind === "ready" || kind === "changes-requested" || kind === "awaiting-review";
+}
+
+/**
+ * The page's tabs. Each is a named state and involvement pair the listing already understands,
+ * so a tab is only a shortcut onto the filters; "Needs you" adds a local narrowing on top of the
+ * open list, since what needs the reader is a judgement no host makes for us.
+ */
+export type PullRequestLens = "needs-you" | "yours" | "open" | "merged";
+
+export const PULL_REQUEST_LENSES: ReadonlyArray<{
+  readonly value: PullRequestLens;
+  readonly label: string;
+}> = [
+  { value: "needs-you", label: "Needs you" },
+  { value: "yours", label: "Yours" },
+  { value: "open", label: "All open" },
+  { value: "merged", label: "Merged" },
+];
+
+/** The tab the filters amount to, or null where they are something no tab names. */
+export function pullRequestLensOf(scope: {
+  readonly state: PullRequestListState;
+  readonly involvement: PullRequestInvolvement;
+  readonly lens?: "needs-you" | undefined;
+}): PullRequestLens | null {
+  if (scope.state === "open" && scope.involvement === "all") {
+    return scope.lens === "needs-you" ? "needs-you" : "open";
+  }
+  if (scope.state === "open" && scope.involvement === "authored") return "yours";
+  if (scope.state === "merged" && scope.involvement === "all") return "merged";
+  return null;
+}
+
+/** The filters a tab stands for; picking one clears the "Needs you" narrowing unless it is it. */
+export function pullRequestLensScope(lens: PullRequestLens): {
+  readonly state: PullRequestListState;
+  readonly involvement: PullRequestInvolvement;
+  readonly lens: "needs-you" | undefined;
+} {
+  switch (lens) {
+    case "needs-you":
+      return { state: "open", involvement: "all", lens: "needs-you" };
+    case "yours":
+      return { state: "open", involvement: "authored", lens: undefined };
+    case "open":
+      return { state: "open", involvement: "all", lens: undefined };
+    case "merged":
+      return { state: "merged", involvement: "all", lens: undefined };
+  }
+}
+
+type TriageEntry = PullRequestListEntry & { readonly environmentId?: string };
+
+/**
+ * The next move on this pull request is the reader's: somebody asked them for a review, or it is
+ * theirs and blocked on something only they can fix — failing checks, requested changes, a
+ * conflict — or theirs and ready to merge.
+ */
+function pullRequestNeedsViewer(entry: TriageEntry, authoredByViewer: boolean): boolean {
+  if (entry.state !== "open") return false;
+  if (entry.viewerReviewRequested && !authoredByViewer) return !entry.isDraft;
+  if (!authoredByViewer) return false;
+  return (
+    entry.checksState === "failing" ||
+    entry.reviewDecision === "changes-requested" ||
+    entry.mergeability === "conflicting" ||
+    pullRequestMergeReadinessTier(entry) === 0
+  );
+}
+
+/** The reader's own open, non-draft work whose next move is somebody else's. */
+function isWaitingOnOthers(entry: TriageEntry, authoredByViewer: boolean): boolean {
+  return (
+    authoredByViewer &&
+    entry.state === "open" &&
+    !entry.isDraft &&
+    !pullRequestNeedsViewer(entry, authoredByViewer)
+  );
+}
+
+/**
+ * The "Needs you" tab's two shelves: what needs the reader, then their own work waiting on
+ * reviewers or checks. Everything else on the open list is left out.
+ */
+export function groupPullRequestsForNeedsYou<Entry extends TriageEntry>(
+  entries: ReadonlyArray<Entry>,
+  viewers: PullRequestViewers,
+): ReadonlyArray<PullRequestGroup<Entry>> {
+  const needsYou: Entry[] = [];
+  const waiting: Entry[] = [];
+  for (const entry of entries) {
+    const authored = isAuthoredByViewer(entry, viewers);
+    if (pullRequestNeedsViewer(entry, authored)) needsYou.push(entry);
+    else if (isWaitingOnOthers(entry, authored)) waiting.push(entry);
+  }
+  return [
+    { key: "needsYou" as const, label: "Needs you", entries: needsYou },
+    { key: "waitingOnOthers" as const, label: "Waiting on others", entries: waiting },
+  ].filter((group) => group.entries.length > 0);
+}
+
+/** A tab's count, and whether more rows exist on the hosts than were read to count it. */
+export interface PullRequestLensCount {
+  readonly count: number;
+  readonly more: boolean;
+}
+
+export type PullRequestLensCounts = Record<PullRequestLens, PullRequestLensCount | null>;
+
+/** One listing answer as the counts need it. */
+interface LensCountSource {
+  readonly entries: ReadonlyArray<TriageEntry>;
+  readonly truncated: boolean;
+}
+
+/**
+ * The tab counts from what has been read, and nothing guessed. A listing that stopped short says
+ * so with "+" rather than passing its page size off as the total; a tab nothing has been read for
+ * has no count at all.
+ *
+ * "Needs you" and "Yours" come from the authored and review-requested reads where they are in,
+ * because those are whole up to their own page while the open feed is sliced by recency. Every
+ * row "Needs you" counts is either authored or review-requested, so the two together cover it.
+ */
+export function pullRequestLensCounts(input: {
+  readonly viewers: PullRequestViewers;
+  readonly open: LensCountSource | null;
+  readonly authored: LensCountSource | null;
+  readonly reviewing: LensCountSource | null;
+  readonly merged: LensCountSource | null;
+}): PullRequestLensCounts {
+  const { viewers, open, authored, reviewing, merged } = input;
+  const whole = (source: LensCountSource | null) =>
+    source === null ? null : { count: source.entries.length, more: source.truncated };
+
+  const mine =
+    authored !== null
+      ? {
+          entries: authored.entries.filter((entry) => isAuthoredByViewer(entry, viewers)),
+          truncated: authored.truncated,
+        }
+      : open !== null && !open.truncated
+        ? {
+            entries: open.entries.filter((entry) => isAuthoredByViewer(entry, viewers)),
+            truncated: false,
+          }
+        : null;
+
+  const needsSource =
+    authored !== null && reviewing !== null
+      ? {
+          entries: [
+            ...new Map(
+              [...authored.entries, ...reviewing.entries].map((entry) => [
+                pullRequestEntryKey(entry),
+                entry,
+              ]),
+            ).values(),
+          ],
+          truncated: authored.truncated || reviewing.truncated,
+        }
+      : open !== null && !open.truncated
+        ? open
+        : null;
+  const needsYou =
+    needsSource === null
+      ? null
+      : {
+          count: needsSource.entries.filter((entry) =>
+            pullRequestNeedsViewer(entry, isAuthoredByViewer(entry, viewers)),
+          ).length,
+          more: needsSource.truncated,
+        };
+
+  return {
+    "needs-you": needsYou,
+    yours: whole(mine),
+    open: whole(open),
+    merged: whole(merged),
+  };
+}
+
+export function formatPullRequestLensCount(count: PullRequestLensCount): string {
+  return count.more ? `${count.count}+` : String(count.count);
+}
+
+/**
+ * Fresh counts laid over the ones held from earlier under the same filters, so a tab whose rows
+ * are not being read right now keeps its last count. Returns `held` itself when nothing changed,
+ * which is what lets a caller store the result without looping.
+ */
+export function holdPullRequestLensCounts(
+  live: PullRequestLensCounts,
+  held: PullRequestLensCounts | null,
+): PullRequestLensCounts {
+  const next: PullRequestLensCounts = {
+    "needs-you": live["needs-you"] ?? held?.["needs-you"] ?? null,
+    yours: live.yours ?? held?.yours ?? null,
+    open: live.open ?? held?.open ?? null,
+    merged: live.merged ?? held?.merged ?? null,
+  };
+  if (held === null) return next;
+  const same = PULL_REQUEST_LENSES.every(({ value }) => {
+    const left = next[value];
+    const right = held[value];
+    return left === right || (left?.count === right?.count && left?.more === right?.more);
+  });
+  return same ? held : next;
 }
