@@ -76,6 +76,7 @@ interface AppearancePreferencesContextValue {
   /** Pass null to clear the override and follow the base font size. */
   readonly setCodeFontSize: (value: number | null) => void;
   readonly setCodeWordBreak: (value: boolean) => void;
+  readonly setShowThinkingTimeline: (value: boolean) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -140,10 +141,18 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   }, [themeIds, systemColorPalettes, stockAccent]);
   const themeVariables = themeVariablesByAppearance[themeAppearance];
   const activeThemeName = getMobileUniwindThemeName(themeId, themeAppearance);
-  const { baseFontSize, codeFontSize, codeWordBreak, terminalFontSize } = preferences;
+  const { baseFontSize, codeFontSize, codeWordBreak, showThinkingTimeline, terminalFontSize } =
+    preferences;
   const appearance = useMemo(
-    () => resolveAppearance({ baseFontSize, codeFontSize, codeWordBreak, terminalFontSize }),
-    [baseFontSize, codeFontSize, codeWordBreak, terminalFontSize],
+    () =>
+      resolveAppearance({
+        baseFontSize,
+        codeFontSize,
+        codeWordBreak,
+        showThinkingTimeline,
+        terminalFontSize,
+      }),
+    [baseFontSize, codeFontSize, codeWordBreak, showThinkingTimeline, terminalFontSize],
   );
   // Preference patches are optimistic. Keep controls interactive while a save is
   // in flight so rapid theme choices can supersede one another immediately.
@@ -293,6 +302,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [updatePreferences],
   );
 
+  const setShowThinkingTimeline = useCallback(
+    (value: boolean) => {
+      updatePreferences({ showThinkingTimeline: value });
+    },
+    [updatePreferences],
+  );
+
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
       appearance,
@@ -315,6 +331,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      setShowThinkingTimeline,
     }),
     [
       appearance,
@@ -336,6 +353,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      setShowThinkingTimeline,
     ],
   );
 

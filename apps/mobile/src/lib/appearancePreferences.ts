@@ -1,3 +1,5 @@
+import { DEFAULT_CLIENT_SETTINGS } from "@e6tools/contracts/settings";
+
 import { MOBILE_CODE_SURFACE, MOBILE_TYPOGRAPHY } from "./typography";
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
@@ -26,6 +28,8 @@ export interface AppearancePreferences {
   readonly terminalFontSize: number | null;
   readonly codeFontSize: number | null;
   readonly codeWordBreak: boolean;
+  /** Device-local mirror of the web `showThinkingTimeline` client setting. */
+  readonly showThinkingTimeline: boolean;
 }
 
 /** Effective appearance values after applying base-size derivation. */
@@ -34,6 +38,7 @@ export interface ResolvedAppearance {
   readonly terminalFontSize: number;
   readonly codeFontSize: number;
   readonly codeWordBreak: boolean;
+  readonly showThinkingTimeline: boolean;
   readonly isTerminalFontSizeCustom: boolean;
   readonly isCodeFontSizeCustom: boolean;
 }
@@ -106,6 +111,7 @@ interface StoredAppearancePreferences {
   readonly terminalFontSize?: number | null | undefined;
   readonly codeFontSize?: number | null | undefined;
   readonly codeWordBreak?: boolean | null | undefined;
+  readonly showThinkingTimeline?: boolean | null | undefined;
 }
 
 export function resolveAppearancePreferences(
@@ -122,6 +128,11 @@ export function resolveAppearancePreferences(
         ? normalizeCodeFontSize(stored.codeFontSize)
         : null,
     codeWordBreak: normalizeCodeWordBreak(stored?.codeWordBreak),
+    // Same default as web; anything but an explicit boolean reads as the default.
+    showThinkingTimeline:
+      typeof stored?.showThinkingTimeline === "boolean"
+        ? stored.showThinkingTimeline
+        : DEFAULT_CLIENT_SETTINGS.showThinkingTimeline,
   };
 }
 
@@ -132,6 +143,7 @@ export function resolveAppearance(preferences: AppearancePreferences): ResolvedA
       preferences.terminalFontSize ?? deriveTerminalFontSize(preferences.baseFontSize),
     codeFontSize: preferences.codeFontSize ?? deriveCodeFontSize(preferences.baseFontSize),
     codeWordBreak: preferences.codeWordBreak,
+    showThinkingTimeline: preferences.showThinkingTimeline,
     isTerminalFontSizeCustom: preferences.terminalFontSize !== null,
     isCodeFontSizeCustom: preferences.codeFontSize !== null,
   };

@@ -23,7 +23,9 @@ import {
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
+  thoughtPreviewText,
   workEntryRowLabel,
+  workEntryRowStats,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
   type WorkLogEntry,
@@ -614,6 +616,156 @@ describe("buildThreadFeed", () => {
     expect(group?.type).toBe("activity-group");
     if (group?.type !== "activity-group") return;
     expect(group.activities[0]?.workEntry.diffStat).toEqual({ additions: 48, deletions: 12 });
+  });
+
+  it("times a step from its tool.started row and shows its line counts in one place", () => {
+    const payload = {
+      itemType: "file_change",
+      toolCallId: "edit-1",
+      title: "Edit",
+      data: { input: { file_path: "/repo/src/a.ts" } },
+    };
+    const thread = makeThread({
+      id: ThreadId.make("thread-step-timing"),
+      projectId: ProjectId.make("project-1"),
+      title: "Step timing",
+      activities: [
+        makeActivity({
+          id: EventId.make("edit-started"),
+          kind: "tool.started",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:01.000Z",
+          payload,
+        }),
+        makeActivity({
+          id: EventId.make("edit-updated"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:02.000Z",
+          payload: { ...payload, status: "inProgress" },
+        }),
+        makeActivity({
+          id: EventId.make("edit-completed"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:02.200Z",
+          payload: {
+            ...payload,
+            status: "completed",
+            changedFiles: [{ path: "/repo/src/a.ts", additions: 48, deletions: 12 }],
+          },
+        }),
+      ],
+    });
+
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    const entry = group.activities[0]!.workEntry;
+    // The row keeps its place at the first rendered row.
+    expect(entry.createdAt).toBe("2026-09-01T00:00:02.000Z");
+    expect(workEntryRowStats(entry, true)).toEqual({
+      meta: { duration: "1.2s", diffStat: { additions: 48, deletions: 12 } },
+      inlineDiffStat: null,
+    });
+    expect(workEntryRowStats(entry, false)).toEqual({
+      meta: null,
+      inlineDiffStat: { additions: 48, deletions: 12 },
+    });
+  });
+
+  it("places an opened run's thoughts and tools on one timeline and rings the running call", () => {
+    const turnId = TurnId.make("timeline-turn");
+    const thread = makeThread({
+      id: ThreadId.make("thread-timeline"),
+      projectId: ProjectId.make("project-1"),
+      title: "Timeline",
+      messages: [
+        {
+          id: MessageId.make("timeline-thought"),
+          role: "reasoning",
+          text: "Look first.",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:01.000Z",
+          updatedAt: "2026-04-01T00:00:01.000Z",
+        },
+      ],
+      activities: [
+        makeActivity({
+          id: EventId.make("timeline-read"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Read",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { itemType: "file_read", toolCallId: "read-1", status: "inProgress" },
+        }),
+      ],
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+    const rows = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      thread.latestTurn,
+      new Set(),
+      new Set(["activity-run:timeline-thought"]),
+      "2026-04-01T00:00:00.000Z",
+    );
+    expect(rows.map((row) => row.type)).toEqual(["work-toggle", "message", "activity-group"]);
+    expect(rows[1]).toMatchObject({ timelineStep: "first" });
+    expect(rows[2]).toMatchObject({ timelineStep: "last" });
+    if (rows[2]?.type !== "activity-group") throw new Error("expected an activity group");
+    expect(rows[2].activities[0]).toMatchObject({ runningStep: true, groupedToolDetail: true });
+    // The ring is timeline-only; the plain list keeps not shimmering this row.
+    expect(rows[2].activities[0]?.live).toBeUndefined();
+  });
+
+  it("previews a collapsed thought as plain text", () => {
+    expect(
+      thoughtPreviewText([
+        { text: "  " },
+        { text: "## **Plan** the `fix`\n- read [docs](https://x.dev)\n- ship" },
+      ]),
+    ).toBe("Plan the fix read docs ship");
+    expect(thoughtPreviewText([{ text: "" }])).toBeNull();
+  });
+
+  it("does not time a step that is still running", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-step-running"),
+      projectId: ProjectId.make("project-1"),
+      title: "Step running",
+      activities: [
+        makeActivity({
+          id: EventId.make("cmd-updated"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run",
+          createdAt: "2026-09-01T00:00:01.000Z",
+          payload: { itemType: "command_execution", toolCallId: "cmd-1", status: "inProgress" },
+        }),
+        makeActivity({
+          id: EventId.make("cmd-updated-2"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run",
+          createdAt: "2026-09-01T00:00:03.000Z",
+          payload: { itemType: "command_execution", toolCallId: "cmd-1", status: "inProgress" },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    expect(workEntryRowStats(group.activities[0]!.workEntry, true).meta).toBeNull();
   });
 
   it("keeps OpenCode detail-only output when it equals the command", () => {
@@ -2794,12 +2946,15 @@ describe("buildThreadFeed", () => {
           { hasFailure: true, hiddenCount: 3 },
         ]);
       }
+      const ranTools = boundary === "tool" || boundary === "failed-tool";
       expect(reasoningRows).toEqual(
-        messages.map((message) => ({
+        messages.map((message, index) => ({
           type: "message",
           id: message.id,
           createdAt: message.createdAt,
           message,
+          // A run with tools puts its thoughts on the timeline rail.
+          ...(ranTools ? { timelineStep: index === 0 ? "first" : "last" } : {}),
         })),
       );
     },

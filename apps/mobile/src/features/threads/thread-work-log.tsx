@@ -44,7 +44,9 @@ import { THREAD_WORK_ROW_MIN_HEIGHT, type deriveThreadWorkLogSizing } from "../.
 import {
   type AgentSpawnSummary,
   type ThreadFeedActivity,
+  type ThreadTimelineStep,
   workEntryRowLabel,
+  workEntryRowStats,
 } from "../../lib/threadActivity";
 import {
   resolveThreadWorkGroupInitialScroll,
@@ -441,9 +443,12 @@ interface ThreadWorkLogProps {
   readonly onCopyRow: (rowId: string, value: string) => void;
   readonly onToggleRow: (rowId: string, anchorKey: string) => void;
   readonly renderImage: MarkdownImageRenderer;
+  /** Draw these rows on the thinking timeline; set only when the setting is on. */
+  readonly timelineStep?: ThreadTimelineStep;
 }
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
+  const timeline = props.timelineStep !== undefined;
   const renderRow = useCallback(
     (row: ThreadFeedActivity) => (
       <ThreadWorkLogRow
@@ -458,6 +463,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         onToggleRow={props.onToggleRow}
         renderImage={props.renderImage}
         themeAppearance={props.themeAppearance}
+        timeline={timeline}
       />
     ),
     [
@@ -470,6 +476,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
       props.onToggleRow,
       props.renderImage,
       props.themeAppearance,
+      timeline,
     ],
   );
 
@@ -479,6 +486,13 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
 
   return (
     <View className="-mx-1 mb-1 px-1 py-0">
+      {props.timelineStep ? (
+        <ThreadTimelineRail
+          step={props.timelineStep}
+          rowHeight={props.rowSizing.estimatedRowHeight}
+          trailingGap={WORK_LOG_BOTTOM_MARGIN}
+        />
+      ) : null}
       {props.activities[0]?.groupedToolDetail ? (
         <ThreadWorkGroupList
           activities={props.activities}
@@ -759,6 +773,78 @@ function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
   );
 }
 
+/**
+ * A step's dot on the thinking timeline, holding the step's icon so it reads
+ * without colour. The running step gets a static, thicker primary ring, never
+ * an animation. The dot is opaque so the rail stops at its edge; while the row
+ * is pressed it repeats the row's `bg-subtle` tint so the two still match.
+ */
+function ThreadTimelineMarker(props: {
+  readonly enabled: boolean;
+  readonly running: boolean;
+  readonly pressed: boolean;
+  readonly children: ReactNode;
+}) {
+  if (!props.enabled) return props.children;
+  return (
+    <View
+      className={cn(
+        "h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-screen",
+        props.running ? "border-2 border-primary" : "border border-border",
+      )}
+    >
+      {props.pressed ? <View className="absolute inset-0 bg-subtle" /> : null}
+      {props.children}
+    </View>
+  );
+}
+
+/**
+ * One row's piece of the timeline rail, drawn behind the row's dots and
+ * outside any scrolling list so nothing repaints. The feed lists an opened
+ * group's tools and thoughts as separate rows, so each draws its own piece:
+ * the first starts at its dot, the last ends at its dot, and the others run
+ * through `trailingGap` to meet the next row. A row whose only dot sits in
+ * its header (`dotAtTop`) ends the rail there, above any opened body.
+ */
+function ThreadTimelineRail(props: {
+  readonly step: ThreadTimelineStep;
+  readonly rowHeight: number;
+  readonly trailingGap: number;
+  readonly dotAtTop?: boolean;
+}) {
+  const half = props.rowHeight / 2;
+  const startsAtDot = props.step === "first" || props.step === "only";
+  const endsAtDot = props.step === "last" || props.step === "only";
+  if (props.dotAtTop && startsAtDot && endsAtDot) return null;
+  const top = startsAtDot ? half : 0;
+  const position = !endsAtDot
+    ? { top, bottom: -props.trailingGap }
+    : props.dotAtTop
+      ? { top, height: half }
+      : { top, bottom: half };
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      className="absolute left-1.5 w-6 items-center"
+      style={position}
+    >
+      <View className="w-px flex-1 bg-border" />
+    </View>
+  );
+}
+
+/** Settled-step meta at the right of a timeline row: "1.2s", "Thought for 3s". */
+function ThreadTimelineMetaText(props: { readonly children: string }) {
+  return (
+    <Text className="pr-1 text-2xs tabular-nums text-foreground-muted" numberOfLines={1}>
+      {props.children}
+    </Text>
+  );
+}
+
 const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   props: Omit<
     ThreadWorkLogProps,
@@ -768,13 +854,17 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
     | "expandedRows"
     | "rowSizing"
     | "scrollPositions"
+    | "timelineStep"
   > & {
     readonly row: ThreadFeedActivity;
     readonly copied: boolean;
     readonly expanded: boolean;
+    readonly timeline: boolean;
   },
 ) {
-  const { row, expanded } = props;
+  const { row, expanded, timeline } = props;
+  const running = timeline && row.runningStep === true;
+  const { meta: stepMeta, inlineDiffStat } = workEntryRowStats(row.workEntry, timeline);
   const canExpand = row.canExpand;
   // Tool calls show the call in the foreground and the result muted below it.
   const expandedParts = expanded ? row.getExpandedParts() : null;
@@ -800,7 +890,13 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
     >
       <Pressable
         accessibilityRole={canExpand ? "button" : undefined}
-        accessibilityLabel={failed ? `${accessiblePreview}, tool call failed` : accessiblePreview}
+        accessibilityLabel={
+          failed
+            ? `${accessiblePreview}, tool call failed`
+            : running
+              ? `${accessiblePreview}, running`
+              : accessiblePreview
+        }
         accessibilityHint={
           canExpand
             ? `Double tap to ${expanded ? "hide" : "show"} full details. Long press to copy.`
@@ -817,100 +913,113 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
         onLongPress={() => props.onCopyRow(row.id, row.getCopyText())}
         className="rounded-md px-0.5 py-0 active:bg-subtle"
       >
-        <View className="min-h-8 flex-row items-center gap-1.5">
-          {row.live && !expanded ? (
-            <ShimmeringWorkContent
-              environmentId={props.environmentId}
-              icon={icon}
-              iconSubtleColor={props.iconSubtleColor}
-              label={displayText}
-              showIcon
-              themeAppearance={props.themeAppearance}
-              toolIcon={toolIcon}
-            />
-          ) : (
-            <>
-              <View className="h-6 w-6 shrink-0 items-center justify-center">
-                {toolIcon ? (
-                  <ToolActivityIconView
-                    environmentId={props.environmentId}
-                    icon={toolIcon}
-                    fallback={icon}
-                    fallbackColor={props.iconSubtleColor}
-                    themeAppearance={props.themeAppearance}
-                  />
-                ) : (
-                  <WorkLogIcon
-                    icon={icon}
-                    color={props.iconSubtleColor}
-                    colorClassName={
-                      iconIsDestructive
-                        ? "accent-adaptive-rose-600-400"
-                        : failed
-                          ? "accent-danger-foreground/40"
-                          : undefined
-                    }
-                  />
-                )}
-              </View>
-              <Text
-                className={cn(
-                  "min-w-0 flex-1 text-sm text-foreground-muted",
-                  iconIsDestructive && "font-e6-medium text-adaptive-rose-600-400",
-                )}
-                numberOfLines={expanded ? undefined : 1}
-              >
-                {displayText}
-                {answerPreview ? (
-                  <Text
-                    className={
-                      !expanded &&
-                      row.workEntry.questionAnswer &&
-                      hasQuestionAnswer(row.workEntry.questionAnswer)
-                        ? "text-foreground"
-                        : "text-foreground-subtle"
-                    }
-                  >{`  ${answerPreview}`}</Text>
-                ) : null}
-              </Text>
-            </>
-          )}
+        {({ pressed }) => (
+          <View className="min-h-8 flex-row items-center gap-1.5">
+            {/* On the timeline the ringed dot marks the running step; the group header shimmers. */}
+            {row.live && !expanded && !timeline ? (
+              <ShimmeringWorkContent
+                environmentId={props.environmentId}
+                icon={icon}
+                iconSubtleColor={props.iconSubtleColor}
+                label={displayText}
+                showIcon
+                themeAppearance={props.themeAppearance}
+                toolIcon={toolIcon}
+              />
+            ) : (
+              <>
+                <View className="h-6 w-6 shrink-0 items-center justify-center">
+                  <ThreadTimelineMarker enabled={timeline} running={running} pressed={pressed}>
+                    {toolIcon ? (
+                      <ToolActivityIconView
+                        environmentId={props.environmentId}
+                        icon={toolIcon}
+                        fallback={icon}
+                        fallbackColor={props.iconSubtleColor}
+                        themeAppearance={props.themeAppearance}
+                      />
+                    ) : (
+                      <WorkLogIcon
+                        icon={icon}
+                        color={props.iconSubtleColor}
+                        colorClassName={
+                          iconIsDestructive
+                            ? "accent-adaptive-rose-600-400"
+                            : failed
+                              ? "accent-danger-foreground/40"
+                              : undefined
+                        }
+                      />
+                    )}
+                  </ThreadTimelineMarker>
+                </View>
+                <Text
+                  className={cn(
+                    "min-w-0 flex-1 text-sm text-foreground-muted",
+                    iconIsDestructive && "font-e6-medium text-adaptive-rose-600-400",
+                  )}
+                  numberOfLines={expanded ? undefined : 1}
+                >
+                  {displayText}
+                  {answerPreview ? (
+                    <Text
+                      className={
+                        !expanded &&
+                        row.workEntry.questionAnswer &&
+                        hasQuestionAnswer(row.workEntry.questionAnswer)
+                          ? "text-foreground"
+                          : "text-foreground-subtle"
+                      }
+                    >{`  ${answerPreview}`}</Text>
+                  ) : null}
+                </Text>
+              </>
+            )}
 
-          <View className="shrink-0 flex-row items-center gap-px">
-            {row.workEntry.diffStat && !(row.live && !expanded) ? (
-              <WorkLogDiffStat stat={row.workEntry.diffStat} />
-            ) : null}
-            {props.copied ? (
-              <Text className="pr-1 font-e6-medium text-3xs text-adaptive-emerald-600-400">
-                Copied
-              </Text>
-            ) : null}
-            {failed && toolIcon !== undefined ? (
-              <View
-                className="h-4 w-4 items-center justify-center"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              >
-                <SymbolView
-                  name="xmark"
-                  size={11}
-                  tintColorClassName="accent-danger-foreground/40"
-                  type="monochrome"
-                />
-              </View>
-            ) : null}
-            <View className="h-4 w-4 items-center justify-center">
-              {canExpand ? (
-                <ThreadDisclosureChevron
-                  expanded={expanded}
-                  collapsedDirection="down"
-                  size={11}
-                  tintColor={props.iconSubtleColor}
-                />
+            <View className="shrink-0 flex-row items-center gap-px">
+              {inlineDiffStat && !(row.live && !expanded) ? (
+                <WorkLogDiffStat stat={inlineDiffStat} />
               ) : null}
+              {stepMeta ? (
+                <View className="flex-row items-center gap-1">
+                  {stepMeta.diffStat ? <WorkLogDiffStat stat={stepMeta.diffStat} /> : null}
+                  {stepMeta.duration ? (
+                    <ThreadTimelineMetaText>{stepMeta.duration}</ThreadTimelineMetaText>
+                  ) : null}
+                </View>
+              ) : null}
+              {props.copied ? (
+                <Text className="pr-1 font-e6-medium text-3xs text-adaptive-emerald-600-400">
+                  Copied
+                </Text>
+              ) : null}
+              {failed && toolIcon !== undefined ? (
+                <View
+                  className="h-4 w-4 items-center justify-center"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  <SymbolView
+                    name="xmark"
+                    size={11}
+                    tintColorClassName="accent-danger-foreground/40"
+                    type="monochrome"
+                  />
+                </View>
+              ) : null}
+              <View className="h-4 w-4 items-center justify-center">
+                {canExpand ? (
+                  <ThreadDisclosureChevron
+                    expanded={expanded}
+                    collapsedDirection="down"
+                    size={11}
+                    tintColor={props.iconSubtleColor}
+                  />
+                ) : null}
+              </View>
             </View>
           </View>
-        </View>
+        )}
       </Pressable>
 
       {expanded && (expandedParts || viewedImagePath || row.workEntry.questionAnswer) ? (
@@ -1426,9 +1535,24 @@ export function ThreadReasoningRow(props: {
   readonly streaming: boolean;
   readonly onToggle: () => void;
   readonly children: ReactNode;
+  /** The thought's place on the thinking timeline; set only when the setting is on. */
+  readonly timelineStep?: ThreadTimelineStep;
+  /** On the timeline, a collapsed thought shows this preview and its duration on the right. */
+  readonly preview?: string | null;
 }) {
+  const timeline = props.timelineStep !== undefined;
+  const collapsedPreview =
+    timeline && !props.expanded && !props.streaming && props.preview ? props.preview : null;
   return (
     <View className={cn("-mx-1 px-1 py-0", props.expanded && "pb-1.5")}>
+      {props.timelineStep ? (
+        <ThreadTimelineRail
+          step={props.timelineStep}
+          rowHeight={props.rowSizing.estimatedRowHeight}
+          trailingGap={0}
+          dotAtTop
+        />
+      ) : null}
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: props.expanded }}
@@ -1442,34 +1566,43 @@ export function ThreadReasoningRow(props: {
         className="min-h-8 flex-row items-center gap-1.5 rounded-md px-0.5 py-0 active:bg-subtle"
         style={{ minHeight: props.rowSizing.estimatedRowHeight }}
       >
-        {props.streaming ? (
-          <ShimmeringWorkContent
-            key={props.rowSizing.textSizeKey}
-            icon="brain"
-            iconSubtleColor={props.iconSubtleColor}
-            label={props.label}
-            showIcon
-          />
-        ) : (
+        {({ pressed }) => (
           <>
-            <View className="h-6 w-6 shrink-0 items-center justify-center">
-              <WorkLogIcon icon="brain" color={props.iconSubtleColor} />
-            </View>
-            <Text
-              key={props.rowSizing.textSizeKey}
-              className="min-w-0 flex-1 text-sm text-foreground-muted"
-              numberOfLines={1}
-            >
-              {props.label}
-            </Text>
+            {props.streaming ? (
+              <ShimmeringWorkContent
+                key={props.rowSizing.textSizeKey}
+                icon="brain"
+                iconSubtleColor={props.iconSubtleColor}
+                label={props.label}
+                showIcon
+              />
+            ) : (
+              <>
+                <View className="h-6 w-6 shrink-0 items-center justify-center">
+                  <ThreadTimelineMarker enabled={timeline} running={false} pressed={pressed}>
+                    <WorkLogIcon icon="brain" color={props.iconSubtleColor} />
+                  </ThreadTimelineMarker>
+                </View>
+                <Text
+                  key={props.rowSizing.textSizeKey}
+                  className="min-w-0 flex-1 text-sm text-foreground-muted"
+                  numberOfLines={1}
+                >
+                  {collapsedPreview ?? props.label}
+                </Text>
+                {collapsedPreview ? (
+                  <ThreadTimelineMetaText>{props.label}</ThreadTimelineMetaText>
+                ) : null}
+              </>
+            )}
+            <ThreadDisclosureChevron
+              expanded={props.expanded}
+              collapsedDirection="right"
+              size={11}
+              tintColor={props.iconSubtleColor}
+            />
           </>
         )}
-        <ThreadDisclosureChevron
-          expanded={props.expanded}
-          collapsedDirection="right"
-          size={11}
-          tintColor={props.iconSubtleColor}
-        />
       </Pressable>
       {props.expanded ? (
         <Animated.View
