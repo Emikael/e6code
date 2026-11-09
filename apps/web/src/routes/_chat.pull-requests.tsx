@@ -49,6 +49,7 @@ import {
   findScopedProject,
   collectPullRequestListFacets,
   groupPullRequestsByInvolvement,
+  isAuthoredByViewer,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
   parsePullRequestQuery,
@@ -1698,6 +1699,7 @@ function PullRequestsRouteView() {
                     statsKey={entryKey}
                     statsRef={registerStatsRow}
                     entry={entry}
+                    authoredByViewer={isAuthoredByViewer(entry, viewers)}
                     showProjectTitle
                     showProvider={showProvider}
                     {...(capableEnvironments.length > 1 &&

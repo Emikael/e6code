@@ -152,7 +152,7 @@ export function pullRequestEntryViewer(
  * GitHub, GitLab and a GitHub Enterprise install, and the account that owns one says nothing
  * about the others.
  */
-function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
+export function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
   const viewer = pullRequestEntryViewer(entry, viewers);
   return viewer !== null && normalize(entry.author?.login) === viewer;
 }
@@ -1006,6 +1006,24 @@ export function rankPullRequestMatches<Entry extends PullRequestListEntry>(
 }
 
 /**
+ * Where a row sits in the readiness queue below, lowest first. The worded row status reads the
+ * same answer, so a row's chip and its place in the default order cannot disagree.
+ */
+export function pullRequestMergeReadinessTier(
+  entry: Pick<
+    PullRequestListEntry,
+    "mergeability" | "state" | "isDraft" | "checksState" | "reviewDecision"
+  >,
+): 0 | 1 | 2 | 3 | 4 {
+  if (entry.mergeability === "conflicting") return 4;
+  if (entry.state !== "open") return 3;
+  if (entry.isDraft) return 2;
+  if (entry.checksState === "passing" && entry.reviewDecision === "approved") return 0;
+  if (entry.checksState === "passing") return 1;
+  return 2;
+}
+
+/**
  * The default review queue: work that is green and approved, then green work still waiting on a
  * verdict, then everything else still open. Drafts stay in that third tier because their author
  * has not made them mergeable yet. Finished work follows open work when all states are visible. A
@@ -1017,14 +1035,7 @@ export function rankPullRequestsByMergeReadiness<Entry extends PullRequestListEn
   entries: ReadonlyArray<Entry>,
   hasMeasuredSize: (entry: Entry) => boolean = (entry) => entry.additions + entry.deletions > 0,
 ): ReadonlyArray<Entry> {
-  const tier = (entry: Entry) => {
-    if (entry.mergeability === "conflicting") return 4;
-    if (entry.state !== "open") return 3;
-    if (entry.isDraft) return 2;
-    if (entry.checksState === "passing" && entry.reviewDecision === "approved") return 0;
-    if (entry.checksState === "passing") return 1;
-    return 2;
-  };
+  const tier = pullRequestMergeReadinessTier;
   return entries.toSorted((left, right) => {
     const byTier = tier(left) - tier(right);
     if (byTier !== 0) return byTier;
