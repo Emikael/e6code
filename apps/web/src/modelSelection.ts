@@ -132,6 +132,22 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
   return option;
 }
 
+/**
+ * A custom row rebuilt from settings. Settings decide whether it exists; the
+ * server's matching row, when it has caught up, supplies picker metadata such
+ * as the price tier from a custom price.
+ */
+function toCustomAppModelOption(
+  custom: { readonly slug: string; readonly name: string },
+  serverModels: ReadonlyArray<ServerProvider["models"][number]>,
+): AppModelOption {
+  const option: AppModelOption = { slug: custom.slug, name: custom.name, isCustom: true };
+  const reported = serverModels.find((model) => model.isCustom && model.slug === custom.slug);
+  if (reported?.contextWindowTokens) option.contextWindowTokens = reported.contextWindowTokens;
+  if (reported?.priceTier) option.priceTier = reported.priceTier;
+  return option;
+}
+
 function readInstanceModelPreferences(
   settings: UnifiedSettings,
   instanceId: ProviderInstanceId,
@@ -216,7 +232,7 @@ function getAppModelOptions(
     }
 
     seen.add(entry.slug);
-    options.push({ slug: entry.slug, name: entry.name, isCustom: true });
+    options.push(toCustomAppModelOption(entry, rawModels));
   }
 
   const preferences = readInstanceModelPreferences(settings, defaultInstanceId);
@@ -264,7 +280,7 @@ export function getAppModelOptionsForInstance(
     }
 
     seen.add(custom.slug);
-    options.push({ slug: custom.slug, name: custom.name, isCustom: true });
+    options.push(toCustomAppModelOption(custom, entry.models));
   }
 
   const preferences = readInstanceModelPreferences(settings, entry.instanceId);
