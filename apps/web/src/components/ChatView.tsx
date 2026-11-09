@@ -10564,6 +10564,21 @@ export default function ChatView(props: ChatViewProps) {
                                 >
                                   Decline
                                 </Button>
+                                {approvalFeedbackAgent !== null ? (
+                                  // The instructions live in the composer's field, so this
+                                  // card and the composer never hold two different drafts.
+                                  <Button
+                                    size="xs"
+                                    variant="outline"
+                                    disabled={respondingRequestIds.includes(
+                                      activePendingApproval.requestId,
+                                    )}
+                                    aria-description={`Type what ${approvalFeedbackAgent} should do instead in the composer, then send it with the decline.`}
+                                    onClick={() => focusComposer()}
+                                  >
+                                    <span className="max-w-48 truncate">{`Decline and tell ${approvalFeedbackAgent}`}</span>
+                                  </Button>
+                                ) : null}
                                 {activeApprovalDestructive ? (
                                   <HoldToAllowButton
                                     reason={activeApprovalDestructive.reason}

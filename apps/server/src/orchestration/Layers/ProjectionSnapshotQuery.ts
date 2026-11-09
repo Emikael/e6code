@@ -1603,6 +1603,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
+  const getApprovalRequestTurnIdRow = SqlSchema.findOneOption({
+    Request: Schema.Struct({ threadId: ThreadId, requestId: ApprovalRequestId }),
+    Result: Schema.Struct({ turnId: Schema.NullOr(TurnId) }),
+    execute: ({ threadId, requestId }) => sql`
+      SELECT turn_id AS "turnId"
+      FROM projection_pending_approvals
+      WHERE thread_id = ${threadId} AND request_id = ${requestId}
+    `,
+  });
+
+  const getApprovalRequestTurnId: ProjectionSnapshotQueryShape["getApprovalRequestTurnId"] = (
+    input,
+  ) =>
+    getApprovalRequestTurnIdRow(input).pipe(
+      Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.turnId))),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getApprovalRequestTurnId:query",
+          "ProjectionSnapshotQuery.getApprovalRequestTurnId:decodeRow",
+        ),
+      ),
+    );
+
   const listActivityRowsByKind = SqlSchema.findAll({
     Request: Schema.Struct({ kind: Schema.String }),
     Result: ProjectionThreadActivityDbRowSchema,
@@ -3915,6 +3938,7 @@ pending_approval_requests AS (
   return {
     getCommandReadModel,
     getUserInputActivity,
+    getApprovalRequestTurnId,
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,

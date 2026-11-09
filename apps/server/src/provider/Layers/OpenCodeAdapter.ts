@@ -3787,14 +3787,20 @@ export function makeOpenCodeAdapter(
       const context = yield* ensureSessionContext(sessions, threadId);
       const request = context.pendingPermissions.get(requestId);
       if (!request) {
-        if (context.emittedTerminalRequestIds.has(requestId)) return;
+        const terminal = context.emittedTerminalRequestIds.has(requestId);
+        // Repeating a reply to an answered request is harmless, but its decline
+        // instructions can no longer reach OpenCode: succeeding would report
+        // them as delivered for a tool that already ran, so it is stale.
+        if (terminal && feedback === undefined) return;
+        const loading =
+          !terminal &&
+          (context.pendingRequestRecovery || context.requestRelationRetries.has(requestId));
         return yield* new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "permission.reply",
-          detail:
-            context.pendingRequestRecovery || context.requestRelationRetries.has(requestId)
-              ? "OpenCode is still loading this permission request. Try again."
-              : `Unknown pending permission request: ${requestId}`,
+          detail: loading
+            ? "OpenCode is still loading this permission request. Try again."
+            : `Unknown pending permission request: ${requestId}`,
         });
       }
 

@@ -1905,8 +1905,23 @@ const make = Effect.gen(function* () {
     if (feedback === undefined || Option.isNone(response)) return;
     if (response.value.feedbackDelivered) {
       // The provider read the instructions with the refusal, so nothing in the
-      // conversation shows them. Record them where the approval resolved.
+      // conversation shows them. Record them in the turn that asked: the
+      // session's active turn may already be over or be a later one.
       const preview = approvalFeedbackPreview(feedback);
+      const requestTurnId = yield* projectionSnapshotQuery
+        .getApprovalRequestTurnId({
+          threadId: event.payload.threadId,
+          requestId: event.payload.requestId,
+        })
+        .pipe(
+          Effect.map(Option.getOrNull),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("approval request turn lookup failed", {
+              requestId: event.payload.requestId,
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as(null)),
+          ),
+        );
       yield* orchestrationEngine
         .dispatch({
           type: "thread.activity.append",
@@ -1923,7 +1938,7 @@ const make = Effect.gen(function* () {
               // Only a shortened preview needs the full text behind it.
               ...(preview !== feedback ? { detail: feedback } : {}),
             },
-            turnId: thread.session?.activeTurnId ?? null,
+            turnId: requestTurnId,
             createdAt: event.payload.createdAt,
           },
           createdAt: event.payload.createdAt,

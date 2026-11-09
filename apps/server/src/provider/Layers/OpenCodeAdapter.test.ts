@@ -2230,6 +2230,20 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         const resolved = Option.getOrThrow(yield* Fiber.join(resolvedFiber));
         NodeAssert.equal(resolved.requestId, request.id);
         yield* adapter.respondToRequest(threadId, ApprovalRequestId.make(request.id), decision);
+        // Instructions sent after the reply can no longer reach OpenCode, so they
+        // fail as stale instead of reading as delivered.
+        const lateInstructions = yield* Effect.flip(
+          adapter.respondToRequest(
+            threadId,
+            ApprovalRequestId.make(request.id),
+            "decline",
+            "Too late",
+          ),
+        );
+        NodeAssert.equal(
+          lateInstructions._tag === "ProviderAdapterRequestError" ? lateInstructions.detail : "",
+          `Unknown pending permission request: ${request.id}`,
+        );
         NodeAssert.deepEqual(runtimeMock.state.permissionReplyCalls, [
           { requestID: request.id, reply, ...(feedback ? { message: feedback } : {}) },
         ]);
