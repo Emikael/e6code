@@ -25,6 +25,8 @@ import {
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
   resolveThreadRowClassName,
+  resolveSidebarEnvironmentReach,
+  resolveSidebarRowStatus,
   resolveSidebarThreadStatus,
   resolveSidebarThreadTitleTone,
   resolveThreadStatusPill,
@@ -2736,5 +2738,90 @@ describe("groupSidebarThreadsByProject", () => {
     );
     expect(web).toMatchObject({ expanded: false, threadCount: 3, attentionCount: 2 });
     expect(web!.rendered.map((t) => t.id)).toEqual(["w2"]);
+  });
+});
+
+describe("resolveSidebarRowStatus", () => {
+  const base = {
+    agentState: undefined,
+    planProgress: null,
+    formatResetTime: (resetsAt: string) => (resetsAt === "bad" ? "" : "14:20"),
+    isWoke: false,
+    isUnread: false,
+    latestTurnCompleted: false,
+    timeLabel: "3h",
+  } as const;
+  const line = (input: Partial<Parameters<typeof resolveSidebarRowStatus>[0]>) => {
+    const status = resolveSidebarRowStatus({ ...base, status: "ready", ...input });
+    return status === null
+      ? null
+      : {
+          text: status.detail === null ? status.label : `${status.label} · ${status.detail}`,
+          marker: status.marker,
+          tone: status.tone,
+        };
+  };
+
+  it("words running work like the thread list mockup", () => {
+    expect(
+      line({ status: "working", planProgress: { step: "x", completedSteps: 3, totalSteps: 6 } }),
+    ).toEqual({ text: "Working · step 4 of 6", marker: "live", tone: "live" });
+    expect(
+      line({ status: "working", agentState: { kind: "retrying", attempt: 2, maxAttempts: 10 } }),
+    ).toEqual({ text: "Retrying · attempt 2 of 10", marker: "ring", tone: "muted" });
+    expect(
+      line({ status: "paused", agentState: { kind: "rate-limited", resetsAt: "later" } }),
+    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "muted" });
+    expect(line({ status: "working", agentState: { kind: "compacting" } })).toMatchObject({
+      text: "Compacting",
+      marker: "live",
+    });
+  });
+
+  it("asks for the user's action in full words", () => {
+    expect(line({ status: "approval" })).toEqual({
+      text: "Waiting for your approval",
+      marker: "dot",
+      tone: "warning",
+    });
+    expect(line({ status: "input" })).toMatchObject({ text: "Needs your answer", tone: "input" });
+    expect(line({ status: "failed" })).toMatchObject({ text: "Failed", tone: "failed" });
+  });
+
+  it("reads Done with its age only after a completed turn or an unseen completion", () => {
+    expect(line({ latestTurnCompleted: true })).toEqual({
+      text: "Done · 3h",
+      marker: "check",
+      tone: "success",
+    });
+    expect(line({ isUnread: true, timeLabel: "" })).toMatchObject({ text: "Done" });
+    expect(line({})).toBeNull();
+  });
+
+  it("lets a wake outrank Done but not live work", () => {
+    expect(line({ isWoke: true, latestTurnCompleted: true })).toMatchObject({ text: "Woke" });
+    expect(line({ isWoke: true, status: "approval" })).toMatchObject({
+      text: "Waiting for your approval",
+    });
+  });
+});
+
+describe("resolveSidebarEnvironmentReach", () => {
+  it("calls only a primary server on loopback local", () => {
+    const primary = (httpBaseUrl: string | null) =>
+      resolveSidebarEnvironmentReach({ targetKind: "PrimaryConnectionTarget", httpBaseUrl });
+    expect(primary("http://127.0.0.1:3773/")).toBe("local");
+    expect(primary("http://localhost:5173")).toBe("local");
+    expect(primary("http://[::1]:3773")).toBe("local");
+    expect(primary("https://box.tail1234.ts.net")).toBe("remote");
+    expect(primary("http://192.168.1.20:3773")).toBe("remote");
+    expect(primary("not a url")).toBe("remote");
+    expect(primary(null)).toBe("remote");
+    expect(
+      resolveSidebarEnvironmentReach({
+        targetKind: "BearerConnectionTarget",
+        httpBaseUrl: "http://127.0.0.1:3773",
+      }),
+    ).toBe("remote");
   });
 });

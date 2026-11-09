@@ -65,9 +65,10 @@ export function AgentActivity(
   const monochrome =
     environment.widgetRenderingMode === "accented" || environment.widgetRenderingMode === "vibrant";
 
-  // Status tints mirror the web sidebar's pills
-  // (apps/web/src/components/Sidebar.logic.ts resolveThreadStatusPill): amber
-  // for approval, indigo for input, sky for working, emerald for completed.
+  // Status tints mirror the web sidebar's status line
+  // (apps/web/src/components/Sidebar.logic.ts resolveSidebarRowStatus): amber
+  // for approval, indigo for input, Iris (the stock primary text) for
+  // working, emerald for completed. Each sits beside a glyph and words.
   // On iPhone the LA sits on a dark material, but macOS (iPhone Mirroring /
   // Mac notification center) renders it on a light one — so pick the web
   // palette's light (-600) or dark (-300) variant off the color scheme.
@@ -91,7 +92,7 @@ export function AgentActivity(
       case "starting":
       case "running":
       default:
-        return isLightScheme ? "#0284c7" : "#7dd3fc"; // sky-600 / sky-300
+        return isLightScheme ? "#4a3ad0" : "#b9afff"; // Iris primary-text light / dark
     }
   };
 

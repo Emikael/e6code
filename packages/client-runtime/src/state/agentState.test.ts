@@ -76,14 +76,18 @@ describe("formatRunningThreadStatus", () => {
 
   it("lets the agent state explain a stall instead of the plan step", () => {
     const plan = { completedSteps: 1, totalSteps: 3 };
-    expect(row({ kind: "rate-limited", resetsAt: "14:20" }, plan)).toBe("Paused · resets @14:20");
-    expect(row({ kind: "retrying", attempt: 2, maxAttempts: 10 }, plan)).toBe("Retrying · 2 of 10");
+    expect(row({ kind: "rate-limited", resetsAt: "14:20" }, plan)).toBe(
+      "Waiting for usage limit · resets @14:20",
+    );
+    expect(row({ kind: "retrying", attempt: 2, maxAttempts: 10 }, plan)).toBe(
+      "Retrying · attempt 2 of 10",
+    );
     expect(row({ kind: "compacting" }, plan)).toBe("Compacting");
   });
 
   it("drops details it cannot state", () => {
-    expect(row({ kind: "rate-limited" })).toBe("Paused");
-    expect(row({ kind: "rate-limited", resetsAt: "bad" })).toBe("Paused");
+    expect(row({ kind: "rate-limited" })).toBe("Waiting for usage limit");
+    expect(row({ kind: "rate-limited", resetsAt: "bad" })).toBe("Waiting for usage limit");
     expect(row({ kind: "retrying", attempt: 2 })).toBe("Retrying");
   });
 });

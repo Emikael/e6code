@@ -250,7 +250,7 @@ describe("resolveThreadHeaderStatusText", () => {
         },
         () => "14:20",
       ),
-    ).toBe("Paused · resets 14:20");
+    ).toBe("Waiting for usage limit · resets 14:20");
     expect(resolveThreadHeaderStatusText({ ...base, session: session("error") })).toBe("Failed");
   });
 

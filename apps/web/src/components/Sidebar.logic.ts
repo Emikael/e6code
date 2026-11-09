@@ -5,7 +5,11 @@ import {
   isAtomCommandInterrupted,
   type AtomCommandResult,
 } from "@e6tools/client-runtime/state/runtime";
-import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
+import {
+  formatRunningThreadStatus,
+  isPausedForUsageLimit,
+} from "@e6tools/client-runtime/state/agent-state";
+import { isLoopbackHost } from "@e6tools/shared/preview";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@e6tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@e6tools/contracts/settings";
@@ -901,6 +905,131 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
     return "monitoring";
   }
   return "ready";
+}
+
+/**
+ * The status line under a sidebar thread title. `label` is the leading word
+ * the row keeps whole, `detail` may truncate, and `fullLabel` replaces both
+ * for screen readers and the hover card when the row abbreviates. The marker
+ * always sits beside words, so no status is told by colour alone.
+ */
+export interface SidebarRowStatus {
+  readonly kind:
+    | "working"
+    | "retrying"
+    | "paused"
+    | "monitoring"
+    | "approval"
+    | "input"
+    | "failed"
+    | "woke"
+    | "done";
+  readonly label: string;
+  readonly detail: string | null;
+  readonly fullLabel?: string;
+  /** `live` is the primary dot with a wash, `ring` a hollow warning dot. */
+  readonly marker: "live" | "dot" | "ring" | "check" | "icon";
+  /** Semantic role for the words; the marker takes the matching fill. */
+  readonly tone: "live" | "warning" | "muted" | "success" | "input" | "failed";
+}
+
+/**
+ * Row status in the thread list's wording: "Working · step 4 of 6",
+ * "Waiting for your approval", "Retrying · attempt 2 of 10", "Done · 3h",
+ * "Waiting for usage limit · resets 14:20". A resting thread reads Done after
+ * a completed turn (or an unseen completion); otherwise it has no status and
+ * the row shows its age instead.
+ */
+export function resolveSidebarRowStatus(input: {
+  readonly status: SidebarThreadStatus;
+  readonly agentState: SidebarThreadSummary["agentState"];
+  readonly planProgress: SidebarThreadSummary["planProgress"];
+  readonly formatResetTime: (resetsAt: string) => string;
+  readonly isWoke: boolean;
+  readonly isUnread: boolean;
+  readonly latestTurnCompleted: boolean;
+  /** Compact age for the Done detail, such as "3h". */
+  readonly timeLabel: string;
+}): SidebarRowStatus | null {
+  switch (input.status) {
+    case "working":
+    case "paused": {
+      const running = formatRunningThreadStatus({
+        agentState: input.agentState,
+        planProgress: input.planProgress,
+        formatResetTime: input.formatResetTime,
+      });
+      if (input.status === "paused") {
+        return { kind: "paused", ...running, marker: "dot", tone: "muted" };
+      }
+      if (input.agentState?.kind === "retrying") {
+        return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
+      }
+      return { kind: "working", ...running, marker: "live", tone: "live" };
+    }
+    case "monitoring":
+      return {
+        kind: "monitoring",
+        label: "Monitoring",
+        detail: null,
+        marker: "icon",
+        tone: "muted",
+      };
+    case "approval":
+      return {
+        kind: "approval",
+        label: "Waiting for your approval",
+        detail: null,
+        marker: "dot",
+        tone: "warning",
+      };
+    case "input":
+      return {
+        kind: "input",
+        label: "Needs your answer",
+        detail: null,
+        marker: "icon",
+        tone: "input",
+      };
+    case "failed":
+      return { kind: "failed", label: "Failed", detail: null, marker: "icon", tone: "failed" };
+    case "ready":
+      break;
+  }
+  if (input.isWoke) {
+    return { kind: "woke", label: "Woke", detail: null, marker: "icon", tone: "warning" };
+  }
+  if (input.isUnread || input.latestTurnCompleted) {
+    return {
+      kind: "done",
+      label: "Done",
+      detail: input.timeLabel === "" ? null : input.timeLabel,
+      marker: "check",
+      tone: "success",
+    };
+  }
+  return null;
+}
+
+/**
+ * How the sidebar header names the reach of the environment it serves:
+ * `local` for the primary server on a loopback address (the desktop app, a
+ * local dev or `npx` server), `remote` for anything reached over a network
+ * (LAN, Tailscale, tunnel, relay, SSH).
+ */
+export function resolveSidebarEnvironmentReach(input: {
+  readonly targetKind: string;
+  readonly httpBaseUrl: string | null;
+}): "local" | "remote" {
+  if (input.targetKind !== "PrimaryConnectionTarget" || input.httpBaseUrl === null) {
+    return "remote";
+  }
+  try {
+    const hostname = new URL(input.httpBaseUrl).hostname.replace(/^\[(.*)\]$/, "$1");
+    return isLoopbackHost(hostname) ? "local" : "remote";
+  } catch {
+    return "remote";
+  }
 }
 
 /** First VALID timestamp wins: `a ?? b` falls through on null, but a present-

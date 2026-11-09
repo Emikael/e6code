@@ -271,10 +271,10 @@ function CompactingLabel(props: { readonly onLayout: (event: LayoutChangeEvent) 
       <SymbolView
         name="arrow.down.right.and.arrow.up.left"
         size={13}
-        tintColorClassName="accent-foreground"
+        tintColorClassName="accent-primary-text"
         type="monochrome"
       />
-      <Text className="font-e6-medium text-xs text-foreground">Compacting…</Text>
+      <Text className="font-e6-medium text-xs text-primary-text">Compacting…</Text>
     </StatusLabelRow>
   );
 }
@@ -478,14 +478,18 @@ function WorkingDuration(props: {
   const label = `Working for ${duration}`;
 
   return (
-    <StatusLabelRow accessibilityLabel={label} onLayout={props.onLayout}>
-      <Text className="font-e6-medium text-xs text-foreground">Working for </Text>
-      <SystemText
-        className="text-xs text-foreground"
-        style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
-      >
-        {duration}
-      </SystemText>
+    // Iris dot plus words: the live agent reads the same as the web sidebar.
+    <StatusLabelRow accessibilityLabel={label} className="gap-2" onLayout={props.onLayout}>
+      <View className="h-2 w-2 rounded-full bg-primary" />
+      <View className="flex-row items-center">
+        <Text className="font-e6-medium text-xs text-primary-text">Working for </Text>
+        <SystemText
+          className="text-xs text-primary-text"
+          style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
+        >
+          {duration}
+        </SystemText>
+      </View>
     </StatusLabelRow>
   );
 }

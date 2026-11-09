@@ -70,8 +70,9 @@ export function resolveThreadStatus(
     return {
       kind: "working",
       label: "Working",
-      pillClassName: "bg-info",
-      textClassName: "text-info-foreground",
+      // Iris marks a live agent, matching the web sidebar.
+      pillClassName: "bg-primary/10",
+      textClassName: "text-primary-text",
       pulse: true,
     };
   }

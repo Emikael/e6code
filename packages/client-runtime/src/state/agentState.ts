@@ -74,8 +74,9 @@ export interface ThreadRowStatusText {
 
 /**
  * Row status for a working or paused thread. The agent state wins over the
- * plan step, because it explains why progress stalled: `Paused · resets
- * 14:20`, `Retrying · 2 of 10`, `Compacting`, else `Working · step 4 of 6`.
+ * plan step, because it explains why progress stalled: `Waiting for usage
+ * limit · resets 14:20`, `Retrying · attempt 2 of 10`, `Compacting`, else
+ * `Working · step 4 of 6`.
  * `formatResetTime` renders a usage-limit reset in the viewer's clock format;
  * an empty result drops the detail.
  */
@@ -89,14 +90,17 @@ export function formatRunningThreadStatus(input: {
     case "rate-limited": {
       const resetTime =
         agentState.resetsAt === undefined ? "" : input.formatResetTime(agentState.resetsAt);
-      return { label: "Paused", detail: resetTime === "" ? null : `resets ${resetTime}` };
+      return {
+        label: "Waiting for usage limit",
+        detail: resetTime === "" ? null : `resets ${resetTime}`,
+      };
     }
     case "retrying":
       return {
         label: "Retrying",
         detail:
           agentState.attempt !== undefined && agentState.maxAttempts !== undefined
-            ? `${agentState.attempt} of ${agentState.maxAttempts}`
+            ? `attempt ${agentState.attempt} of ${agentState.maxAttempts}`
             : null,
       };
     case "compacting":
