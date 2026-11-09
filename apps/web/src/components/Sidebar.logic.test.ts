@@ -26,6 +26,7 @@ import {
   resolveProjectStatusIndicator,
   resolveThreadRowClassName,
   resolveSidebarThreadStatus,
+  resolveSidebarThreadTitleTone,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   searchSidebarThreads,
@@ -409,6 +410,50 @@ describe("shouldRecedeSidebarThread", () => {
         isSelected: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveSidebarThreadTitleTone", () => {
+  const base = {
+    variant: "card" as const,
+    recedes: false,
+    status: "ready" as const,
+    isUnread: false,
+    isWoke: false,
+    isActive: false,
+  };
+
+  it.each(["card", "slim"] as const)("marks an unread %s row as unread", (variant) => {
+    expect(resolveSidebarThreadTitleTone({ ...base, variant, isUnread: true })).toBe("unread");
+  });
+
+  it("keeps receded background work quiet even with an unseen completion", () => {
+    expect(
+      resolveSidebarThreadTitleTone({ ...base, status: "working", recedes: true, isUnread: true }),
+    ).toBe("read");
+  });
+
+  it.each(["card", "slim"] as const)("reads a seen receded %s row as read", (variant) => {
+    expect(resolveSidebarThreadTitleTone({ ...base, variant, recedes: true })).toBe("read");
+  });
+
+  it("emphasizes the open, woke, and input-required rows without calling them unread", () => {
+    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", isActive: true })).toBe(
+      "emphasis",
+    );
+    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", isWoke: true })).toBe(
+      "emphasis",
+    );
+    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", status: "input" })).toBe(
+      "emphasis",
+    );
+  });
+
+  it("keeps a non-receded card strong but a settled slim row read", () => {
+    expect(resolveSidebarThreadTitleTone({ ...base, status: "failed" })).toBe("emphasis");
+    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", status: "failed" })).toBe(
+      "read",
+    );
   });
 });
 
@@ -2114,6 +2159,21 @@ describe("resolveThreadRowClassName", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
     expect(className).toContain("bg-sidebar-row-active");
     expect(className).toContain("hover:bg-sidebar-row-active");
+  });
+
+  it("keeps read rows at full muted contrast and marks unread rows by weight", () => {
+    const read = resolveThreadRowClassName({ isActive: false, isSelected: false });
+    expect(read).toContain("text-sidebar-muted-foreground");
+    expect(read).not.toMatch(/text-sidebar-muted-foreground\//);
+    expect(read).toContain("font-normal");
+
+    const unread = resolveThreadRowClassName({
+      isActive: false,
+      isSelected: false,
+      isUnread: true,
+    });
+    expect(unread).toContain("font-semibold");
+    expect(unread).toContain("text-sidebar-foreground");
   });
 });
 
