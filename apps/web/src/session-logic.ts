@@ -25,8 +25,9 @@ import {
   mainAgentDiffStat,
   type WorkLogDiffStat,
 } from "@e6tools/client-runtime/work-log/diff-stat";
+import { mergeWorkStepStartedAt } from "@e6tools/client-runtime/work-log/step-meta";
 import {
-  TASK_LIST_TOOL_NAMES,
+  isTaskListToolActivity,
   taskListLabel,
   taskListStepsFromPayload,
   taskListText,
@@ -504,7 +505,7 @@ export function deriveWorkLogEntries(
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
-    if (isPlanToolActivity(activity, planUpdateTurnIds)) continue;
+    if (isTaskListToolActivity(activity, planUpdateTurnIds)) continue;
     const entry = toDerivedWorkLogEntry(activity);
     if (entry.startedAt === undefined && entry.toolCallId) {
       // The start is immutable, so stamping the cached entry is idempotent.
@@ -545,19 +546,6 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
     activity.kind === "runtime.warning" &&
     activity.summary.endsWith("(no displayable text content)")
   );
-}
-
-/** A successful todo tool call in a turn whose plan update renders it as a Tasks row. */
-function isPlanToolActivity(
-  activity: OrchestrationThreadActivity,
-  planUpdateTurnIds: ReadonlySet<string>,
-): boolean {
-  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") return false;
-  if (activity.tone === "error" || !activity.turnId || !planUpdateTurnIds.has(activity.turnId)) {
-    return false;
-  }
-  const toolName = asRecord(asRecord(activity.payload)?.data)?.toolName;
-  return typeof toolName === "string" && TASK_LIST_TOOL_NAMES.has(toolName);
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -922,10 +910,7 @@ function mergeDerivedWorkLogEntries(
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolData = next.toolData ?? previous.toolData;
   const diffStat = next.diffStat ?? previous.diffStat;
-  const startedAt =
-    previous.startedAt ??
-    next.startedAt ??
-    (previous.createdAt !== next.createdAt ? previous.createdAt : undefined);
+  const startedAt = mergeWorkStepStartedAt(previous, next);
   return {
     ...previous,
     ...next,

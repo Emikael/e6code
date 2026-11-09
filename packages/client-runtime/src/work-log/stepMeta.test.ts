@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveWorkStepMeta, resolveWorkRowStats } from "./stepMeta.ts";
+import { deriveWorkStepMeta, mergeWorkStepStartedAt, resolveWorkRowStats } from "./stepMeta.ts";
 
 describe("deriveWorkStepMeta", () => {
   const settled = {
@@ -79,5 +79,21 @@ describe("resolveWorkRowStats", () => {
     const bare = { createdAt: entry.createdAt };
     expect(resolveWorkRowStats(bare, true)).toEqual({ meta: null, inlineDiffStat: null });
     expect(resolveWorkRowStats(bare, false)).toEqual({ meta: null, inlineDiffStat: null });
+  });
+});
+
+describe("mergeWorkStepStartedAt", () => {
+  const first = { createdAt: "2026-02-23T00:00:01.000Z" };
+  const last = { createdAt: "2026-02-23T00:00:03.000Z" };
+
+  it("prefers a tool.started time from either row", () => {
+    const toolStart = "2026-02-23T00:00:00.500Z";
+    expect(mergeWorkStepStartedAt({ ...first, startedAt: toolStart }, last)).toBe(toolStart);
+    expect(mergeWorkStepStartedAt(first, { ...last, startedAt: toolStart })).toBe(toolStart);
+  });
+
+  it("falls back to the earlier row, and to nothing for a single instant", () => {
+    expect(mergeWorkStepStartedAt(first, last)).toBe(first.createdAt);
+    expect(mergeWorkStepStartedAt(first, { createdAt: first.createdAt })).toBeUndefined();
   });
 });
