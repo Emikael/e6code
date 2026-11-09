@@ -120,6 +120,23 @@ describe("ServerProvider", () => {
 
     expect(parsed.models[0]?.isLegacy).toBe(true);
   });
+
+  it("decodes picker metadata and reads values it cannot decode as absent", () => {
+    const model = { slug: "claude-opus-5", name: "Opus 5", isCustom: false, capabilities: null };
+    const parsed = decodeServerProvider({
+      ...baseProviderSnapshot,
+      models: [
+        { ...model, contextWindowTokens: 1_000_000, priceTier: 3 },
+        { ...model, slug: "future", contextWindowTokens: 0.5, priceTier: 4 },
+        model,
+      ],
+    });
+
+    expect(parsed.models[0]).toMatchObject({ contextWindowTokens: 1_000_000, priceTier: 3 });
+    expect(parsed.models[1]?.contextWindowTokens).toBeUndefined();
+    expect(parsed.models[1]?.priceTier).toBeUndefined();
+    expect(parsed.models[2]).not.toHaveProperty("priceTier");
+  });
 });
 
 describe("server config forward compatibility", () => {

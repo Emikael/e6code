@@ -55,6 +55,10 @@
       "types": "./src/mediaSource.ts",
       "default": "./src/mediaSource.ts"
     },
+    "./model-meta": {
+      "types": "./src/modelMeta.ts",
+      "default": "./src/modelMeta.ts"
+    },
     "./media-actions": {
       "types": "./src/mediaActions.ts",
       "default": "./src/mediaActions.ts"
@@ -114,6 +118,10 @@
     "./state/attachments": {
       "types": "./src/state/attachments.ts",
       "default": "./src/state/attachments.ts"
+    },
+    "./effort-segments": {
+      "types": "./src/effortSegments.ts",
+      "default": "./src/effortSegments.ts"
     },
     "./text-paste": {
       "types": "./src/textPaste.ts",

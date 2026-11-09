@@ -2892,6 +2892,102 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("shows a usage-limit pause again when it recurs after clearing in a turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "go", attachments: [] });
+      const nowMs = yield* Clock.currentTimeMillis;
+      const resetsAt = Math.floor(nowMs / 1000) + 4320;
+      const rejected = {
+        type: "rate_limit_event",
+        rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt },
+      };
+      for (const [index, message] of [
+        rejected,
+        // Streamed progress clears the pause without a recovery event.
+        {
+          type: "stream_event",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
+        },
+        {
+          type: "stream_event",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "Working" },
+          },
+        },
+        rejected,
+        // Another agent state replaces the pause.
+        {
+          type: "system",
+          subtype: "api_retry",
+          attempt: 1,
+          max_retries: 5,
+          retry_delay_ms: 1,
+          error_status: 529,
+          error: { type: "overloaded_error" },
+        },
+        rejected,
+        // While the pause still shows, a re-fire is not reported again.
+        rejected,
+      ].entries()) {
+        harness.query.emit({
+          ...message,
+          session_id: "sdk-pause-recur",
+          uuid: `pause-recur-${index}`,
+        } as unknown as SDKMessage);
+      }
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "done",
+        session_id: "sdk-pause-recur",
+        uuid: "pause-recur-result",
+      } as unknown as SDKMessage);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const pause = {
+        kind: "rate-limited" as const,
+        resetsAt: DateTime.formatIso(DateTime.makeUnsafe(resetsAt * 1000)),
+      };
+      const agentStates = events.flatMap((event) =>
+        event.type === "session.state.changed" && event.payload.agentState !== undefined
+          ? [event.payload.agentState]
+          : [],
+      );
+      assert.deepEqual(agentStates, [
+        pause,
+        pause,
+        { kind: "retrying", attempt: 1, maxAttempts: 5 },
+        pause,
+      ]);
+      // The warning row stays once per limit per turn.
+      assert.equal(events.filter((event) => event.type === "runtime.warning").length, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("names repeated usage limits without carrying them into a later turn", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -3774,7 +3870,168 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("uses per-turn result usage across consecutive Claude turns", () => {
+  it.effect("reports each Claude turn's share of the session's modelUsage totals", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const firstTurnSettled = yield* Deferred.make<void>();
+      const secondTurnSettled = yield* Deferred.make<void>();
+      const completedFiber = yield* adapter.streamEvents.pipe(
+        Stream.tap((event) =>
+          event.type === "session.state.changed" && event.payload.reason === "api_retry:1/2"
+            ? Deferred.succeed(firstTurnSettled, undefined).pipe(Effect.asVoid)
+            : event.type === "session.state.changed" && event.payload.reason === "api_retry:2/2"
+              ? Deferred.succeed(secondTurnSettled, undefined).pipe(Effect.asVoid)
+              : Effect.void,
+        ),
+        Stream.filter((event) => event.type === "turn.completed"),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const emitBarrier = (attempt: number) =>
+        harness.query.emit({
+          type: "system",
+          subtype: "api_retry",
+          attempt,
+          max_retries: 2,
+          retry_delay_ms: 1,
+          error_status: 502,
+          error: { type: "api_error" },
+          session_id: "sdk-session-consecutive-usage",
+          uuid: `consecutive-usage-barrier-${attempt}`,
+        } as unknown as SDKMessage);
+      const emitResult = (input: {
+        readonly totalCostUsd: number;
+        readonly modelUsage: Record<string, unknown>;
+      }) =>
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          duration_ms: 100,
+          duration_api_ms: 90,
+          num_turns: 1,
+          result: "done",
+          stop_reason: "end_turn",
+          session_id: "sdk-session-consecutive-usage",
+          total_cost_usd: input.totalCostUsd,
+          // Main agent loop only; modelUsage is the source when it has counts.
+          usage: { input_tokens: 1, output_tokens: 1 },
+          modelUsage: input.modelUsage,
+        } as unknown as SDKMessage);
+      const modelEntry = (counts: {
+        readonly input: number;
+        readonly output: number;
+        readonly cacheRead?: number;
+        readonly cacheCreation?: number;
+        readonly thinking?: number;
+      }) => ({
+        inputTokens: counts.input,
+        outputTokens: counts.output,
+        ...(counts.thinking !== undefined ? { thinkingTokens: counts.thinking } : {}),
+        cacheReadInputTokens: counts.cacheRead ?? 0,
+        cacheCreationInputTokens: counts.cacheCreation ?? 0,
+        webSearchRequests: 0,
+        costUSD: 0,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
+      });
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "first turn", attachments: [] });
+      emitResult({
+        totalCostUsd: 0.25,
+        modelUsage: {
+          "claude-opus-4-6": modelEntry({
+            input: 10_000,
+            output: 1_000,
+            cacheRead: 2_000,
+            cacheCreation: 500,
+            thinking: 300,
+          }),
+        },
+      });
+      emitBarrier(1);
+      yield* Deferred.await(firstTurnSettled);
+
+      // A subagent on another model adds to the session's running totals.
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "second turn", attachments: [] });
+      emitResult({
+        totalCostUsd: 0.4,
+        modelUsage: {
+          "claude-opus-4-6": modelEntry({
+            input: 20_000,
+            output: 2_000,
+            cacheRead: 4_000,
+            cacheCreation: 1_000,
+            thinking: 600,
+          }),
+          "claude-haiku-4-5": modelEntry({ input: 3_000, output: 400 }),
+        },
+      });
+      emitBarrier(2);
+      yield* Deferred.await(secondTurnSettled);
+
+      // A mid-session /clear resets the running totals.
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "third turn", attachments: [] });
+      emitResult({
+        totalCostUsd: 0.05,
+        modelUsage: {
+          "claude-opus-4-6": modelEntry({ input: 1_000, output: 100, thinking: 40 }),
+        },
+      });
+
+      const completed = Array.from(yield* Fiber.join(completedFiber));
+      const payloads = completed.flatMap((event) =>
+        event.type === "turn.completed" ? [event.payload] : [],
+      );
+      assert.equal(payloads.length, 3);
+      assert.deepEqual(payloads[0]?.tokenUsage, {
+        usageStatus: "complete",
+        usageScope: "all_agents",
+        inputTokens: 12_500,
+        outputTokens: 1_000,
+        cachedInputTokens: 2_000,
+        cacheCreationTokens: 500,
+        reasoningTokens: 300,
+        hasSubagents: false,
+      });
+      assert.deepEqual(payloads[1]?.tokenUsage, {
+        usageStatus: "complete",
+        usageScope: "all_agents",
+        inputTokens: 15_500,
+        outputTokens: 1_400,
+        cachedInputTokens: 2_000,
+        cacheCreationTokens: 500,
+        reasoningTokens: 300,
+        hasSubagents: false,
+      });
+      assert.deepEqual(payloads[2]?.tokenUsage, {
+        usageStatus: "complete",
+        usageScope: "all_agents",
+        inputTokens: 1_000,
+        outputTokens: 100,
+        cachedInputTokens: 0,
+        cacheCreationTokens: 0,
+        reasoningTokens: 40,
+        hasSubagents: false,
+      });
+      // Cost follows the same per-turn deltas and the same reset.
+      assert.equal(payloads[0]?.turnCostUsd, 0.25);
+      assert.closeTo(payloads[1]?.turnCostUsd ?? 0, 0.15, 1e-9);
+      assert.equal(payloads[2]?.turnCostUsd, 0.05);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("settles a /clear seen only in modelUsage for both tokens and cost", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -3790,47 +4047,40 @@ describe("ClaudeAdapterLive", () => {
         Stream.runCollect,
         Effect.forkChild,
       );
+      const emitResult = (totalCostUsd: number, inputTokens: number) =>
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          duration_ms: 100,
+          duration_api_ms: 90,
+          num_turns: 1,
+          result: "done",
+          stop_reason: "end_turn",
+          session_id: "sdk-session-clear-usage",
+          total_cost_usd: totalCostUsd,
+          usage: { input_tokens: 1, output_tokens: 1 },
+          modelUsage: {
+            "claude-opus-4-6": {
+              inputTokens,
+              outputTokens: 10,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+              webSearchRequests: 0,
+              costUSD: totalCostUsd,
+              contextWindow: 200_000,
+              maxOutputTokens: 64_000,
+            },
+          },
+        } as unknown as SDKMessage);
 
       yield* adapter.startSession({
         threadId: THREAD_ID,
         provider: ProviderDriverKind.make("claudeAgent"),
         runtimeMode: "full-access",
       });
-      yield* adapter.sendTurn({
-        threadId: THREAD_ID,
-        input: "first turn",
-        attachments: [],
-      });
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        duration_ms: 100,
-        duration_api_ms: 90,
-        num_turns: 1,
-        result: "first",
-        stop_reason: "end_turn",
-        session_id: "sdk-session-consecutive-usage",
-        total_cost_usd: 0.25,
-        usage: {
-          input_tokens: 100,
-          cache_read_input_tokens: 20,
-          cache_creation_input_tokens: 5,
-          output_tokens: 10,
-        },
-        modelUsage: {
-          "claude-opus-4-6": {
-            inputTokens: 10_000,
-            outputTokens: 1_000,
-            cacheReadInputTokens: 2_000,
-            cacheCreationInputTokens: 500,
-            webSearchRequests: 0,
-            costUSD: 1,
-            contextWindow: 200_000,
-            maxOutputTokens: 64_000,
-          },
-        },
-      } as unknown as SDKMessage);
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "first turn", attachments: [] });
+      emitResult(0.1, 5_000);
       harness.query.emit({
         type: "system",
         subtype: "api_retry",
@@ -3839,73 +4089,21 @@ describe("ClaudeAdapterLive", () => {
         retry_delay_ms: 1,
         error_status: 502,
         error: { type: "api_error" },
-        session_id: "sdk-session-consecutive-usage",
-        uuid: "consecutive-usage-barrier",
+        session_id: "sdk-session-clear-usage",
+        uuid: "clear-usage-barrier",
       } as unknown as SDKMessage);
       yield* Deferred.await(firstTurnSettled);
 
-      yield* adapter.sendTurn({
-        threadId: THREAD_ID,
-        input: "second turn",
-        attachments: [],
-      });
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        duration_ms: 80,
-        duration_api_ms: 70,
-        num_turns: 2,
-        result: "second",
-        stop_reason: "end_turn",
-        session_id: "sdk-session-consecutive-usage",
-        total_cost_usd: 0.4,
-        usage: {
-          input_tokens: 30,
-          cache_read_input_tokens: 2,
-          cache_creation_input_tokens: 3,
-          output_tokens: 7,
-        },
-        modelUsage: {
-          "claude-opus-4-6": {
-            inputTokens: 20_000,
-            outputTokens: 2_000,
-            cacheReadInputTokens: 4_000,
-            cacheCreationInputTokens: 1_000,
-            webSearchRequests: 0,
-            costUSD: 2,
-            contextWindow: 200_000,
-            maxOutputTokens: 64_000,
-          },
-        },
-      } as unknown as SDKMessage);
+      // After /clear the new running cost already exceeds the old one, but the
+      // token totals dropped, so the whole new total is this turn's share.
+      yield* adapter.sendTurn({ threadId: THREAD_ID, input: "second turn", attachments: [] });
+      emitResult(0.3, 2_000);
 
-      const completed = Array.from(yield* Fiber.join(completedFiber));
-      assert.equal(completed[0]?.type, "turn.completed");
-      assert.equal(completed[1]?.type, "turn.completed");
-      if (completed[0]?.type === "turn.completed" && completed[1]?.type === "turn.completed") {
-        assert.deepEqual(completed[0].payload.tokenUsage, {
-          usageStatus: "complete",
-          usageScope: "main_agent",
-          inputTokens: 125,
-          cachedInputTokens: 20,
-          cacheCreationTokens: 5,
-          outputTokens: 10,
-          hasSubagents: false,
-        });
-        assert.deepEqual(completed[1].payload.tokenUsage, {
-          usageStatus: "complete",
-          usageScope: "main_agent",
-          inputTokens: 35,
-          cachedInputTokens: 2,
-          cacheCreationTokens: 3,
-          outputTokens: 7,
-          hasSubagents: false,
-        });
-        // total_cost_usd is a running session total; each turn reports its share.
-        assert.equal(completed[0].payload.turnCostUsd, 0.25);
-        assert.closeTo(completed[1].payload.turnCostUsd ?? 0, 0.15, 1e-9);
-      }
+      const payloads = Array.from(yield* Fiber.join(completedFiber)).flatMap((event) =>
+        event.type === "turn.completed" ? [event.payload] : [],
+      );
+      assert.equal(payloads[1]?.tokenUsage?.inputTokens, 2_000);
+      assert.equal(payloads[1]?.turnCostUsd, 0.3);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

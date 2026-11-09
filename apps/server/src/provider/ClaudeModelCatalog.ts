@@ -39,6 +39,25 @@ export interface ClaudeModelCatalog {
   readonly models: ReadonlyArray<ClaudeCatalogModel>;
 }
 
+/**
+ * The context window a fresh selection of this model gets: the profile's fixed
+ * window, or the token count of its default context-window option. The picker
+ * shows it; a profile that declares neither leaves the model without one.
+ */
+function defaultContextWindowTokens(
+  model: ServerProviderModel,
+  runtime: ClaudeCodeProfile,
+): number | undefined {
+  const descriptor = getProviderOptionDescriptors({
+    caps: model.capabilities ?? EMPTY_CAPABILITIES,
+  }).find((candidate) => candidate.id === "contextWindow");
+  const option = getProviderOptionCurrentValue(descriptor);
+  const tokens =
+    runtime.fixedContextWindowTokens ??
+    (typeof option === "string" ? runtime.contextWindowTokens?.[option] : undefined);
+  return tokens !== undefined && Number.isInteger(tokens) && tokens > 0 ? tokens : undefined;
+}
+
 function tryResolveClaudeModelCatalog(manifest: ModelManifestData): ClaudeModelCatalog | null {
   const resolved = resolveProviderCatalog(manifest, CLAUDE);
   if (!resolved) return null;
@@ -48,9 +67,11 @@ function tryResolveClaudeModelCatalog(manifest: ModelManifestData): ClaudeModelC
     const profile = decodeClaudeProfileAdapter(entry.profileAdapter ?? {});
     const adapter = decodeClaudeModelAdapter(entry.adapter ?? {});
     if (Option.isNone(profile) || Option.isNone(adapter)) return null;
+    const runtime = profile.value.claudeCode ?? {};
+    const contextWindowTokens = defaultContextWindowTokens(entry.model, runtime);
     models.push({
-      model: entry.model,
-      runtime: profile.value.claudeCode ?? {},
+      model: contextWindowTokens ? { ...entry.model, contextWindowTokens } : entry.model,
+      runtime,
       compatibility: adapter.value.claudeCode ?? {},
     });
   }

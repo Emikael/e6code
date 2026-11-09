@@ -1,6 +1,8 @@
 package expo.modules.e6reviewdiff
 
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -10,6 +12,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.text.TextPaint
+import androidx.core.content.res.ResourcesCompat
 import kotlin.math.max
 import kotlin.math.min
 
@@ -30,15 +33,10 @@ internal class ReviewDiffCanvasDrawing(context: Context) {
     clearShadowLayer()
   }
 
-  private val italicCodeTypeface by lazy {
-    Typeface.create(ReviewDiffTypefaces.regular, Typeface.ITALIC)
-  }
-  private val boldItalicCodeTypeface by lazy {
-    Typeface.create(ReviewDiffTypefaces.bold, Typeface.ITALIC)
-  }
+  private val typefaces = ReviewDiffTypefaces(context)
 
   init {
-    textPaint.typeface = ReviewDiffTypefaces.regular
+    textPaint.typeface = Typeface.MONOSPACE
     uiPaint.typeface = Typeface.DEFAULT_BOLD
   }
 
@@ -155,25 +153,34 @@ internal class ReviewDiffCanvasDrawing(context: Context) {
     canvas.drawCircle(rect.centerX(), rect.bottom - rect.height() * 0.24f, density, borderPaint)
   }
 
+  /** Embedded families from the current DiffStyle; empty keeps the system fonts. */
+  private var codeFontFamily = ""
+  private var uiFontFamily = ""
+
+  fun setFontFamilies(code: String, ui: String) {
+    codeFontFamily = code
+    uiFontFamily = ui
+  }
+
   fun configureUiPaint(paint: Paint, color: Int, size: Float, weight: String) {
-    paint.typeface = if (isBoldFontWeight(weight)) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+    paint.typeface = typefaces.resolve(uiFontFamily, weight, monospace = false)
     configureTextPaint(paint, color, size)
   }
 
   fun configureMonospacePaint(color: Int, size: Float, weight: String) {
-    textPaint.typeface = ReviewDiffTypefaces.forWeight(weight)
+    textPaint.typeface = typefaces.resolve(codeFontFamily, weight, monospace = true)
     configureTextPaint(textPaint, color, size)
   }
 
   fun configureCodePaint(color: Int, fontStyle: Int, style: DiffStyle) {
     val tokenBold = fontStyle and 2 != 0
     val italic = fontStyle and 1 != 0
-    textPaint.typeface = when {
-      tokenBold && italic -> boldItalicCodeTypeface
-      tokenBold -> ReviewDiffTypefaces.bold
-      italic -> italicCodeTypeface
-      else -> ReviewDiffTypefaces.forWeight(style.codeFontWeight)
-    }
+    val typeface = typefaces.resolve(
+      style.codeFontFamily,
+      if (tokenBold) "bold" else style.codeFontWeight,
+      monospace = true,
+    )
+    textPaint.typeface = if (italic) typefaces.italic(typeface) else typeface
     configureTextPaint(textPaint, color, style.codeFontSizePx)
     textPaint.isUnderlineText = fontStyle and 4 != 0
   }
@@ -383,23 +390,97 @@ internal class ReviewDiffCanvasDrawing(context: Context) {
     backgroundPaint.shader = null
   }
 
-  private fun isBoldFontWeight(weight: String): Boolean = when (weight.lowercase()) {
-    "medium", "semibold", "semi-bold", "bold", "heavy", "black" -> true
-    else -> false
-  }
-
   private fun withAlpha(color: Int, alpha: Int): Int =
     Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
 }
 
-private object ReviewDiffTypefaces {
-  val regular: Typeface = Typeface.create("monospace", Typeface.NORMAL)
-  private val medium: Typeface = Typeface.create("monospace-medium", Typeface.NORMAL)
-  val bold: Typeface = Typeface.create("monospace", Typeface.BOLD)
+/**
+ * Typefaces for the PostScript families the app embeds with expo-font (for example
+ * `GeistMono-Regular` or `Geist-Regular`). expo-font registers each family as an
+ * `xml_<name>` font resource; faces follow `<base>-<Weight>`, so a weight uses its own
+ * family when one ships and otherwise the given family in its bold or normal style.
+ * Missing resources fall back to the system faces. Glyph width and line height are
+ * measured from the resolved typeface, so nothing assumes system monospace metrics.
+ */
+internal class ReviewDiffTypefaces(context: Context) {
+  private val context = context.applicationContext
+  private val monospaceFaces = HashMap<String, Array<Typeface?>>()
+  private val uiFaces = HashMap<String, Array<Typeface?>>()
+  private val italicFaces = HashMap<Typeface, Typeface>()
 
-  fun forWeight(weight: String): Typeface = when (weight.lowercase()) {
-    "medium", "semibold", "semi-bold" -> medium
-    "bold", "heavy", "black" -> bold
-    else -> regular
+  fun resolve(family: String, weight: String, monospace: Boolean): Typeface {
+    val weightIndex = weightIndex(weight)
+    val faces = (if (monospace) monospaceFaces else uiFaces)
+      .getOrPut(family) { arrayOfNulls(FACE_SUFFIXES.size) }
+    return faces[weightIndex] ?: load(family, weightIndex, monospace).also {
+      faces[weightIndex] = it
+    }
+  }
+
+  fun italic(typeface: Typeface): Typeface = italicFaces.getOrPut(typeface) {
+    Typeface.create(typeface, typeface.style or Typeface.ITALIC)
+  }
+
+  private fun load(family: String, weightIndex: Int, monospace: Boolean): Typeface =
+    embedded(family, weightIndex) ?: systemFallback(weightIndex, monospace)
+
+  // Per-weight family first (Geist-SemiBold), else the family with a bold style.
+  private fun embedded(family: String, weightIndex: Int): Typeface? {
+    if (family.isEmpty()) return null
+    return fontResource("${family.substringBeforeLast('-')}-${FACE_SUFFIXES[weightIndex]}")
+      ?: fontResource(family)?.let {
+        Typeface.create(it, if (weightIndex >= SEMIBOLD) Typeface.BOLD else Typeface.NORMAL)
+      }
+  }
+
+  private fun systemFallback(weightIndex: Int, monospace: Boolean): Typeface =
+    when {
+      monospace && weightIndex == BOLD -> Typeface.create("monospace", Typeface.BOLD)
+      monospace && weightIndex > REGULAR -> Typeface.create("monospace-medium", Typeface.NORMAL)
+      monospace -> Typeface.create("monospace", Typeface.NORMAL)
+      weightIndex > REGULAR -> Typeface.DEFAULT_BOLD
+      else -> Typeface.DEFAULT
+    }
+
+  // The module cannot see the app's R class, so the expo-font resource is looked up by name.
+  @SuppressLint("DiscouragedApi")
+  private fun fontResource(family: String): Typeface? {
+    val id = context.resources.getIdentifier(
+      expoFontResourceName(family),
+      "font",
+      context.packageName,
+    )
+    if (id == 0) return null
+    return try {
+      ResourcesCompat.getFont(context, id)
+    } catch (_: Resources.NotFoundException) {
+      null
+    }
+  }
+
+  private fun weightIndex(weight: String): Int = when {
+    weight.equals("medium", ignoreCase = true) -> MEDIUM
+    weight.equals("semibold", ignoreCase = true) ||
+      weight.equals("semi-bold", ignoreCase = true) -> SEMIBOLD
+    weight.equals("bold", ignoreCase = true) ||
+      weight.equals("heavy", ignoreCase = true) ||
+      weight.equals("black", ignoreCase = true) -> BOLD
+    else -> REGULAR
+  }
+
+  private companion object {
+    const val REGULAR = 0
+    const val MEDIUM = 1
+    const val SEMIBOLD = 2
+    const val BOLD = 3
+    val FACE_SUFFIXES = arrayOf("Regular", "Medium", "SemiBold", "Bold")
   }
 }
+
+/** Mirrors expo-font's config plugin: `GeistMono-Regular` becomes `xml_geist_mono_regular`. */
+internal fun expoFontResourceName(family: String): String = "xml_" + family
+  .replace(Regex("([a-z])([A-Z])"), "\$1_\$2")
+  .replace(Regex("([A-Z])([A-Z][a-z])"), "\$1_\$2")
+  .lowercase()
+  .replace(Regex("[^a-z0-9]"), "_")
+  .replace(Regex("_+"), "_")

@@ -17,6 +17,7 @@ import * as NodeOS from "node:os";
 import {
   ClaudeSettings,
   CodexSettings,
+  type ModelPriceTier,
   type ProviderInstanceConfig,
   USAGE_CONTRACT_VERSION,
   type ServerSettings as ServerSettingsValue,
@@ -39,8 +40,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import { ServerConfig } from "../config.ts";
@@ -55,6 +59,7 @@ import {
 } from "../systemOne/systemOneUsageTracker.ts";
 import {
   createOverrideRateTable,
+  lookupModelPriceTier,
   parseRateTable,
   priceUsage,
   type RateTable,
@@ -128,6 +133,17 @@ export class UsageService extends Context.Service<
       model: string,
       totals: UsageTokenTotals,
     ) => Effect.Effect<number | null>;
+    /**
+     * A price-tier lookup over the currently loaded rates and custom prices,
+     * for the model picker. Never waits on the network.
+     */
+    readonly modelPriceTiers: Effect.Effect<(model: string) => ModelPriceTier | undefined>;
+    /**
+     * Pings when `modelPriceTiers` may answer differently: a rate table was
+     * adopted from disk or fetched, or custom prices changed. The subscription
+     * is taken when this effect runs, so nothing published after it is lost.
+     */
+    readonly subscribeModelPriceTierChanges: Effect.Effect<Stream.Stream<void>, never, Scope.Scope>;
   }
 >()("e6/usage/UsageService") {}
 
@@ -156,6 +172,8 @@ export const layerTest = Layer.succeed(
       }),
     refreshRates: Effect.succeed(EMPTY_PRICING),
     estimateCostUsd: () => Effect.succeed(null),
+    modelPriceTiers: Effect.succeed(() => undefined),
+    subscribeModelPriceTierChanges: Effect.succeed(Stream.empty),
   }),
 );
 
@@ -191,6 +209,7 @@ export const make = Effect.gen(function* () {
   // One fetch at a time. A burst of refreshes from several clients waits on
   // the first fetch and then sees a table young enough to skip its own.
   const ratesLock = yield* Semaphore.make(1);
+  const ratesReplaced = yield* PubSub.unbounded<void>();
 
   const pricing = (): UsagePricing => ({
     status: ratesStatus,
@@ -213,6 +232,7 @@ export const make = Effect.gen(function* () {
     rates = parsed;
     ratesFetchedAtMs = fromDisk.fetchedAtMs;
     ratesStatus = "cached";
+    yield* PubSub.publish(ratesReplaced, undefined);
   });
 
   /**
@@ -248,6 +268,7 @@ export const make = Effect.gen(function* () {
     rates = parsed;
     ratesFetchedAtMs = now;
     ratesStatus = "fresh";
+    yield* PubSub.publish(ratesReplaced, undefined);
 
     yield* encodeRatesCache({ fetchedAtMs: now, document: fetched }).pipe(
       Effect.flatMap((serialized) => fileSystem.writeFileString(ratesCachePath, serialized)),
@@ -265,13 +286,10 @@ export const make = Effect.gen(function* () {
   let refreshingInBackground = false;
 
   /**
-   * Prices one turn's tokens at the model's rates, honoring custom prices.
-   * Never waits on the network: it prices against the loaded table (or the
-   * on-disk snapshot) and refreshes a stale table in the background.
+   * Adopts the on-disk snapshot and refreshes a stale table in the background,
+   * so callers never wait on the network.
    */
-  const estimateCostUsd: UsageService["Service"]["estimateCostUsd"] = Effect.fn(
-    "UsageService.estimateCostUsd",
-  )(function* (model, totals) {
+  const useLoadedRates = Effect.gen(function* () {
     yield* loadRatesSnapshot;
     const now = yield* Clock.currentTimeMillis;
     if (
@@ -284,6 +302,49 @@ export const make = Effect.gen(function* () {
         Effect.forkDetach,
       );
     }
+  });
+
+  const modelPriceTiers: UsageService["Service"]["modelPriceTiers"] = Effect.gen(function* () {
+    yield* useLoadedRates;
+    const settings = yield* settingsService.getSettings.pipe(Effect.option);
+    const table = rates;
+    const overrides = Option.isSome(settings)
+      ? createOverrideRateTable(settings.value.usagePriceOverrides)
+      : undefined;
+    return (model: string) => lookupModelPriceTier(table, model, overrides);
+  }).pipe(Effect.withSpan("UsageService.modelPriceTiers"));
+
+  const priceOverridesKey = (settings: ServerSettingsValue) =>
+    JSON.stringify(settings.usagePriceOverrides);
+
+  const subscribeModelPriceTierChanges: UsageService["Service"]["subscribeModelPriceTierChanges"] =
+    Effect.gen(function* () {
+      const ratesSubscription = yield* PubSub.subscribe(ratesReplaced);
+      const settingsChanges = yield* settingsService.subscribeChanges;
+      const initial = yield* settingsService.getSettings.pipe(Effect.option);
+      let previous = Option.isSome(initial) ? priceOverridesKey(initial.value) : undefined;
+      // Settings changes cover every field; only a custom-price edit moves a tier.
+      const priceOverrideChanges = settingsChanges.pipe(
+        Stream.filter((settings) => {
+          const next = priceOverridesKey(settings);
+          const changed = next !== previous;
+          previous = next;
+          return changed;
+        }),
+        Stream.map((): void => undefined),
+      );
+      return Stream.merge(Stream.fromSubscription(ratesSubscription), priceOverrideChanges);
+    });
+
+  /**
+   * Prices one turn's tokens at the model's rates, honoring custom prices.
+   * Never waits on the network: it prices against the loaded table (or the
+   * on-disk snapshot) and refreshes a stale table in the background.
+   */
+  const estimateCostUsd: UsageService["Service"]["estimateCostUsd"] = Effect.fn(
+    "UsageService.estimateCostUsd",
+  )(function* (model, totals) {
+    yield* useLoadedRates;
     const settings = yield* settingsService.getSettings.pipe(Effect.option);
     if (Option.isNone(settings)) return null;
     const priced = priceUsage(
@@ -758,7 +819,13 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(deferred);
   });
 
-  return { readSummary, refreshRates, estimateCostUsd } as const;
+  return {
+    readSummary,
+    refreshRates,
+    estimateCostUsd,
+    modelPriceTiers,
+    subscribeModelPriceTierChanges,
+  } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

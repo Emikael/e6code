@@ -6,12 +6,15 @@ import {
   type UsageProviderKind,
 } from "@e6tools/contracts";
 import {
+  ArrowDownRightIcon,
+  ArrowUpRightIcon,
   CircleAlertIcon,
   ChevronDownIcon,
   CircleDashedIcon,
+  MinusIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { refreshUsageLimits } from "@e6tools/client-runtime/state/usage";
 
 import {
@@ -19,6 +22,7 @@ import {
   isModelCostUnknown,
   type DailyTotals,
   type HourlyTotals,
+  type MergedUsage,
 } from "@e6tools/shared/usageMerge";
 
 import { isElectron } from "../../env";
@@ -60,7 +64,14 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { UsageLimitsSection } from "./UsageLimits";
+import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
+import {
+  cachedInputPercent,
+  describePeriodChange,
+  previousWindow,
+  sharePercents,
+  tokenSplit,
+} from "./usageInsights";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
@@ -116,6 +127,18 @@ export function UsagePage() {
     window,
     selectedEnvironmentIds,
   );
+  // Same query path and cache key strategy as the main window; it renders
+  // nothing until it has answered, so it never holds up the page.
+  const previous = useMemo(() => previousWindow(window), [window]);
+  const previousUsage = useUsage(previous, selectedEnvironmentIds);
+  const periodChange =
+    previousUsage.isPending || previousUsage.isPartial || previousUsage.merged.records === 0
+      ? null
+      : describePeriodChange(
+          metric === "tokens" ? merged.totalTokens : merged.costUsd,
+          metric === "tokens" ? previousUsage.merged.totalTokens : previousUsage.merged.costUsd,
+          isPast24Hours ? "24 hours" : `${windowDays} days`,
+        );
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -149,6 +172,7 @@ export function UsagePage() {
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
+  const cacheShare = cachedInputPercent(merged);
 
   const selectWindow = (days: number) => {
     if (!isUsageWindowDays(days)) return;
@@ -159,12 +183,6 @@ export function UsagePage() {
       days,
       window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
     });
-  };
-  const selectMetric = (nextMetric: UsageMetric) => {
-    if (nextMetric === "limits") setLimitsNow(Date.now());
-    const nextPreferences = { metric: nextMetric, windowDays };
-    setPreferences(nextPreferences);
-    saveUsagePagePreferences(nextPreferences);
   };
   const refreshLimits = async (automatic = false) => {
     try {
@@ -183,6 +201,15 @@ export function UsagePage() {
     } finally {
       setLimitsNow(Date.now());
     }
+  };
+  const selectMetric = (nextMetric: UsageMetric) => {
+    if (nextMetric === "limits") {
+      setLimitsNow(Date.now());
+      void refreshLimits(true);
+    }
+    const nextPreferences = { metric: nextMetric, windowDays };
+    setPreferences(nextPreferences);
+    saveUsagePagePreferences(nextPreferences);
   };
   const refreshWindow = () => {
     if (refreshingRef.current) return;
@@ -205,9 +232,14 @@ export function UsagePage() {
     ) {
       setWindowSelection({ days: windowDays, window: nextWindow });
     }
+    setLimitsNow(Date.now());
     refreshingRef.current = true;
     setIsRefreshing(true);
-    void refresh(nextWindow).finally(() => {
+    // A shown comparison must not pair a fresh total with a stale previous one.
+    void Promise.all([
+      refresh(nextWindow),
+      periodChange === null ? undefined : previousUsage.refresh(previousWindow(nextWindow)),
+    ]).finally(() => {
       refreshingRef.current = false;
       setIsRefreshing(false);
     });
@@ -225,9 +257,12 @@ export function UsagePage() {
   const autoRefreshLimits = useEffectEvent(() => {
     void refreshLimits(true);
   });
+  // Every view shows limits (Plan limits on cost and tokens), so the page asks
+  // for a fresh check on open and on reaching the Limits tab;
+  // `refreshUsageLimits` skips it while a recent one stands.
   useEffect(() => {
-    if (showingLimits && connectedLimitsEnvironments) autoRefreshLimits();
-  }, [showingLimits, connectedLimitsEnvironments]);
+    if (connectedLimitsEnvironments) autoRefreshLimits();
+  }, [connectedLimitsEnvironments]);
 
   const windowLabel =
     isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
@@ -394,6 +429,18 @@ export function UsagePage() {
                           ? formatUsd(merged.costUsd)
                           : formatTokens(merged.totalTokens)}
                       </span>
+                      {periodChange ? (
+                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                          {periodChange.direction === "same" ? (
+                            <MinusIcon className="size-3.5 shrink-0" aria-hidden />
+                          ) : periodChange.direction === "more" ? (
+                            <ArrowUpRightIcon className="size-3.5 shrink-0" aria-hidden />
+                          ) : (
+                            <ArrowDownRightIcon className="size-3.5 shrink-0" aria-hidden />
+                          )}
+                          {periodChange.text}
+                        </span>
+                      ) : null}
                       <span className="text-xs text-muted-foreground">
                         {metric !== "cost"
                           ? `${formatCount(merged.sessions)} sessions`
@@ -405,49 +452,11 @@ export function UsagePage() {
                       </span>
                     </div>
 
-                    {activeProviders.map((provider) => {
-                      const totals = merged.providers.find((entry) => entry.provider === provider);
-                      const share =
-                        metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
-                      const providerSessions = totals?.sessions ?? 0;
-                      const sessionLabel = `${formatCount(providerSessions)} ${
-                        providerSessions === 1 ? "session" : "sessions"
-                      }`;
-                      return (
-                        <div key={provider} className="flex flex-col gap-1">
-                          <div className="flex items-baseline justify-between gap-4">
-                            <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
-                              <span
-                                aria-hidden
-                                className="size-2 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor: PROVIDER_PRESENTATION[provider].color,
-                                }}
-                              />
-                              <ProviderMark provider={provider} className="size-4" />
-                              <span className="flex min-w-0 items-baseline gap-1.5">
-                                <span className="truncate">
-                                  {PROVIDER_PRESENTATION[provider].label}
-                                </span>
-                                <span className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums">
-                                  {sessionLabel}
-                                </span>
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">
-                              {metric === "cost"
-                                ? formatUsd(totals?.costUsd ?? 0)
-                                : formatTokens(totals?.totalTokens ?? 0)}
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {metric === "cost"
-                              ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
-                              : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    <ProviderShare
+                      providers={activeProviders}
+                      totals={merged.providers}
+                      metric={metric}
+                    />
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3">
@@ -469,11 +478,24 @@ export function UsagePage() {
                   </div>
                 </section>
 
+                <div className="grid gap-6 empty:hidden md:grid-cols-2">
+                  <TokenSplit totals={merged} />
+                  <UsagePlanLimits
+                    selectedEnvironmentIds={selectedEnvironmentIds}
+                    now={limitsNow}
+                    onShowDetails={() => selectMetric("limits")}
+                  />
+                </div>
+
                 <section className="flex flex-col gap-2">
                   <h2 className="text-sm font-medium text-foreground">Totals</h2>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-3 xl:grid-cols-6">
                     <Metric label="Processed tokens" value={formatTokens(merged.totalTokens)} />
                     <Metric label="Cached input" value={formatTokens(merged.cachedInputTokens)} />
+                    <Metric
+                      label="Input from cache"
+                      value={cacheShare === null ? "—" : `${cacheShare}%`}
+                    />
                     <Metric
                       label="Uncached input"
                       value={formatTokens(merged.uncachedInputTokens)}
@@ -675,6 +697,149 @@ function ProviderMark({
 }) {
   const Mark = PROVIDER_PRESENTATION[provider].mark;
   return <Mark className={cn("shrink-0", className)} aria-hidden />;
+}
+
+/**
+ * Each provider's share of the period as one stacked bar, with a legend that
+ * carries the value and percentage so identity never rests on colour alone.
+ */
+function ProviderShare({
+  providers,
+  totals,
+  metric,
+}: {
+  readonly providers: readonly UsageProviderKind[];
+  readonly totals: MergedUsage["providers"];
+  readonly metric: UsageChartMetric;
+}) {
+  const rows = providers.map((provider) => {
+    const entry = totals.find((candidate) => candidate.provider === provider);
+    return {
+      provider,
+      label: PROVIDER_PRESENTATION[provider].label,
+      costUsd: entry?.costUsd ?? 0,
+      totalTokens: entry?.totalTokens ?? 0,
+      sessions: entry?.sessions ?? 0,
+    };
+  });
+  const percents = sharePercents(
+    rows.map((row) => (metric === "cost" ? row.costUsd : row.totalTokens)),
+  );
+  if (rows.length === 0) return null;
+  const summary = `Share of ${metric === "cost" ? "cost" : "tokens"}: ${rows
+    .map((row, index) => `${row.label} ${percents[index] ?? 0}%`)
+    .join(", ")}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div role="img" aria-label={summary} className="flex h-2.5 gap-0.5">
+        {rows.map((row, index) =>
+          (percents[index] ?? 0) > 0 ? (
+            <span
+              key={row.provider}
+              className="rounded-sm"
+              style={{
+                width: `${percents[index]}%`,
+                backgroundColor: PROVIDER_PRESENTATION[row.provider].color,
+              }}
+            />
+          ) : null,
+        )}
+      </div>
+      <ul className="flex flex-col gap-3">
+        {rows.map((row, index) => (
+          <li key={row.provider} className="flex flex-col gap-0.5">
+            <span className="flex items-baseline justify-between gap-4 text-sm text-foreground">
+              <span className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-sm"
+                  style={{ backgroundColor: PROVIDER_PRESENTATION[row.provider].color }}
+                />
+                <ProviderMark provider={row.provider} className="size-4" />
+                <span className="truncate">{row.label}</span>
+              </span>
+              <span className="shrink-0 tabular-nums">
+                <span className="font-medium">
+                  {metric === "cost" ? formatUsd(row.costUsd) : formatTokens(row.totalTokens)}
+                </span>
+                <span className="text-muted-foreground"> · {percents[index] ?? 0}%</span>
+              </span>
+            </span>
+            <span className="ps-[2.625rem] text-xs text-muted-foreground tabular-nums">
+              {formatCount(row.sessions)} {row.sessions === 1 ? "session" : "sessions"} ·{" "}
+              {metric === "cost"
+                ? `${formatTokens(row.totalTokens)} tokens`
+                : formatUsd(row.costUsd)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Steps of the foreground ink: these parts are one quantity split, not
+// identities, so they share a hue and the legend names each one.
+const TOKEN_PART_FILL = {
+  uncached: "bg-foreground",
+  cacheRead: "bg-foreground/60",
+  cacheWrite: "bg-foreground/35",
+  output: "bg-foreground/15",
+} as const;
+
+/** Tokens by kind for the period. Reasoning sits inside output, so it is never a fifth part. */
+function TokenSplit({ totals }: { readonly totals: Parameters<typeof tokenSplit>[0] }) {
+  const split = tokenSplit(totals);
+  if (split.totalTokens === 0) return null;
+  const summary = `Tokens by kind: ${split.parts
+    .map((part) => `${part.label} ${part.percent}%`)
+    .join(", ")}`;
+
+  return (
+    <section aria-labelledby="usage-token-split" className="flex min-w-0 flex-col gap-3">
+      <h2 id="usage-token-split" className="text-sm font-medium text-foreground">
+        Where the tokens went
+      </h2>
+      <div role="img" aria-label={summary} className="flex h-1.5 gap-0.5">
+        {split.parts.map((part) =>
+          part.percent > 0 ? (
+            <span
+              key={part.key}
+              className={cn("rounded-sm", TOKEN_PART_FILL[part.key])}
+              style={{ width: `${part.percent}%` }}
+            />
+          ) : null,
+        )}
+      </div>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1 text-xs">
+        {split.parts.map((part) => (
+          <Fragment key={part.key}>
+            <dt className="flex min-w-0 items-center gap-2 text-foreground">
+              <span
+                aria-hidden
+                className={cn("size-2 shrink-0 rounded-sm", TOKEN_PART_FILL[part.key])}
+              />
+              <span className="truncate">{part.label}</span>
+            </dt>
+            <dd className="text-right text-muted-foreground tabular-nums">{part.percent}%</dd>
+            <dd className="text-right text-foreground tabular-nums">{formatTokens(part.tokens)}</dd>
+          </Fragment>
+        ))}
+        {split.reasoning.tokens > 0 ? (
+          <>
+            <dt className="ps-4 text-muted-foreground">of which reasoning</dt>
+            <dd className="text-right text-muted-foreground tabular-nums">
+              {split.reasoning.percentOfOutput}% of output
+            </dd>
+            <dd className="text-right text-muted-foreground tabular-nums">
+              {formatTokens(split.reasoning.tokens)}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </section>
+  );
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) {
@@ -919,15 +1084,20 @@ function UsageSkeleton() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-foreground">Totals</h2>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
-          {["Processed tokens", "Cached input", "Uncached input", "Output", "Cache savings"].map(
-            (label) => (
-              <div key={label} className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <Skeleton className="h-6 w-16" />
-              </div>
-            ),
-          )}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-3 xl:grid-cols-6">
+          {[
+            "Processed tokens",
+            "Cached input",
+            "Input from cache",
+            "Uncached input",
+            "Output",
+            "Cache savings",
+          ].map((label) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-xs text-muted-foreground">{label}</span>
+              <Skeleton className="h-6 w-16" />
+            </div>
+          ))}
         </div>
       </section>
 

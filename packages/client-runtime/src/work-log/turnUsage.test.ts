@@ -1,7 +1,12 @@
 import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { appendTurnUsage, deriveTurnUsageByTurnId, formatTurnUsage } from "./turnUsage.ts";
+import {
+  appendTurnUsage,
+  deriveTurnUsageByTurnId,
+  describeThreadUsage,
+  formatTurnUsage,
+} from "./turnUsage.ts";
 
 const activity = (
   overrides: Partial<OrchestrationThreadActivity> & Pick<OrchestrationThreadActivity, "payload">,
@@ -13,6 +18,36 @@ const activity = (
   turnId: TurnId.make("turn-1"),
   createdAt: "2026-01-01T00:00:00.000Z",
   ...overrides,
+});
+
+describe("describeThreadUsage", () => {
+  it("shows the summed cost and tokens, marking a sum with any estimate", () => {
+    expect(
+      describeThreadUsage({ totalTokens: 1_234_000, costUsd: 1.844, costSource: "reported" }),
+    ).toEqual({
+      cost: "$1.84",
+      tokens: "1.23m tokens",
+      accessibilityLabel: "This thread cost $1.84, 1.23m tokens",
+    });
+    expect(
+      describeThreadUsage({ totalTokens: 48_600, costUsd: 0.004, costSource: "estimated" }),
+    ).toEqual({
+      cost: "≈<$0.01",
+      tokens: "48.6k tokens",
+      accessibilityLabel:
+        "This thread cost about <$0.01, approximate because some turns were estimated or reported no cost, 48.6k tokens",
+    });
+  });
+
+  it("shows tokens alone without a cost, and nothing without usage", () => {
+    expect(describeThreadUsage({ totalTokens: 900 })).toEqual({
+      cost: null,
+      tokens: "900 tokens",
+      accessibilityLabel: "This thread used 900 tokens",
+    });
+    expect(describeThreadUsage({ totalTokens: 0 })).toBeNull();
+    expect(describeThreadUsage(undefined)).toBeNull();
+  });
 });
 
 describe("appendTurnUsage", () => {

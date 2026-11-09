@@ -19,6 +19,8 @@ Use `mod+shift+e` for effort, `mod+shift+a` for permissions, `mod+shift+x` for t
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
+`mod+/` steps effort through Fast, Balanced and Deep, the same steps shown next to the model on
+wider screens and in the model picker. The effort menu keeps every level the model offers.
 
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
@@ -30,12 +32,16 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
-## Copy pull request references
+## Pull request shortcuts
 
 With a PR open in the right panel or on the Pull Requests page, use `mod+shift+c`
 to copy its URL and `mod+shift+k` to copy its number with a `#` prefix.
 Both shortcuts can be changed in Settings. Search for “Copy Link or Thread ID”
 or “Copy Number”. They copy the selected PR and leave terminal input alone.
+
+While you are working in an open PR and it can be merged, `mod+Enter` opens the merge
+confirmation. It does nothing while you are typing in a text field. Change it in Settings by
+searching for “Merge”, or run **Merge pull request** from the command palette.
 
 ## iPad
 

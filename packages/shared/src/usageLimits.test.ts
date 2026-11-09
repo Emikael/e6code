@@ -3,6 +3,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
+  type ServerProviderUsageWindow,
   UsageLimitSourceId,
 } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -19,6 +20,7 @@ import {
   elapsedShare,
   formatResetsIn,
   limitsNotice,
+  mostConstrainedLimit,
   paceOf,
   providersWithLimits,
   remainingPercent,
@@ -1006,5 +1008,127 @@ describe("isUsageLimitsCommand", () => {
     expect(isUsageLimitsCommand("/usage-limits explain")).toBe(false);
     expect(isUsageLimitsCommand("Explain /usage-limits")).toBe(false);
     expect(isUsageLimitsCommand("/usage")).toBe(false);
+  });
+});
+
+describe("mostConstrainedLimit", () => {
+  const weekly = {
+    id: "seven_day",
+    kind: "weekly",
+    label: "Weekly",
+    usedPercent: 20,
+    windowDurationMins: 7 * 24 * 60,
+    resetsAt: "2026-09-08T12:00:00.000Z",
+  } as const;
+  const account = (
+    windows: ReadonlyArray<ServerProviderUsageWindow>,
+    unavailable = false,
+    who: { displayName?: string; email?: string; label?: string } = {},
+  ) => ({
+    label: "Codex [codex]",
+    ...who,
+    limits: {
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      windows,
+      ...(unavailable ? { unavailable: { reason: "probeFailed" as const } } : {}),
+    },
+  });
+
+  it("names the window with the least quota left, with its countdown and pace in words", () => {
+    const headline = mostConstrainedLimit(
+      { accounts: [account([{ ...window, usedPercent: 36 }, weekly])] },
+      "Claude",
+      now,
+    );
+    expect(headline).toMatchObject({
+      title: "Claude · 5-hour limit",
+      remainingLabel: "64% left",
+      detail: "resets in 2h 0m · under pace",
+      pace: "under",
+      warning: false,
+      accessibilityLabel: "Claude · 5-hour limit, 64% left, resets in 2h 0m · under pace",
+    });
+  });
+
+  it("picks across accounts, skips unreadable ones, and names the account it picked", () => {
+    const headline = mostConstrainedLimit(
+      {
+        accounts: [
+          account([{ ...window, usedPercent: 99 }], true, { displayName: "broken" }),
+          account([window], false, { displayName: "personal" }),
+          account([{ ...weekly, usedPercent: 40 }], false, { displayName: " work " }),
+        ],
+      },
+      "Codex",
+      now,
+    );
+    // A tie on quota left goes to the window that resets last.
+    expect(headline?.title).toBe("Codex (work) · Weekly limit");
+    expect(headline?.remainingPercent).toBe(60);
+  });
+
+  it("names an unnamed account by its email's initials, else by its report label", () => {
+    const byEmail = mostConstrainedLimit(
+      {
+        accounts: [
+          account([{ ...window, usedPercent: 90 }], false, { email: "someone@example.com" }),
+          account([weekly], false, { label: "CLI Proxy · team.json" }),
+        ],
+      },
+      "Claude",
+      now,
+    );
+    expect(byEmail?.title).toBe("Claude (SE) · 5-hour limit");
+    const byLabel = mostConstrainedLimit(
+      {
+        accounts: [
+          account([window], false, { email: "someone@example.com" }),
+          account([{ ...weekly, usedPercent: 90 }], false, { label: "CLI Proxy · team.json" }),
+        ],
+      },
+      "Claude",
+      now,
+    );
+    expect(byLabel?.title).toBe("Claude (CLI Proxy · team) · Weekly limit");
+  });
+
+  it("keeps the plain title when only one account reports limits", () => {
+    const headline = mostConstrainedLimit(
+      {
+        accounts: [
+          account([window], false, { displayName: "work" }),
+          account([weekly], true, { displayName: "broken" }),
+        ],
+      },
+      "Claude",
+      now,
+    );
+    expect(headline?.title).toBe("Claude · 5-hour limit");
+  });
+
+  it("warns when running fast or nearly spent, and says so in words", () => {
+    const fast = mostConstrainedLimit(
+      { accounts: [account([{ ...window, usedPercent: 80 }])] },
+      "Claude",
+      now,
+    );
+    expect(fast).toMatchObject({ warning: true, detail: "resets in 2h 0m · running fast" });
+    const low = mostConstrainedLimit(
+      { accounts: [account([{ id: "other", kind: "other", label: "Credits", usedPercent: 85 }])] },
+      "Claude",
+      now,
+    );
+    expect(low).toMatchObject({
+      title: "Claude · Credits limit",
+      remainingLabel: "15% left",
+      detail: "",
+      pace: null,
+      warning: true,
+    });
+  });
+
+  it("is null without any readable window", () => {
+    expect(mostConstrainedLimit({ accounts: [] }, "Claude", now)).toBeNull();
+    expect(mostConstrainedLimit({ accounts: [account([window], true)] }, "Claude", now)).toBeNull();
   });
 });

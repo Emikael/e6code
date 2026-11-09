@@ -7,6 +7,7 @@ import {
   mergePullRequestLists,
   pullRequestEntryKey,
   pullRequestEnvironmentSetKey,
+  pullRequestListSyncedAt,
   groupPullRequestsByInvolvement,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
@@ -1598,5 +1599,22 @@ describe("the priority groups against a paginated feed", () => {
     expect(
       groups.find((group) => group.key === "others")?.entries.map((row) => row.number),
     ).toEqual([6123]);
+  });
+});
+
+describe("when the list was last read", () => {
+  it("is as fresh as its stalest row", () => {
+    expect(
+      pullRequestListSyncedAt([
+        entry({ number: 1, observedAt: Date.parse("2026-07-02T10:05:00Z") }),
+        entry({ number: 2, observedAt: Date.parse("2026-07-02T10:01:00Z") }),
+        entry({ number: 3 }),
+      ]),
+    ).toBe("2026-07-02T10:01:00.000Z");
+  });
+
+  it("says nothing when no row says when it was read", () => {
+    expect(pullRequestListSyncedAt([entry({ number: 1 })])).toBeNull();
+    expect(pullRequestListSyncedAt([])).toBeNull();
   });
 });

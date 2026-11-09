@@ -1,5 +1,6 @@
 import type {
   ModelCapabilities,
+  ModelPriceTier,
   ModelSelection,
   ServerConfig as E6ServerConfig,
 } from "@e6tools/contracts";
@@ -18,6 +19,8 @@ export type ModelOption = {
   readonly isDefault: boolean;
   readonly isLegacy: boolean;
   readonly isUnavailable?: boolean;
+  readonly contextWindowTokens?: number;
+  readonly priceTier?: ModelPriceTier;
   readonly capabilities: ModelCapabilities | null;
   readonly selection: ModelSelection;
 };
@@ -27,6 +30,16 @@ export type ProviderGroup = {
   readonly providerLabel: string;
   readonly models: ReadonlyArray<ModelOption>;
 };
+
+/** The picker's context-size and price-tier details, when the server reports them. */
+function modelPickerMeta(
+  model: { readonly contextWindowTokens?: number; readonly priceTier?: ModelPriceTier } | undefined,
+): Pick<ModelOption, "contextWindowTokens" | "priceTier"> {
+  return {
+    ...(model?.contextWindowTokens ? { contextWindowTokens: model.contextWindowTokens } : {}),
+    ...(model?.priceTier ? { priceTier: model.priceTier } : {}),
+  };
+}
 
 /** Display name for a provider instance, with built-in names for unnamed defaults. */
 export function providerDisplayLabel(provider: {
@@ -177,6 +190,7 @@ export function buildModelOptions(
         providerDriver: provider.driver,
         isDefault: model.isDefault === true,
         isLegacy: model.isLegacy === true,
+        ...modelPickerMeta(model),
         capabilities: model.capabilities,
         selection: normalizeSelectionOptions(
           {
@@ -224,6 +238,7 @@ export function buildModelOptions(
         providerDriver,
         isDefault: false,
         isLegacy: model?.isLegacy === true,
+        ...modelPickerMeta(model),
         ...(isModelSelectionUnavailable(config, fallbackModelSelection)
           ? { isUnavailable: true }
           : {}),

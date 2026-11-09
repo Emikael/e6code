@@ -1311,6 +1311,27 @@ describe("composer and pull request shortcuts", () => {
     );
   }
 
+  it.each(["MacIntel", "Win32", "Linux"])(
+    "cycles effort with mod+/ on %s and leaves terminal input alone",
+    (platform) => {
+      const input = event({
+        key: "/",
+        code: "Slash",
+        metaKey: platform === "MacIntel",
+        ctrlKey: platform !== "MacIntel",
+      });
+      for (const terminalFocus of [false, true]) {
+        assert.strictEqual(
+          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+            platform,
+            context: { terminalFocus },
+          }),
+          terminalFocus ? null : "composer.cycleEffort",
+        );
+      }
+    },
+  );
+
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each([
       ["s", "thread.settle"],

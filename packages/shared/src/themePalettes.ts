@@ -1,3 +1,5 @@
+import type { StockAccent } from "@e6tools/contracts/settings";
+
 export const BUILT_IN_THEME_IDS = ["e6-chat", "grove", "ocean", "ember", "iris"] as const;
 
 /** The standard E6 Code palette, kept separate from the optional built-in theme library. */
@@ -261,6 +263,101 @@ export const E6_CODE_DARK_MOBILE_PANE_COLORS = {
   sidebarRowSelected: "#181a20",
   sidebarBorder: "#1a1c21",
 } as const satisfies Partial<ThemeColors>;
+
+/** The `primary` family one stock accent paints in one appearance. */
+export type StockAccentColors = Readonly<{
+  primary: string;
+  /** Ink on a `primary` (and `primaryHover`) fill. */
+  primaryForeground: string;
+  primaryHover: string;
+  /** Selected outlines and focus edges on Porcelain/Slate grounds. */
+  primaryEdge: string;
+  /** Accent used as text or an icon on Porcelain/Slate grounds. */
+  primaryText: string;
+}>;
+
+/**
+ * Accent swatches for the stock E6 Code theme. Iris repeats the stock
+ * tokens; every other accent keeps ink-on-fill and text-on-ground at 4.5:1
+ * or better over Porcelain's and Slate's canvas, surfaces and panes.
+ */
+export const STOCK_ACCENT_PALETTES: Readonly<
+  Record<
+    StockAccent,
+    Readonly<{ label: string; light: StockAccentColors; dark: StockAccentColors }>
+  >
+> = {
+  iris: {
+    label: "Iris",
+    light: {
+      primary: "#5b4ae0",
+      primaryForeground: "#ffffff",
+      primaryHover: "#4c3bd1",
+      primaryEdge: "#4a3ad0",
+      primaryText: "#4a3ad0",
+    },
+    dark: {
+      primary: "#9b8cff",
+      primaryForeground: "#14102e",
+      primaryHover: "#ada0ff",
+      primaryEdge: "#9b8cff",
+      primaryText: "#b9afff",
+    },
+  },
+  cobalt: {
+    label: "Cobalt",
+    // Deeper than the info/update blue and cooler than Iris, so it reads as
+    // neither.
+    light: {
+      primary: "#0d47a1",
+      primaryForeground: "#ffffff",
+      primaryHover: "#0b3d8f",
+      primaryEdge: "#0d47a1",
+      primaryText: "#0d47a1",
+    },
+    dark: {
+      primary: "#6387f6",
+      primaryForeground: "#0a1433",
+      primaryHover: "#7d9bf8",
+      primaryEdge: "#6387f6",
+      primaryText: "#9db4fa",
+    },
+  },
+  rose: {
+    label: "Rose",
+    light: {
+      primary: "#d0246f",
+      primaryForeground: "#ffffff",
+      primaryHover: "#b81d61",
+      primaryEdge: "#b81d61",
+      primaryText: "#b81d61",
+    },
+    dark: {
+      primary: "#f472b6",
+      primaryForeground: "#2e0a1c",
+      primaryHover: "#f78fc6",
+      primaryEdge: "#f472b6",
+      primaryText: "#f9a8d4",
+    },
+  },
+  graphite: {
+    label: "Graphite",
+    light: {
+      primary: "#2a2d35",
+      primaryForeground: "#ffffff",
+      primaryHover: "#14161b",
+      primaryEdge: "#2a2d35",
+      primaryText: "#2a2d35",
+    },
+    dark: {
+      primary: "#d4d7de",
+      primaryForeground: "#14161b",
+      primaryHover: "#e6e8ec",
+      primaryEdge: "#c0c4cc",
+      primaryText: "#e6e8ec",
+    },
+  },
+};
 
 export const E6_CHAT_THEME: ThemeDefinition = {
   id: "e6-chat",
