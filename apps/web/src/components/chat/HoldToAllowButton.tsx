@@ -1,13 +1,17 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { cn, isMacPlatform } from "~/lib/utils";
-import { createHoldToConfirm, HOLD_TO_CONFIRM_MS } from "./holdToConfirm";
+import {
+  approvalShortcutAppliesTo,
+  createHoldToConfirm,
+  HOLD_TO_CONFIRM_MS,
+} from "./holdToConfirm";
 
 interface HoldToAllowButtonProps {
   /** What the command would do, e.g. "Deletes files recursively". */
   reason: string;
   disabled: boolean;
-  /** Listen for a held ⌘↵ / Ctrl+↵ anywhere while this approval is showing. */
+  /** Listen for a held ⌘↵ / Ctrl+↵ from the composer or an approval card. */
   shortcutEnabled: boolean;
   onConfirm: () => void;
 }
@@ -44,6 +48,7 @@ export function HoldToAllowButton({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
       if (event.shiftKey || event.altKey || event.isComposing) return;
+      if (!approvalShortcutAppliesTo(document.activeElement, document.body)) return;
       // Claimed before the composer sees it: a held ⌘↵ must never send.
       event.preventDefault();
       event.stopPropagation();

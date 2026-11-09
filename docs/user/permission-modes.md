@@ -26,8 +26,8 @@ instructions with the rejection. Other providers receive them as your next messa
 
 Commands that are hard to undo, such as deleting your home folder, force-pushing to `main`, or
 `git reset --hard`, show what they would do and need **Hold to allow**: press and hold the button,
-or hold <kbd>⌘</kbd> <kbd>Enter</kbd> (<kbd>Ctrl</kbd> <kbd>Enter</kbd> on Windows and Linux), for
-one second. On mobile, long-press the button. These commands cannot be allowed for the whole
+or hold <kbd>⌘</kbd> <kbd>Enter</kbd> (<kbd>Ctrl</kbd> <kbd>Enter</kbd> on Windows and Linux) in the
+message box, for one second. On mobile, long-press the button. These commands cannot be allowed for the whole
 session.
 
 ## Provider differences

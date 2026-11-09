@@ -10515,7 +10515,10 @@ export default function ChatView(props: ChatViewProps) {
                       (activePendingApproval ||
                         pendingUserInputs.length > 0 ||
                         (showPlanFollowUpPrompt && activeProposedPlan)) ? (
-                        <div className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs">
+                        <div
+                          className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs"
+                          data-approval-shortcut-scope=""
+                        >
                           <div className="flex min-w-0 flex-1 items-center gap-2">
                             <span
                               aria-hidden="true"

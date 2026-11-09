@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createHoldToConfirm, HOLD_TO_CONFIRM_MS, type HoldSource } from "./holdToConfirm";
+import {
+  approvalShortcutAppliesTo,
+  createHoldToConfirm,
+  HOLD_TO_CONFIRM_MS,
+  type HoldSource,
+} from "./holdToConfirm";
 
 function harness() {
   const timers = new Map<number, { callback: () => void; ms: number }>();
@@ -80,5 +85,28 @@ describe("createHoldToConfirm", () => {
     hold.cancel();
     expect(timers.size).toBe(0);
     expect(events).toEqual(["holding", "released"]);
+  });
+});
+
+describe("approvalShortcutAppliesTo", () => {
+  // Only `closest` is consulted, so a stand-in keeps this test free of a DOM.
+  const element = (insideScope: boolean) =>
+    ({
+      closest: (selector: string) =>
+        insideScope && selector === "[data-approval-shortcut-scope]" ? {} : null,
+    }) as unknown as Element;
+  const body = element(false);
+
+  it("applies with nothing focused", () => {
+    expect(approvalShortcutAppliesTo(null, body)).toBe(true);
+    expect(approvalShortcutAppliesTo(body, body)).toBe(true);
+  });
+
+  it("applies from the composer or an approval card", () => {
+    expect(approvalShortcutAppliesTo(element(true), body)).toBe(true);
+  });
+
+  it("leaves ⌘↵ alone everywhere else", () => {
+    expect(approvalShortcutAppliesTo(element(false), body)).toBe(false);
   });
 });

@@ -6046,6 +6046,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }}
       className="mx-auto w-full min-w-0 max-w-(--chat-max-width)"
       data-chat-composer-form="true"
+      data-approval-shortcut-scope=""
     >
       {composerControlsInStrip && restingControlsHost
         ? createPortal(
@@ -6071,6 +6072,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
                 data-chat-composer-top-drawer="true"
+                data-approval-shortcut-scope=""
                 className={COMPOSER_DRAWER_ARRIVAL_CLASS}
                 variant={activePendingApproval ? "warning" : "info"}
                 density={activePendingApproval ? "spacious" : "default"}

@@ -1,8 +1,20 @@
 /** How long a destructive approval must be held before it is allowed. */
 export const HOLD_TO_CONFIRM_MS = 1000;
 
-/** What is holding: the pointer, Enter/Space on the button, or ⌘↵ anywhere. */
+/** What is holding: the pointer, Enter/Space on the button, or a held ⌘↵. */
 export type HoldSource = "pointer" | "key" | "shortcut";
+
+/** Marks the composer and approval cards, where a held ⌘↵ allows a destructive command. */
+const APPROVAL_SHORTCUT_SCOPE_ATTRIBUTE = "data-approval-shortcut-scope";
+
+/**
+ * A held ⌘↵ allows only from the composer, an approval card, or with nothing
+ * focused, so the shortcut keeps its meaning in terminals, editors and dialogs.
+ */
+export function approvalShortcutAppliesTo(focused: Element | null, body: Element | null): boolean {
+  if (focused === null || focused === body) return true;
+  return focused.closest(`[${APPROVAL_SHORTCUT_SCOPE_ATTRIBUTE}]`) !== null;
+}
 
 export interface HoldToConfirm {
   /** Starts a hold that calls `onConfirm` if it lasts the full duration. */
