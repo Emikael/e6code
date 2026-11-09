@@ -2681,6 +2681,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             message={row.message}
             showCopyButton={row.showAssistantCopyButton}
             copyStreaming={row.assistantCopyStreaming}
+            usageLabel={row.assistantUsageLabel}
           />
         ) : null}
       </div>
@@ -2700,6 +2701,7 @@ function AssistantMetaTimelineRow({
         message={row.message}
         showCopyButton={row.showAssistantCopyButton}
         copyStreaming={row.assistantCopyStreaming}
+        usageLabel={row.assistantUsageLabel}
         alwaysVisible
       />
     </div>
@@ -2711,12 +2713,15 @@ function AssistantMessageMeta({
   message,
   showCopyButton,
   copyStreaming,
+  usageLabel,
   alwaysVisible = false,
 }: {
   className?: string;
   message: ChatMessage;
   showCopyButton: boolean;
   copyStreaming: boolean;
+  /** Tokens and cost for a turn that has no "Worked for ..." row. */
+  usageLabel?: string | undefined;
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
@@ -2746,6 +2751,9 @@ function AssistantMessageMeta({
           </TooltipPopup>
         </Tooltip>
       )}
+      {usageLabel ? (
+        <p className="text-muted-foreground text-xs tabular-nums">{usageLabel}</p>
+      ) : null}
     </div>
   );
 }

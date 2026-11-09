@@ -18,6 +18,7 @@ import {
   agentSpawnSummary,
   buildPendingUserInputAnswers,
   buildThreadFeed,
+  deriveAssistantUsageLabels,
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
@@ -1930,6 +1931,74 @@ describe("buildThreadFeed", () => {
       type: "turn-fold",
       label: "Worked for 17s · 48.6k tokens · ≈$0.12",
     });
+  });
+
+  it("shows usage on the final answer only when its turn has no fold row", () => {
+    const turnId = TurnId.make("turn-1");
+    const usageActivity = makeActivity({
+      id: EventId.make("turn-usage"),
+      kind: "turn.usage",
+      tone: "info",
+      summary: "Turn usage",
+      createdAt: "2026-04-01T00:00:18.000Z",
+      turnId,
+      payload: { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" },
+    });
+    const toolActivity = makeActivity({
+      id: EventId.make("tool-completed"),
+      kind: "tool.completed",
+      tone: "tool",
+      summary: "Read files",
+      createdAt: "2026-04-01T00:00:05.000Z",
+      turnId,
+      payload: { title: "Read files", itemType: "file_read", status: "completed" },
+    });
+    const thread = makeThread({
+      id: ThreadId.make("thread-usage"),
+      projectId: ProjectId.make("project-1"),
+      title: "Usage",
+      latestTurn: {
+        turnId,
+        state: "completed",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        completedAt: "2026-04-01T00:00:18.000Z",
+        assistantMessageId: MessageId.make("assistant-final"),
+      },
+      messages: [
+        {
+          id: MessageId.make("assistant-final"),
+          role: "assistant",
+          text: "Done.",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:17.000Z",
+          updatedAt: "2026-04-01T00:00:18.000Z",
+        },
+      ],
+    });
+    const present = (activities: OrchestrationThread["activities"]) => {
+      const usage = deriveTurnUsageByTurnId(activities);
+      const feed = deriveThreadFeedPresentation(
+        buildThreadFeed({ ...thread, activities }),
+        thread.latestTurn,
+        new Set(),
+        new Set(),
+        null,
+        usage,
+      );
+      return { feed, labels: deriveAssistantUsageLabels(feed, usage) };
+    };
+
+    const withoutTools = present([usageActivity]);
+    expect(withoutTools.feed.some((entry) => entry.type === "turn-fold")).toBe(false);
+    expect([...withoutTools.labels]).toEqual([["assistant-final", "48.6k tokens · $0.12"]]);
+
+    const withTools = present([toolActivity, usageActivity]);
+    expect(withTools.feed.find((entry) => entry.type === "turn-fold")).toMatchObject({
+      label: "Worked for 17s · 48.6k tokens · $0.12",
+    });
+    expect(withTools.labels.size).toBe(0);
   });
 
   it("folds assistant messages between the first and terminal messages", () => {
