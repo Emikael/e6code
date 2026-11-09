@@ -37,7 +37,7 @@ import { ProviderInstanceIcon } from "../../components/ProviderIcon";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
-import { formatUpcomingTimestamp, relativeTime } from "../../lib/time";
+import { relativeTime } from "../../lib/time";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useThreadPr } from "../../state/use-thread-pr";
@@ -45,6 +45,7 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  formatResetClockTime,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
@@ -81,11 +82,6 @@ const STATUS_LABEL_BY_STATUS: Partial<
   working: { label: "Working", className: "text-info-foreground" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
-
-/** Usage-limit reset worded like web's: `2:20 PM`, `tomorrow at 2:20 PM`. */
-function formatResetTime(resetsAt: string): string {
-  return formatUpcomingTimestamp(resetsAt, "locale");
-}
 
 function threadTimeLabel(thread: EnvironmentThreadShell): string {
   return relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
@@ -574,7 +570,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           formatRunningThreadStatus({
             agentState: thread.agentState,
             planProgress: thread.planProgress,
-            formatResetTime,
+            formatResetTime: formatResetClockTime,
           }),
         )
       : statusLabel?.label;

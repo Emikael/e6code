@@ -120,6 +120,21 @@ export interface ThreadFeedActivity {
  */
 export type ThreadTimelineStep = "only" | "first" | "middle" | "last";
 
+/**
+ * The rail piece one row of a timeline group draws. The group's step says
+ * whether the rail enters above it and leaves below it; inside the group only
+ * its first row can start the rail and only its last row can end it.
+ */
+export function timelineRowStep(
+  groupStep: ThreadTimelineStep,
+  index: number,
+  count: number,
+): ThreadTimelineStep {
+  const startsHere = index === 0 && (groupStep === "first" || groupStep === "only");
+  const endsHere = index === count - 1 && (groupStep === "last" || groupStep === "only");
+  return startsHere ? (endsHere ? "only" : "first") : endsHere ? "last" : "middle";
+}
+
 export interface WorkLogEntry {
   readonly questionAnswer?: UserInputAttachmentAnswerPayload;
   id: string;
@@ -2260,10 +2275,15 @@ function appendMixedActivityRun(
  * thought after it means the agent moved on.
  */
 function timelineHistory(
-  history: ReadonlyArray<ThreadFeedEntry>,
+  allHistory: ReadonlyArray<ThreadFeedEntry>,
   live: boolean,
   unsettledTurnId: TurnId | null,
 ): ThreadFeedEntry[] {
+  // A group whose calls are all hidden renders nothing, so it must not take a
+  // step: its neighbour's rail would run on to a dot that never draws.
+  const history = allHistory.filter(
+    (entry) => entry.type !== "activity-group" || entry.activities.length > 0,
+  );
   const trailing = history.at(-1);
   const runningId =
     live && trailing?.type === "activity-group"

@@ -1,5 +1,5 @@
 import { memo, useId } from "react";
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { ScopedTheme, ScopedVariables } from "uniwind";
 
@@ -263,7 +263,7 @@ function ModeCard(props: {
       className={cn(
         "min-w-0 flex-1 gap-2 rounded-[24px] p-2 active:scale-[0.97]",
         props.selected
-          ? "border-2 border-primary bg-subtle"
+          ? "border-2 border-primary-edge bg-subtle"
           : "border border-border bg-grouped-card",
       )}
       disabled={props.disabled}
@@ -303,12 +303,13 @@ function AccentSwatch(props: {
       className={cn(
         "h-11 flex-row items-center gap-2 rounded-full px-3 active:scale-[0.97]",
         props.selected
-          ? "border-2 border-primary bg-subtle"
+          ? "border-2 border-primary-edge bg-subtle"
           : "border border-border bg-grouped-card",
         props.disabled && "opacity-60",
       )}
       disabled={props.disabled}
       onPress={props.onPress}
+      style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
     >
       <View
         className="size-4 rounded-full border border-border"

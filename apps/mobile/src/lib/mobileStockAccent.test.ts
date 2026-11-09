@@ -34,6 +34,29 @@ describe("getStockAccentVariableOverrides", () => {
     }
   });
 
+  it.each(APPEARANCES)(
+    "generates the stock palette with Iris's shared values in %s",
+    (appearance) => {
+      // Text and links must not shift when another accent is picked and back, and must match web.
+      const iris = STOCK_ACCENT_PALETTES.iris[appearance];
+      for (const platform of ["ios", "android"]) {
+        const variables = getMobileThemeRuntimeVariables(
+          DEFAULT_MOBILE_THEME_ID,
+          appearance,
+          platform,
+        );
+        expect(variables).toMatchObject({
+          "--color-primary": iris.primary,
+          "--color-primary-foreground": iris.primaryForeground,
+          "--color-primary-text": iris.primaryText,
+          "--color-primary-edge": iris.primaryEdge,
+          "--color-md-link": iris.primaryText,
+          "--color-user-bubble-skill-foreground": iris.primaryText,
+        });
+      }
+    },
+  );
+
   it("replaces only the primary family on the stock palette", () => {
     const overrides = getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, "cobalt", "light");
     const cobalt = STOCK_ACCENT_PALETTES.cobalt.light;
@@ -41,6 +64,7 @@ describe("getStockAccentVariableOverrides", () => {
       "--color-primary": cobalt.primary,
       "--color-primary-foreground": cobalt.primaryForeground,
       "--color-primary-text": cobalt.primaryText,
+      "--color-primary-edge": cobalt.primaryEdge,
       "--color-focus": cobalt.primary,
       "--color-switch-active-track": cobalt.primary,
       "--color-switch-active-thumb": cobalt.primaryForeground,
@@ -54,7 +78,7 @@ describe("getStockAccentVariableOverrides", () => {
     }
   });
 
-  describe.each(StockAccent.literals.filter((accent) => accent !== "iris"))("%s", (accent) => {
+  describe.each(StockAccent.literals)("%s", (accent) => {
     it.each(APPEARANCES)("keeps accent text readable on mobile surfaces in %s", (appearance) => {
       for (const platform of ["ios", "android"]) {
         const variables = {

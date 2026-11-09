@@ -1,3 +1,7 @@
+import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
 import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
 import {
   effectiveSnoozed,
@@ -10,6 +14,7 @@ import type { SnoozePreset } from "@e6tools/client-runtime/state/thread-settled"
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
+import { formatUpcomingTimestamp } from "../../lib/time";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
@@ -156,6 +161,50 @@ export function resolveThreadListV2Status(
     return "failed";
   }
   return "ready";
+}
+
+/** Usage-limit reset worded like web's: `2:20 PM`, `tomorrow at 2:20 PM`. */
+export function formatResetClockTime(resetsAt: string): string {
+  return formatUpcomingTimestamp(resetsAt, "locale");
+}
+
+/**
+ * The open thread's status in words for its header, worded like web's header
+ * pill: "Needs approval", "Needs your answer", "Working · step 4 of 6",
+ * "Paused · resets 14:20", "Failed". A resting thread reads Done only after a
+ * completed turn; a fresh or stopped thread has no status.
+ */
+export function resolveThreadHeaderStatusText(
+  thread: Pick<
+    EnvironmentThreadShell,
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "session"
+    | "agentState"
+    | "latestTurn"
+    | "planProgress"
+  >,
+  formatResetTime: (resetsAt: string) => string = formatResetClockTime,
+): string | null {
+  switch (resolveThreadListV2Status(thread)) {
+    case "approval":
+      return "Needs approval";
+    case "input":
+      return "Needs your answer";
+    case "paused":
+    case "working":
+      return joinThreadRowStatus(
+        formatRunningThreadStatus({
+          agentState: thread.agentState,
+          planProgress: thread.planProgress,
+          formatResetTime,
+        }),
+      );
+    case "failed":
+      return "Failed";
+    case "ready":
+      return thread.latestTurn?.state === "completed" ? "Done" : null;
+  }
 }
 
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not

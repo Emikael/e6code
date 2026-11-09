@@ -96,6 +96,7 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { resolveThreadHeaderStatusText } from "./threadListV2";
 import { useThreadSubagentPanelModel } from "./ThreadInspectorSheet";
 import { inspectorButtonAccessibilityLabel } from "./thread-inspector-lineage";
 
@@ -509,8 +510,12 @@ function ThreadRouteContent(
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
   // Like web's header, the machine is named with its connection state in
   // words: remote work makes the connection part of the thread's context.
+  // The status leads in words, as in web's header pill, then the branch; the
+  // native subtitle is one line and truncates from the end.
   const headerEnvironmentLabel = selectedEnvironmentConnection?.environmentLabel ?? null;
   const headerSubtitle = [
+    selectedThread ? resolveThreadHeaderStatusText(selectedThread) : null,
+    selectedThread?.branch ?? null,
     selectedThreadProject?.title ?? null,
     headerEnvironmentLabel,
     headerEnvironmentLabel ? connectionTone(routeConnectionState).label : null,

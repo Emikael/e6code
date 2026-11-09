@@ -64,6 +64,7 @@ import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import { providerDisplayLabel } from "../../lib/modelOptions";
+import { useMinuteClock } from "../../lib/useMinuteClock";
 import { uuidv4 } from "../../lib/uuid";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useEnvironmentServerConfig } from "../../state/entities";
@@ -202,7 +203,8 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
         <Pressable
           accessibilityLabel="Close overview"
           accessibilityRole="button"
-          hitSlop={4}
+          // Android's 48dp target around the 31.5dp circle.
+          hitSlop={Platform.OS === "android" ? 9 : 4}
           onPress={() => navigation.goBack()}
           className="h-9 w-9 items-center justify-center rounded-full bg-subtle active:bg-subtle-strong"
         >
@@ -478,10 +480,10 @@ function SourceControlCard(props: {
             <Text className="min-w-0 flex-1 text-base text-foreground">Changes</Text>
             {status !== null ? (
               <>
-                <Text className="text-sm tabular-nums text-adaptive-emerald-700-300">
+                <Text className="text-sm tabular-nums text-diff-addition">
                   +{status.workingTree.insertions}
                 </Text>
-                <Text className="text-sm tabular-nums text-adaptive-rose-700-300">
+                <Text className="text-sm tabular-nums text-diff-deletion">
                   −{status.workingTree.deletions}
                 </Text>
               </>
@@ -561,16 +563,6 @@ const PACE_SYMBOL = {
   under: "arrow.down",
 } as const satisfies Record<LimitPace, AppSymbolName>;
 
-/** The current UTC minute, refreshed once a minute while mounted. */
-function useMinuteNow(): number {
-  const [minute, setMinute] = useState(() => new Date().toISOString().slice(0, 16));
-  useEffect(() => {
-    const id = setInterval(() => setMinute(new Date().toISOString().slice(0, 16)), 60_000);
-    return () => clearInterval(id);
-  }, []);
-  return Date.parse(`${minute}:00.000Z`);
-}
-
 /**
  * What the thread has cost across all its turns, summed by the server, and
  * the provider limit it is closest to. Either row is left out when the
@@ -583,7 +575,10 @@ function UsageCard(props: {
   readonly usageTotal: ThreadUsageTotal | undefined;
 }) {
   const serverConfig = useEnvironmentServerConfig(props.environmentId);
-  const now = useMinuteNow();
+  // The shared clock ticks only once the limit shows a countdown or pace;
+  // the flag is adjusted during render to follow the limit computed below.
+  const [countdownShown, setCountdownShown] = useState(false);
+  const now = useMinuteClock(countdownShown);
   const usage = describeThreadUsage(props.usageTotal);
   const limit = useMemo(() => {
     if (props.providerInstanceId === null || !serverConfig) return null;
@@ -602,6 +597,8 @@ function UsageCard(props: {
       ? mostConstrainedLimit(report, providerDisplayLabel(provider), now)
       : null;
   }, [now, props.providerInstanceId, serverConfig]);
+  const limitHasCountdown = Boolean(limit?.detail);
+  if (countdownShown !== limitHasCountdown) setCountdownShown(limitHasCountdown);
   if (!usage && !limit) return null;
 
   return (
@@ -691,12 +688,8 @@ function LineCounts(props: {
   if (props.additions === null || props.deletions === null) return null;
   return (
     <>
-      <Text className="shrink-0 text-sm tabular-nums text-adaptive-emerald-700-300">
-        +{props.additions}
-      </Text>
-      <Text className="shrink-0 text-sm tabular-nums text-adaptive-rose-700-300">
-        −{props.deletions}
-      </Text>
+      <Text className="shrink-0 text-sm tabular-nums text-diff-addition">+{props.additions}</Text>
+      <Text className="shrink-0 text-sm tabular-nums text-diff-deletion">−{props.deletions}</Text>
     </>
   );
 }
@@ -756,6 +749,7 @@ function ChangedFilesList(props: {
           accessibilityRole="button"
           accessibilityState={{ expanded: showAll }}
           onPress={() => setShowAll((value) => !value)}
+          style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
           className="min-h-11 justify-center self-start"
         >
           <Text className="font-e6-medium text-sm text-foreground-muted">
@@ -881,6 +875,7 @@ const LineageRow = memo(function LineageRow(props: {
       accessibilityState={{ disabled: stop.pending }}
       disabled={stop.pending}
       onPress={() => stop.onStop(agent.id)}
+      style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
       className={cn(
         "min-h-11 flex-row items-center gap-2 pr-4 pb-2 active:opacity-70",
         row.depth === 1 ? "pl-24" : "pl-14",

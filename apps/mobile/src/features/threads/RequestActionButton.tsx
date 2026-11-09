@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { Pressable } from "react-native";
+import { Platform, Pressable } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
@@ -27,6 +27,8 @@ export function RequestActionButton({
         size === "large" ? "rounded-2xl px-4 py-3.5" : "rounded-[14px] px-3.5 py-3",
         tone === "primary" ? "bg-primary" : tone === "danger" ? "bg-danger" : "bg-subtle-strong",
       )}
+      // Android asks for 48dp touch targets; the default padding lands near 40.
+      style={Platform.OS === "android" ? { minHeight: 48 } : undefined}
     >
       <Text
         className={cn(
