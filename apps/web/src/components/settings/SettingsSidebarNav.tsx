@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  ArrowLeftIcon,
   BlocksIcon,
   BotIcon,
   createLucideIcon,
@@ -55,9 +56,12 @@ import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchIte
 import { validateSettingsScopeSearch } from "./settingsScope";
 import {
   groupSettingsNavItems,
+  SETTINGS_DETAIL_PAGES,
+  SETTINGS_OVERLAY_SELECTOR,
   settingsConnectionsBadge,
   settingsProvidersBadge,
 } from "./settingsNavGroups";
+import { useSettingsBackNavigation } from "./useSettingsBackNavigation";
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -101,11 +105,9 @@ const SETTINGS_SECTION_ICONS: Readonly<
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsPath;
-  icon: ComponentType<{ className?: string }>;
 }> = (Object.keys(SETTINGS_SECTION_LABELS) as SettingsPath[]).map((to) => ({
   to,
   label: SETTINGS_SECTION_LABELS[to],
-  icon: SETTINGS_SECTION_ICONS[to],
 }));
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
@@ -131,6 +133,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const providersBadge = useMemo(() => settingsProvidersBadge(providers), [providers]);
   const connectionsBadge = useMemo(() => settingsConnectionsBadge(environments), [environments]);
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
+  const navigateBack = useSettingsBackNavigation();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(0);
@@ -163,7 +166,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           target.isContentEditable ||
           // Keep focus inside open dialogs and popups instead of escaping
           // their focus trap into the sidebar search.
-          target.closest('[role="dialog"], [aria-modal="true"], [data-slot$="popup"]') !== null)
+          target.closest(SETTINGS_OVERLAY_SELECTOR) !== null)
       ) {
         return;
       }
@@ -253,8 +256,26 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     <>
       <SidebarContent className="overflow-x-hidden">
         <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
-          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
-            <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
+          <button
+            type="button"
+            onClick={() => {
+              if (isMobile) setOpenMobile(false);
+              navigateBack();
+            }}
+            aria-keyshortcuts="Escape"
+            className="flex h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 text-left text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowLeftIcon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Threads</span>
+            <Kbd className="h-[18px] rounded-sm border border-sidebar-border bg-transparent px-1.5 font-mono text-[11px] font-normal text-sidebar-muted-foreground">
+              esc
+            </Kbd>
+          </button>
+          <div className="flex h-[34px] items-center gap-2 rounded-[10px] border border-input bg-surface-raised px-2.5 text-sm text-sidebar-muted-foreground focus-within:ring-2 focus-within:ring-ring">
+            <SearchIcon
+              aria-hidden
+              className="size-[15px] shrink-0 text-sidebar-muted-foreground"
+            />
             <Input
               ref={searchInputRef}
               nativeInput
@@ -266,7 +287,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 setActiveResultIndex(0);
               }}
               onKeyDown={handleSearchKeyDown}
-              placeholder="Search"
+              placeholder={`Search ${searchableItems.length} settings`}
               aria-label="Search settings"
               role="combobox"
               aria-autocomplete="list"
@@ -277,7 +298,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   ? `settings-search-result-${results[activeResultIndex].id}`
                   : undefined
               }
-              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
+              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
             />
             {isSearching ? (
               <Button
@@ -339,25 +360,22 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               ))}
             </SidebarMenu>
           ) : (
-            <nav aria-label="Settings sections" className="flex flex-col gap-3">
+            <nav aria-label="Settings sections" className="flex flex-col gap-3.5 pt-1">
               {navGroups.map((group) => {
                 const headingId = `settings-nav-group-${group.label.toLowerCase()}`;
                 return (
                   <section key={group.label} aria-labelledby={headingId}>
                     <h2
                       id={headingId}
-                      className="px-[var(--sidebar-row-content-inset)] pb-1 text-[11px] font-medium text-sidebar-muted-foreground"
+                      className="px-2 pb-1 text-xs font-semibold text-sidebar-muted-foreground"
                     >
                       {group.label}
                     </h2>
-                    <SidebarMenu className="ps-px">
+                    <SidebarMenu className="gap-px">
                       {group.items.map((item) => {
-                        const Icon = item.icon;
-                        const isGeneralDetailPage =
-                          item.to === "/settings/general" &&
-                          pathname === "/settings/open-source-licenses";
+                        const isDetailPage = SETTINGS_DETAIL_PAGES[pathname]?.parent === item.to;
                         const isActive =
-                          isGeneralDetailPage ||
+                          isDetailPage ||
                           pathname === item.to ||
                           pathname.startsWith(`${item.to}/`);
                         const badge =
@@ -370,16 +388,17 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                           <SidebarMenuItem key={item.to}>
                             <SidebarMenuButton
                               isActive={isActive}
+                              aria-current={isActive ? "page" : undefined}
                               onClick={() => handleSectionClick(item.to)}
+                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-border"
                             >
-                              <Icon />
                               <span className="min-w-0 flex-1 truncate">{item.label}</span>
                               {badge ? (
                                 <span
                                   className={cn(
-                                    "shrink-0 text-[11px] font-medium tabular-nums",
+                                    "shrink-0 font-mono text-[11px] tabular-nums",
                                     badge.tone === "warning"
-                                      ? "rounded-sm bg-warning-surface px-1.5 py-px text-warning-foreground"
+                                      ? "flex h-5 items-center rounded-sm bg-warning-surface px-1.5 font-medium text-warning-foreground"
                                       : "text-sidebar-muted-foreground",
                                   )}
                                 >

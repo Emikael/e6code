@@ -1,9 +1,9 @@
 # Appearance and themes
 
-On web and desktop, open **Settings → Appearance** to choose a theme and follow the system
-appearance or stay in light or dark mode. To use different themes for light and dark mode, select
-the corresponding preview within each theme. Appearance preferences are saved separately on each
-device or browser.
+On web and desktop, open **Settings → Appearance** and pick **Match system** to follow the system
+appearance, or stay in light (Porcelain) or dark (Slate) mode. Other themes are under
+**More themes**; to use different themes for light and dark mode, select the corresponding preview
+within each theme. Appearance preferences are saved separately on each device or browser.
 
 **Accent** in the same section sets the color of the next action and a working agent: Iris,
 Cobalt, Rose, or Graphite. It applies to the stock E6 Code theme only; other themes bring their

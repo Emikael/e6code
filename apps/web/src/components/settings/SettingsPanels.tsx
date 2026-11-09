@@ -1,8 +1,10 @@
 import { SettingsGroup } from "./SettingsGroup";
+import { Radio as RadioPrimitive } from "@base-ui/react/radio";
+import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
 import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -156,7 +158,7 @@ import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ThemeLibrary } from "./ThemeSettings";
+import { AppearanceModeCards, ThemeLibrary } from "./ThemeSettings";
 import { StockAccentSetting } from "./StockAccentSetting";
 import { isStockThemeActive } from "../../stockAccent";
 import {
@@ -180,6 +182,7 @@ import {
   SettingResetButton,
   SettingsPageContainer,
   SettingsRow,
+  SettingsSearchTarget,
   SettingsSection,
   useSettingsSearchTarget,
   useSettingsSearchTargetId,
@@ -219,10 +222,11 @@ const EFFORT_DISPLAY_LABELS: Record<EffortDisplay, string> = {
 };
 
 const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
-  comfortable: "Comfortable",
+  comfortable: "Standard",
   wide: "Wide",
   full: "Full",
 };
+const CHAT_WIDTHS = Object.keys(CHAT_WIDTH_LABELS) as ChatWidth[];
 
 const DIFF_LAYOUT_LABELS: Record<DiffLayout, string> = {
   stacked: "Stacked",
@@ -1306,6 +1310,7 @@ export function AppearanceSettingsPanel() {
   } = useTheme();
   const customThemes = useCustomThemes();
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
+  const [typographyAdvanced, setTypographyAdvanced] = useTypographyAdvanced();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const environmentStageLabel = useEnvironmentStageLabel();
@@ -1334,31 +1339,85 @@ export function AppearanceSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="appearance" title="Colors & themes" variant="plain" hideTitle>
-        <div id={searchableSetting("theme").id}>
-          <ThemeLibrary
-            appearanceMode={appearanceMode}
-            customThemes={customThemes}
-            initialAppearance={resolvedTheme}
-            refreshTheme={refreshTheme}
-            isImportOpen={isImportThemeOpen}
-            setAppearanceMode={setAppearanceMode}
-            setTheme={setTheme}
-            setThemeHalf={setThemeHalf}
-            theme={theme}
-            themeHalves={themeHalves}
-            onImportOpenChange={setIsImportThemeOpen}
-          />
-        </div>
+      <SettingsSection id="appearance" title="Theme" variant="plain">
+        <AppearanceModeCards
+          appearanceMode={appearanceMode}
+          setAppearanceMode={setAppearanceMode}
+          theme={theme}
+          themeHalves={themeHalves}
+        />
       </SettingsSection>
 
-      <SettingsSection id="appearance-interface" title="Interface">
-        <StockAccentSetting
-          value={settings.stockAccent}
-          appearance={resolvedTheme}
-          stockThemeActive={isStockThemeActive(theme, themeHalves, resolvedTheme)}
-          onChange={(stockAccent) => updateSettings({ stockAccent })}
+      <StockAccentSetting
+        value={settings.stockAccent}
+        appearance={resolvedTheme}
+        stockThemeActive={isStockThemeActive(theme, themeHalves, resolvedTheme)}
+        onChange={(stockAccent) => updateSettings({ stockAccent })}
+      />
+
+      <SettingsSection id="reading" title="Reading">
+        <InterfaceFontRow {...(typographyAdvanced ? {} : { preview: <PromptFontPreview /> })} />
+        <SettingsRow
+          {...searchableSetting("chat-width")}
+          description="How wide messages and the composer grow on large screens."
+          resetAction={
+            settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? (
+              <SettingResetButton
+                label="chat width"
+                onClick={() => updateSettings({ chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth })}
+              />
+            ) : null
+          }
+          control={
+            <RadioGroupPrimitive
+              aria-label="Chat width"
+              value={settings.chatWidth}
+              onValueChange={(value) => {
+                const chatWidth = CHAT_WIDTHS.find((candidate) => candidate === value);
+                if (chatWidth) updateSettings({ chatWidth });
+              }}
+              className="flex gap-0.5 rounded-[9px] bg-surface-well p-[3px]"
+            >
+              {CHAT_WIDTHS.map((chatWidth) => (
+                <RadioPrimitive.Root
+                  key={chatWidth}
+                  value={chatWidth}
+                  className="h-7 cursor-pointer rounded-md px-3 text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-surface-raised data-checked:text-foreground data-checked:shadow-xs/10 data-checked:ring-1 data-checked:ring-border"
+                >
+                  {CHAT_WIDTH_LABELS[chatWidth]}
+                </RadioPrimitive.Root>
+              ))}
+            </RadioGroupPrimitive>
+          }
         />
+        <SettingsRow
+          {...searchableSetting("thinking-timeline")}
+          description="Show an opened work log as a timeline, with each step's duration and line changes."
+          resetAction={
+            settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline ? (
+              <SettingResetButton
+                label="thinking timeline"
+                onClick={() =>
+                  updateSettings({
+                    showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showThinkingTimeline}
+              onCheckedChange={(checked) =>
+                updateSettings({ showThinkingTimeline: Boolean(checked) })
+              }
+              aria-label="Show the thinking timeline"
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection id="appearance-interface" title="Advanced">
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
@@ -1545,38 +1604,6 @@ export function AppearanceSettingsPanel() {
           }
         />
         <SettingsRow
-          {...searchableSetting("chat-width")}
-          description="Set how wide messages and the composer can grow on large screens."
-          resetAction={
-            settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? (
-              <SettingResetButton
-                label="chat width"
-                onClick={() => updateSettings({ chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth })}
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full sm:w-40">
-              <Select
-                value={settings.chatWidth}
-                onValueChange={(value) => {
-                  if (value === "comfortable" || value === "wide" || value === "full")
-                    updateSettings({ chatWidth: value });
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Chat width">
-                  <SelectValue>{CHAT_WIDTH_LABELS[settings.chatWidth]}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem value="comfortable">Comfortable (default)</SelectItem>
-                  <SelectItem value="wide">Wide</SelectItem>
-                  <SelectItem value="full">Full</SelectItem>
-                </SelectPopup>
-              </Select>
-            </div>
-          }
-        />
-        <SettingsRow
           {...searchableSetting("effort-display")}
           description="Show reasoning effort in the composer as its name, such as High, or as bars."
           resetAction={
@@ -1609,32 +1636,22 @@ export function AppearanceSettingsPanel() {
             </div>
           }
         />
-        <SettingsRow
-          {...searchableSetting("thinking-timeline")}
-          description="Show an opened work log as a timeline, with each step's duration and line changes."
-          resetAction={
-            settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline ? (
-              <SettingResetButton
-                label="thinking timeline"
-                onClick={() =>
-                  updateSettings({
-                    showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.showThinkingTimeline}
-              onCheckedChange={(checked) =>
-                updateSettings({ showThinkingTimeline: Boolean(checked) })
-              }
-              aria-label="Show the thinking timeline"
-            />
-          }
-        />
       </SettingsSection>
+
+      <SettingsSearchTarget id={searchableSetting("theme").id} className="outline-none">
+        <ThemeLibrary
+          appearanceMode={appearanceMode}
+          customThemes={customThemes}
+          initialAppearance={resolvedTheme}
+          refreshTheme={refreshTheme}
+          isImportOpen={isImportThemeOpen}
+          setTheme={setTheme}
+          setThemeHalf={setThemeHalf}
+          theme={theme}
+          themeHalves={themeHalves}
+          onImportOpenChange={setIsImportThemeOpen}
+        />
+      </SettingsSearchTarget>
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow
@@ -1690,7 +1707,7 @@ export function AppearanceSettingsPanel() {
         />
       </SettingsSection>
 
-      <TypographySection />
+      <TypographySection advanced={typographyAdvanced} onAdvancedChange={setTypographyAdvanced} />
     </SettingsPageContainer>
   );
 }
@@ -1914,10 +1931,10 @@ function WordWrapRow() {
   );
 }
 
+/** The per-surface rows; the interface font sits in Reading at the top of the page. */
 function FontSettingsGroup() {
   return (
     <>
-      <InterfaceFontRow />
       <PromptFontRow />
       <CodeFontRow />
       <TerminalFontRow />
@@ -1927,15 +1944,14 @@ function FontSettingsGroup() {
 }
 
 /**
- * The two-font view: one sans, one monospace. The prompt follows the
- * interface font and the terminal follows the monospace font, so the demos
- * under each row show every surface the choice reaches.
+ * The two-font view: one sans (in Reading, where its demo shows the prompt
+ * that follows it), one monospace here. The terminal follows the monospace
+ * font, so the demos under the row show every surface the choice reaches.
  */
 function SimpleFontRows() {
   const settings = useScopedSettings();
   return (
     <>
-      <InterfaceFontRow preview={<PromptFontPreview />} />
       <CodeFontRow
         title="Monospace font"
         description="Code blocks, diffs, file previews, and the terminal."
@@ -1972,19 +1988,21 @@ const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The two-font view by default - one sans, one monospace, each cascading to
- * every surface it reaches - with an Advanced switch in the section header
- * that reveals the per-surface override rows. The choice persists locally,
- * and a settings-search jump to an override row flips Advanced on so the
- * target exists to scroll to.
+ * Whether Typography shows the per-surface override rows. The choice
+ * persists locally, and a settings-search jump to an override row flips it on
+ * so the target exists to scroll to.
  */
-function TypographySection() {
+function useTypographyAdvanced() {
   const [advanced, setAdvanced] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
     Schema.Boolean,
   );
-  const searchTargetId = useSettingsSearchTargetId();
+  // Read from the URL: the page calls this above the container that provides
+  // the search-target context.
+  const searchTargetId = useLocation({
+    select: (location) => location.hash.replace(/^#/, "") || null,
+  });
   // Flip Advanced on once per search jump so the hidden target can mount and
   // scroll; tracking the handled id lets the user turn it back off without
   // the still-set target immediately re-expanding the section.
@@ -1995,6 +2013,21 @@ function TypographySection() {
     lastExpandedTargetRef.current = searchTargetId;
     setAdvanced(true);
   }, [searchTargetId, setAdvanced]);
+  return [advanced, setAdvanced] as const;
+}
+
+/**
+ * The monospace font by default, cascading to every surface it reaches, with
+ * an Advanced switch in the section header that reveals the per-surface
+ * override rows.
+ */
+function TypographySection({
+  advanced,
+  onAdvancedChange,
+}: {
+  advanced: boolean;
+  onAdvancedChange: (advanced: boolean) => void;
+}) {
   return (
     <SettingsSection
       id="typography"
@@ -2004,7 +2037,7 @@ function TypographySection() {
           Advanced
           <Switch
             checked={advanced}
-            onCheckedChange={(checked) => setAdvanced(Boolean(checked))}
+            onCheckedChange={(checked) => onAdvancedChange(Boolean(checked))}
             aria-label="Show advanced typography settings"
           />
         </label>

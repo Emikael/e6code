@@ -1,3 +1,5 @@
+import { Radio as RadioPrimitive } from "@base-ui/react/radio";
+import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import {
   CheckIcon,
   CopyIcon,
@@ -41,7 +43,6 @@ import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { ThemeImportDialog } from "./ThemeImportDialog";
-import { searchableSetting } from "./settingsSearch";
 import { useThemeEditorStore } from "./themeEditorStore";
 import {
   STANDARD_THEME_CARDS,
@@ -501,11 +502,95 @@ function CustomThemeCollectionCard({
   );
 }
 
+/** The stock theme's names for its two appearances. */
+const STOCK_APPEARANCE_LABELS: Readonly<Record<ThemeAppearance, string>> = {
+  light: "Porcelain",
+  dark: "Slate",
+};
+
+const APPEARANCE_MODES: ReadonlyArray<ThemeMode> = ["system", "light", "dark"];
+
+/**
+ * Match system / light / dark as three large previews. Each light or dark
+ * card shows and names the theme that owns that appearance, so a custom
+ * theme reads as itself rather than as the stock Porcelain or Slate.
+ */
+export function AppearanceModeCards({
+  appearanceMode,
+  setAppearanceMode,
+  theme,
+  themeHalves,
+}: {
+  appearanceMode: ThemeMode;
+  setAppearanceMode: (mode: ThemeMode) => boolean;
+  theme: string;
+  themeHalves: ThemeHalves | null;
+}) {
+  const baseId = getThemeDefinition(theme)?.id ?? null;
+  const owner = (appearance: ThemeAppearance) => {
+    const id = themeHalves?.[appearance] ?? baseId;
+    return id === null ? null : (getThemeDefinition(id) ?? null);
+  };
+  const colorsFor = (appearance: ThemeAppearance) => {
+    const definition = owner(appearance);
+    const card = definition ? getThemeCardDefinition(definition) : STANDARD_THEME_CARDS[0]!;
+    return previewColorsOf(card, appearance) ?? card.previews[0]!.colors;
+  };
+  const labelFor = (mode: ThemeMode) =>
+    mode === "system" ? "Match system" : (owner(mode)?.label ?? STOCK_APPEARANCE_LABELS[mode]);
+
+  return (
+    <RadioGroupPrimitive
+      aria-label="Appearance"
+      value={appearanceMode}
+      onValueChange={(next) => {
+        const mode = APPEARANCE_MODES.find((candidate) => candidate === next);
+        if (!mode || setAppearanceMode(mode)) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Couldn’t save theme selection",
+            description: "Try again.",
+          }),
+        );
+      }}
+      className="grid gap-3"
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr))" }}
+    >
+      {APPEARANCE_MODES.map((mode) => (
+        <RadioPrimitive.Root
+          key={mode}
+          value={mode}
+          className="group/mode flex cursor-pointer flex-col gap-2.5 rounded-xl border border-input bg-card p-2.5 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring data-checked:border-primary data-checked:ring-1 data-checked:ring-primary"
+        >
+          <ThemeWireframe
+            className="h-[92px]"
+            panes={
+              mode === "system"
+                ? [
+                    { clip: "left", colors: colorsFor("light") },
+                    { clip: "right", colors: colorsFor("dark") },
+                  ]
+                : [{ colors: colorsFor(mode) }]
+            }
+          />
+          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
+            <span className="min-w-0 truncate">{labelFor(mode)}</span>
+            <CheckIcon
+              aria-hidden
+              className="ms-auto size-3.5 shrink-0 text-primary-text group-data-unchecked/mode:invisible"
+            />
+          </span>
+        </RadioPrimitive.Root>
+      ))}
+    </RadioGroupPrimitive>
+  );
+}
+
 export function ThemeLibrary({
   theme,
   setTheme,
   appearanceMode,
-  setAppearanceMode,
   customThemes,
   initialAppearance,
   refreshTheme,
@@ -517,7 +602,6 @@ export function ThemeLibrary({
   theme: string;
   setTheme: (theme: string) => boolean;
   appearanceMode: ThemeMode;
-  setAppearanceMode: (mode: ThemeMode) => boolean;
   customThemes: ReadonlyArray<ThemeDefinition>;
   initialAppearance: ThemeAppearance;
   refreshTheme: () => void;
@@ -670,22 +754,6 @@ export function ThemeLibrary({
   const activeThemeForAppearance =
     getThemeDefinition((initialAppearance === "light" ? lightOwner : darkOwner) ?? "") ?? null;
 
-  const cardDefById = (id: string | null): ThemeCardDefinition => {
-    if (id === null) return STANDARD_THEME_CARDS[0]!;
-    const definition = getThemeDefinition(id);
-    return definition ? getThemeCardDefinition(definition) : STANDARD_THEME_CARDS[0]!;
-  };
-
-  const pickColors = (id: string | null, appearance: ThemeAppearance) => {
-    const card = cardDefById(id);
-    return previewColorsOf(card, appearance) ?? card.previews[0]!.colors;
-  };
-
-  const setMode = (mode: ThemeMode) => {
-    if (!setAppearanceMode(mode)) notifyThemeSaveFailure();
-  };
-
-  // ----- Wireframe tiles on top, two-ball cards below --------------------
   const handlePairPick = (cardId: string | null) => (mode: ThemeMode) => {
     if (mode === "system") return;
     assignHalf(mode, cardId);
@@ -700,57 +768,6 @@ export function ThemeLibrary({
     if (darkOwner === cardId) rings.push("dark");
     return rings;
   };
-
-  const wireframeColors = (appearance: ThemeAppearance) =>
-    pickColors(appearance === "light" ? lightOwner : darkOwner, appearance);
-
-  const renderWireframe = (mode: ThemeMode) => (
-    <ThemeWireframe
-      className="h-[8.75rem]"
-      panes={
-        mode === "system"
-          ? [
-              { clip: "left", colors: wireframeColors("light") },
-              { clip: "right", colors: wireframeColors("dark") },
-            ]
-          : [{ colors: wireframeColors(mode === "dark" ? "dark" : "light") }]
-      }
-    />
-  );
-
-  const renderModeTiles = () => (
-    <div aria-label="Appearance mode" className="grid w-full grid-cols-3 gap-3" role="group">
-      {(["system", "light", "dark"] as const).map((mode) => {
-        const isActive = appearanceMode === mode;
-        return (
-          <button
-            aria-label={mode === "system" ? "Follow the system appearance" : `Use ${mode} mode`}
-            aria-pressed={isActive}
-            className={cn(
-              "flex cursor-pointer flex-col items-stretch gap-1.5 rounded-xl border p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              isActive
-                ? "border-transparent bg-accent/30"
-                : "border-border/70 bg-card/60 hover:bg-accent/10",
-            )}
-            key={mode}
-            style={isActive ? { boxShadow: "inset 0 0 0 1px var(--ring)" } : undefined}
-            onClick={() => setMode(mode)}
-            type="button"
-          >
-            {renderWireframe(mode)}
-            <span
-              className={cn(
-                "flex items-center justify-center text-xs font-medium",
-                isActive ? "text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {mode === "system" ? "System" : mode === "light" ? "Light" : "Dark"}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
 
   const customThemeCollections = [
     ...customThemes
@@ -885,14 +902,8 @@ export function ThemeLibrary({
 
   return (
     <div className="space-y-3">
-      <h3 className="px-3 text-sm font-normal tracking-[-0.005em] text-foreground/70 sm:px-4">
-        {searchableSetting("color-scheme").title}
-      </h3>
-      {renderModeTiles()}
-      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3 px-3 pt-2 sm:px-4">
-        <h3 className="text-sm font-normal tracking-[-0.005em] text-foreground/70">
-          {searchableSetting("theme").title}
-        </h3>
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">More themes</h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             size="xs"

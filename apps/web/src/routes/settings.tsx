@@ -1,17 +1,11 @@
-import {
-  Outlet,
-  createFileRoute,
-  redirect,
-  useCanGoBack,
-  useLocation,
-  useNavigate,
-} from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
+import { useEffect, useState, type ReactNode } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
 
-import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
+import { SettingsScopeBreadcrumb } from "../components/settings/SettingsBreadcrumb";
+import { SettingsPageNotice } from "../components/settings/settingsLayout";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { isElectron } from "../env";
@@ -31,6 +25,8 @@ import {
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
 } from "../components/settings/settingsSearch";
+import { settingsEscapeAction } from "../components/settings/settingsNavGroups";
+import { useSettingsBackNavigation } from "../components/settings/useSettingsBackNavigation";
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(onRestored);
@@ -102,48 +98,34 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
   if (DEVICE_ONLY_PATHS.has(pathname) || pathname === "/settings/projects") {
     return children;
   }
-  if (scope.kind === "unavailable")
-    return <p className="p-8 text-sm text-muted-foreground">{scope.message}</p>;
+  if (scope.kind === "unavailable") return <SettingsPageNotice>{scope.message}</SettingsPageNotice>;
   if (scope.kind === "environment" && connectedEnvironments.length === 0) {
-    return (
-      <p className="p-8 text-sm text-muted-foreground">
-        Reconnect {scope.label} to change its settings.
-      </p>
-    );
+    return <SettingsPageNotice>Reconnect {scope.label} to change its settings.</SettingsPageNotice>;
   }
   return children;
 }
 
 function SettingsContentLayout() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const canGoBack = useCanGoBack();
   const { search, selectScope } = useSettingsScope();
   const groups = useSettingsProjectGroups();
   const { environments } = useEnvironments();
   const [restoreSignal, setRestoreSignal] = useState(0);
   const showScope = !DEVICE_ONLY_PATHS.has(location.pathname);
-  const navigateBackWithinApp = useCallback(() => {
-    if (canGoBack) {
-      window.history.back();
-      return;
-    }
-    void navigate({ to: "/" });
-  }, [canGoBack, navigate]);
+  const navigateBackWithinApp = useSettingsBackNavigation();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-
-        const activeElement = document.activeElement;
-        if (activeElement instanceof HTMLElement) {
-          activeElement.blur();
-        }
-
-        navigateBackWithinApp();
+      if (event.defaultPrevented || event.key !== "Escape") return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const action = settingsEscapeAction(target);
+      if (action === "ignore") return;
+      event.preventDefault();
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) {
+        activeElement.blur();
       }
+      if (action === "leave") navigateBackWithinApp();
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -157,14 +139,14 @@ function SettingsContentLayout() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
           <div className="flex w-full items-center gap-3">
-            <SettingsBreadcrumb
-              pathname={location.pathname}
-              scope={
-                showScope
-                  ? { value: search, groups, environments, onChange: selectScope }
-                  : undefined
-              }
-            />
+            {showScope ? (
+              <SettingsScopeBreadcrumb
+                value={search}
+                groups={groups}
+                environments={environments}
+                onChange={selectScope}
+              />
+            ) : null}
             {location.pathname === "/settings/general" ? (
               <div className="ms-auto flex shrink-0 items-center">
                 <RestoreDeviceDefaultsButton
