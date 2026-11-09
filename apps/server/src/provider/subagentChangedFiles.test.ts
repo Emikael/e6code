@@ -13,13 +13,10 @@ const lines = (prefix: string, count: number) =>
 /** A clock that never advances, so the diff budget never runs out. */
 const frozenClock = () => 0;
 
-/** A clock that advances `step` ms on every read and counts its reads. */
+/** A clock that advances `step` ms on every read. */
 function steppingClock(step: number) {
   let reads = 0;
-  return {
-    now: () => step * reads++,
-    reads: () => reads,
-  };
+  return () => step * reads++;
 }
 
 describe("claudeChangedFiles", () => {
@@ -130,8 +127,8 @@ describe("acpChangedFiles", () => {
     expect(acpChangedFiles(content)).toHaveLength(64);
   });
 
-  it("still counts a small edit in a file at the line cap", () => {
-    const file = lines("line", 1_000);
+  it("counts a one-line edit in a large file exactly", () => {
+    const file = lines("line", 5_000);
     expect(
       acpChangedFiles(
         [
@@ -139,7 +136,7 @@ describe("acpChangedFiles", () => {
             type: "diff",
             path: "/repo/a.ts",
             oldText: file,
-            newText: file.replace("line500\n", "x\n"),
+            newText: file.replace("line2500\n", "x\n"),
           },
         ],
         frozenClock,
@@ -147,20 +144,17 @@ describe("acpChangedFiles", () => {
     ).toEqual([{ path: "/repo/a.ts", additions: 1, deletions: 1 }]);
   });
 
-  it("skips the diff for a side over the line cap without spending budget", () => {
-    const clock = steppingClock(0);
-    const file = lines("line", 1_001);
+  it("lists a side over the line cap without counts", () => {
+    const file = lines("l", 20_001);
     expect(
       acpChangedFiles(
         [
           { type: "diff", path: "/repo/a.ts", oldText: "a\n", newText: file },
           { type: "diff", path: "/repo/b.ts", oldText: file, newText: `${file}tail\n` },
         ],
-        clock.now,
+        frozenClock,
       ),
     ).toEqual([{ path: "/repo/a.ts" }, { path: "/repo/b.ts" }]);
-    // Only the budget's start was read: neither file reached the diff.
-    expect(clock.reads()).toBe(1);
   });
 
   it("shares one time budget across a whole batch", () => {
@@ -172,7 +166,7 @@ describe("acpChangedFiles", () => {
       oldText: "a\nb\n",
       newText: "a\nc\n",
     }));
-    const files = acpChangedFiles(content, clock.now) ?? [];
+    const files = acpChangedFiles(content, clock) ?? [];
     expect(files).toHaveLength(64);
     expect(files.slice(0, 6).every((file) => file.additions === 1 && file.deletions === 1)).toBe(
       true,
@@ -193,7 +187,7 @@ describe("acpChangedFiles", () => {
           ],
         },
         undefined,
-        clock.now,
+        clock,
       ),
     ).toEqual([{ path: "/repo/a.ts" }]);
   });
@@ -201,14 +195,18 @@ describe("acpChangedFiles", () => {
   it("lists a rewrite too large or too different to diff without counts", () => {
     // Small enough to diff, but every line changed: past the edit-length bound.
     const rewritten = { oldText: lines("old", 3_000), newText: lines("new", 3_000) };
-    // Few changes, but past the size bound.
+    // Few changes, but past the line cap.
     const huge = lines("same", 60_000);
+    // A frozen clock keeps the rewrite's timeout from spending the shared budget.
     expect(
-      acpChangedFiles([
-        { type: "diff", path: "/repo/rewritten.ts", ...rewritten },
-        { type: "diff", path: "/repo/huge.ts", oldText: huge, newText: `${huge}tail\n` },
-        { type: "diff", path: "/repo/small.ts", oldText: "a\n", newText: "b\n" },
-      ]),
+      acpChangedFiles(
+        [
+          { type: "diff", path: "/repo/rewritten.ts", ...rewritten },
+          { type: "diff", path: "/repo/huge.ts", oldText: huge, newText: `${huge}tail\n` },
+          { type: "diff", path: "/repo/small.ts", oldText: "a\n", newText: "b\n" },
+        ],
+        frozenClock,
+      ),
     ).toEqual([
       { path: "/repo/rewritten.ts" },
       { path: "/repo/huge.ts" },

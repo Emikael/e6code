@@ -108,16 +108,16 @@ function structuredPatchCounts(value: unknown): LineCounts | undefined {
 
 /**
  * Bounds on line-diffing a pair of texts during ingestion, which runs on the
- * event loop. ACP diffs carry whole files, and jsdiff is O(N·D): a 1,000-line
- * file with a third of it changed already takes tens of milliseconds. Past
- * these bounds the file is listed without counts rather than guessed at.
- *
- * The time budget is shared by every diff in one event, so a batch of large
- * edits costs at most one budget rather than one timeout per file. A side over
- * the line cap also bounds the gap between the sides, the least edit length.
+ * event loop. ACP diffs carry whole files, and jsdiff is O(N·D): a small edit
+ * in a big file is cheap, but a large rewrite is not. The edit-length bound and
+ * a time budget shared by every diff in one event do the real limiting, so a
+ * batch costs at most one budget rather than one timeout per file. jsdiff only
+ * checks its timeout between edit steps, so the size and line caps bound the
+ * linear tokenizing work it does first; they only stop pathological inputs.
+ * Past these bounds the file is listed without counts rather than guessed at.
  */
-const DIFF_MAX_TEXT_LENGTH = 512 * 1024;
-const DIFF_MAX_LINES = 1_000;
+const DIFF_MAX_TEXT_LENGTH = 2 * 1024 * 1024;
+const DIFF_MAX_LINES = 20_000;
 const DIFF_MAX_EDIT_LENGTH = 2_000;
 const DIFF_BUDGET_MS = 20;
 
@@ -152,12 +152,13 @@ function stringPairCounts(
   budget: DiffBudget,
 ): LineCounts | undefined {
   if (typeof oldString !== "string" || typeof newString !== "string") return undefined;
+  // Checked before every diff, so a file reached after the budget is spent is never diffed.
+  const remaining = budget.deadline - budget.now();
+  if (remaining <= 0) return undefined;
   if (oldString.length + newString.length > DIFF_MAX_TEXT_LENGTH) return undefined;
   if (exceedsLines(oldString, DIFF_MAX_LINES) || exceedsLines(newString, DIFF_MAX_LINES)) {
     return undefined;
   }
-  const remaining = budget.deadline - budget.now();
-  if (remaining <= 0) return undefined;
   const parts = diffLines(oldString, newString, {
     maxEditLength: DIFF_MAX_EDIT_LENGTH,
     timeout: remaining,
