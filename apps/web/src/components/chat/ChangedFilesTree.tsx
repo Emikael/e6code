@@ -6,14 +6,7 @@ import {
   summarizeTurnDiffStats,
   type TurnDiffTreeNode,
 } from "../../lib/turnDiffTree";
-import {
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
-  ChevronRightIcon,
-  FileDiffIcon,
-  FolderIcon,
-  FolderClosedIcon,
-} from "lucide-react";
+import { ChevronRightIcon, FolderIcon, FolderTreeIcon, FolderClosedIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { PierreEntryIcon } from "./PierreEntryIcon";
@@ -26,6 +19,11 @@ const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
 /** Opens the OS-level context menu for a changed file (reveal in file manager, open in editor). */
 export type ChangedFileContextMenuHandler = (filePath: string, event: MouseEvent) => void;
 
+/**
+ * A turn's changed files: a header with the count, the line totals and Open diff, then the files
+ * as a flat mono list with their own counts. The folder toggle swaps the list for the folder tree;
+ * the persisted "all directories expanded" flag is that choice, so the tree opens fully expanded.
+ */
 export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   turnId: TurnId;
   files: ReadonlyArray<TurnDiffFileChange>;
@@ -46,30 +44,30 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   } = props;
   const summaryStat = useMemo(() => summarizeTurnDiffStats(files), [files]);
   const hasDirectories = files.some((file) => /[/\\]/.test(file.path));
+  const showTree = hasDirectories && allDirectoriesExpanded;
+  const viewToggleLabel = showTree ? "Show as a list" : "Show as folders";
 
   return (
     <div
-      className="@container/changed-files mt-4 rounded-lg bg-secondary dark:bg-input/20"
-      data-changed-files-state="tree"
+      className="@container/changed-files mt-4 overflow-clip rounded-[10px] border border-input bg-background"
+      data-changed-files-state={showTree ? "tree" : "list"}
     >
       <div
         data-changed-files-header=""
-        className="sticky top-2 z-10 flex items-center justify-between gap-2 rounded-t-lg bg-secondary px-3 py-2 dark:bg-[color-mix(in_srgb,var(--input)_20%,var(--background))]"
+        className="sticky top-2 z-10 flex h-[38px] items-center gap-2.5 border-b border-border bg-surface-raised px-3"
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-foreground">
-          <span>
-            {files.length} changed file{files.length === 1 ? "" : "s"}
-          </span>
-          {hasNonZeroStat(summaryStat) && (
-            <DiffStatLabel
-              additions={summaryStat.additions}
-              deletions={summaryStat.deletions}
-              layout="inline"
-              className="text-xs leading-4"
-            />
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <span className="text-xs font-medium text-foreground">
+          {files.length} changed file{files.length === 1 ? "" : "s"}
+        </span>
+        {hasNonZeroStat(summaryStat) && (
+          <DiffStatLabel
+            additions={summaryStat.additions}
+            deletions={summaryStat.deletions}
+            layout="inline"
+            className="text-[11px] leading-4"
+          />
+        )}
+        <div className="ms-auto flex shrink-0 items-center gap-1">
           {hasDirectories && (
             <Tooltip>
               <TooltipTrigger
@@ -78,53 +76,73 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
                     type="button"
                     size="icon-xs"
                     variant="ghost-muted"
-                    aria-label={
-                      allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
-                    }
+                    aria-label={viewToggleLabel}
+                    aria-pressed={showTree}
                     data-scroll-anchor-ignore
                     onClick={onToggleAllDirectories}
                   />
                 }
               >
-                {allDirectoriesExpanded ? (
-                  <ChevronsDownUpIcon className="size-3" />
-                ) : (
-                  <ChevronsUpDownIcon className="size-3" />
-                )}
+                <FolderTreeIcon className="size-3.5" />
               </TooltipTrigger>
-              <TooltipPopup side="top">
-                {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
-              </TooltipPopup>
+              <TooltipPopup side="top">{viewToggleLabel}</TooltipPopup>
             </Tooltip>
           )}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost-muted"
-                  aria-label="Open diff"
-                  onClick={() => onOpenTurnDiff(turnId, files[0]?.path)}
-                />
-              }
-            >
-              <FileDiffIcon className="size-3" />
-              <span className="hidden @[24rem]/changed-files:inline">Open diff</span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">Open the full diff</TooltipPopup>
-          </Tooltip>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            className="h-[26px] px-2.5 font-medium sm:h-[26px]"
+            onClick={() => onOpenTurnDiff(turnId, files[0]?.path)}
+          >
+            Open diff
+          </Button>
         </div>
       </div>
-      <ChangedFilesTree
-        key={`${turnId}:${allDirectoriesExpanded}`}
-        turnId={turnId}
-        files={files}
-        allDirectoriesExpanded={allDirectoriesExpanded}
-        resolvedTheme={resolvedTheme}
-        onOpenTurnDiff={onOpenTurnDiff}
-        onFileContextMenu={onFileContextMenu}
-      />
+      {showTree ? (
+        <ChangedFilesTree
+          key={turnId}
+          turnId={turnId}
+          files={files}
+          allDirectoriesExpanded
+          resolvedTheme={resolvedTheme}
+          onOpenTurnDiff={onOpenTurnDiff}
+          onFileContextMenu={onFileContextMenu}
+        />
+      ) : (
+        <ul className="py-1.5 font-mono text-xs leading-[26px]">
+          {files.map((file) => (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="group flex w-full items-center gap-3 px-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                onClick={() => onOpenTurnDiff(turnId, file.path)}
+                onContextMenu={
+                  onFileContextMenu
+                    ? (event) => {
+                        event.preventDefault();
+                        onFileContextMenu(file.path, event);
+                      }
+                    : undefined
+                }
+              >
+                <MiddleTruncate
+                  value={file.path}
+                  className="text-foreground/85 group-hover:text-foreground"
+                />
+                {typeof file.additions === "number" && typeof file.deletions === "number" ? (
+                  <DiffStatLabel
+                    additions={file.additions}
+                    deletions={file.deletions}
+                    layout="inline"
+                    className="ms-auto shrink-0"
+                  />
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 });

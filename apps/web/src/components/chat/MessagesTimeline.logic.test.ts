@@ -23,6 +23,8 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  deriveThinkingTimelineHeading,
+  formatWorkingTimer,
   findSubagentSpawnRow,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
@@ -4190,5 +4192,55 @@ describe("resolveWorkingRowStatus", () => {
         agentState: { kind: "rate-limited" },
       }),
     ).toEqual({ kind: "attention", attention: "approval" });
+  });
+});
+
+describe("deriveThinkingTimelineHeading", () => {
+  it("spans the earliest step start to the latest step update once settled", () => {
+    expect(
+      deriveThinkingTimelineHeading({
+        active: false,
+        entries: [
+          { createdAt: "2026-11-09T10:00:05.000Z", startedAt: "2026-11-09T10:00:00.000Z" },
+          { createdAt: "2026-11-09T10:03:40.000Z" },
+          { createdAt: "2026-11-09T10:01:00.000Z" },
+        ],
+        stepCount: 4,
+      }),
+    ).toEqual({
+      startedAt: "2026-11-09T10:00:00.000Z",
+      duration: "3m 40s",
+      stepsLabel: "4 steps",
+    });
+  });
+
+  it("leaves the duration to the live timer while the group runs", () => {
+    expect(
+      deriveThinkingTimelineHeading({
+        active: true,
+        entries: [{ createdAt: "2026-11-09T10:00:05.000Z" }],
+        stepCount: 1,
+      }),
+    ).toEqual({ startedAt: "2026-11-09T10:00:05.000Z", duration: null, stepsLabel: "1 step" });
+  });
+
+  it("claims no duration when no step time parses", () => {
+    expect(
+      deriveThinkingTimelineHeading({
+        active: false,
+        entries: [{ createdAt: "not a date" }],
+        stepCount: 2,
+      }),
+    ).toEqual({ startedAt: null, duration: null, stepsLabel: "2 steps" });
+  });
+});
+
+describe("formatWorkingTimer", () => {
+  it("counts seconds under a minute and minutes after", () => {
+    expect(formatWorkingTimer("2026-11-09T10:00:00.000Z", "2026-11-09T10:00:42.900Z")).toBe("42s");
+    expect(formatWorkingTimer("2026-11-09T10:00:00.000Z", "2026-11-09T10:03:40.000Z")).toBe(
+      "3m 40s",
+    );
+    expect(formatWorkingTimer("bad", "2026-11-09T10:03:40.000Z")).toBeNull();
   });
 });

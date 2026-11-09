@@ -762,11 +762,11 @@ describe("DesktopWindow", () => {
           yield* desktopWindow.zoomMain(direction);
           const position = fakeWindow.setWindowButtonPosition.mock.lastCall?.[0];
           assert.isDefined(position);
-          // The 14-point native buttons share the zoomed 52px header's center,
+          // The 14-point native buttons share the zoomed 56px header's center,
           // inset with the floating sidebar while the window is wide enough for it.
           const zoom = fakeWindow.window.webContents.getZoomFactor();
           const inset = 1100 >= 768 * zoom ? 9 * zoom : 0;
-          const headerCenter = 26 * zoom + inset;
+          const headerCenter = 28 * zoom + inset;
           assert.isAtMost(Math.abs(position.y + 7 - headerCenter), 0.5);
           assert.equal(position.x, Math.round(16 + inset));
         }
@@ -778,13 +778,13 @@ describe("DesktopWindow", () => {
 
         fakeWindow.isFullScreen.mockReturnValue(false);
         fakeWindow.windowListeners.get("leave-full-screen")?.();
-        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 25, y: 28 }]);
+        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 25, y: 30 }]);
 
         // Narrower than the breakpoint, the sidebar is a sheet and the buttons
         // go back to the window corner.
         fakeWindow.getContentBounds.mockReturnValue({ x: 0, y: 0, width: 700, height: 780 });
         fakeWindow.windowListeners.get("resize")?.();
-        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 16, y: 19 }]);
+        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 16, y: 21 }]);
       }).pipe(Effect.provide(layer));
     }),
   );

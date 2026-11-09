@@ -1,4 +1,5 @@
 import { type ModelPriceTier, ProviderDriverKind } from "@e6tools/contracts";
+import { EFFORT_SEGMENT_LABELS, type EffortSegment } from "@e6tools/client-runtime/effort-segments";
 import {
   AntigravityIcon,
   ClaudeAI,
@@ -60,4 +61,22 @@ export function getTriggerDisplayModelName(model: ModelEsque): string {
 
 export function getTriggerDisplayModelLabel(model: ModelEsque): string {
   return getTriggerDisplayModelName(model);
+}
+
+/**
+ * The composer's model chip: "Claude Opus · balanced". The effort step names itself beside the
+ * model so the chip says what runs even where the segmented control is hidden; a level between or
+ * beyond the three steps shows its own name.
+ */
+export function formatModelChipLabel(
+  modelLabel: string,
+  effort:
+    | { readonly selected: EffortSegment | null; readonly currentLabel: string | null }
+    | null
+    | undefined,
+): string {
+  const effortLabel = effort?.selected
+    ? EFFORT_SEGMENT_LABELS[effort.selected]
+    : (effort?.currentLabel ?? null);
+  return effortLabel ? `${modelLabel} · ${effortLabel.toLowerCase()}` : modelLabel;
 }

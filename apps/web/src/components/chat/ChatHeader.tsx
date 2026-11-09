@@ -20,27 +20,24 @@ import {
   ChevronDownIcon,
   CircleAlertIcon,
   CircleCheckIcon,
-  CircleDashedIcon,
   CirclePauseIcon,
   EllipsisIcon,
   EyeIcon,
-  GitBranchIcon,
   MessageCircleQuestionIcon,
   PencilIcon,
   ShieldQuestionIcon,
+  SquarePenIcon,
   type LucideIcon,
 } from "lucide-react";
 import {
   memo,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick, resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
@@ -62,19 +59,16 @@ import { useThreadShell } from "../../state/entities";
 import { useClientSettings } from "~/hooks/useSettings";
 import { formatUpcomingTimestamp } from "~/timestampFormat";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
 import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
-import { ProjectFavicon } from "../ProjectFavicon";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
-  WorkspaceBreadcrumbSeparator,
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
-import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -182,18 +176,20 @@ export function resolveThreadHeaderStatus(
   }
 }
 
-// Same icons and semantic hues as the sidebar row status.
+// Same icons and semantic hues as the sidebar row status, on a matching wash. A working agent
+// reads as the live accent with a dot, like the sidebar; every other state keeps its glyph, and
+// the label always names the state.
 const THREAD_HEADER_STATUS_STYLE: Record<
   ThreadHeaderStatusKind,
-  { icon: LucideIcon; className: string }
+  { icon: LucideIcon | null; className: string }
 > = {
-  approval: { icon: ShieldQuestionIcon, className: "text-warning-foreground" },
-  input: { icon: MessageCircleQuestionIcon, className: "text-primary-text" },
-  paused: { icon: CirclePauseIcon, className: "text-warning-foreground" },
-  working: { icon: CircleDashedIcon, className: "text-info-foreground" },
-  monitoring: { icon: EyeIcon, className: "text-foreground" },
-  failed: { icon: CircleAlertIcon, className: "text-destructive-foreground" },
-  done: { icon: CircleCheckIcon, className: "text-success-foreground" },
+  approval: { icon: ShieldQuestionIcon, className: "bg-warning-surface text-warning-foreground" },
+  input: { icon: MessageCircleQuestionIcon, className: "bg-primary-surface text-primary-text" },
+  paused: { icon: CirclePauseIcon, className: "bg-warning-surface text-warning-foreground" },
+  working: { icon: null, className: "bg-primary-surface text-primary-text" },
+  monitoring: { icon: EyeIcon, className: "bg-muted text-foreground" },
+  failed: { icon: CircleAlertIcon, className: "bg-error-surface text-destructive-foreground" },
+  done: { icon: CircleCheckIcon, className: "bg-success/10 text-success-foreground" },
 };
 
 function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
@@ -204,11 +200,15 @@ function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
   const pill = (
     <span
       className={cn(
-        "inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-1.5 text-xs font-medium whitespace-nowrap",
+        "inline-flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium whitespace-nowrap",
         className,
       )}
     >
-      <Icon aria-hidden className="size-3 shrink-0" />
+      {Icon ? (
+        <Icon aria-hidden className="size-3 shrink-0" />
+      ) : (
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
+      )}
       <span className="shrink-0">{status.label}</span>
       {status.detail ? (
         <span className="max-w-32 truncate font-normal text-muted-foreground">
@@ -234,20 +234,17 @@ function ThreadHeaderBranch(props: { branch: string }) {
         render={
           <span
             // Branch gives way first: hidden in narrow headers, pill stays.
-            className="hidden min-w-0 shrink items-center gap-1 text-xs text-muted-foreground @xl/header-actions:inline-flex"
+            className="hidden min-w-0 shrink font-mono text-[11px] text-muted-foreground @xl/header-actions:block"
           />
         }
       >
-        <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-        <span className="max-w-40 truncate font-mono">{props.branch}</span>
+        <span className="sr-only">Branch </span>
+        <span className="block max-w-56 truncate">{props.branch}</span>
       </TooltipTrigger>
       <TooltipPopup side="top">{props.branch}</TooltipPopup>
     </Tooltip>
   );
 }
-
-// Matches the @3xl/header-actions container breakpoint owned by this header.
-const HEADER_ACTIONS_EXPANDED_BREAKPOINT_REM = 48;
 
 export function shouldShowOpenInPicker(input: {
   readonly activeProjectName: string | undefined;
@@ -291,65 +288,20 @@ export const ChatHeader = memo(function ChatHeader({
   onUpdateProjectScript,
   onDeleteProjectScript,
 }: ChatHeaderProps) {
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
-    usePanelAnimationSettings();
-  const headerActionsRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const actions = headerActionsRef.current;
-    const container = actions?.parentElement;
-    if (!actions || !container) return;
-    return observeResponsiveBreakpointFade({
-      target: actions,
-      container,
-      active: panelAnimationsActive,
-      durationMs: panelAnimationDurationMs,
-      breakpoint: { value: HEADER_ACTIONS_EXPANDED_BREAKPOINT_REM, unit: "rem" },
-    });
-  }, [panelAnimationDurationMs, panelAnimationsActive]);
   const isMobile = useIsMobile();
-  // Side panels can leave a desktop header narrower than a phone.
-  const [isNarrowHeader, setIsNarrowHeader] = useState(false);
-  useEffect(() => {
-    const container = headerActionsRef.current?.parentElement;
-    if (!container) return;
-    const update = () => setIsNarrowHeader(container.clientWidth < 512);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-  const actionsCollapsed = isMobile || isNarrowHeader;
+  // Scripts, Open in and Git live in one quiet menu on every viewport; phones get touch rows.
+  const menuDensity = isMobile ? "touch" : "default";
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [actionsContainer] = useState(() => {
-    const container = document.createElement("div");
-    container.className = "contents";
-    return container;
-  });
-  // Reparent the DOM host, not the React controls: rotating a phone or resizing
-  // a window must not discard an unsaved script or Git dialog.
-  const mountInlineActions = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node && !actionsCollapsed) node.appendChild(actionsContainer);
-    },
-    [actionsContainer, actionsCollapsed],
-  );
-  const mountMenuActions = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node && actionsCollapsed) node.appendChild(actionsContainer);
-    },
-    [actionsContainer, actionsCollapsed],
-  );
-  if (!actionsCollapsed && actionsOpen) setActionsOpen(false);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeProjectName = activeProject?.title;
-  // The breadcrumb names the project the way the sidebar and draft hero do;
-  // when grouping renames it, the tooltip still says which checkout it is.
+  // The actions menu names the project the way the sidebar and draft hero do;
+  // when grouping renames it, the label still says which checkout it is.
   const activeProjectGroupName = useProjectGroupDisplayName(activeProject);
-  const breadcrumbProjectName = activeProjectGroupName ?? activeProjectName;
-  const breadcrumbProjectDetail =
-    activeProjectName && breadcrumbProjectName !== activeProjectName
-      ? `${breadcrumbProjectName} · ${activeProjectName}`
-      : breadcrumbProjectName;
+  const projectDisplayName = activeProjectGroupName ?? activeProjectName;
+  const projectDetail =
+    activeProjectName && projectDisplayName !== activeProjectName
+      ? `${projectDisplayName} · ${activeProjectName}`
+      : projectDisplayName;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const fileScripts = useE6ProjectFileScripts(
     activeThreadEnvironmentId,
@@ -389,8 +341,6 @@ export const ChatHeader = memo(function ChatHeader({
       )
     : null;
   const headerBranch = activeThreadShell?.branch ?? null;
-  const showThreadStatus =
-    renamingTitle === null && (headerStatus !== null || headerBranch !== null);
   const renameCommittedRef = useRef(false);
   const startRename = useCallback(() => {
     renameCommittedRef.current = false;
@@ -490,11 +440,21 @@ export const ChatHeader = memo(function ChatHeader({
   );
   const headerActions = (
     <>
+      {activeProject ? (
+        <>
+          <MenuItem density={menuDensity} onClick={onNewThreadInProject}>
+            <SquarePenIcon className="size-4" />
+            <MenuItemLabel className="truncate">New thread in {projectDetail}</MenuItemLabel>
+          </MenuItem>
+          {showProjectScripts || showOpenInPicker || showGitActions ? <MenuSeparator /> : null}
+        </>
+      ) : null}
       {showProjectScripts && (
         <>
           <ProjectScriptsControl
             onRequestMenuClose={() => setActionsOpen(false)}
-            presentation={actionsCollapsed ? "menu" : "toolbar"}
+            presentation="menu"
+            menuDensity={menuDensity}
             scripts={showProjectScripts}
             fileScripts={fileScripts}
             keybindings={keybindings}
@@ -508,9 +468,10 @@ export const ChatHeader = memo(function ChatHeader({
       )}
       {showOpenInPicker && (
         <>
-          {actionsCollapsed && showProjectScripts && <MenuSeparator />}
+          {showProjectScripts && <MenuSeparator />}
           <OpenInPicker
-            presentation={actionsCollapsed ? "menu" : "toolbar"}
+            presentation="menu"
+            menuDensity={menuDensity}
             environmentId={activeThreadEnvironmentId}
             keybindings={keybindings}
             availableEditors={availableEditors}
@@ -520,9 +481,10 @@ export const ChatHeader = memo(function ChatHeader({
       )}
       {showGitActions && gitCwd && (
         <>
-          {actionsCollapsed && (showProjectScripts || showOpenInPicker) && <MenuSeparator />}
+          {(showProjectScripts || showOpenInPicker) && <MenuSeparator />}
           <GitActionsControl
-            presentation={actionsCollapsed ? "menu" : "toolbar"}
+            presentation="menu"
+            menuDensity={menuDensity}
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             onOpenPullRequest={onOpenPullRequest}
@@ -532,6 +494,8 @@ export const ChatHeader = memo(function ChatHeader({
       )}
     </>
   );
+  const hasHeaderActions =
+    activeProject !== null || Boolean(showProjectScripts || showOpenInPicker || showGitActions);
   return (
     <div
       className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
@@ -541,47 +505,14 @@ export const ChatHeader = memo(function ChatHeader({
         ariaLabel="Thread breadcrumb"
         className="flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
-        {/* The project always leads the header: knowing which project a
-            thread lives in is priority zero, and the thread title alone
-            doesn't answer it. */}
-        {activeProject ? (
-          <>
-            <WorkspaceBreadcrumbItem className="shrink">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`New thread in ${breadcrumbProjectDetail}`}
-                      onClick={onNewThreadInProject}
-                      className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                  }
-                >
-                  <ProjectFavicon project={activeProject} className="size-3.5" />
-                  <WorkspaceBreadcrumbText className="max-w-40">
-                    {breadcrumbProjectName}
-                  </WorkspaceBreadcrumbText>
-                </TooltipTrigger>
-                <TooltipPopup side="top">New thread in {breadcrumbProjectDetail}</TooltipPopup>
-              </Tooltip>
-            </WorkspaceBreadcrumbItem>
-            <WorkspaceBreadcrumbSeparator>
-              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
-            </WorkspaceBreadcrumbSeparator>
-          </>
-        ) : null}
-        {/* With status beside it, the title sizes to its text so the pill
-            sits right after it; the title still truncates first. */}
-        <WorkspaceBreadcrumbItem
-          current
-          className={cn("min-w-10", showThreadStatus ? "shrink" : "flex-1")}
-        >
+        {/* The title sizes to its text so the branch sits right after it; the title still
+            truncates first, and the status pill holds the right edge. */}
+        <WorkspaceBreadcrumbItem current className="min-w-10 shrink text-[15px] font-semibold">
           {renamingTitle !== null ? (
             <input
               autoFocus
               aria-label="Thread title"
-              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-medium text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-sm bg-transparent text-[15px] font-semibold text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
               defaultValue={renamingTitle}
               onBlur={(event) => {
                 if (renameCommittedRef.current) return;
@@ -648,10 +579,14 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
         </WorkspaceBreadcrumbItem>
-        {showThreadStatus ? (
-          <li className="flex shrink-0 items-center gap-2">
-            {headerStatus ? <ThreadHeaderStatusPill status={headerStatus} /> : null}
-            {headerBranch ? <ThreadHeaderBranch branch={headerBranch} /> : null}
+        {renamingTitle === null && headerBranch ? (
+          <li className="flex min-w-0 shrink items-center">
+            <ThreadHeaderBranch branch={headerBranch} />
+          </li>
+        ) : null}
+        {renamingTitle === null && headerStatus ? (
+          <li className="ms-auto flex shrink-0 items-center">
+            <ThreadHeaderStatusPill status={headerStatus} />
           </li>
         ) : null}
       </WorkspaceBreadcrumb>
@@ -666,44 +601,45 @@ export const ChatHeader = memo(function ChatHeader({
       >
         {headerStatus?.label ?? ""}
       </span>
-      {/* Which machine runs this thread, and whether it is reachable, in words. */}
+      {/* Which machine runs this thread, and whether it is reachable, as a dot and a word. */}
       <EnvironmentConnectionChip
         environmentId={activeThreadEnvironmentId}
         className="hidden @2xl/header-actions:inline-flex"
       />
       <div
-        ref={headerActionsRef}
         data-chat-header-actions
         className={cn(
-          "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
+          "flex shrink-0 items-center justify-end",
           // Reserve two panel toggles plus their 4px gaps and 1px edge inset.
           // The page header adds 8px more right padding at sm.
           rightPanelOpen ? "pr-0" : "pr-[calc(--spacing(18)+1px)] sm:pr-[calc(--spacing(14)+1px)]",
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
-        <Menu open={actionsCollapsed && actionsOpen} onOpenChange={setActionsOpen}>
+        {/* Scripts, Open in and Git sit in one quiet menu. It stays mounted while closed, so
+            their keybindings, command palette entries and open dialogs keep working. */}
+        <Menu open={actionsOpen} onOpenChange={setActionsOpen}>
           <MenuTrigger
-            className={
-              actionsCollapsed && (showProjectScripts || showOpenInPicker || showGitActions)
-                ? undefined
-                : "hidden"
+            className={hasHeaderActions ? undefined : "hidden"}
+            render={
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-muted-foreground"
+                aria-label="Thread actions: scripts, open in editor, Git"
+              />
             }
-            render={<Button size="icon-sm" variant="ghost" aria-label="More header actions" />}
           >
             <EllipsisIcon className="size-4" />
           </MenuTrigger>
-          <div ref={mountInlineActions} className="contents" />
           <MenuPopup
             data-chat-header-actions
             keepMounted
-            aria-label="Header actions"
+            aria-label="Thread actions"
             align="end"
             className="min-w-56 max-w-[calc(100vw-2rem)]"
-            finalFocus={actionsCollapsed ? undefined : false}
           >
-            <div ref={mountMenuActions} className="contents" />
-            {createPortal(headerActions, actionsContainer)}
+            {headerActions}
           </MenuPopup>
         </Menu>
       </div>

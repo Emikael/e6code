@@ -72,7 +72,7 @@ const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@e6tools/shared/chatList";
 import { toolActivityFaviconUrl } from "@e6tools/shared/favicon";
-import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
+import { formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import {
   resolveWorkRowStats,
   workRowAccessibleText,
@@ -207,6 +207,8 @@ import {
   deriveMessagesTimelineRowsWithState,
   findSubagentSpawnRow,
   deriveUnsettledTurnId,
+  deriveThinkingTimelineHeading,
+  formatWorkingTimer,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
   workEntryIsActiveTurnActivity,
@@ -2359,7 +2361,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     <div className="group flex flex-col items-end gap-1">
       <div
         ref={bubbleRef}
-        className="relative max-w-[80%] origin-bottom-right rounded-2xl bg-message p-3 text-message-foreground"
+        className="relative max-w-[80%] origin-bottom-right rounded-[14px_14px_4px_14px] bg-message px-3.5 py-2.5 text-message-foreground"
       >
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
@@ -2671,6 +2673,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           listRef={ctx.listRef}
         >
           <ChatMarkdown
+            className="leading-[22px]"
             text={messageText}
             cwd={ctx.markdownCwd}
             threadRef={ctx.threadRef ?? undefined}
@@ -2984,6 +2987,14 @@ function ActivityGroupTimelineRow({
     : work.length > 0
       ? summarizeToolGroup(work)
       : formatThoughtLabel(thoughts);
+  const heading = timeline
+    ? deriveThinkingTimelineHeading({
+        active: row.active,
+        entries: row.entries.map((entry) => (entry.kind === "work" ? entry.entry : entry.message)),
+        stepCount: work.length,
+      })
+    : null;
+  const failedStepCount = heading ? work.filter(workEntryDisplayIndicatesToolFailure).length : 0;
   const details: ReactNode[] = [];
   if (row.expanded) {
     for (let index = 0; index < row.entries.length; index += 1) {
@@ -3029,18 +3040,27 @@ function ActivityGroupTimelineRow({
       <button
         type="button"
         className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-        aria-label={failed ? `${label}, tool call failed` : undefined}
+        aria-label={!heading && failed ? `${label}, tool call failed` : undefined}
         aria-expanded={row.expanded}
         onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
       >
-        <LiveActivityRow
-          label={label}
-          iconName={iconWork ? workEntryIconName(iconWork) : "brain"}
-          toolIcon={iconWork?.toolIcon ?? iconWork?.toolSource?.icon}
-          failed={failed}
-          active={row.active}
-          shimmer={thinking}
-        />
+        {heading ? (
+          <ThinkingTimelineHeading
+            heading={heading}
+            active={row.active}
+            failedStepCount={failedStepCount}
+            expanded={row.expanded}
+          />
+        ) : (
+          <LiveActivityRow
+            label={label}
+            iconName={iconWork ? workEntryIconName(iconWork) : "brain"}
+            toolIcon={iconWork?.toolIcon ?? iconWork?.toolSource?.icon}
+            failed={failed}
+            active={row.active}
+            shimmer={thinking}
+          />
+        )}
       </button>
       {row.expanded ? (
         timeline ? (
@@ -3069,7 +3089,7 @@ function ThinkingTimelineRail({
     <div className={cn("relative", className)}>
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-3 start-[calc(0.875rem-0.5px)] w-px bg-border"
+        className="pointer-events-none absolute inset-y-3 start-[calc(0.875rem-0.5px)] w-px bg-input"
       />
       {children}
     </div>
@@ -3077,34 +3097,99 @@ function ThinkingTimelineRail({
 }
 
 /**
- * A step's dot on the rail. The icon stays inside so the step reads without
- * colour; the live step gets a static ring rather than an animation.
- *
- * The dot is opaque so the rail stops at its edge. A row that tints on hover
- * carries `group/step`; the dot repeats that exact `bg-accent/20` layer over
- * its background, so it matches the row at rest and on hover.
+ * The closed heading of a thinking timeline: "Working for 3m 40s · 4 steps", then "Worked for …"
+ * once the group settles. Failed steps are counted in words, not only by the red mark.
  */
-function ThinkingTimelineMarker({ live, children }: { live: boolean; children: ReactNode }) {
+function ThinkingTimelineHeading({
+  heading,
+  active,
+  failedStepCount,
+  expanded,
+}: {
+  heading: ReturnType<typeof deriveThinkingTimelineHeading>;
+  active: boolean;
+  failedStepCount: number;
+  expanded: boolean;
+}) {
   return (
-    <span
-      className={cn(
-        "relative flex size-5 items-center justify-center rounded-full bg-background",
-        live ? "ring-2 ring-primary-edge" : "ring-1 ring-border",
-      )}
-    >
-      <span
+    <span className="flex min-h-6 min-w-0 items-center gap-2 px-0.5 text-sm leading-relaxed">
+      <span className="shrink-0 font-medium text-foreground tabular-nums">
+        {active ? (
+          heading.startedAt ? (
+            <>
+              Working for <WorkingTimer createdAt={heading.startedAt} />
+            </>
+          ) : (
+            "Working"
+          )
+        ) : heading.duration ? (
+          `Worked for ${heading.duration}`
+        ) : (
+          "Worked"
+        )}
+      </span>
+      <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+        {heading.stepsLabel}
+      </span>
+      {failedStepCount > 0 ? (
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-destructive-foreground">
+          <XIcon aria-hidden className="size-3" />
+          {failedStepCount} failed
+        </span>
+      ) : null}
+      <ChevronRightIcon
         aria-hidden
-        className="pointer-events-none absolute inset-0 rounded-full bg-accent/20 opacity-0 transition-opacity group-hover/step:opacity-100"
+        className={cn(
+          "size-3 shrink-0 text-icon-muted opacity-70 transition-transform duration-200",
+          expanded && "rotate-90",
+        )}
       />
-      <span className="relative flex">{children}</span>
     </span>
   );
 }
 
-/** Settled-step meta at the right of a timeline row: "+48 -12", "1.2s", "Thought for 3s". */
+type ThinkingTimelineStepTone = "done" | "running" | "live" | "thought" | "failed" | "warning";
+
+/**
+ * A step's 8px dot on the rail: teal once done, the accent with a static ring for the live step,
+ * hollow for a thought. Failure and warnings keep an icon, and their rows say so in words. Dots are
+ * opaque so the rail stops at their edge; nothing animates.
+ */
+function ThinkingTimelineDot({ tone }: { tone: ThinkingTimelineStepTone }) {
+  if (tone === "failed") {
+    return (
+      <XIcon
+        aria-hidden
+        className="relative size-3 shrink-0 rounded-full bg-background stroke-[2.5] text-destructive-foreground"
+      />
+    );
+  }
+  if (tone === "warning") {
+    return (
+      <TriangleAlertIcon
+        aria-hidden
+        className="relative size-3 shrink-0 bg-background text-warning-foreground"
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "relative size-2 shrink-0 rounded-full",
+        tone === "done" && "bg-success",
+        tone === "running" && "border-[1.5px] border-primary-edge bg-background",
+        tone === "live" && "bg-primary ring-3 ring-primary-surface",
+        tone === "thought" && "border-[1.5px] border-muted-foreground bg-background",
+      )}
+    />
+  );
+}
+
+/** Settled-step meta right after a timeline label, in mono: "+48 −12", "1.2s", "Thought for 3s". */
 function ThinkingTimelineMeta({ children }: { children: ReactNode }) {
   return (
-    <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground text-xs tabular-nums">
+    <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-mono text-[11px] text-muted-foreground tabular-nums">
       {children}
     </span>
   );
@@ -3199,23 +3284,32 @@ function ReasoningTraceBlock({
         >
           <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
             {timeline ? (
-              <ThinkingTimelineMarker live={streaming}>
-                <BrainIcon aria-hidden className="block size-3 shrink-0 stroke-[1.8] opacity-70" />
-              </ThinkingTimelineMarker>
+              <ThinkingTimelineDot tone={streaming ? "live" : "thought"} />
             ) : (
               <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-[1.8] opacity-70" />
             )}
           </span>
           <span
-            ref={streaming ? observeVisibleAnimation : undefined}
-            className="relative min-w-0 flex-1 truncate text-secondary-label"
+            data-thought-preview
+            ref={streaming && !timeline ? observeVisibleAnimation : undefined}
+            className={
+              timeline
+                ? cn(
+                    "relative min-w-0 truncate",
+                    streaming ? "font-medium text-primary-text" : "text-muted-foreground",
+                  )
+                : "relative min-w-0 flex-1 truncate text-secondary-label"
+            }
           >
             {headerText}
-            {streaming ? <ActivityShimmerOverlay>{headerText}</ActivityShimmerOverlay> : null}
+            {streaming && !timeline ? (
+              <ActivityShimmerOverlay>{headerText}</ActivityShimmerOverlay>
+            ) : null}
           </span>
           {timeline && !expanded && !streaming ? (
             <ThinkingTimelineMeta>{label}</ThinkingTimelineMeta>
           ) : null}
+          {timeline ? <span className="flex-1" /> : null}
           <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
             <ChevronRightIcon
               className={cn(
@@ -4700,21 +4794,6 @@ function useStableRows(rows: MessagesTimelineRow[], identity: string): MessagesT
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-function formatWorkingTimer(startIso: string, endIso: string): string | null {
-  const startedAtMs = Date.parse(startIso);
-  const endedAtMs = Date.parse(endIso);
-  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
-    return null;
-  }
-
-  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
-  if (elapsedSeconds < 60) {
-    return `${elapsedSeconds}s`;
-  }
-
-  return formatDuration(elapsedSeconds * 1_000);
-}
-
 function formatWorkingTimerNow(startIso: string): string {
   return formatWorkingTimer(startIso, new Date().toISOString()) ?? "0s";
 }
@@ -5504,14 +5583,19 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           aria-label={showFailedIndicator ? "Tool call failed" : undefined}
         >
           {timeline ? (
-            <ThinkingTimelineMarker live={isLiveStep}>
-              <ToolActivityIconView
-                icon={entryToolIcon}
-                fallbackName={entryIconName}
-                className="block size-3 shrink-0 stroke-[1.8]"
-                muted
-              />
-            </ThinkingTimelineMarker>
+            <ThinkingTimelineDot
+              tone={
+                showFailedIndicator
+                  ? "failed"
+                  : showWarningIndicator
+                    ? "warning"
+                    : isLiveStep
+                      ? "live"
+                      : workEntry.toolLifecycleStatus === "inProgress"
+                        ? "running"
+                        : "done"
+              }
+            />
           ) : (
             <ToolActivityIconView
               icon={entryToolIcon}
@@ -5526,9 +5610,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
               <span
                 className={cn(
-                  answerPreview ? "shrink-0" : "min-w-0 flex-1",
+                  answerPreview ? "shrink-0" : timeline ? "min-w-0" : "min-w-0 flex-1",
                   expanded ? "whitespace-pre-wrap break-words select-text" : "truncate",
-                  headingClass,
+                  isLiveStep ? "font-medium text-primary-text" : headingClass,
                 )}
                 onClick={expanded ? stopRowToggleWhileSelectingText : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
@@ -5549,9 +5633,25 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                   {answerPreview}
                 </span>
               ) : null}
+              {timeline && stepMeta ? (
+                <ThinkingTimelineMeta>
+                  {stepMeta.diffStat ? (
+                    <DiffStatLabel
+                      additions={stepMeta.diffStat.additions}
+                      deletions={stepMeta.diffStat.deletions}
+                      layout="inline"
+                    />
+                  ) : null}
+                  {stepMeta.duration ? <span>{stepMeta.duration}</span> : null}
+                </ThinkingTimelineMeta>
+              ) : null}
+              {timeline && showFailedIndicator ? (
+                <span className="shrink-0 text-xs text-destructive-foreground">failed</span>
+              ) : null}
             </p>
           </div>
-          {showFailedIndicator &&
+          {!timeline &&
+          showFailedIndicator &&
           !showDestructiveRowStyle &&
           !toolIconAcceptsTint(entryIconName, entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
@@ -5563,18 +5663,6 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               layout="inline"
               className="shrink-0 text-xs"
             />
-          ) : null}
-          {stepMeta ? (
-            <ThinkingTimelineMeta>
-              {stepMeta.diffStat ? (
-                <DiffStatLabel
-                  additions={stepMeta.diffStat.additions}
-                  deletions={stepMeta.diffStat.deletions}
-                  layout="inline"
-                />
-              ) : null}
-              {stepMeta.duration ? <span>{stepMeta.duration}</span> : null}
-            </ThinkingTimelineMeta>
           ) : null}
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
           <span

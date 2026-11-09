@@ -29,6 +29,7 @@ function connectionPhaseWord(phase: EnvironmentConnectionPhase): string {
   }
 }
 
+/** A quiet dot and word: "MacBook Pro · Connected". The word carries the state, the dot tints it. */
 export function EnvironmentConnectionChip({
   environmentId,
   className,
@@ -44,7 +45,7 @@ export function EnvironmentConnectionChip({
       role="status"
       aria-live="polite"
       className={cn(
-        "inline-flex h-6 max-w-64 shrink-0 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] text-muted-foreground",
+        "inline-flex h-6 max-w-64 shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground",
         className,
       )}
     >
@@ -52,7 +53,8 @@ export function EnvironmentConnectionChip({
         aria-hidden
         className={cn("size-1.5 shrink-0 rounded-full", connectionPhaseDotClassName(phase))}
       />
-      <span className="min-w-0 truncate font-medium text-foreground">{environment.label}</span>
+      <span className="min-w-0 truncate">{environment.label}</span>
+      <span aria-hidden>·</span>
       <span className="shrink-0">{connectionPhaseWord(phase)}</span>
     </span>
   );

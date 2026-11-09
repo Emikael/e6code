@@ -198,6 +198,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   availableEditors,
   openInCwd,
   presentation = "toolbar",
+  menuDensity = "touch",
   compact = false,
   enableShortcut = true,
 }: {
@@ -206,6 +207,8 @@ export const OpenInPicker = memo(function OpenInPicker({
   availableEditors: ReadonlyArray<EditorId>;
   openInCwd: string | null;
   presentation?: "toolbar" | "menu";
+  /** Row height in the "menu" presentation: touch rows on phones, compact on desktop. */
+  menuDensity?: "default" | "touch";
   compact?: boolean;
   enableShortcut?: boolean;
 }) {
@@ -289,19 +292,19 @@ export const OpenInPicker = memo(function OpenInPicker({
   const editorItems = (
     <>
       {remote.mode === "remote-unavailable" ? (
-        <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+        <MenuItem density={presentation === "menu" ? menuDensity : "default"} disabled>
           No SSH route to {environmentLabel}
         </MenuItem>
       ) : (
         <>
           {options.length === 0 && (
-            <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+            <MenuItem density={presentation === "menu" ? menuDensity : "default"} disabled>
               No installed editors found
             </MenuItem>
           )}
           {options.map(({ label, Icon, value, kind }) => (
             <MenuItem
-              density={presentation === "menu" ? "touch" : "default"}
+              density={presentation === "menu" ? menuDensity : "default"}
               key={value}
               onClick={() => openInEditor(value)}
             >
@@ -313,7 +316,7 @@ export const OpenInPicker = memo(function OpenInPicker({
             </MenuItem>
           ))}
           {remote.mode === "remote-links" && !remoteHintSeen && (
-            <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+            <MenuItem density={presentation === "menu" ? menuDensity : "default"} disabled>
               Opens over SSH. Needs your key on {environmentLabel}
             </MenuItem>
           )}
@@ -326,7 +329,7 @@ export const OpenInPicker = memo(function OpenInPicker({
       <>
         {primaryOption && (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
 
             disabled={!openInCwd || remote.mode === "remote-unavailable"}
             onClick={() => openInEditor(preferredEditor)}
@@ -339,7 +342,7 @@ export const OpenInPicker = memo(function OpenInPicker({
           </MenuItem>
         )}
         <MenuSub>
-          <MenuSubTrigger density="touch">
+          <MenuSubTrigger density={menuDensity}>
             <SquareArrowOutUpRightIcon className="size-4" />
             <MenuItemLabel>Open in…</MenuItemLabel>
           </MenuSubTrigger>
