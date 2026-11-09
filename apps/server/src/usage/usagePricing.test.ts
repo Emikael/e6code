@@ -176,6 +176,27 @@ describe("model price tiers", () => {
     expect(lookupModelPriceTier(table, "other/missing")).toBeUndefined();
   });
 
+  it("falls back to the slug without an effort suffix", () => {
+    const effortTable = parseRateTable({
+      "gemini-flash": perMillion(0.75, 3.75), // blended 1.5
+      "gemini-flash-high": perMillion(4, 20), // a real model of that name wins
+      "vertex/gemini-pro": perMillion(2, 12),
+      "other/gemini-pro": perMillion(4, 20),
+    });
+
+    expect(
+      ["gemini-flash-low", "gemini-flash-medium", "gemini-flash-xhigh", "Gemini-Flash-HIGH"].map(
+        (model) => lookupModelPriceTier(effortTable, model),
+      ),
+    ).toEqual([1, 1, 1, 3]);
+    expect(lookupModelPriceTier(effortTable, "gemini-flash-high")).toBe(3);
+    expect(lookupModelPriceTier(effortTable, "google/gemini-flash-low")).toBe(1);
+    // Qualified entries disagree on the bare name's rate, so it stays unpriced.
+    expect(lookupModelPriceTier(effortTable, "gemini-pro-high")).toBeUndefined();
+    // Only effort words count as a suffix.
+    expect(lookupModelPriceTier(effortTable, "gemini-flash-lite")).toBeUndefined();
+  });
+
   it("prefers custom prices over the public table", () => {
     const overrides = createOverrideRateTable({
       "frontier-class": { inputCostPerMillionTokens: 0.1, outputCostPerMillionTokens: 0.4 },
