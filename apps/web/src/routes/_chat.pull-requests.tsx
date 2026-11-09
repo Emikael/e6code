@@ -273,9 +273,10 @@ function PullRequestLensTabs({
             tabIndex={lens.value === focusable ? 0 : -1}
             onClick={() => onChange(lens.value)}
             className={cn(
-              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "relative inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              // The fill alone is too faint to see; the underline marks the selected lens.
               selected
-                ? "bg-accent text-foreground"
+                ? "bg-accent text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary-edge"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
             )}
           >
