@@ -64,6 +64,7 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
+  RefreshCwIcon,
   SettingsIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
@@ -1707,13 +1708,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   ) : (
     <span
       className={cn(
-        "min-w-0 flex-1 truncate text-sm transition-opacity motion-reduce:transition-none",
+        "min-w-0 flex-1 truncate text-sm",
         variant === "slim" &&
           "group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
-        titleToneClassName[titleTone],
-        isRegeneratingTitle && "opacity-[0.55]",
+        // A title being regenerated is provisional: muted role plus a static
+        // glyph (the row also announces "Regenerating title"), never faded text.
+        titleToneClassName[isRegeneratingTitle ? "read" : titleTone],
       )}
     >
+      {isRegeneratingTitle ? (
+        <RefreshCwIcon aria-hidden className="mr-1 inline size-3 align-[-1px]" />
+      ) : null}
       {thread.title}
       {titleTone === "unread" ? <span className="sr-only">, unread</span> : null}
     </span>
