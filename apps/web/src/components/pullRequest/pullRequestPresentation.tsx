@@ -524,8 +524,18 @@ export function PullRequestDiffStat({
   }
   return (
     <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)}>
-      <span className="text-diff-addition-foreground">+{additions.toLocaleString()}</span>
-      <span className="text-diff-deletion-foreground">-{deletions.toLocaleString()}</span>
+      {/* A true minus sign, which screen readers do not always voice, so the words go alongside. */}
+      <span className="text-diff-addition-foreground">
+        <span aria-hidden>+{additions.toLocaleString()}</span>
+        <span className="sr-only">{additions.toLocaleString()} additions</span>
+      </span>
+      <span className="text-diff-deletion-foreground">
+        <span aria-hidden>
+          {"−"}
+          {deletions.toLocaleString()}
+        </span>
+        <span className="sr-only">{deletions.toLocaleString()} deletions</span>
+      </span>
     </span>
   );
 }
