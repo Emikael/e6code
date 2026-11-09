@@ -24,10 +24,12 @@ import {
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   thoughtPreviewText,
+  timelineRowStep,
   workEntryRowLabel,
   workEntryRowStats,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
+  type ThreadTimelineStep,
   type WorkLogEntry,
 } from "./threadActivity";
 
@@ -727,6 +729,86 @@ describe("buildThreadFeed", () => {
     expect(rows[2].activities[0]).toMatchObject({ runningStep: true, groupedToolDetail: true });
     // The ring is timeline-only; the plain list keeps not shimmering this row.
     expect(rows[2].activities[0]?.live).toBeUndefined();
+  });
+
+  it("gives no timeline step to a group whose calls are all hidden", () => {
+    const turnId = TurnId.make("timeline-hidden-turn");
+    const thought = (id: string, createdAt: string) => ({
+      id: MessageId.make(id),
+      role: "reasoning" as const,
+      text: "Think.",
+      turnId,
+      streaming: false,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const thread = makeThread({
+      id: ThreadId.make("thread-timeline-hidden"),
+      projectId: ProjectId.make("project-1"),
+      title: "Timeline hidden",
+      messages: [
+        thought("hidden-thought-1", "2026-04-01T00:00:01.000Z"),
+        thought("hidden-thought-2", "2026-04-01T00:00:03.000Z"),
+      ],
+      activities: [
+        makeActivity({
+          id: EventId.make("hidden-read"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Read",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { itemType: "file_read", toolCallId: "read-1", status: "completed" },
+        }),
+        // A settled turn's unfinished call is neutral, so the opened run hides it.
+        makeActivity({
+          id: EventId.make("hidden-stale"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run",
+          createdAt: "2026-04-01T00:00:04.000Z",
+          turnId,
+          payload: { itemType: "command_execution", toolCallId: "cmd-1", status: "inProgress" },
+        }),
+      ],
+      latestTurn: {
+        turnId,
+        state: "completed",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:00.000Z",
+        completedAt: "2026-04-01T00:00:05.000Z",
+        assistantMessageId: null,
+      },
+    });
+    const rows = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      thread.latestTurn,
+      new Set([turnId]),
+      new Set(["activity-run:hidden-thought-1"]),
+      null,
+    );
+    const steps = rows.flatMap((row) =>
+      (row.type === "message" || row.type === "activity-group") && row.timelineStep
+        ? [`${row.type}:${row.timelineStep}`]
+        : [],
+    );
+    // The thought after the read ends the rail; the hidden call takes no step.
+    expect(steps).toEqual(["message:first", "activity-group:middle", "message:last"]);
+    expect(rows.some((row) => row.type === "activity-group" && row.activities.length === 0)).toBe(
+      false,
+    );
+  });
+
+  it("starts and ends a group's rail only at its outer rows", () => {
+    const rowSteps = (groupStep: ThreadTimelineStep, count: number) =>
+      Array.from({ length: count }, (_, index) => timelineRowStep(groupStep, index, count));
+    expect(rowSteps("only", 1)).toEqual(["only"]);
+    expect(rowSteps("only", 3)).toEqual(["first", "middle", "last"]);
+    expect(rowSteps("first", 1)).toEqual(["first"]);
+    expect(rowSteps("first", 2)).toEqual(["first", "middle"]);
+    expect(rowSteps("middle", 2)).toEqual(["middle", "middle"]);
+    expect(rowSteps("last", 1)).toEqual(["last"]);
+    expect(rowSteps("last", 2)).toEqual(["middle", "last"]);
   });
 
   it("previews a collapsed thought as plain text", () => {
