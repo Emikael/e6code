@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { agentStateLabelTicks, formatAgentStateLabel } from "./agentState.ts";
+import {
+  agentStateLabelTicks,
+  formatAgentStateLabel,
+  formatPlanStepPosition,
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "./agentState.ts";
 
 const NOW = Date.parse("2026-01-01T10:00:00.000Z");
 
@@ -37,5 +43,46 @@ describe("formatAgentStateLabel", () => {
     );
     expect(agentStateLabelTicks({ kind: "rate-limited" })).toBe(false);
     expect(agentStateLabelTicks({ kind: "retrying", attempt: 1, maxAttempts: 2 })).toBe(false);
+  });
+});
+
+describe("formatPlanStepPosition", () => {
+  it("names the step in progress, capped at the plan length", () => {
+    expect(formatPlanStepPosition({ completedSteps: 3, totalSteps: 6 })).toBe("step 4 of 6");
+    expect(formatPlanStepPosition({ completedSteps: 0, totalSteps: 2 })).toBe("step 1 of 2");
+    expect(formatPlanStepPosition({ completedSteps: 6, totalSteps: 6 })).toBe("step 6 of 6");
+  });
+
+  it("is absent without a plan", () => {
+    expect(formatPlanStepPosition(null)).toBeNull();
+    expect(formatPlanStepPosition(undefined)).toBeNull();
+    expect(formatPlanStepPosition({ completedSteps: 0, totalSteps: 0 })).toBeNull();
+  });
+});
+
+describe("formatRunningThreadStatus", () => {
+  const formatResetTime = (resetsAt: string) => (resetsAt === "bad" ? "" : `@${resetsAt}`);
+  const row = (
+    agentState: Parameters<typeof formatRunningThreadStatus>[0]["agentState"],
+    planProgress: Parameters<typeof formatRunningThreadStatus>[0]["planProgress"] = null,
+  ) =>
+    joinThreadRowStatus(formatRunningThreadStatus({ agentState, planProgress, formatResetTime }));
+
+  it("shows the plan step while plainly working", () => {
+    expect(row(undefined, { completedSteps: 3, totalSteps: 6 })).toBe("Working · step 4 of 6");
+    expect(row(null)).toBe("Working");
+  });
+
+  it("lets the agent state explain a stall instead of the plan step", () => {
+    const plan = { completedSteps: 1, totalSteps: 3 };
+    expect(row({ kind: "rate-limited", resetsAt: "14:20" }, plan)).toBe("Paused · resets @14:20");
+    expect(row({ kind: "retrying", attempt: 2, maxAttempts: 10 }, plan)).toBe("Retrying · 2 of 10");
+    expect(row({ kind: "compacting" }, plan)).toBe("Compacting");
+  });
+
+  it("drops details it cannot state", () => {
+    expect(row({ kind: "rate-limited" })).toBe("Paused");
+    expect(row({ kind: "rate-limited", resetsAt: "bad" })).toBe("Paused");
+    expect(row({ kind: "retrying", attempt: 2 })).toBe("Retrying");
   });
 });
