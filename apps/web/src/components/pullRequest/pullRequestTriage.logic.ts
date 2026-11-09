@@ -1,9 +1,18 @@
+import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
 import type {
+  EnvironmentId,
   PullRequestInvolvement,
   PullRequestListEntry,
   PullRequestListState,
+  ThreadId,
 } from "@e6tools/contracts";
+import {
+  legacyThreadPullRequestKey,
+  threadPullRequestKeyOf,
+  visibleThreadPullRequests,
+} from "@e6tools/shared/threadPullRequests";
 
+import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import {
   isAuthoredByViewer,
   pullRequestEntryKey,
@@ -324,4 +333,109 @@ export function holdPullRequestLensCounts(
     return left === right || (left?.count === right?.count && left?.more === right?.more);
   });
   return same ? held : next;
+}
+
+/** A thread as the join needs it: its links, and enough of its session to say it is working. */
+type LinkedThreadShell = Pick<
+  EnvironmentThreadShell,
+  | "environmentId"
+  | "id"
+  | "title"
+  | "updatedAt"
+  | "archivedAt"
+  | "pullRequests"
+  | "linkedPullRequest"
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "session"
+  | "backgroundLiveness"
+  | "agentState"
+>;
+
+/** The threads working on one pull request, for its row. */
+export interface PullRequestLinkedThreads {
+  /** The thread a click opens: a working one first, then the most recently updated. */
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly title: string;
+  /** An agent in one of the linked threads is running a turn or background work right now. */
+  readonly working: boolean;
+  readonly count: number;
+}
+
+/** The identity a listing row and a thread link share: host, repository and number. */
+export function pullRequestRowThreadKey(
+  entry: Pick<PullRequestListEntry, "host" | "repository" | "number" | "url">,
+): string {
+  return threadPullRequestKeyOf(entry);
+}
+
+/**
+ * Which threads are linked to which pull requests, keyed by `pullRequestRowThreadKey`. Matched
+ * by host, repository and number rather than by server, because a repository listed by one
+ * connected server can be worked on in a thread on another. Archived threads are left out, and a
+ * legacy single link counts the same as the newer list of links.
+ */
+export function joinPullRequestThreads(
+  threads: ReadonlyArray<LinkedThreadShell>,
+): ReadonlyMap<string, PullRequestLinkedThreads> {
+  const byKey = new Map<string, Array<{ thread: LinkedThreadShell; working: boolean }>>();
+  for (const thread of threads) {
+    if (thread.archivedAt !== null) continue;
+    const keys = new Set(
+      visibleThreadPullRequests(thread.pullRequests).map((link) => threadPullRequestKeyOf(link)),
+    );
+    if (keys.size === 0 && thread.linkedPullRequest) {
+      keys.add(threadPullRequestKeyOf(legacyThreadPullRequestKey(thread.linkedPullRequest)));
+    }
+    if (keys.size === 0) continue;
+    const working = resolveSidebarThreadStatus(thread) === "working";
+    for (const key of keys) {
+      const held = byKey.get(key) ?? [];
+      held.push({ thread, working });
+      byKey.set(key, held);
+    }
+  }
+  const joined = new Map<string, PullRequestLinkedThreads>();
+  for (const [key, linked] of byKey) {
+    const chosen = linked.toSorted(
+      (left, right) =>
+        Number(right.working) - Number(left.working) ||
+        right.thread.updatedAt.localeCompare(left.thread.updatedAt),
+    )[0]!;
+    joined.set(key, {
+      environmentId: chosen.thread.environmentId,
+      threadId: chosen.thread.id,
+      title: chosen.thread.title,
+      working: chosen.working,
+      count: linked.length,
+    });
+  }
+  return joined;
+}
+
+/**
+ * A fresh join laid over the last one so that unchanged rows keep the very object they had, and
+ * an unchanged join is the previous map itself. Threads update on every turn event; a row should
+ * only redraw when what it shows about its threads did.
+ */
+export function reconcilePullRequestThreads(
+  previous: ReadonlyMap<string, PullRequestLinkedThreads>,
+  next: ReadonlyMap<string, PullRequestLinkedThreads>,
+): ReadonlyMap<string, PullRequestLinkedThreads> {
+  let changed = previous.size !== next.size;
+  const reconciled = new Map<string, PullRequestLinkedThreads>();
+  for (const [key, value] of next) {
+    const held = previous.get(key);
+    const same =
+      held !== undefined &&
+      held.environmentId === value.environmentId &&
+      held.threadId === value.threadId &&
+      held.title === value.title &&
+      held.working === value.working &&
+      held.count === value.count;
+    changed ||= !same;
+    reconciled.set(key, same ? held : value);
+  }
+  return changed ? reconciled : previous;
 }

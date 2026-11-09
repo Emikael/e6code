@@ -6,11 +6,128 @@ import {
   formatPullRequestLensCount,
   groupPullRequestsForNeedsYou,
   holdPullRequestLensCounts,
+  joinPullRequestThreads,
   pullRequestLensCounts,
   pullRequestLensOf,
   pullRequestLensScope,
+  pullRequestRowThreadKey,
+  reconcilePullRequestThreads,
   resolvePullRequestRowStatus,
 } from "./pullRequestTriage.logic";
+
+type ThreadShell = Parameters<typeof joinPullRequestThreads>[0][number];
+
+function thread(
+  id: string,
+  overrides: Partial<ThreadShell> & { readonly links?: ReadonlyArray<number> } = {},
+): ThreadShell {
+  const { links = [], ...rest } = overrides;
+  return {
+    environmentId: "env-1",
+    id,
+    title: `Thread ${id}`,
+    updatedAt: "2026-07-01T00:00:00Z",
+    archivedAt: null,
+    pullRequests: links.map((number) => ({
+      host: "github.com",
+      repository: "Emikael/E6Code",
+      number,
+      url: `https://github.com/Emikael/E6Code/pull/${number}`,
+      source: "manual",
+      linkedAt: "2026-07-01T00:00:00Z",
+      snapshot: null,
+      stack: null,
+    })),
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    session: null,
+    ...rest,
+  } as ThreadShell;
+}
+
+const running = {
+  threadId: "t",
+  status: "running",
+  providerName: null,
+  runtimeMode: "full-access",
+  activeTurnId: "turn-1",
+  lastError: null,
+  updatedAt: "2026-07-01T00:00:00Z",
+} as unknown as ThreadShell["session"];
+
+describe("joining threads to pull request rows", () => {
+  const rowKey = (number: number) =>
+    pullRequestRowThreadKey({
+      host: "github.com",
+      repository: "emikael/e6code",
+      number,
+      url: `https://github.com/emikael/e6code/pull/${number}`,
+    });
+
+  it("matches a row to its threads by host, repository and number, whatever the case", () => {
+    const joined = joinPullRequestThreads([thread("a", { links: [95] }), thread("b")]);
+    expect(joined.get(rowKey(95))).toEqual({
+      environmentId: "env-1",
+      threadId: "a",
+      title: "Thread a",
+      working: false,
+      count: 1,
+    });
+    expect(joined.get(rowKey(96))).toBeUndefined();
+  });
+
+  it("points at the working thread first and counts every linked one", () => {
+    const joined = joinPullRequestThreads([
+      thread("idle", { links: [96], updatedAt: "2026-07-03T00:00:00Z" }),
+      thread("live", { links: [96], session: running }),
+      thread("old", { links: [96], archivedAt: "2026-07-02T00:00:00Z", session: running }),
+    ]);
+    expect(joined.get(rowKey(96))).toMatchObject({ threadId: "live", working: true, count: 2 });
+  });
+
+  it("does not call an agent waiting on the reader working", () => {
+    const joined = joinPullRequestThreads([
+      thread("asking", { links: [97], session: running, hasPendingApprovals: true }),
+    ]);
+    expect(joined.get(rowKey(97))?.working).toBe(false);
+  });
+
+  it("reads a legacy single link the same as the newer list", () => {
+    const joined = joinPullRequestThreads([
+      thread("legacy", {
+        linkedPullRequest: {
+          projectId: "project-1",
+          repository: "emikael/e6code",
+          number: 98,
+          url: "https://github.com/emikael/e6code/pull/98",
+        },
+      } as Partial<ThreadShell>),
+    ]);
+    expect(joined.get(rowKey(98))?.threadId).toBe("legacy");
+  });
+
+  it("keeps the previous join, and each unchanged row's object, when nothing a row shows moved", () => {
+    const first = joinPullRequestThreads([
+      thread("a", { links: [95] }),
+      thread("b", { links: [96] }),
+    ]);
+    const same = reconcilePullRequestThreads(
+      first,
+      joinPullRequestThreads([thread("a", { links: [95] }), thread("b", { links: [96] })]),
+    );
+    expect(same).toBe(first);
+    const moved = reconcilePullRequestThreads(
+      first,
+      joinPullRequestThreads([
+        thread("a", { links: [95] }),
+        thread("b", { links: [96], session: running }),
+      ]),
+    );
+    expect(moved).not.toBe(first);
+    expect(moved.get(rowKey(95))).toBe(first.get(rowKey(95)));
+    expect(moved.get(rowKey(96))?.working).toBe(true);
+  });
+});
 
 const VIEWERS = { "github.com": "me" } as const;
 

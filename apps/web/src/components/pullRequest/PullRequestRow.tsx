@@ -20,8 +20,10 @@ import { getSourceControlPresentationForKind } from "~/sourceControlPresentation
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PullRequestGlyph } from "./pullRequestIcons";
+import { PullRequestRowThreads } from "./PullRequestRowThreads";
 import {
   pullRequestRowStatusStatesReview,
+  pullRequestRowThreadKey,
   resolvePullRequestRowStatus,
   type PullRequestRowStatus,
   type PullRequestRowStatusKind,
@@ -225,6 +227,7 @@ function PullRequestRowImpl({
         }
         status={
           <>
+            <PullRequestRowThreads threadKey={pullRequestRowThreadKey(entry)} />
             {entry.stack ? (
               <PullRequestStackPopover
                 environmentId={entry.environmentId}
