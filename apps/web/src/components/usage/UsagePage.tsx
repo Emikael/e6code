@@ -184,12 +184,6 @@ export function UsagePage() {
       window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
     });
   };
-  const selectMetric = (nextMetric: UsageMetric) => {
-    if (nextMetric === "limits") setLimitsNow(Date.now());
-    const nextPreferences = { metric: nextMetric, windowDays };
-    setPreferences(nextPreferences);
-    saveUsagePagePreferences(nextPreferences);
-  };
   const refreshLimits = async (automatic = false) => {
     try {
       await Promise.all(
@@ -207,6 +201,15 @@ export function UsagePage() {
     } finally {
       setLimitsNow(Date.now());
     }
+  };
+  const selectMetric = (nextMetric: UsageMetric) => {
+    if (nextMetric === "limits") {
+      setLimitsNow(Date.now());
+      void refreshLimits(true);
+    }
+    const nextPreferences = { metric: nextMetric, windowDays };
+    setPreferences(nextPreferences);
+    saveUsagePagePreferences(nextPreferences);
   };
   const refreshWindow = () => {
     if (refreshingRef.current) return;
@@ -232,7 +235,11 @@ export function UsagePage() {
     setLimitsNow(Date.now());
     refreshingRef.current = true;
     setIsRefreshing(true);
-    void refresh(nextWindow).finally(() => {
+    // A shown comparison must not pair a fresh total with a stale previous one.
+    void Promise.all([
+      refresh(nextWindow),
+      periodChange === null ? undefined : previousUsage.refresh(previousWindow(nextWindow)),
+    ]).finally(() => {
       refreshingRef.current = false;
       setIsRefreshing(false);
     });
@@ -250,9 +257,12 @@ export function UsagePage() {
   const autoRefreshLimits = useEffectEvent(() => {
     void refreshLimits(true);
   });
+  // Every view shows limits (Plan limits on cost and tokens), so the page asks
+  // for a fresh check on open and on reaching the Limits tab;
+  // `refreshUsageLimits` skips it while a recent one stands.
   useEffect(() => {
-    if (showingLimits && connectedLimitsEnvironments) autoRefreshLimits();
-  }, [showingLimits, connectedLimitsEnvironments]);
+    if (connectedLimitsEnvironments) autoRefreshLimits();
+  }, [connectedLimitsEnvironments]);
 
   const windowLabel =
     isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
