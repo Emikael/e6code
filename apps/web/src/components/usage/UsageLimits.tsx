@@ -55,21 +55,19 @@ import { PROVIDER_PRESENTATION } from "./usageProviders";
  * Pace as a glyph with a fuller label; the glyph never stands without words. The short words
  * are the shared `LIMIT_PACE_WORDS`, so web and mobile say the same thing.
  */
-export const PACE: Record<
-  LimitPaceReading,
-  { readonly label: string; readonly icon: typeof GaugeIcon }
-> = {
-  ahead: {
-    label: "Running fast: spending faster than the window elapses",
-    icon: TrendingUpIcon,
-  },
-  on: { label: "On pace with the window", icon: GaugeIcon },
-  under: {
-    label: "Under pace: headroom left for the rest of the window",
-    icon: TrendingDownIcon,
-  },
-  low: { label: "Running low: little of this window's quota is left", icon: BatteryLowIcon },
-};
+const PACE: Record<LimitPaceReading, { readonly label: string; readonly icon: typeof GaugeIcon }> =
+  {
+    ahead: {
+      label: "Running fast: spending faster than the window elapses",
+      icon: TrendingUpIcon,
+    },
+    on: { label: "On pace with the window", icon: GaugeIcon },
+    under: {
+      label: "Under pace: headroom left for the rest of the window",
+      icon: TrendingDownIcon,
+    },
+    low: { label: "Running low: little of this window's quota is left", icon: BatteryLowIcon },
+  };
 
 /** The series colour the cost chart uses for this driver, so the two views read as one. */
 export function barColor(driver: ServerProvider["driver"]): string {

@@ -817,7 +817,8 @@ function OpenCommandPaletteDialog(props: {
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const referenceRightPanelOpen = useRightPanelStore(
-    (state) => selectThreadRightPanelState(state.byThreadKey, referenceThreadRef).isOpen,
+    (state) =>
+      selectThreadRightPanelState(state.byThreadKey, referenceThreadRef, state.restingOpen).isOpen,
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
