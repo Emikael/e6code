@@ -1025,6 +1025,11 @@ function mapItemLifecycle(
           ? item.status
           : "completed"
         : undefined;
+  // Only the completed patch counts: the started item is still a proposal.
+  const changedFiles =
+    item.type === "fileChange" && status === "completed"
+      ? codexChangedFiles(item.changes)
+      : undefined;
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -1035,6 +1040,7 @@ function mapItemLifecycle(
       ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...toolPresentation,
+      ...(changedFiles ? { changedFiles } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };

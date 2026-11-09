@@ -1,5 +1,6 @@
 import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
 import { retryingAgentState } from "../agentState.ts";
+import { openCodeChangedFiles } from "../subagentChangedFiles.ts";
 import {
   EventId,
   type OpenCodeSettings,
@@ -2681,6 +2682,10 @@ export function makeOpenCodeAdapter(
                     .filter((content) => content.type === "text")
                     .map((content) => content.text)
                     .join("\n");
+            const changedFiles =
+              itemType === "file_change" && event.type === "session.tool.success"
+                ? openCodeChangedFiles(tool, input)
+                : undefined;
             yield* emit({
               ...(yield* buildEventBase({
                 threadId: context.session.threadId,
@@ -2695,6 +2700,7 @@ export function makeOpenCodeAdapter(
                 status: event.type === "session.tool.failed" ? "failed" : "completed",
                 title: tool,
                 ...(detail ? { detail } : {}),
+                ...(changedFiles ? { changedFiles } : {}),
                 data: {
                   tool,
                   ...(typeof input?.command === "string" ? { command: input.command } : {}),

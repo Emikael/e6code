@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { claudeChangedFiles, codexChangedFiles } from "./subagentChangedFiles.ts";
+import {
+  acpChangedFiles,
+  claudeChangedFiles,
+  codexChangedFiles,
+  openCodeChangedFiles,
+} from "./subagentChangedFiles.ts";
 
 describe("claudeChangedFiles", () => {
   it("diffs an edit's own strings when the SDK sent no patch", () => {
@@ -49,5 +54,58 @@ describe("codexChangedFiles", () => {
         },
       ]),
     ).toEqual([{ path: "/repo/new.ts", additions: 1, deletions: 1 }]);
+  });
+});
+
+describe("openCodeChangedFiles", () => {
+  it("diffs an edit's strings", () => {
+    expect(
+      openCodeChangedFiles("edit", {
+        filePath: "/repo/a.ts",
+        oldString: "one\ntwo\n",
+        newString: "one\nthree\nfour\n",
+      }),
+    ).toEqual([{ path: "/repo/a.ts", additions: 2, deletions: 1 }]);
+  });
+
+  it("lists the file without counts when the input cannot say", () => {
+    expect(openCodeChangedFiles("write", { filePath: "/repo/b.ts", content: "x\n" })).toEqual([
+      { path: "/repo/b.ts" },
+    ]);
+    expect(
+      openCodeChangedFiles("edit", {
+        filePath: "/repo/a.ts",
+        oldString: "a",
+        newString: "b",
+        replaceAll: true,
+      }),
+    ).toEqual([{ path: "/repo/a.ts" }]);
+    expect(openCodeChangedFiles("edit", undefined)).toBeUndefined();
+  });
+});
+
+describe("acpChangedFiles", () => {
+  it("counts created and edited files from diff content and skips other content", () => {
+    expect(
+      acpChangedFiles([
+        { type: "content", content: { type: "text", text: "done" } },
+        { type: "diff", path: "/repo/new.ts", newText: "a\nb\n" },
+        { type: "diff", path: "/repo/old.ts", oldText: "a\nb\n", newText: "a\nc\n" },
+      ]),
+    ).toEqual([
+      { path: "/repo/new.ts", additions: 2, deletions: 0 },
+      { path: "/repo/old.ts", additions: 1, deletions: 1 },
+    ]);
+    expect(acpChangedFiles([{ type: "content" }])).toBeUndefined();
+    expect(acpChangedFiles(undefined)).toBeUndefined();
+  });
+
+  it("keeps at most 64 files", () => {
+    const content = Array.from({ length: 70 }, (_, index) => ({
+      type: "diff",
+      path: `/repo/${index}.ts`,
+      newText: "x\n",
+    }));
+    expect(acpChangedFiles(content)).toHaveLength(64);
   });
 });

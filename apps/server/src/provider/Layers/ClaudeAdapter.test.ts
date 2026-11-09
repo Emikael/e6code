@@ -4286,125 +4286,130 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("lists the files a subagent's edits changed on its item.completed rows", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
+  it.effect(
+    "lists the files every completed edit changed, attributed to its subagent when it has one",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
 
-      const completedFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.type === "item.completed"),
-        Stream.take(3),
-        Stream.runCollect,
-        Effect.forkChild,
-      );
+        const completedFiber = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.type === "item.completed"),
+          Stream.take(3),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
 
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: ProviderDriverKind.make("claudeAgent"),
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "spawn an agent",
-        attachments: [],
-      });
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "spawn an agent",
+          attachments: [],
+        });
 
-      harness.query.emit({
-        type: "system",
-        subtype: "task_started",
-        task_id: "task-files",
-        description: "Agent F",
-        task_type: "local_agent",
-        tool_use_id: "toolu_agent_f",
-        uuid: "task-files-uuid",
-        session_id: "sdk-session",
-      } as unknown as SDKMessage);
-
-      const runTool = (input: {
-        readonly index: number;
-        readonly id: string;
-        readonly name: string;
-        readonly toolInput: Record<string, unknown>;
-        readonly parentToolUseId: string | null;
-        readonly toolUseResult?: Record<string, unknown>;
-      }) => {
         harness.query.emit({
-          type: "stream_event",
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-files",
+          description: "Agent F",
+          task_type: "local_agent",
+          tool_use_id: "toolu_agent_f",
+          uuid: "task-files-uuid",
           session_id: "sdk-session",
-          uuid: `${input.id}-start`,
-          parent_tool_use_id: input.parentToolUseId,
-          event: {
-            type: "content_block_start",
-            index: input.index,
-            content_block: {
-              type: "tool_use",
-              id: input.id,
-              name: input.name,
-              input: input.toolInput,
+        } as unknown as SDKMessage);
+
+        const runTool = (input: {
+          readonly index: number;
+          readonly id: string;
+          readonly name: string;
+          readonly toolInput: Record<string, unknown>;
+          readonly parentToolUseId: string | null;
+          readonly toolUseResult?: Record<string, unknown>;
+        }) => {
+          harness.query.emit({
+            type: "stream_event",
+            session_id: "sdk-session",
+            uuid: `${input.id}-start`,
+            parent_tool_use_id: input.parentToolUseId,
+            event: {
+              type: "content_block_start",
+              index: input.index,
+              content_block: {
+                type: "tool_use",
+                id: input.id,
+                name: input.name,
+                input: input.toolInput,
+              },
             },
-          },
-        } as unknown as SDKMessage);
-        harness.query.emit({
-          type: "user",
-          session_id: "sdk-session",
-          uuid: `${input.id}-result`,
-          parent_tool_use_id: input.parentToolUseId,
-          ...(input.toolUseResult ? { tool_use_result: input.toolUseResult } : {}),
-          message: {
-            role: "user",
-            content: [{ type: "tool_result", tool_use_id: input.id, content: "ok" }],
-          },
-        } as unknown as SDKMessage);
-      };
+          } as unknown as SDKMessage);
+          harness.query.emit({
+            type: "user",
+            session_id: "sdk-session",
+            uuid: `${input.id}-result`,
+            parent_tool_use_id: input.parentToolUseId,
+            ...(input.toolUseResult ? { tool_use_result: input.toolUseResult } : {}),
+            message: {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: input.id, content: "ok" }],
+            },
+          } as unknown as SDKMessage);
+        };
 
-      // The SDK's patch is exact when present.
-      runTool({
-        index: 1,
-        id: "tool-edit-1",
-        name: "Edit",
-        toolInput: { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" },
-        parentToolUseId: "toolu_agent_f",
-        toolUseResult: {
-          structuredPatch: [{ lines: [" keep", "-a", "+b", "+c"] }],
-        },
-      });
-      // Without one, a created file counts its content.
-      runTool({
-        index: 2,
-        id: "tool-write-1",
-        name: "Write",
-        toolInput: { file_path: "/repo/src/new.ts", content: "one\ntwo\nthree\n" },
-        parentToolUseId: "toolu_agent_f",
-        toolUseResult: { type: "create", structuredPatch: [] },
-      });
-      // The main agent's own edit lists no files: the turn diff covers it.
-      runTool({
-        index: 3,
-        id: "tool-edit-main",
-        name: "Edit",
-        toolInput: { file_path: "/repo/src/main.ts", old_string: "x", new_string: "y" },
-        parentToolUseId: null,
-      });
+        // The SDK's patch is exact when present.
+        runTool({
+          index: 1,
+          id: "tool-edit-1",
+          name: "Edit",
+          toolInput: { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" },
+          parentToolUseId: "toolu_agent_f",
+          toolUseResult: {
+            structuredPatch: [{ lines: [" keep", "-a", "+b", "+c"] }],
+          },
+        });
+        // Without one, a created file counts its content.
+        runTool({
+          index: 2,
+          id: "tool-write-1",
+          name: "Write",
+          toolInput: { file_path: "/repo/src/new.ts", content: "one\ntwo\nthree\n" },
+          parentToolUseId: "toolu_agent_f",
+          toolUseResult: { type: "create", structuredPatch: [] },
+        });
+        // The main agent's own edit lists its file too, without an agentId.
+        runTool({
+          index: 3,
+          id: "tool-edit-main",
+          name: "Edit",
+          toolInput: { file_path: "/repo/src/main.ts", old_string: "x", new_string: "y" },
+          parentToolUseId: null,
+        });
 
-      const completed = Array.from(yield* Fiber.join(completedFiber));
-      const payloads = completed.map((event) =>
-        event.type === "item.completed" ? event.payload : undefined,
+        const completed = Array.from(yield* Fiber.join(completedFiber));
+        const payloads = completed.map((event) =>
+          event.type === "item.completed" ? event.payload : undefined,
+        );
+        assert.equal(payloads[0]?.agentId, "task-files");
+        assert.deepEqual(payloads[0]?.changedFiles, [
+          { path: "/repo/src/a.ts", additions: 2, deletions: 1 },
+        ]);
+        assert.equal(payloads[1]?.agentId, "task-files");
+        assert.deepEqual(payloads[1]?.changedFiles, [
+          { path: "/repo/src/new.ts", additions: 3, deletions: 0 },
+        ]);
+        assert.equal(payloads[2]?.agentId, undefined);
+        assert.deepEqual(payloads[2]?.changedFiles, [
+          { path: "/repo/src/main.ts", additions: 1, deletions: 1 },
+        ]);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
       );
-      assert.equal(payloads[0]?.agentId, "task-files");
-      assert.deepEqual(payloads[0]?.changedFiles, [
-        { path: "/repo/src/a.ts", additions: 2, deletions: 1 },
-      ]);
-      assert.equal(payloads[1]?.agentId, "task-files");
-      assert.deepEqual(payloads[1]?.changedFiles, [
-        { path: "/repo/src/new.ts", additions: 3, deletions: 0 },
-      ]);
-      assert.equal(payloads[2]?.agentId, undefined);
-      assert.equal(payloads[2]?.changedFiles, undefined);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
+    },
+  );
 
   it.effect("a subagent snapshot that beats task_started still wins over the seed", () => {
     const harness = makeHarness();

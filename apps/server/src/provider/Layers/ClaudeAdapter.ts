@@ -3467,10 +3467,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
       }
 
-      // A subagent's edits are listed per subagent; the main agent's live in
-      // the turn diff already.
+      // Every completed edit carries its files and line counts: subagent rows
+      // feed the per-subagent file list, and every row shows its own diff stat.
       const changedFiles =
-        tool.agentId && tool.itemType === "file_change" && itemStatus === "completed"
+        tool.itemType === "file_change" && itemStatus === "completed"
           ? claudeChangedFiles(tool.toolName, tool.input, toolUseResult)
           : undefined;
       const completedStamp = yield* makeEventStamp();
