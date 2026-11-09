@@ -70,3 +70,24 @@ export function describePeriodChange(
     text: `${Math.abs(percent)}% ${direction} than the ${periodLabel} before`,
   };
 }
+
+/**
+ * Whole-number percentages of `values` that add up to exactly 100, by largest
+ * remainder, so a legend never reads 99% or 101%. All zeros give all zeros.
+ */
+export function sharePercents(values: readonly number[]): readonly number[] {
+  const total = values.reduce((sum, value) => sum + Math.max(0, value), 0);
+  if (!(total > 0)) return values.map(() => 0);
+  const exact = values.map((value) => (Math.max(0, value) / total) * 100);
+  const floored = exact.map(Math.floor);
+  let leftover = 100 - floored.reduce((sum, value) => sum + value, 0);
+  const byRemainder = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .toSorted((left, right) => right.remainder - left.remainder || left.index - right.index);
+  for (const { index } of byRemainder) {
+    if (leftover <= 0) break;
+    floored[index] = (floored[index] ?? 0) + 1;
+    leftover -= 1;
+  }
+  return floored;
+}

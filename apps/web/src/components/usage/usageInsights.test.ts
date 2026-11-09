@@ -1,7 +1,7 @@
 import { UsageDay } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePeriodChange, previousWindow } from "./usageInsights";
+import { describePeriodChange, previousWindow, sharePercents } from "./usageInsights";
 
 describe("previousWindow", () => {
   it("covers the same number of calendar days just before the window", () => {
@@ -70,5 +70,23 @@ describe("describePeriodChange", () => {
 
   it("has nothing to say when the previous window was empty", () => {
     expect(describePeriodChange(50, 0, "7 days")).toBeNull();
+  });
+});
+
+describe("sharePercents", () => {
+  it("rounds by largest remainder so the shares add up to 100", () => {
+    expect(sharePercents([1, 1, 1])).toEqual([34, 33, 33]);
+    expect(sharePercents([21.4, 19.85, 6.95])).toEqual([44, 41, 15]);
+    const shares = sharePercents([0.333, 0.333, 0.334, 5, 7]);
+    expect(shares.reduce((sum, share) => sum + share, 0)).toBe(100);
+  });
+
+  it("keeps a provider with nothing at zero", () => {
+    expect(sharePercents([10, 0])).toEqual([100, 0]);
+  });
+
+  it("gives all zeros when there is nothing to share", () => {
+    expect(sharePercents([0, 0])).toEqual([0, 0]);
+    expect(sharePercents([])).toEqual([]);
   });
 });

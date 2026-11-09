@@ -22,6 +22,7 @@ import {
   isModelCostUnknown,
   type DailyTotals,
   type HourlyTotals,
+  type MergedUsage,
 } from "@e6tools/shared/usageMerge";
 
 import { isElectron } from "../../env";
@@ -64,7 +65,7 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
-import { describePeriodChange, previousWindow } from "./usageInsights";
+import { describePeriodChange, previousWindow, sharePercents } from "./usageInsights";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
@@ -434,49 +435,11 @@ export function UsagePage() {
                       </span>
                     </div>
 
-                    {activeProviders.map((provider) => {
-                      const totals = merged.providers.find((entry) => entry.provider === provider);
-                      const share =
-                        metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
-                      const providerSessions = totals?.sessions ?? 0;
-                      const sessionLabel = `${formatCount(providerSessions)} ${
-                        providerSessions === 1 ? "session" : "sessions"
-                      }`;
-                      return (
-                        <div key={provider} className="flex flex-col gap-1">
-                          <div className="flex items-baseline justify-between gap-4">
-                            <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
-                              <span
-                                aria-hidden
-                                className="size-2 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor: PROVIDER_PRESENTATION[provider].color,
-                                }}
-                              />
-                              <ProviderMark provider={provider} className="size-4" />
-                              <span className="flex min-w-0 items-baseline gap-1.5">
-                                <span className="truncate">
-                                  {PROVIDER_PRESENTATION[provider].label}
-                                </span>
-                                <span className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums">
-                                  {sessionLabel}
-                                </span>
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">
-                              {metric === "cost"
-                                ? formatUsd(totals?.costUsd ?? 0)
-                                : formatTokens(totals?.totalTokens ?? 0)}
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {metric === "cost"
-                              ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
-                              : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    <ProviderShare
+                      providers={activeProviders}
+                      totals={merged.providers}
+                      metric={metric}
+                    />
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3">
@@ -712,6 +675,86 @@ function ProviderMark({
 }) {
   const Mark = PROVIDER_PRESENTATION[provider].mark;
   return <Mark className={cn("shrink-0", className)} aria-hidden />;
+}
+
+/**
+ * Each provider's share of the period as one stacked bar, with a legend that
+ * carries the value and percentage so identity never rests on colour alone.
+ */
+function ProviderShare({
+  providers,
+  totals,
+  metric,
+}: {
+  readonly providers: readonly UsageProviderKind[];
+  readonly totals: MergedUsage["providers"];
+  readonly metric: UsageChartMetric;
+}) {
+  const rows = providers.map((provider) => {
+    const entry = totals.find((candidate) => candidate.provider === provider);
+    return {
+      provider,
+      label: PROVIDER_PRESENTATION[provider].label,
+      costUsd: entry?.costUsd ?? 0,
+      totalTokens: entry?.totalTokens ?? 0,
+      sessions: entry?.sessions ?? 0,
+    };
+  });
+  const percents = sharePercents(
+    rows.map((row) => (metric === "cost" ? row.costUsd : row.totalTokens)),
+  );
+  if (rows.length === 0) return null;
+  const summary = `Share of ${metric === "cost" ? "cost" : "tokens"}: ${rows
+    .map((row, index) => `${row.label} ${percents[index] ?? 0}%`)
+    .join(", ")}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div role="img" aria-label={summary} className="flex h-2.5 gap-0.5">
+        {rows.map((row, index) =>
+          (percents[index] ?? 0) > 0 ? (
+            <span
+              key={row.provider}
+              className="rounded-sm"
+              style={{
+                width: `${percents[index]}%`,
+                backgroundColor: PROVIDER_PRESENTATION[row.provider].color,
+              }}
+            />
+          ) : null,
+        )}
+      </div>
+      <ul className="flex flex-col gap-3">
+        {rows.map((row, index) => (
+          <li key={row.provider} className="flex flex-col gap-0.5">
+            <span className="flex items-baseline justify-between gap-4 text-sm text-foreground">
+              <span className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-sm"
+                  style={{ backgroundColor: PROVIDER_PRESENTATION[row.provider].color }}
+                />
+                <ProviderMark provider={row.provider} className="size-4" />
+                <span className="truncate">{row.label}</span>
+              </span>
+              <span className="shrink-0 tabular-nums">
+                <span className="font-medium">
+                  {metric === "cost" ? formatUsd(row.costUsd) : formatTokens(row.totalTokens)}
+                </span>
+                <span className="text-muted-foreground"> · {percents[index] ?? 0}%</span>
+              </span>
+            </span>
+            <span className="ps-[2.625rem] text-xs text-muted-foreground tabular-nums">
+              {formatCount(row.sessions)} {row.sessions === 1 ? "session" : "sessions"} ·{" "}
+              {metric === "cost"
+                ? `${formatTokens(row.totalTokens)} tokens`
+                : formatUsd(row.costUsd)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) {
