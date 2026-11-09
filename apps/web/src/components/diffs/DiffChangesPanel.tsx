@@ -409,7 +409,7 @@ function ChangeSection(props: {
         <div className="ml-auto flex items-center">{props.actions}</div>
       </div>
       {props.entries.length === 0 ? (
-        <p className="px-3 pb-2 text-[11px] text-muted-foreground/80">{props.emptyHint}</p>
+        <p className="px-3 pb-2 text-[11px] text-muted-foreground">{props.emptyHint}</p>
       ) : (
         props.entries.map((entry) => (
           <ChangeRow
@@ -458,7 +458,7 @@ const ChangeRow = memo(function ChangeRow(props: {
       >
         <span className="min-w-0 shrink truncate text-foreground">{name}</span>
         {directory ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
             {directory}
           </span>
         ) : (

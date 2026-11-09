@@ -427,7 +427,7 @@ function TimelineLoadEarlierHeader({
           type="button"
           onClick={onLoadEarlier}
           disabled={loading}
-          className="w-full py-1.5 text-xs text-muted-foreground/60 hover:text-foreground disabled:cursor-default"
+          className="w-full py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-default"
         >
           {loading ? "Loading earlier turns…" : "Load earlier turns"}
         </button>
