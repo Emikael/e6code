@@ -515,6 +515,7 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
+    | "Paused"
     | "Plan Ready";
   colorClass: string;
   dotClass: string;
@@ -523,10 +524,12 @@ export interface ThreadStatusPill {
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
 // then active work, then the actionable plan prompt, then passive
-// monitoring. A Monitoring sibling must never hide a Plan Ready thread.
+// monitoring. A Monitoring sibling must never hide a Plan Ready thread. A
+// usage-limit pause outranks Working so a stalled sibling is not hidden.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 6,
-  "Awaiting Input": 5,
+  "Pending Approval": 7,
+  "Awaiting Input": 6,
+  Paused: 5,
   Working: 4,
   Connecting: 4,
   "Plan Ready": 3,
@@ -543,6 +546,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
   | "backgroundLiveness"
+  | "agentState"
 > & {
   lastVisitedAt?: string | undefined;
 };
@@ -812,6 +816,7 @@ export function resolveThreadRowClassName(input: {
 export type SidebarThreadStatus =
   | "approval"
   | "input"
+  | "paused"
   | "working"
   | "monitoring"
   | "failed"
@@ -825,7 +830,9 @@ export function shouldRecedeSidebarThread(input: {
   isSelected: boolean;
 }): boolean {
   if (input.isActive || input.isSelected || input.status === "input") return false;
-  if (input.status === "working" || input.status === "monitoring") return true;
+  // A usage-limit pause waits on the clock, not the user, so it recedes too.
+  if (input.status === "working" || input.status === "monitoring" || input.status === "paused")
+    return true;
   if (input.status === "ready" || input.status === "approval") {
     return !input.isUnread && !input.isWoke;
   }
@@ -834,8 +841,13 @@ export function shouldRecedeSidebarThread(input: {
 
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness"
+  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "agentState"
 >;
+
+/** A running turn parked until a usage limit resets: no progress, no action needed. */
+function isPausedForUsageLimit(thread: Pick<SidebarThreadSummary, "session" | "agentState">) {
+  return thread.session?.status === "running" && thread.agentState?.kind === "rate-limited";
+}
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   if (thread.hasPendingApprovals) {
@@ -843,6 +855,9 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   }
   if (thread.hasPendingUserInput) {
     return "input";
+  }
+  if (isPausedForUsageLimit(thread)) {
+    return "paused";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
@@ -1026,6 +1041,15 @@ export function resolveThreadStatusPill(input: {
       label: "Awaiting Input",
       colorClass: "text-indigo-600 dark:text-indigo-300/90",
       dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      pulse: false,
+    };
+  }
+
+  if (isPausedForUsageLimit(thread)) {
+    return {
+      label: "Paused",
+      colorClass: "text-warning-foreground",
+      dotClass: "bg-warning",
       pulse: false,
     };
   }

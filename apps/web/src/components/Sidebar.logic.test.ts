@@ -356,7 +356,7 @@ describe("hasUnseenCompletion", () => {
 });
 
 describe("shouldRecedeSidebarThread", () => {
-  it.each(["working", "monitoring"] as const)(
+  it.each(["working", "monitoring", "paused"] as const)(
     "recedes an inactive %s thread even when it is unread and woke",
     (status) => {
       expect(
@@ -779,6 +779,24 @@ describe("resolveSidebarThreadStatus", () => {
         session,
       }),
     ).toBe("approval");
+  });
+
+  it("says paused for a running turn parked on a usage limit, below user attention", () => {
+    const paused = { ...idle, session, agentState: { kind: "rate-limited" as const } };
+    expect(resolveSidebarThreadStatus(paused)).toBe("paused");
+    expect(resolveSidebarThreadStatus({ ...paused, hasPendingUserInput: true })).toBe("input");
+    expect(resolveSidebarThreadStatus({ ...paused, hasPendingApprovals: true })).toBe("approval");
+    // Retrying or compacting is still work, and a stale state on a stopped
+    // session never reads as paused.
+    expect(resolveSidebarThreadStatus({ ...idle, session, agentState: { kind: "retrying" } })).toBe(
+      "working",
+    );
+    expect(
+      resolveSidebarThreadStatus({
+        ...paused,
+        session: { ...session, status: "ready" as const, activeTurnId: null },
+      }),
+    ).toBe("ready");
   });
 
   it("reports working for running and starting sessions", () => {
@@ -1987,6 +2005,23 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Pending Approval", pulse: false });
+  });
+
+  it("shows paused between awaiting input and working", () => {
+    const paused = { ...baseThread, agentState: { kind: "rate-limited" as const } };
+    expect(resolveThreadStatusPill({ thread: paused })).toMatchObject({
+      label: "Paused",
+      pulse: false,
+    });
+    expect(
+      resolveThreadStatusPill({ thread: { ...paused, hasPendingUserInput: true } }),
+    ).toMatchObject({ label: "Awaiting Input" });
+    expect(
+      resolveProjectStatusIndicator([
+        resolveThreadStatusPill({ thread: baseThread }),
+        resolveThreadStatusPill({ thread: paused }),
+      ]),
+    ).toMatchObject({ label: "Paused" });
   });
 
   it("shows awaiting input when plan mode is blocked on user answers", () => {

@@ -5,6 +5,7 @@ import { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 export type ThreadStatusKind =
   | "pending-approval"
   | "awaiting-input"
+  | "paused"
   | "working"
   | "connecting"
   | "error"
@@ -50,6 +51,16 @@ export function resolveThreadStatus(
       label: "Awaiting Input",
       pillClassName: "bg-adaptive-indigo-500-a12-a16",
       textClassName: "text-adaptive-indigo-600-300",
+      pulse: false,
+    };
+  }
+
+  if (thread.session?.status === "running" && thread.agentState?.kind === "rate-limited") {
+    return {
+      kind: "paused",
+      label: "Paused",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
       pulse: false,
     };
   }
