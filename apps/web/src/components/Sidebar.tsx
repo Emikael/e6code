@@ -1267,8 +1267,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Status hues follow the system-wide convention set by sidebar v1 and the
   // mobile Live Activity/widgets (amber approval, indigo input, blue working)
   // so a thread reads the same color everywhere it surfaces. Each goes
-  // through its semantic role where one exists, so built-in themes recolor it
-  // and it holds 4.5:1 on the sidebar; input has no role and keeps indigo.
+  // through its semantic role, so built-in themes recolor it and it holds
+  // 4.5:1 on the sidebar; input is the user's next action, so it takes
+  // primary (Iris, the stock indigo).
   const topStatus =
     status === "working"
       ? {
@@ -1302,7 +1303,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ? {
                   label: "Input",
                   icon: "input" as const,
-                  className: "text-indigo-600 dark:text-indigo-300",
+                  className: "text-primary-text",
                 }
               : status === "failed"
                 ? {
