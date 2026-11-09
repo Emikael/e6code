@@ -51,7 +51,8 @@ import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/La
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
-import { agentStateTransition, ThreadAgentStateService } from "../ThreadAgentState.ts";
+import { agentStateTransition } from "../../provider/agentStateTransition.ts";
+import { ThreadAgentStateService } from "../ThreadAgentState.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,

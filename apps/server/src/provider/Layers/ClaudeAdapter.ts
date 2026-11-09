@@ -30,7 +30,7 @@ import { parseCliArgs } from "@e6tools/shared/cliArgs";
 import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 import { isWorkspaceImagePreviewPath } from "@e6tools/shared/filePreview";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
-import { agentStateTransition } from "../../orchestration/ThreadAgentState.ts";
+import { agentStateTransition } from "../agentStateTransition.ts";
 import { retryingAgentState } from "../agentState.ts";
 import {
   ApprovalRequestId,
