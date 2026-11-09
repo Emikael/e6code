@@ -5,6 +5,10 @@ appearance or stay in light or dark mode. To use different themes for light and 
 the corresponding preview within each theme. Appearance preferences are saved separately on each
 device or browser.
 
+**Accent** in the same section sets the color of the next action and a working agent: Iris,
+Cobalt, Rose, or Graphite. It applies to the stock E6 Code theme only; other themes bring their
+own accent. On mobile, choose it under **Settings → Appearance**, separately on each device.
+
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
 Use **Change appearance** in the command palette to choose System, Light, or Dark independently of

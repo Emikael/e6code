@@ -1,6 +1,7 @@
 import type { StatusTone } from "../../components/StatusPill";
 import type { OrchestrationLatestTurn, OrchestrationSession } from "@e6tools/contracts";
 import { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
+import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
 
 export type ThreadStatusKind =
   | "pending-approval"
@@ -55,7 +56,7 @@ export function resolveThreadStatus(
     };
   }
 
-  if (thread.session?.status === "running" && thread.agentState?.kind === "rate-limited") {
+  if (isPausedForUsageLimit(thread)) {
     return {
       kind: "paused",
       label: "Paused",

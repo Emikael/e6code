@@ -31,6 +31,17 @@ export function agentStateLabelTicks(state: ThreadAgentState): boolean {
   return state.kind === "rate-limited" && state.resetsAt !== undefined;
 }
 
+/**
+ * A running turn parked until a usage limit resets: no progress and no action
+ * needed. Thread lists on every client show it as Paused rather than Working.
+ */
+export function isPausedForUsageLimit(thread: {
+  readonly session?: { readonly status: string } | null | undefined;
+  readonly agentState?: ThreadAgentState | null | undefined;
+}): boolean {
+  return thread.session?.status === "running" && thread.agentState?.kind === "rate-limited";
+}
+
 /** The plan fields a status row needs from `OrchestrationThreadShell.planProgress`. */
 interface PlanStepProgress {
   readonly completedSteps: number;

@@ -1,5 +1,6 @@
 import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
 import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
+import type { ThreadStopCommands } from "./chat/threadStopCommands";
 import {
   type EnvironmentId,
   type FilesystemBrowseEntry,
@@ -205,6 +206,57 @@ export function buildCommandPaletteProjectMetadata(input: {
   }
 
   return { searchTerms, environmentLabels: [...environmentLabels] };
+}
+
+/**
+ * Palette entries for what the open chat can stop. "Stop the agent" carries the
+ * `thread.stop` hint because that key does the same thing. Subagent entries
+ * carry no hint: `thread.stopSubagent` only stops the subagent selected in the
+ * Overview, not the one an entry names.
+ */
+export function buildThreadStopActionItems(input: {
+  readonly commands: ThreadStopCommands;
+  readonly icon: ReactNode;
+  readonly addonIcon: ReactNode;
+}): Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> {
+  const { commands, icon, addonIcon } = input;
+  const items: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  const stopTurn = commands.stopTurn;
+  if (stopTurn) {
+    items.push({
+      kind: "action",
+      value: "action:stop-turn",
+      searchTerms: ["stop", "interrupt", "cancel", "agent", "turn"],
+      title: "Stop the agent",
+      icon,
+      shortcutCommand: "thread.stop",
+      run: async () => stopTurn(),
+    });
+  }
+  const single = commands.subagents.length === 1;
+  const subagentItems = commands.subagents.map((subagent): CommandPaletteActionItem => ({
+    kind: "action",
+    value: `action:stop-subagent:${subagent.id}`,
+    searchTerms: ["stop", "subagent", "agent", subagent.title],
+    title: single ? "Stop subagent" : subagent.title,
+    ...(single ? { description: subagent.title } : {}),
+    icon,
+    run: async () => subagent.stop(),
+  }));
+  if (single) {
+    items.push(...subagentItems);
+  } else if (subagentItems.length > 1) {
+    items.push({
+      kind: "submenu",
+      value: "action:stop-subagent",
+      searchTerms: ["stop", "subagent", "agent"],
+      title: "Stop subagent...",
+      icon,
+      addonIcon,
+      groups: [{ value: "subagents", label: "Running subagents", items: subagentItems }],
+    });
+  }
+  return items;
 }
 
 export function buildProjectActionItems(input: {

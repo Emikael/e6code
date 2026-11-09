@@ -124,7 +124,7 @@ uses the project's instructions and recent commit subjects.
 
 ## Review and merge
 
-Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
+On web and desktop, open **Pull requests** to review changes and comments, request reviewers, check out a branch,
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.
 

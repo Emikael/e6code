@@ -43,6 +43,7 @@ import {
   formatUsd,
   makeWindow,
 } from "@e6tools/shared/usageFormat";
+import { cachedInputPercent, sharePercents, tokenSplit } from "@e6tools/shared/usageShares";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -65,13 +66,7 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
-import {
-  cachedInputPercent,
-  describePeriodChange,
-  previousWindow,
-  sharePercents,
-  tokenSplit,
-} from "./usageInsights";
+import { describePeriodChange, previousWindow } from "./usageInsights";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";

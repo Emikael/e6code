@@ -50,6 +50,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
+  CircleStopIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -166,6 +167,7 @@ import {
   buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildThreadStopActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -225,6 +227,7 @@ import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
+import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -818,6 +821,7 @@ function OpenCommandPaletteDialog(props: {
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
+  const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1879,6 +1883,16 @@ function OpenCommandPaletteDialog(props: {
         pullRequestMergeCommand.run();
       },
     });
+  }
+
+  if (threadStopCommands !== null) {
+    actionItems.push(
+      ...buildThreadStopActionItems({
+        commands: threadStopCommands,
+        icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <CircleStopIcon className={ADDON_ICON_CLASS} />,
+      }),
+    );
   }
 
   if (activeThreadReferenceCopyTarget !== null) {

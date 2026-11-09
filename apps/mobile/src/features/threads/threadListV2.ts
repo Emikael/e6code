@@ -13,6 +13,8 @@ import {
 import type { SnoozePreset } from "@e6tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
+import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
+import { formatUpcomingTimestamp } from "../../lib/time";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
@@ -149,7 +151,7 @@ export function resolveThreadListV2Status(
     return "input";
   }
   // A running turn parked until a usage limit resets.
-  if (thread.session?.status === "running" && thread.agentState?.kind === "rate-limited") {
+  if (isPausedForUsageLimit(thread)) {
     return "paused";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
@@ -161,16 +163,9 @@ export function resolveThreadListV2Status(
   return "ready";
 }
 
-/** Usage-limit reset as a short local clock time, with the weekday when not today. */
+/** Usage-limit reset worded like web's: `2:20 PM`, `tomorrow at 2:20 PM`. */
 export function formatResetClockTime(resetsAt: string): string {
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) return "";
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return date.toLocaleTimeString([], {
-    ...(sameDay ? {} : { weekday: "short" }),
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatUpcomingTimestamp(resetsAt, "locale");
 }
 
 /**

@@ -42,13 +42,16 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
-import { resolveWorkRowStats } from "@e6tools/client-runtime/work-log/step-meta";
+import {
+  mergeWorkStepStartedAt,
+  resolveWorkRowStats,
+} from "@e6tools/client-runtime/work-log/step-meta";
 import {
   mainAgentDiffStat,
   type WorkLogDiffStat,
 } from "@e6tools/client-runtime/work-log/diff-stat";
 import {
-  TASK_LIST_TOOL_NAMES,
+  isTaskListToolActivity,
   taskListLabel,
   taskListStepsFromPayload,
   taskListText,
@@ -146,8 +149,9 @@ export interface WorkLogEntry {
   /** Lines a main-agent file change added and removed, when the provider counted its files. */
   diffStat?: WorkLogDiffStat;
   /**
-   * When the step began, from its tool.started row. `createdAt` stays the
-   * first rendered row's time so the row keeps its place in the feed.
+   * When the step began: its tool.started row, else its first lifecycle row
+   * once a later one merged in. `createdAt` stays the first rendered row's
+   * time so the row keeps its place in the feed.
    */
   startedAt?: string;
   /** When the latest lifecycle row merged into this one landed. */
@@ -555,19 +559,6 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
     activity.kind === "runtime.warning" &&
     activity.summary.endsWith("(no displayable text content)")
   );
-}
-
-/** A successful todo tool call in a turn whose plan update renders it as a Tasks row. */
-function isTaskListToolActivity(
-  activity: OrchestrationThreadActivity,
-  planUpdateTurnIds: ReadonlySet<string>,
-): boolean {
-  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") return false;
-  if (activity.tone === "error" || !activity.turnId || !planUpdateTurnIds.has(activity.turnId)) {
-    return false;
-  }
-  const toolName = asRecord(asRecord(activity.payload)?.data)?.toolName;
-  return typeof toolName === "string" && TASK_LIST_TOOL_NAMES.has(toolName);
 }
 
 /** Each plan update is a quiet `Tasks 2/5 · step` row where the agent wrote it; it opens to every step. */
@@ -1011,7 +1002,7 @@ function mergeDerivedWorkLogEntries(
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolData = next.toolData ?? previous.toolData;
   const diffStat = next.diffStat ?? previous.diffStat;
-  const startedAt = previous.startedAt ?? next.startedAt;
+  const startedAt = mergeWorkStepStartedAt(previous, next);
   const updatedAt = next.updatedAt ?? next.createdAt;
   return {
     ...previous,
@@ -1215,13 +1206,13 @@ function stripShellWrapper(value: string): string {
  * Where a work row shows its duration and line changes, by the same rules as
  * web: the timeline meta when the timeline is on, the inline count when it is
  * off, never both. Mobile keeps `createdAt` at the first row, so the step ends
- * at `updatedAt` and, without a tool.started row, starts at `createdAt`.
+ * at `updatedAt`.
  */
 export function workEntryRowStats(entry: WorkLogEntry, timeline: boolean) {
   return resolveWorkRowStats(
     {
       createdAt: entry.updatedAt ?? entry.createdAt,
-      startedAt: entry.startedAt ?? (entry.updatedAt !== undefined ? entry.createdAt : undefined),
+      startedAt: entry.startedAt,
       toolLifecycleStatus: entry.toolLifecycleStatus,
       diffStat: entry.diffStat,
     },

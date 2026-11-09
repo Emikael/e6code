@@ -13,6 +13,23 @@ interface WorkStepMetaSource {
   readonly diffStat?: WorkLogDiffStat | undefined;
 }
 
+/**
+ * When a step began once a later lifecycle row of the same step folds into
+ * its work row: its tool.started time when either row knows it, else the
+ * earlier row's time. Undefined when both rows landed at the same instant.
+ * Web and mobile both merge rows with this, so their step durations agree.
+ */
+export function mergeWorkStepStartedAt(
+  previous: { readonly createdAt: string; readonly startedAt?: string | undefined },
+  next: { readonly createdAt: string; readonly startedAt?: string | undefined },
+): string | undefined {
+  return (
+    previous.startedAt ??
+    next.startedAt ??
+    (previous.createdAt !== next.createdAt ? previous.createdAt : undefined)
+  );
+}
+
 /** What a settled step shows at the right of the thinking timeline. Missing data is null. */
 export interface WorkStepMeta {
   /** "1.2s": from the step's first lifecycle row to its terminal one. */

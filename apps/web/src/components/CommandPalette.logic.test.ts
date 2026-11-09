@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@e6tools/contracts";
 import type { Project, Thread } from "../types";
 import {
+  buildThreadStopActionItems,
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
   buildProjectActionItems,
@@ -801,5 +802,58 @@ describe("filterCommandPaletteGroups", () => {
       "setting:default-model",
       "setting:keybinding-modelPicker.toggle",
     ]);
+  });
+});
+
+describe("buildThreadStopActionItems", () => {
+  const subagent = (id: string) => ({ id, title: `Agent ${id}`, stop: vi.fn() });
+
+  it("keeps the thread.stop hint on Stop the agent and runs the interrupt", async () => {
+    const stopTurn = vi.fn();
+    const [item] = buildThreadStopActionItems({
+      commands: { owner: "thread", stopTurn, subagents: [] },
+      icon: null,
+      addonIcon: null,
+    });
+    expect(item?.title).toBe("Stop the agent");
+    expect(item?.shortcutCommand).toBe("thread.stop");
+    if (item?.kind === "action") await item.run();
+    expect(stopTurn).toHaveBeenCalledOnce();
+  });
+
+  it("shows no stopSubagent hint on entries that name a subagent", async () => {
+    const only = subagent("a");
+    const [single] = buildThreadStopActionItems({
+      commands: { owner: "thread", stopTurn: null, subagents: [only] },
+      icon: null,
+      addonIcon: null,
+    });
+    expect(single).toMatchObject({ title: "Stop subagent", description: "Agent a" });
+    expect(single?.shortcutCommand).toBeUndefined();
+    if (single?.kind === "action") await single.run();
+    expect(only.stop).toHaveBeenCalledOnce();
+
+    const [menu] = buildThreadStopActionItems({
+      commands: { owner: "thread", stopTurn: null, subagents: [subagent("a"), subagent("b")] },
+      icon: null,
+      addonIcon: null,
+    });
+    expect(menu?.kind).toBe("submenu");
+    expect(menu?.shortcutCommand).toBeUndefined();
+    const listed = menu?.kind === "submenu" ? menu.groups[0]!.items : [];
+    expect(listed.map((item) => [item.title, item.shortcutCommand])).toEqual([
+      ["Agent a", undefined],
+      ["Agent b", undefined],
+    ]);
+  });
+
+  it("offers nothing when nothing can be stopped", () => {
+    expect(
+      buildThreadStopActionItems({
+        commands: { owner: "thread", stopTurn: null, subagents: [] },
+        icon: null,
+        addonIcon: null,
+      }),
+    ).toEqual([]);
   });
 });

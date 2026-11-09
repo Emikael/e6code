@@ -25,12 +25,38 @@ export const TASK_LIST_STEP_STATUS_LABELS = {
 } as const satisfies Record<TaskListStepStatus, string>;
 
 /** Todo tools whose successful calls are already shown by the turn's Tasks row. */
-export const TASK_LIST_TOOL_NAMES: ReadonlySet<string> = new Set([
+const TASK_LIST_TOOL_NAMES: ReadonlySet<string> = new Set([
   "TodoWrite",
   "TaskCreate",
   "TaskUpdate",
   "TaskList",
 ]);
+
+/**
+ * A successful todo tool call in a turn whose plan update already shows it as
+ * a Tasks row, so the work log hides the tool row. Claude's todo tools emit
+ * both; `planUpdateTurnIds` holds the turns that have a `turn.plan.updated`.
+ */
+export function isTaskListToolActivity(
+  activity: {
+    readonly kind: string;
+    readonly tone?: string | undefined;
+    readonly turnId: string | null;
+    readonly payload: unknown;
+  },
+  planUpdateTurnIds: ReadonlySet<string>,
+): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") return false;
+  if (activity.tone === "error" || !activity.turnId || !planUpdateTurnIds.has(activity.turnId)) {
+    return false;
+  }
+  const payload = activity.payload;
+  const data =
+    payload && typeof payload === "object" ? (payload as { data?: unknown }).data : undefined;
+  const toolName =
+    data && typeof data === "object" ? (data as { toolName?: unknown }).toolName : undefined;
+  return typeof toolName === "string" && TASK_LIST_TOOL_NAMES.has(toolName);
+}
 
 /**
  * Reads the steps of a `turn.plan.updated` payload. Malformed steps are

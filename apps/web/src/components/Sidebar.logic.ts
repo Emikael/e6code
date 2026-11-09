@@ -5,6 +5,7 @@ import {
   isAtomCommandInterrupted,
   type AtomCommandResult,
 } from "@e6tools/client-runtime/state/runtime";
+import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@e6tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@e6tools/contracts/settings";
@@ -872,11 +873,6 @@ type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
   "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "agentState"
 >;
-
-/** A running turn parked until a usage limit resets: no progress, no action needed. */
-function isPausedForUsageLimit(thread: Pick<SidebarThreadSummary, "session" | "agentState">) {
-  return thread.session?.status === "running" && thread.agentState?.kind === "rate-limited";
-}
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   if (thread.hasPendingApprovals) {
