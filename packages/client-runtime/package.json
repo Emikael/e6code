@@ -31,6 +31,10 @@
       "types": "./src/approvalFeedback.ts",
       "default": "./src/approvalFeedback.ts"
     },
+    "./destructive-commands": {
+      "types": "./src/destructiveCommands.ts",
+      "default": "./src/destructiveCommands.ts"
+    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"

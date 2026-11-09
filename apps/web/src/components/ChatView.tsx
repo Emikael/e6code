@@ -9,6 +9,7 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
+import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
 import {
   buildHandoffDocument,
@@ -60,6 +61,7 @@ import {
 } from "@e6tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@e6tools/client-runtime/connection";
 import { approvalFeedbackAgentName } from "@e6tools/client-runtime/approval-feedback";
+import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import {
   wasBootstrapThreadDeleted,
   wasBootstrapThreadNotCreated,
@@ -3161,6 +3163,10 @@ export default function ChatView(props: ChatViewProps) {
     hasComposerAttachments: composerHasAttachments,
   });
   const activePendingApproval = pendingApprovals[0] ?? null;
+  const activeApprovalDestructive = useMemo(
+    () => (activePendingApproval ? classifyDestructiveApproval(activePendingApproval) : null),
+    [activePendingApproval],
+  );
   const activePendingApprovalAgentId = activePendingApproval?.agentId;
   const activePendingApprovalAgentTitle = activePendingApprovalAgentId
     ? (findSubagent(agentPanelModel, activePendingApprovalAgentId)?.title ?? null)
@@ -10509,7 +10515,10 @@ export default function ChatView(props: ChatViewProps) {
                       (activePendingApproval ||
                         pendingUserInputs.length > 0 ||
                         (showPlanFollowUpPrompt && activeProposedPlan)) ? (
-                        <div className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs">
+                        <div
+                          className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs"
+                          data-approval-shortcut-scope=""
+                        >
                           <div className="flex min-w-0 flex-1 items-center gap-2">
                             <span
                               aria-hidden="true"
@@ -10555,21 +10564,38 @@ export default function ChatView(props: ChatViewProps) {
                                 >
                                   Decline
                                 </Button>
-                                <Button
-                                  size="xs"
-                                  variant="default"
-                                  disabled={respondingRequestIds.includes(
-                                    activePendingApproval.requestId,
-                                  )}
-                                  onClick={() =>
-                                    void onRespondToApproval(
+                                {activeApprovalDestructive ? (
+                                  <HoldToAllowButton
+                                    reason={activeApprovalDestructive.reason}
+                                    disabled={respondingRequestIds.includes(
                                       activePendingApproval.requestId,
-                                      "accept",
-                                    )
-                                  }
-                                >
-                                  Approve
-                                </Button>
+                                    )}
+                                    // The composer's hold button owns the shortcut.
+                                    shortcutEnabled={false}
+                                    onConfirm={() =>
+                                      void onRespondToApproval(
+                                        activePendingApproval.requestId,
+                                        "accept",
+                                      )
+                                    }
+                                  />
+                                ) : (
+                                  <Button
+                                    size="xs"
+                                    variant="default"
+                                    disabled={respondingRequestIds.includes(
+                                      activePendingApproval.requestId,
+                                    )}
+                                    onClick={() =>
+                                      void onRespondToApproval(
+                                        activePendingApproval.requestId,
+                                        "accept",
+                                      )
+                                    }
+                                  >
+                                    Approve
+                                  </Button>
+                                )}
                               </>
                             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
                               <>

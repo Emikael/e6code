@@ -48,6 +48,7 @@ import {
 } from "@e6tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@e6tools/client-runtime/connection";
 import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
+import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import {
   isPasteAsTextShortcut,
   nextPastedTextFileName,
@@ -2541,6 +2542,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activePendingApproval !== null &&
     respondingRequestIds.includes(activePendingApproval.requestId);
   const canTypeApprovalFeedback = isComposerApprovalState && approvalFeedbackAgentName !== null;
+  const activeApprovalDestructive = useMemo(
+    () => (activePendingApproval ? classifyDestructiveApproval(activePendingApproval) : null),
+    [activePendingApproval],
+  );
   const onApprovalFeedbackChange = useCallback(
     (nextText: string, nextCursor: number) => {
       if (!activePendingApproval) return;
@@ -6041,6 +6046,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }}
       className="mx-auto w-full min-w-0 max-w-(--chat-max-width)"
       data-chat-composer-form="true"
+      data-approval-shortcut-scope=""
     >
       {composerControlsInStrip && restingControlsHost
         ? createPortal(
@@ -6066,6 +6072,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
                 data-chat-composer-top-drawer="true"
+                data-approval-shortcut-scope=""
                 className={COMPOSER_DRAWER_ARRIVAL_CLASS}
                 variant={activePendingApproval ? "warning" : "info"}
                 density={activePendingApproval ? "spacious" : "default"}
@@ -6085,6 +6092,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         approval={activePendingApproval}
                         pendingCount={pendingApprovals.length}
                         agentTitle={activePendingApprovalAgentTitle}
+                        destructive={activeApprovalDestructive}
                       />
                     </ComposerBanner.Content>
                     <ComposerBanner.Actions>
@@ -6094,6 +6102,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           activePendingApproval.requestId,
                         )}
                         options={activePendingApproval.options}
+                        destructive={activeApprovalDestructive}
                         declineFeedback={
                           approvalFeedbackAgentName !== null
                             ? { agentName: approvalFeedbackAgentName, draft: approvalFeedbackDraft }
