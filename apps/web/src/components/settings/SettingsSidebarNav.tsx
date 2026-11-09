@@ -342,7 +342,9 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     tabIndex={-1}
                     size="sm"
                     isActive={index === activeResultIndex}
-                    className="h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                    // The highlighted result takes an inset primary-edge bar on top of
+                    // its fill, so keyboard and pointer position read at 3:1 or better.
+                    className="relative h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0.5 data-[active=true]:before:w-0.5 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary-edge"
                     onMouseMove={() => setActiveResultIndex(index)}
                     onClick={() => handleSearchResultClick(item)}
                   >
@@ -390,7 +392,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                               isActive={isActive}
                               aria-current={isActive ? "page" : undefined}
                               onClick={() => handleSectionClick(item.to)}
-                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-border"
+                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-primary-edge"
                             >
                               <span className="min-w-0 flex-1 truncate">{item.label}</span>
                               {badge ? (

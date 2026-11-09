@@ -41,7 +41,7 @@ function AppNavRailItem({
         className={cn(
           "flex size-10 shrink-0 items-center justify-center rounded-[10px] outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-[18px] [&_svg]:stroke-[1.75]",
           isCurrent
-            ? "bg-sidebar-row-selected text-sidebar-foreground shadow-xs/5 ring-1 ring-border"
+            ? "bg-sidebar-row-selected text-sidebar-foreground shadow-xs/5 ring-1 ring-primary-edge"
             : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
           className,
         )}
