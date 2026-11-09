@@ -176,18 +176,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "color-scheme",
     title: "Color scheme",
     to: "/settings/appearance",
-    searchTerms: ["appearance light dark system mode"],
-    // The scheme tiles sit at the top of the Appearance section.
+    searchTerms: ["appearance theme light dark system mode match porcelain slate"],
+    // The Match system / Porcelain / Slate cards are the Theme section.
     targetId: "appearance",
   },
   {
     id: "theme",
     title: "Themes",
     to: "/settings/appearance",
-    searchTerms: ["appearance colors palette custom import"],
-    // Theme cards live directly under the scheme tiles; the section is the
-    // stable scroll destination for both.
-    targetId: "appearance",
+    searchTerms: ["appearance more themes colors palette custom import create add"],
   },
   {
     id: "stock-accent",

@@ -3,7 +3,11 @@ import type { ConnectionTarget } from "@e6tools/client-runtime/connection";
 
 import {
   groupSettingsNavItems,
+  SETTINGS_OVERLAY_SELECTOR,
   settingsConnectionsBadge,
+  settingsEscapeAction,
+  settingsNavGroupLabel,
+  settingsPageHeading,
   settingsProvidersBadge,
 } from "./settingsNavGroups";
 import { SETTINGS_SECTION_LABELS, type SettingsPath } from "./settingsSearch";
@@ -38,6 +42,59 @@ describe("groupSettingsNavItems", () => {
       { to: "/settings/general" as const },
     ]);
     expect(groups.map((group) => group.label)).toEqual(["App", "Environment"]);
+  });
+});
+
+describe("settingsPageHeading", () => {
+  it("gives every nav page a breadcrumb group, title, and subtitle", () => {
+    for (const path of ALL_PATHS) {
+      const heading = settingsPageHeading(path);
+      expect(heading?.title).toBe(SETTINGS_SECTION_LABELS[path]);
+      expect(heading?.group).toBe(settingsNavGroupLabel(path));
+      expect(heading?.description).toBeTruthy();
+    }
+    expect(settingsPageHeading("/settings/appearance/")).toEqual({
+      group: "App",
+      title: "Appearance",
+      description: "How E6 Code looks on this device. Changes apply as you make them.",
+    });
+  });
+
+  it("files detail pages under their parent section's group", () => {
+    expect(settingsPageHeading("/settings/diagnostics")).toMatchObject({
+      group: "App",
+      title: "Diagnostics",
+    });
+    expect(settingsNavGroupLabel("/settings/open-source-licenses")).toBe("App");
+    expect(settingsPageHeading("/settings/unknown")).toBeNull();
+    expect(settingsPageHeading("/")).toBeNull();
+  });
+});
+
+function escapeTarget(tagName: string, { editable = false, overlay = false } = {}) {
+  return {
+    tagName,
+    isContentEditable: editable,
+    closest: (selector: string) => (overlay && selector === SETTINGS_OVERLAY_SELECTOR ? {} : null),
+  };
+}
+
+describe("settingsEscapeAction", () => {
+  it("leaves settings from the page itself", () => {
+    expect(settingsEscapeAction(null)).toBe("leave");
+    expect(settingsEscapeAction(escapeTarget("BODY"))).toBe("leave");
+    expect(settingsEscapeAction(escapeTarget("BUTTON"))).toBe("leave");
+  });
+
+  it("only gives up focus from a text field", () => {
+    expect(settingsEscapeAction(escapeTarget("INPUT"))).toBe("blur");
+    expect(settingsEscapeAction(escapeTarget("TEXTAREA"))).toBe("blur");
+    expect(settingsEscapeAction(escapeTarget("DIV", { editable: true }))).toBe("blur");
+  });
+
+  it("leaves Esc to open dialogs and popups", () => {
+    expect(settingsEscapeAction(escapeTarget("INPUT", { overlay: true }))).toBe("ignore");
+    expect(settingsEscapeAction(escapeTarget("BUTTON", { overlay: true }))).toBe("ignore");
   });
 });
 

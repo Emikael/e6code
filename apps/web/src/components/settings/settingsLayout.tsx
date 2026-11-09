@@ -30,6 +30,7 @@ import {
   scopedSettingsSource,
 } from "./scopedSettings";
 import { useClearProjectOverrides, useClearScopedSettings } from "./useScopedSettings";
+import { settingsPageHeading, type SettingsPageHeading } from "./settingsNavGroups";
 import {
   SettingInheritance,
   type SettingInheritanceState,
@@ -203,12 +204,9 @@ export function SettingsSection({
       {hideTitle ? (
         <h2 className="sr-only">{title}</h2>
       ) : (
-        <div
-          data-settings-scroll-target
-          className="flex min-h-7 items-start justify-between gap-4 px-3 sm:px-4"
-        >
+        <div data-settings-scroll-target className="flex min-h-7 items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="flex min-h-7 items-center gap-2 text-sm font-normal tracking-[-0.005em] text-foreground/70">
+            <h2 className="flex min-h-7 items-center gap-2 text-sm font-semibold text-foreground">
               {icon}
               {title}
             </h2>
@@ -525,6 +523,8 @@ export function SettingsPageContainer({
   const highlightTarget = useLocation({
     select: (location) => location.state.settingsTargetHighlight !== false,
   });
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const heading = useMemo(() => settingsPageHeading(pathname), [pathname]);
   const targetId = hash.replace(/^#/, "") || null;
   const clearTargetHash = useCallback(() => {
     void navigate({
@@ -546,11 +546,25 @@ export function SettingsPageContainer({
         className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
         data-settings-page-scroll
       >
-        <WorkspacePageContainer width={width} className={cn("gap-8", className)}>
+        <WorkspacePageContainer width={width} className={cn("gap-8 sm:pt-10", className)}>
+          {heading ? <SettingsPageHeader {...heading} /> : null}
           {children}
         </WorkspacePageContainer>
       </div>
     </SettingsSearchTargetProvider>
+  );
+}
+
+/** `Settings / <group>`, the page title, and one line on what the page is for. */
+function SettingsPageHeader({ group, title, description }: SettingsPageHeading) {
+  return (
+    <header className="flex flex-col gap-1.5">
+      <span className="font-mono text-[11px] text-muted-foreground">Settings / {group}</span>
+      <h1 className="text-[28px] leading-8 font-semibold tracking-[-0.03em] text-foreground">
+        {title}
+      </h1>
+      <p className="text-sm leading-[22px] text-muted-foreground">{description}</p>
+    </header>
   );
 }
 

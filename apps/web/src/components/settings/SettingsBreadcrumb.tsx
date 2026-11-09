@@ -21,6 +21,7 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
+import { SETTINGS_DETAIL_PAGES } from "./settingsNavGroups";
 import { SETTINGS_SECTION_LABELS } from "./settingsSearch";
 import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
 import {
@@ -35,8 +36,9 @@ import {
 
 const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
   ...SETTINGS_SECTION_LABELS,
-  "/settings/diagnostics": "Diagnostics",
-  "/settings/open-source-licenses": "Open source licenses",
+  ...Object.fromEntries(
+    Object.entries(SETTINGS_DETAIL_PAGES).map(([path, page]) => [path, page.label]),
+  ),
 };
 
 function settingsBreadcrumbLabel(pathname: string): string | null {
