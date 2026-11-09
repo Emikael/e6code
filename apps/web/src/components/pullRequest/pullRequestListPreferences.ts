@@ -32,14 +32,18 @@ export interface PullRequestListPreferences {
   readonly author?: string;
   readonly labels?: ReadonlyArray<string>;
   readonly sort?: PullRequestListSort;
-  /** The "Needs you" tab, a local narrowing of the open list; only meaningful on open/all. */
-  readonly lens?: "needs-you";
+  /**
+   * Marks the open, all-involvement list as the "All open" tab. Without it that list is the
+   * "Needs you" tab, the page's default. Only meaningful on open/all.
+   */
+  readonly lens?: "open";
 }
 
 export type PullRequestListPreferencePatch = {
   [Key in keyof PullRequestListPreferences]?: PullRequestListPreferences[Key] | undefined;
 };
 
+/** The "Needs you" tab. */
 const DEFAULT_PULL_REQUEST_LIST_PREFERENCES = {
   involvement: "all",
   state: "open",
@@ -59,7 +63,11 @@ const PullRequestListPreferencesSchema = Schema.Struct({
   author: Schema.optional(BoundedPreference),
   labels: Schema.optional(Schema.Array(BoundedPreference).check(Schema.isMaxLength(10))),
   sort: Schema.optional(PullRequestListSort),
-  lens: Schema.optional(Schema.Literal("needs-you")),
+  // "needs-you" is what the page saved while "All open" was its default. It reads back as the
+  // default now, as does an open/all scope saved with no lens at all: that one may have been a
+  // deliberate "All open" or just the old default the reader never left, and nothing stored
+  // tells the two apart, so both open on "Needs you".
+  lens: Schema.optional(Schema.Literals(["open", "needs-you"])),
 });
 
 const decodePullRequestListPreferences = Schema.decodeUnknownOption(
@@ -90,7 +98,7 @@ export function pullRequestListPreferences(
     ...(search.checks ? { checks: search.checks } : {}),
     ...(search.author ? { author: search.author } : {}),
     ...(search.labels && search.labels.length > 0 ? { labels: search.labels } : {}),
-    ...(search.lens === "needs-you" && search.state === "open" && search.involvement === "all"
+    ...(search.lens === "open" && search.state === "open" && search.involvement === "all"
       ? { lens: search.lens }
       : {}),
     ...(search.sort && search.sort !== "ready" ? { sort: search.sort } : {}),
