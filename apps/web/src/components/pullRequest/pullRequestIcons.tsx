@@ -44,17 +44,17 @@ export interface PullRequestStatePresentation {
 export const PULL_REQUEST_STATE_PRESENTATION = {
   open: {
     label: "Open",
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
+    toneClassName: "text-success-foreground",
     Icon: PullRequestGlyph.pullRequest,
   },
   draft: {
     label: "Draft",
-    toneClassName: "text-zinc-500 dark:text-zinc-400/80",
+    toneClassName: "text-muted-foreground",
     Icon: PullRequestGlyph.draft,
   },
   closed: {
     label: "Closed",
-    toneClassName: "text-red-600 dark:text-red-300/90",
+    toneClassName: "text-destructive-foreground",
     Icon: PullRequestGlyph.closed,
   },
   merged: {

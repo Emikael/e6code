@@ -90,7 +90,7 @@ function reviewDecisionPresentation(decision: PullRequestReviewDecision) {
       return {
         Icon: UserRoundXIcon,
         label: "Changes requested",
-        toneClassName: "text-amber-600/90 dark:text-amber-400/80",
+        toneClassName: "text-warning-foreground",
       };
     case "review-required":
       return {
@@ -216,16 +216,16 @@ export function PullRequestConflictGlyph({
 }
 
 const CHECK_STATUS_PRESENTATION = {
-  pending: { label: "Running", Icon: Spinner, toneClassName: "text-amber-500" },
+  pending: { label: "Running", Icon: Spinner, toneClassName: "text-warning-foreground" },
   "action-required": {
     label: "Awaiting action",
     Icon: CircleDotIcon,
-    toneClassName: "text-amber-600 dark:text-amber-400/90",
+    toneClassName: "text-warning-foreground",
   },
   success: {
     label: "Passed",
     Icon: CircleCheckIcon,
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
+    toneClassName: "text-success-foreground",
   },
   failure: { label: "Failed", Icon: CircleXIcon, toneClassName: "text-destructive" },
   cancelled: { label: "Cancelled", Icon: CircleXIcon, toneClassName: "text-destructive" },
@@ -280,7 +280,7 @@ const CHECKS_STATE_PRESENTATION = {
   pending: {
     label: "Some checks haven't completed yet",
     Icon: CircleDotIcon,
-    toneClassName: "text-amber-600 dark:text-amber-400/90",
+    toneClassName: "text-warning-foreground",
   },
 } as const satisfies Record<
   PullRequestChecksState,
@@ -319,10 +319,9 @@ const REVIEW_OUTCOME_PRESENTATION = {
   approved: {
     label: "Approved",
     Icon: CircleCheckIcon,
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
-    ringClassName: "ring-2 ring-emerald-500 dark:ring-emerald-400",
-    staleRingClassName:
-      "ring-2 ring-[color-mix(in_srgb,var(--color-emerald-500)_35%,var(--background))] dark:ring-[color-mix(in_srgb,var(--color-emerald-400)_35%,var(--background))]",
+    toneClassName: "text-success-foreground",
+    ringClassName: "ring-2 ring-success",
+    staleRingClassName: "ring-2 ring-[color-mix(in_srgb,var(--success)_35%,var(--background))]",
     badgeVariant: "success",
   },
   "changes-requested": {

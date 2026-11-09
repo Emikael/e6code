@@ -14,8 +14,6 @@ export type ThreadStatusKind =
 
 export interface ThreadStatusPresentation extends StatusTone {
   readonly kind: ThreadStatusKind;
-  /** Whether the indicator represents in-flight activity. */
-  readonly pulse: boolean;
 }
 
 function isLatestTurnSettled(
@@ -42,7 +40,6 @@ export function resolveThreadStatus(
       label: "Needs Approval",
       pillClassName: "bg-warning",
       textClassName: "text-warning-foreground",
-      pulse: false,
     };
   }
 
@@ -52,7 +49,6 @@ export function resolveThreadStatus(
       label: "Awaiting Input",
       pillClassName: "bg-primary/10",
       textClassName: "text-primary-text",
-      pulse: false,
     };
   }
 
@@ -62,7 +58,6 @@ export function resolveThreadStatus(
       label: "Paused",
       pillClassName: "bg-warning",
       textClassName: "text-warning-foreground",
-      pulse: false,
     };
   }
 
@@ -73,7 +68,6 @@ export function resolveThreadStatus(
       // Iris marks a live agent, matching the web sidebar.
       pillClassName: "bg-primary/10",
       textClassName: "text-primary-text",
-      pulse: true,
     };
   }
 
@@ -83,7 +77,6 @@ export function resolveThreadStatus(
       label: "Connecting",
       pillClassName: "bg-info",
       textClassName: "text-info-foreground",
-      pulse: true,
     };
   }
 
@@ -93,7 +86,6 @@ export function resolveThreadStatus(
       label: "Error",
       pillClassName: "bg-danger",
       textClassName: "text-danger-foreground",
-      pulse: false,
     };
   }
 
@@ -107,7 +99,6 @@ export function resolveThreadStatus(
       label: "Plan Ready",
       pillClassName: "bg-primary/10",
       textClassName: "text-primary-text",
-      pulse: false,
     };
   }
 

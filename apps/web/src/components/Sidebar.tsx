@@ -633,8 +633,8 @@ function SortableThreadRow(props: {
 
 // Unsent work shares one look: the new-thread draft rows and thread rows
 // with unsent composer text both use this tint and pen so they read alike.
-const draftSurfaceClassName = "bg-amber-400/[0.04] hover:bg-amber-400/[0.08]";
-const draftPenClassName = "size-3 shrink-0 text-amber-600 dark:text-amber-300/80";
+const draftSurfaceClassName = "bg-warning/[0.04] hover:bg-warning/[0.08]";
+const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 
 // Structural list items — the section headers and the
 // empty-section placeholders — take part in the sortable list so they shift
