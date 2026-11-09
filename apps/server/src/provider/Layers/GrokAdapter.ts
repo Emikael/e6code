@@ -79,6 +79,7 @@ import {
   makeXAiAskUserQuestionCancelledResponse,
   makeXAiAskUserQuestionResponse,
   makeXAiExitPlanModeCapturedResponse,
+  promptResponseCameFromXAiNotification,
   promptResponseHasMissingXAiStopReason,
   XAiAskUserQuestionRequest,
   XAiExitPlanModeRequest,
@@ -87,6 +88,29 @@ import { type GrokAdapterShape } from "../Services/GrokAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
+
+/**
+ * After `_x.ai/session/prompt_complete`, Grok still writes the reply's last
+ * `session/update` chunks. They follow the completion on the wire, so no
+ * ordering rule includes them; the turn settles once its output has been
+ * quiet this long, and never later than the cap.
+ */
+const trailingXAiOutputQuietMs = 40;
+const trailingXAiOutputMaxMs = 400;
+
+/**
+ * Wall-clock time and sleep for the trailing-output window. It measures when
+ * bytes actually arrive from the Grok process, which a scheduled (test) clock
+ * cannot stand in for, so it reads the host clock directly.
+ */
+const hostNowMs = () => performance.now();
+const hostSleep = (milliseconds: number) =>
+  Effect.callback<void>((resume) => {
+    // Deliberately the host timer: Effect.sleep follows the scheduled clock.
+    // @effect-diagnostics-next-line globalTimersInEffect:off
+    const timer = setTimeout(() => resume(Effect.void), milliseconds);
+    return Effect.sync(() => clearTimeout(timer));
+  });
 
 const PROVIDER = ProviderDriverKind.make("grok");
 const GROK_RESUME_VERSION = 1 as const;
@@ -168,6 +192,8 @@ interface GrokSessionContext {
   readonly livenessSignals: Queue.Queue<GrokTurnLivenessSignal>;
   livenessTurnId: TurnId | undefined;
   lastTurnActivityAtNanos: bigint | undefined;
+  /** Host-clock time of the turn's latest output, for the trailing xAI window. */
+  lastTurnOutputAtMs: number | undefined;
   readonly activeToolCallIds: Set<string>;
   livenessUpdatesInFlight: number;
   /** Prompt RPCs that returned before their turn settlement acquired the lock. */
@@ -494,12 +520,30 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           }
         }
         ctx.lastTurnActivityAtNanos = activityAtNanos;
+        ctx.lastTurnOutputAtMs = hostNowMs();
       } finally {
         // Decrement before signaling. The watchdog treats in-flight updates as a
         // pause; if it consumed a signal while the counter was still > 0 it would
         // wait on the next take with no follow-up wake after this decrement.
         ctx.livenessUpdatesInFlight = Math.max(0, ctx.livenessUpdatesInFlight - 1);
         yield* signalTurnLiveness(ctx, turnId);
+      }
+    });
+
+    /**
+     * Waits for the chunks Grok writes after `prompt_complete` to reach this
+     * turn. Every root-session update moves `lastTurnOutputAtMs`, so the
+     * window restarts while chunks keep arriving and closes once they stop.
+     */
+    const awaitTrailingXAiOutput = Effect.fn("GrokAdapter.awaitTrailingXAiOutput")(function* (
+      ctx: GrokSessionContext,
+    ) {
+      const waitStartedAt = hostNowMs();
+      while (hostNowMs() - waitStartedAt < trailingXAiOutputMaxMs) {
+        const quietSince = Math.max(ctx.lastTurnOutputAtMs ?? waitStartedAt, waitStartedAt);
+        const quietFor = hostNowMs() - quietSince;
+        if (quietFor >= trailingXAiOutputQuietMs && ctx.livenessUpdatesInFlight === 0) return;
+        yield* hostSleep(Math.max(1, trailingXAiOutputQuietMs - quietFor));
       }
     });
 
@@ -1307,6 +1351,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             livenessSignals: yield* Queue.sliding<GrokTurnLivenessSignal>(1),
             livenessTurnId: undefined,
             lastTurnActivityAtNanos: undefined,
+            lastTurnOutputAtMs: undefined,
             activeToolCallIds: new Set(),
             livenessUpdatesInFlight: 0,
             promptResponsesReady: 0,
@@ -1855,6 +1900,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               // cancellation can still win while queued ACP events are drained.
               for (let yieldAttempt = 0; yieldAttempt < 8; yieldAttempt += 1) {
                 yield* Effect.yieldNow;
+              }
+              if (
+                result.stopReason !== "cancelled" &&
+                promptResponseCameFromXAiNotification(result)
+              ) {
+                yield* awaitTrailingXAiOutput(ctx);
               }
               yield* prepared.acp.drainEvents;
               consumePromptResponseReady(ctx);

@@ -30,6 +30,7 @@ interface PendingXAiPromptCompletion {
 
 const completedXAiPromptIdLimit = 128;
 const xAiStopReasonMissingMetaKey = "xAiStopReasonMissing";
+const xAiCompletedByNotificationMetaKey = "xAiCompletedByNotification";
 const xAiRateLimitedErrorCode = -32003;
 
 const XAiAskUserQuestionOption = Schema.Struct({
@@ -645,12 +646,28 @@ export function promptResponseHasMissingXAiStopReason(
   return meta !== null && typeof meta === "object" && meta[xAiStopReasonMissingMetaKey] === true;
 }
 
+/**
+ * True when `_x.ai/session/prompt_complete` settled the prompt rather than the
+ * `session/prompt` response. Grok writes its last `session/update` chunks
+ * after that notification, so on the wire they follow the completion; the
+ * adapter waits for them before it settles the turn (see GrokAdapter).
+ */
+export function promptResponseCameFromXAiNotification(
+  response: EffectAcpSchema.PromptResponse,
+): boolean {
+  const meta = response._meta;
+  return (
+    meta !== null && typeof meta === "object" && meta[xAiCompletedByNotificationMetaKey] === true
+  );
+}
+
 function promptResponseFromXAi(
   notification: XAiPromptCompleteNotification,
 ): EffectAcpSchema.PromptResponse {
   const stopReason = normalizeXAiStopReason(notification.stopReason);
   const meta: Record<string, unknown> = {
     sessionId: notification.sessionId,
+    [xAiCompletedByNotificationMetaKey]: true,
   };
   if (notification.stopReason === undefined) {
     meta[xAiStopReasonMissingMetaKey] = true;
