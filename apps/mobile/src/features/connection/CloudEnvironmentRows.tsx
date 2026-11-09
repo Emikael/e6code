@@ -300,7 +300,6 @@ function CloudEnvironmentRowShell(props: {
 }) {
   const isRetrying =
     props.connectionState === "connecting" || props.connectionState === "reconnecting";
-  const shouldPulse = isRetrying;
   const statusText =
     props.statusText ??
     connectionStatusText({
@@ -349,7 +348,7 @@ function CloudEnvironmentRowShell(props: {
     >
       <View className="min-w-0 flex-1 gap-0.5">
         <View className="min-w-0 flex-row items-center gap-2">
-          <ConnectionStatusDot state={props.connectionState} pulse={shouldPulse} size={7} />
+          <ConnectionStatusDot state={props.connectionState} halo={isRetrying} size={7} />
           <EnvironmentMachineSymbol
             kind={props.machine}
             size={14}

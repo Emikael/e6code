@@ -148,7 +148,7 @@ export function ServerUpdatesAction({
 
 /**
  * One-row status for an in-flight server update: "Downloading…" then
- * "Restarting…". The update is a wait, not a warning: a single pulsing dot
+ * "Restarting…". The update is a wait, not a warning: a single static dot
  * and label, no step rail, no versions. Failure turns the row red with the
  * rollback reason.
  */
@@ -172,10 +172,7 @@ export function ServerUpdateProgress({
   }
   return (
     <div className="mt-1 flex items-center gap-2 text-xs font-medium text-foreground">
-      <span
-        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-foreground"
-        aria-hidden="true"
-      />
+      <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-hidden="true" />
       <span>{serverUpdateStageLabel(state.stage)}</span>
     </div>
   );

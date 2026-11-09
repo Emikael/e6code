@@ -78,7 +78,6 @@ import {
   workRowAccessibleText,
 } from "@e6tools/client-runtime/work-log/step-meta";
 import { getProjectFaviconCacheKey } from "@e6tools/shared/projectFavicon";
-import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
   createContext,
   Fragment,
@@ -246,7 +245,6 @@ import {
 } from "@e6tools/client-runtime/state/agent-state";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import {
@@ -2846,8 +2844,9 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     agentState,
   });
   // One span for every label so the setup-to-working handoff swaps text in
-  // place instead of remounting the row.
-  const shimmer = status.kind === "preparing" || status.kind === "compacting";
+  // place instead of remounting the row. Setup and compacting read as live
+  // through the static primary label; nothing animates.
+  const setupOrCompacting = status.kind === "preparing" || status.kind === "compacting";
   const paused = status.kind === "agent-state" && status.agentState.kind === "rate-limited";
   const waiting = status.kind === "attention" || paused;
   // The live thinking timeline already says "Working for …"; setup, compacting and waiting
@@ -2872,7 +2871,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
       <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
-        {shimmer ? null : paused ? (
+        {setupOrCompacting ? null : paused ? (
           // A pause is not progress, so the live accent steps aside.
           <CirclePauseIcon aria-hidden className="size-3.5 shrink-0 text-warning-foreground" />
         ) : waiting ? (
@@ -2886,17 +2885,18 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
           />
         )}
         <span
-          ref={shimmer ? observeVisibleAnimation : undefined}
           className={cn(
-            "relative shrink-0 overflow-hidden whitespace-nowrap",
-            !shimmer && "font-medium",
-            !shimmer && (waiting ? "text-warning-foreground" : "text-foreground"),
+            "shrink-0 whitespace-nowrap font-medium",
+            setupOrCompacting
+              ? "text-primary-text"
+              : waiting
+                ? "text-warning-foreground"
+                : "text-foreground",
           )}
         >
           {label}
-          {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
-        {!shimmer && row.createdAt ? (
+        {!setupOrCompacting && row.createdAt ? (
           <span className="text-xs">
             <WorkingTimer createdAt={row.createdAt} />
           </span>
@@ -2934,7 +2934,10 @@ function BackgroundWorktreeSetupChip({ snapshot }: { snapshot: WorktreeSetupSnap
           />
         }
       >
-        <Spinner className="size-3 shrink-0" />
+        <span
+          aria-hidden
+          className="mx-0.5 size-1.5 shrink-0 rounded-full bg-primary ring-2 ring-primary-surface"
+        />
         <span className="truncate">{scriptName}</span>
       </PopoverTrigger>
       <PopoverPopup
@@ -2985,7 +2988,6 @@ function ActivityGroupTimelineRow({
   );
   const runningWork = trailingWork.findLast(workEntryIsActiveTurnActivity);
   const liveWork = runningWork ?? trailingWork.at(-1);
-  const thinking = row.active && liveWork === undefined;
   // Reasoning with no header has no step to put on a rail.
   const timeline = ctx.thinkingTimeline && work.length > 0;
   const liveEntryId = row.active ? (runningWork?.id ?? null) : null;
@@ -3069,7 +3071,6 @@ function ActivityGroupTimelineRow({
             toolIcon={iconWork?.toolIcon ?? iconWork?.toolSource?.icon}
             failed={failed}
             active={row.active}
-            shimmer={thinking}
           />
         )}
       </button>
@@ -3214,7 +3215,7 @@ function ThinkingTimelineRow() {
   return (
     <div className="min-h-7">
       {isPreparingWorktree || isCompacting || agentState !== null ? null : (
-        <LiveActivityRow label="Thinking" iconName="brain" active shimmer />
+        <LiveActivityRow label="Thinking" iconName="brain" active />
       )}
     </div>
   );
@@ -3302,20 +3303,19 @@ function ReasoningTraceBlock({
           </span>
           <span
             data-thought-preview
-            ref={streaming && !timeline ? observeVisibleAnimation : undefined}
             className={
               timeline
                 ? cn(
                     "relative min-w-0 truncate",
                     streaming ? "font-medium text-primary-text" : "text-muted-foreground",
                   )
-                : "relative min-w-0 flex-1 truncate text-secondary-label"
+                : cn(
+                    "relative min-w-0 flex-1 truncate",
+                    streaming ? "text-primary-text" : "text-secondary-label",
+                  )
             }
           >
             {headerText}
-            {streaming && !timeline ? (
-              <ActivityShimmerOverlay>{headerText}</ActivityShimmerOverlay>
-            ) : null}
           </span>
           {timeline && !expanded && !streaming ? (
             <ThinkingTimelineMeta>{label}</ThinkingTimelineMeta>
@@ -3720,19 +3720,6 @@ function ExpandedWorkGroupEntries({
 
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
-function ActivityShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">{children}</span>
-      </span>
-    </span>
-  );
-}
-
 const failedToolIconClassName = "text-tool-error-icon/40";
 
 /** Image icons and the gradient computer-use mark cannot take a currentColor
@@ -3750,35 +3737,22 @@ function LiveActivityRow({
   toolIcon,
   failed = false,
   active = false,
-  shimmer = false,
 }: {
   label: ReactNode;
   iconName?: WorkEntryIconName;
   toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean;
   active?: boolean;
-  shimmer?: boolean;
 }) {
-  const animated = active && !failed;
-  const showShimmer = animated && shimmer;
   return (
-    <div
-      ref={animated ? observeVisibleAnimation : undefined}
-      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
-    >
+    <div className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed">
       <LiveActivityContent
         label={label}
         iconName={iconName}
         toolIcon={toolIcon}
         failed={failed}
-        announceFailure={failed}
-        active={animated && !shimmer}
+        active={active && !failed}
       />
-      {showShimmer ? (
-        <ActivityShimmerOverlay>
-          <LiveActivityContent label={label} iconName={iconName} toolIcon={toolIcon} highlighted />
-        </ActivityShimmerOverlay>
-      ) : null}
     </div>
   );
 }
@@ -3788,17 +3762,14 @@ function LiveActivityContent({
   iconName,
   toolIcon,
   failed = false,
-  announceFailure = false,
   active = false,
-  highlighted = false,
 }: {
   label: ReactNode;
   iconName: WorkEntryIconName | undefined;
   toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean;
-  announceFailure?: boolean;
+  /** Live step: the label takes the static primary text instead of animating. */
   active?: boolean;
-  highlighted?: boolean;
 }) {
   const showTrailingFailureMark =
     failed && iconName !== undefined && !toolIconAcceptsTint(iconName, toolIcon);
@@ -3808,27 +3779,27 @@ function LiveActivityContent({
       className={cn(
         "flex min-h-6 min-w-0 items-center gap-1.5 py-0.5",
         iconName ? "px-0.5" : "px-1",
-        highlighted ? "text-foreground" : "text-secondary-label",
+        active ? "text-primary-text" : "text-secondary-label",
       )}
     >
       {iconName ? (
         <span
           className={cn(
             "flex size-6 shrink-0 items-center justify-center",
-            failed ? failedToolIconClassName : highlighted ? "text-foreground" : "text-icon-muted",
+            failed ? failedToolIconClassName : "text-icon-muted",
           )}
-          role={announceFailure ? "img" : undefined}
-          aria-label={announceFailure ? "Tool call failed" : undefined}
+          role={failed ? "img" : undefined}
+          aria-label={failed ? "Tool call failed" : undefined}
         >
           <ToolActivityIconView
             icon={toolIcon}
             fallbackName={iconName}
             className="block size-4 shrink-0 stroke-[1.8]"
-            muted={!highlighted}
+            muted
           />
         </span>
       ) : null}
-      <span className={cn("min-w-0 flex-1 truncate", active && "live-tool-shine")}>{label}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       {showTrailingFailureMark ? (
         <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
       ) : null}

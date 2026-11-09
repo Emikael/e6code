@@ -1654,7 +1654,7 @@ describe("MessagesTimeline", () => {
             .filter((child) => typeof child === "string")
             .join(""),
         ).toBe(
-          // The thinking timeline marks the live thought with its ring, not a shimmer copy.
+          // The thinking timeline marks the live thought with its ring; the label is not duplicated.
           streaming && expected === "Thought" ? "Thinking" : expected,
         );
         expect(

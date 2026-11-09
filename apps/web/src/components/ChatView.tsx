@@ -2792,12 +2792,7 @@ export default function ChatView(props: ChatViewProps) {
           variant: "default",
           // Prioritize live connection progress among the notices.
           priority: "urgent",
-          icon: (
-            <span
-              className="size-1.5 animate-status-pulse rounded-full bg-foreground"
-              aria-hidden="true"
-            />
-          ),
+          icon: <span className="size-1.5 rounded-full bg-foreground" aria-hidden="true" />,
           title: `${unavailableConnection.phase === "connecting" ? "Connecting" : "Reconnecting"} to ${activeEnvironmentUnavailableState.label}`,
           description: "Finishing an update",
           actions: disconnectAction,
@@ -6524,7 +6519,10 @@ export default function ChatView(props: ChatViewProps) {
       id: `background-liveness:${activeThread.id}`,
       icon: (
         <span
-          className={cn("size-1.5 rounded-full bg-foreground", working && "animate-status-pulse")}
+          className={cn(
+            "size-1.5 rounded-full",
+            working ? "bg-primary ring-2 ring-primary-surface" : "bg-foreground",
+          )}
           aria-hidden="true"
         />
       ),
@@ -10550,7 +10548,7 @@ export default function ChatView(props: ChatViewProps) {
                               className={cn(
                                 "size-2 shrink-0 rounded-full",
                                 activePendingApproval
-                                  ? "animate-status-pulse bg-warning shadow-[0_0_8px_var(--warning)]"
+                                  ? "bg-warning shadow-[0_0_8px_var(--warning)]"
                                   : "bg-info shadow-[0_0_8px_var(--info)]",
                               )}
                             />
@@ -10698,13 +10696,10 @@ export default function ChatView(props: ChatViewProps) {
                     {activePendingApproval ? (
                       <span
                         aria-hidden="true"
-                        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-warning"
+                        className="size-1.5 shrink-0 rounded-full bg-warning"
                       />
                     ) : pendingUserInputs.length > 0 ? (
-                      <span
-                        aria-hidden="true"
-                        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-info"
-                      />
+                      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-info" />
                     ) : null}
                     <ChevronDownIcon className="size-3.5" />
                     {activePendingApproval
