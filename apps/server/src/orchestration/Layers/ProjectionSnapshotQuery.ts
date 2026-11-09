@@ -103,8 +103,8 @@ const THREAD_DETAIL_ACTIVITY_PAYLOAD_BATCH_SIZE = 25;
 // SQLite trim defaults to spaces. Match the whitespace removed by String.trim.
 const MESSAGE_TRIM_WHITESPACE =
   "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
-// One thread's `turn.usage` rows folded in SQL. The queries spell the kind as
-// a literal so SQLite can use the partial index migration 056 adds.
+// One thread's `turn.usage` rows, folded by the activity repository into
+// `projection_thread_usage_totals` whenever a usage activity is upserted.
 const ThreadUsageTotalDbRowSchema = Schema.Struct({
   threadId: ThreadId,
   turnCount: Schema.Number,
@@ -895,20 +895,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           usage.thread_id AS "threadId",
-          COUNT(*) AS "turnCount",
-          SUM(json_extract(usage.payload_json, '$.totalTokens')) AS "totalTokens",
-          SUM(json_extract(usage.payload_json, '$.costUsd')) AS "costUsd",
-          COUNT(json_extract(usage.payload_json, '$.costUsd')) AS "costedTurnCount",
-          COUNT(
-            CASE WHEN json_extract(usage.payload_json, '$.costSource') = 'estimated' THEN 1 END
-          ) AS "estimatedTurnCount"
-        FROM projection_thread_activities usage
+          usage.turn_count AS "turnCount",
+          usage.total_tokens AS "totalTokens",
+          usage.cost_usd AS "costUsd",
+          usage.costed_turn_count AS "costedTurnCount",
+          usage.estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals usage
         INNER JOIN projection_threads threads
           ON threads.thread_id = usage.thread_id
-        WHERE usage.kind = 'turn.usage'
-          AND threads.deleted_at IS NULL
+        WHERE threads.deleted_at IS NULL
           AND (threads.archived_at IS NOT NULL) = ${archived ? 1 : 0}
-        GROUP BY usage.thread_id
       `,
   });
 
@@ -919,17 +915,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
-          COUNT(*) AS "turnCount",
-          SUM(json_extract(payload_json, '$.totalTokens')) AS "totalTokens",
-          SUM(json_extract(payload_json, '$.costUsd')) AS "costUsd",
-          COUNT(json_extract(payload_json, '$.costUsd')) AS "costedTurnCount",
-          COUNT(
-            CASE WHEN json_extract(payload_json, '$.costSource') = 'estimated' THEN 1 END
-          ) AS "estimatedTurnCount"
-        FROM projection_thread_activities
-        WHERE kind = 'turn.usage'
-          AND thread_id = ${threadId}
-        GROUP BY thread_id
+          turn_count AS "turnCount",
+          total_tokens AS "totalTokens",
+          cost_usd AS "costUsd",
+          costed_turn_count AS "costedTurnCount",
+          estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals
+        WHERE thread_id = ${threadId}
       `,
   });
 

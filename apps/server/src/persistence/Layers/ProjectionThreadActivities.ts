@@ -94,6 +94,52 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
           `,
   });
 
+  // Thread shells read this folded row instead of summing every `turn.usage`
+  // activity per snapshot. Re-summing one thread keeps re-upserts of the same
+  // turn idempotent. The kind is a literal so SQLite uses migration 056's
+  // partial index.
+  const refreshThreadUsageTotalRow = SqlSchema.void({
+    Request: DeleteProjectionThreadActivitiesInput,
+    execute: ({ threadId }) =>
+      sql`
+        INSERT INTO projection_thread_usage_totals (
+          thread_id,
+          turn_count,
+          total_tokens,
+          cost_usd,
+          costed_turn_count,
+          estimated_turn_count
+        )
+        SELECT
+          thread_id,
+          COUNT(*),
+          SUM(json_extract(payload_json, '$.totalTokens')),
+          SUM(json_extract(payload_json, '$.costUsd')),
+          COUNT(json_extract(payload_json, '$.costUsd')),
+          COUNT(CASE WHEN json_extract(payload_json, '$.costSource') = 'estimated' THEN 1 END)
+        FROM projection_thread_activities
+        WHERE kind = 'turn.usage'
+          AND thread_id = ${threadId}
+        GROUP BY thread_id
+        ON CONFLICT (thread_id)
+        DO UPDATE SET
+          turn_count = excluded.turn_count,
+          total_tokens = excluded.total_tokens,
+          cost_usd = excluded.cost_usd,
+          costed_turn_count = excluded.costed_turn_count,
+          estimated_turn_count = excluded.estimated_turn_count
+      `,
+  });
+
+  const deleteThreadUsageTotalRow = SqlSchema.void({
+    Request: DeleteProjectionThreadActivitiesInput,
+    execute: ({ threadId }) =>
+      sql`
+        DELETE FROM projection_thread_usage_totals
+        WHERE thread_id = ${threadId}
+      `,
+  });
+
   const listProjectionThreadActivityRows = SqlSchema.findAll({
     Request: ListProjectionThreadActivitiesInput,
     Result: ProjectionThreadActivityDbRowSchema,
@@ -200,6 +246,11 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
 
   const upsert: ProjectionThreadActivityRepositoryShape["upsert"] = (row) =>
     upsertProjectionThreadActivityRow(row).pipe(
+      Effect.andThen(
+        row.kind === "turn.usage"
+          ? refreshThreadUsageTotalRow({ threadId: row.threadId })
+          : Effect.void,
+      ),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProjectionThreadActivityRepository.upsert:query",
@@ -246,6 +297,7 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
 
   const deleteByThreadId: ProjectionThreadActivityRepositoryShape["deleteByThreadId"] = (input) =>
     deleteProjectionThreadActivityRows(input).pipe(
+      Effect.andThen(deleteThreadUsageTotalRow(input)),
       Effect.mapError(
         toPersistenceSqlError("ProjectionThreadActivityRepository.deleteByThreadId:query"),
       ),
