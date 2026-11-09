@@ -18,6 +18,7 @@ import {
   formatUsd,
   makeWindow,
 } from "@e6tools/shared/usageFormat";
+import { cachedInputPercent } from "@e6tools/shared/usageShares";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, RefreshControl, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
@@ -463,8 +464,7 @@ function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24H
     (period) => period.totalTokens > 0,
   ).length;
   const periodAverage = activePeriods === 0 ? 0 : merged.totalTokens / activePeriods;
-  const observedInput = merged.uncachedInputTokens + merged.cachedInputTokens;
-  const cachedShare = observedInput === 0 ? 0 : merged.cachedInputTokens / observedInput;
+  const cachedPercent = cachedInputPercent(merged);
 
   return (
     <SettingsSection title="Totals">
@@ -486,7 +486,7 @@ function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24H
         <MetricCell
           label="Cached input"
           value={formatTokens(merged.cachedInputTokens)}
-          detail={`${formatPercent(cachedShare)} of observed input`}
+          detail={cachedPercent === null ? "No input yet" : `${cachedPercent}% of input`}
         />
         <MetricCell
           label="Uncached input"
