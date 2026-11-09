@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { deriveLatestContextWindowSnapshot } from "~/lib/contextWindow";
+import { deriveLatestContextWindowSnapshot } from "@e6tools/client-runtime/work-log/context-window";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 
 vi.mock("../ui/popover", () => ({
