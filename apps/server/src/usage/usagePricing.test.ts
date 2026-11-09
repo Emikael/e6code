@@ -197,6 +197,30 @@ describe("model price tiers", () => {
     expect(lookupModelPriceTier(effortTable, "gemini-flash-lite")).toBeUndefined();
   });
 
+  it("prices every slug that shows a tier, through the same fallbacks", () => {
+    const usage = {
+      uncachedInputTokens: 1_000_000,
+      cachedInputTokens: 0,
+      cacheCreationTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+    };
+    const fallbackTable = parseRateTable({
+      "frontier-class": perMillion(10, 50),
+      "gemini-flash": perMillion(0.75, 3.75),
+    });
+    for (const model of [
+      "opencode/frontier-class",
+      "gemini-flash-high",
+      "google/gemini-flash-low",
+    ]) {
+      expect(lookupModelPriceTier(fallbackTable, model)).toBeDefined();
+      expect(priceUsage(fallbackTable, model, usage, null).costSource).toBe("modelPriced");
+    }
+    expect(priceUsage(fallbackTable, "opencode/frontier-class", usage, null).costUsd).toBe(10);
+    expect(priceUsage(fallbackTable, "other/missing", usage, null).costSource).toBe("unpriced");
+  });
+
   it("prefers custom prices over the public table", () => {
     const overrides = createOverrideRateTable({
       "frontier-class": { inputCostPerMillionTokens: 0.1, outputCostPerMillionTokens: 0.4 },

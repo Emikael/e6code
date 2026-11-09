@@ -5299,7 +5299,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       );
       const completed = events.find((event) => event.type === "turn.completed");
       NodeAssert.equal(completed?.turnId, turn.turnId);
-      if (completed?.type === "turn.completed")
+      if (completed?.type === "turn.completed") {
         NodeAssert.deepEqual(completed.payload.tokenUsage, {
           usageStatus: "complete",
           usageScope: "main_agent",
@@ -5310,6 +5310,9 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           reasoningTokens: 2,
           hasSubagents: false,
         });
+        // A zero step cost means OpenCode could not price the model; ingestion estimates.
+        NodeAssert.equal(completed.payload.turnCostUsd, undefined);
+      }
     }),
   );
 
@@ -5404,7 +5407,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           sessionID,
           assistantMessageID: "first-message",
           finish: "stop",
-          cost: 0,
+          cost: 0.5,
           tokens: { input: 100, output: 50, reasoning: 10, cache: { read: 9, write: 8 } },
         },
       } satisfies OpenCodeEvent);
@@ -5417,7 +5420,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           sessionID,
           assistantMessageID: "second-message",
           finish: "stop",
-          cost: 0,
+          cost: 0.0125,
           tokens: { input: 10, output: 5, reasoning: 2, cache: { read: 3, write: 1 } },
         },
       } satisfies OpenCodeEvent);
@@ -5448,6 +5451,8 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           reasoningTokens: 2,
           hasSubagents: false,
         });
+        // The replayed step's cost belongs to the first turn, as its tokens do.
+        NodeAssert.equal(secondCompleted.payload.turnCostUsd, 0.0125);
       }
     }),
   );
