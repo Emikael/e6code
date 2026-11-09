@@ -1,6 +1,7 @@
 /**
  * Thread Overview: a sheet over the thread with source control at a glance,
- * how full the context window is, and the lineage of every subagent the
+ * how full the context window is, what the thread has cost against the
+ * provider's nearest limit, and the lineage of every subagent the
  * thread spawned. Selecting a live
  * subagent offers Stop, which ends that subagent and not the turn; otherwise
  * read-only apart from closing. The web Overview is the full surface.
@@ -10,9 +11,17 @@ import {
   type EnvironmentId,
   type OrchestrationSession,
   type OrchestrationThreadActivity,
+  type ProviderInstanceId,
   type ThreadId,
+  type ThreadUsageTotal,
   type VcsStatusResult,
 } from "@e6tools/contracts";
+import {
+  collectProviderUsageLimits,
+  type LimitPace,
+  mostConstrainedLimit,
+} from "@e6tools/shared/usageLimits";
+import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import {
   type AgentPanelModel,
   canStopSubagent,
@@ -54,6 +63,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
+import { providerDisplayLabel } from "../../lib/modelOptions";
 import { uuidv4 } from "../../lib/uuid";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useEnvironmentServerConfig } from "../../state/entities";
@@ -75,9 +85,9 @@ const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 const STATUS_TEXT_CLASS = {
   approval: "text-warning-foreground",
   question: "text-warning-foreground",
-  working: "text-adaptive-sky-700-300",
+  working: "text-info-foreground",
   idle: "text-foreground-muted",
-  done: "text-adaptive-emerald-700-300",
+  done: "text-success-foreground",
   failed: "text-danger-foreground",
   stopped: "text-foreground-muted",
 } as const satisfies Record<SubagentStatusTone, string>;
@@ -85,10 +95,10 @@ const STATUS_TEXT_CLASS = {
 const STATUS_DOT_CLASS = {
   approval: "bg-warning-foreground",
   question: "bg-warning-foreground",
-  working: "bg-adaptive-sky-600-400",
+  working: "bg-info-foreground",
   idle: "bg-foreground-muted",
-  done: "bg-adaptive-emerald-600-400",
-  failed: "bg-adaptive-rose-600-400",
+  done: "bg-success-foreground",
+  failed: "bg-danger-foreground",
   stopped: "bg-foreground-muted",
 } as const satisfies Record<SubagentStatusTone, string>;
 
@@ -152,13 +162,14 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
     (agentId: string) => setSelectedAgentId((current) => (current === agentId ? null : agentId)),
     [],
   );
+  const providerInstanceId =
+    selectedThread?.session?.providerInstanceId ??
+    selectedThread?.modelSelection.instanceId ??
+    null;
   const subagentStop = useSubagentStop({
     environmentId: selectedThread?.environmentId ?? null,
     threadId: selectedThread?.id ?? null,
-    providerInstanceId:
-      selectedThread?.session?.providerInstanceId ??
-      selectedThread?.modelSelection.instanceId ??
-      null,
+    providerInstanceId,
     activities: detail?.activities ?? EMPTY_ACTIVITIES,
     model,
   });
@@ -217,6 +228,11 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
           threadBranch={selectedThread?.branch ?? null}
         />
         {contextWindow ? <ContextCard snapshot={contextWindow} /> : null}
+        <UsageCard
+          environmentId={selectedThread?.environmentId ?? null}
+          providerInstanceId={providerInstanceId}
+          usageTotal={selectedThread?.usageTotal}
+        />
         <Text
           accessibilityRole="header"
           className="px-1 pt-3 pb-1 font-e6-medium text-sm text-foreground-muted"
@@ -535,6 +551,134 @@ function ContextCard(props: { readonly snapshot: ContextWindowSnapshot }) {
           <Text className="text-sm text-foreground-muted">{usage.compactionNote}</Text>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+const PACE_SYMBOL = {
+  ahead: "arrow.up.right",
+  on: "arrow.right.circle",
+  under: "arrow.down",
+} as const satisfies Record<LimitPace, AppSymbolName>;
+
+/** The current UTC minute, refreshed once a minute while mounted. */
+function useMinuteNow(): number {
+  const [minute, setMinute] = useState(() => new Date().toISOString().slice(0, 16));
+  useEffect(() => {
+    const id = setInterval(() => setMinute(new Date().toISOString().slice(0, 16)), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return Date.parse(`${minute}:00.000Z`);
+}
+
+/**
+ * What the thread has cost across all its turns, summed by the server, and
+ * the provider limit it is closest to. Either row is left out when the
+ * provider reports nothing for it. Pace and remaining quota are always in
+ * words, so the warning tint is never the only signal.
+ */
+function UsageCard(props: {
+  readonly environmentId: EnvironmentId | null;
+  readonly providerInstanceId: ProviderInstanceId | null;
+  readonly usageTotal: ThreadUsageTotal | undefined;
+}) {
+  const serverConfig = useEnvironmentServerConfig(props.environmentId);
+  const now = useMinuteNow();
+  const usage = describeThreadUsage(props.usageTotal);
+  const limit = useMemo(() => {
+    if (props.providerInstanceId === null || !serverConfig) return null;
+    const provider = serverConfig.providers.find(
+      (candidate) => candidate.instanceId === props.providerInstanceId,
+    );
+    const report = provider
+      ? collectProviderUsageLimits(
+          props.providerInstanceId,
+          serverConfig.providers,
+          serverConfig.usageLimitSources ?? [],
+          now,
+        )
+      : null;
+    return provider && report
+      ? mostConstrainedLimit(report, providerDisplayLabel(provider), now)
+      : null;
+  }, [now, props.providerInstanceId, serverConfig]);
+  if (!usage && !limit) return null;
+
+  return (
+    <View className={CARD_CLASS_NAME}>
+      {usage ? (
+        <InfoRow icon="bolt.circle" accessibilityLabel={usage.accessibilityLabel}>
+          <Text className="text-base text-foreground">This thread</Text>
+          <Text
+            className="min-w-0 flex-1 text-right text-sm tabular-nums text-foreground-muted"
+            numberOfLines={1}
+          >
+            {usage.tokens}
+          </Text>
+          {usage.cost ? (
+            <Text className="font-mono text-sm tabular-nums text-foreground">{usage.cost}</Text>
+          ) : null}
+        </InfoRow>
+      ) : null}
+      {usage && limit ? <RowDivider /> : null}
+      {limit ? (
+        <View
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={limit.accessibilityLabel}
+          accessibilityValue={{ min: 0, max: 100, now: limit.remainingPercent }}
+          className="flex-row items-start gap-3 px-4 py-3"
+        >
+          <SymbolView
+            name="chart.bar.xaxis"
+            size={18}
+            tintColorClassName="accent-icon-muted"
+            type="monochrome"
+          />
+          <View className="min-w-0 flex-1 gap-1">
+            <View className="flex-row items-baseline gap-2">
+              <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={1}>
+                {limit.title}
+              </Text>
+              <Text className="text-sm tabular-nums text-foreground-muted">
+                {limit.remainingLabel}
+              </Text>
+            </View>
+            <View className="mt-1 h-1 overflow-hidden rounded-full bg-foreground-muted/20">
+              <View
+                className={cn(
+                  "h-full rounded-full",
+                  limit.warning ? "bg-warning-foreground" : "bg-foreground-muted",
+                )}
+                style={{ width: `${limit.remainingPercent}%` }}
+              />
+            </View>
+            {limit.detail ? (
+              <View className="flex-row items-center gap-1.5">
+                {limit.pace ? (
+                  <SymbolView
+                    name={PACE_SYMBOL[limit.pace]}
+                    size={12}
+                    tintColorClassName={
+                      limit.warning ? "accent-warning-foreground" : "accent-icon-muted"
+                    }
+                    type="monochrome"
+                  />
+                ) : null}
+                <Text
+                  className={cn(
+                    "min-w-0 flex-1 text-sm tabular-nums",
+                    limit.warning ? "text-warning-foreground" : "text-foreground-muted",
+                  )}
+                  numberOfLines={1}
+                >
+                  {limit.detail}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

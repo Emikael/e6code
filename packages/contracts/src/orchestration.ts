@@ -160,6 +160,12 @@ export const PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS = 8_000;
  * to do instead. Persisted events decode it without the length cap so a later
  * cap change cannot strand stored history.
  */
+/**
+ * Activity recording a decline whose instructions went to the provider with
+ * the refusal; its summary reads "Declined · <instructions>". Providers that
+ * get the instructions as a user message do not record one.
+ */
+export const APPROVAL_FEEDBACK_ACTIVITY_KIND = "approval.declined-with-instructions";
 export const ProviderApprovalFeedback = TrimmedNonEmptyString.check(
   Schema.isMaxLength(PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS),
 );
@@ -913,6 +919,19 @@ export const ThreadAgentState = Schema.Union([
 ]);
 export type ThreadAgentState = typeof ThreadAgentState.Type;
 
+/**
+ * What a thread's turns have cost so far, summed server-side from every stored
+ * `turn.usage` activity (clients hold only a recent window of activities).
+ * `costUsd` is absent when no turn reported or estimated a cost; `costSource`
+ * is `estimated` when any part of the sum is an estimate or a turn had no cost.
+ */
+export const ThreadUsageTotal = Schema.Struct({
+  totalTokens: NonNegativeInt,
+  costUsd: Schema.optional(Schema.Number),
+  costSource: Schema.optional(Schema.Literals(["reported", "estimated"])),
+});
+export type ThreadUsageTotal = typeof ThreadUsageTotal.Type;
+
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -985,6 +1004,12 @@ export const OrchestrationThreadShell = Schema.Struct({
    * kind from a newer server decodes as absent instead of failing the shell.
    */
   agentState: ForwardCompatibleOptional(ThreadAgentState),
+  /**
+   * Usage summed over the thread's turns; omitted when no turn reported any,
+   * so threads without usage pay nothing on the wire. Optional so old
+   * servers/clients interop.
+   */
+  usageTotal: Schema.optional(ThreadUsageTotal),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 

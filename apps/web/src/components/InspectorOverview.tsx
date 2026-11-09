@@ -1,6 +1,7 @@
 /**
  * Inspector Overview: the right panel's first surface. Workspace actions,
- * source control at a glance, and the lineage of every subagent this thread
+ * source control at a glance, what the thread has cost against the
+ * provider's nearest limit, and the lineage of every subagent this thread
  * spawned, with the selected one shown in detail.
  *
  * Visualization rules (carried over from the Agents surface it replaces):
@@ -21,8 +22,12 @@ import type {
   ProviderDriverKind,
   ResolvedKeybindingsConfig,
   ThreadId,
+  ThreadUsageTotal,
   TurnId,
+  UsageLimitsReport,
 } from "@e6tools/contracts";
+import { mostConstrainedLimit } from "@e6tools/shared/usageLimits";
+import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import { scopeThreadRef } from "@e6tools/client-runtime/environment";
 import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
 import {
@@ -53,6 +58,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CircleStopIcon,
+  CoinsIcon,
   CopyIcon,
   EllipsisIcon,
   ExternalLinkIcon,
@@ -82,6 +88,7 @@ import {
 import type { DraftId } from "~/composerDraftStore";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useE6ProjectFileScripts } from "~/hooks/useE6ProjectFileScripts";
+import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
 import { primaryProjectScript } from "~/projectScripts";
 import { useRemoteOpenState } from "~/remoteOpen";
@@ -108,6 +115,7 @@ import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { toastManager } from "./ui/toast";
+import { PACE } from "./usage/UsageLimits";
 
 export interface InspectorWorkspace {
   environmentId: EnvironmentId;
@@ -411,6 +419,99 @@ function ContextSection({ snapshot }: { snapshot: ContextWindowSnapshot }) {
       ) : null}
       {usage.compactionNote ? (
         <p className={cn("mr-2 ml-[34px] pt-1 text-xs", MUTED)}>{usage.compactionNote}</p>
+      ) : null}
+      <SectionDivider />
+    </div>
+  );
+}
+
+/** The thread provider's limits, as collected for /usage-limits. */
+export interface InspectorPlanLimits {
+  readonly report: UsageLimitsReport;
+  readonly providerLabel: string;
+}
+
+/**
+ * What the thread has cost across all its turns, summed by the server, and
+ * the provider limit it is closest to. Either part is left out when the
+ * provider reports nothing for it; the whole section when neither has data.
+ */
+function UsageSection({
+  usageTotal,
+  planLimits,
+}: {
+  usageTotal: ThreadUsageTotal | null;
+  planLimits: InspectorPlanLimits | null;
+}) {
+  const nowMinute = useNowMinute();
+  const usage = describeThreadUsage(usageTotal ?? undefined);
+  const limit = useMemo(
+    () =>
+      planLimits
+        ? mostConstrainedLimit(
+            planLimits.report,
+            planLimits.providerLabel,
+            Date.parse(`${nowMinute}:00.000Z`),
+          )
+        : null,
+    [nowMinute, planLimits],
+  );
+  if (!usage && !limit) return null;
+  const PaceGlyph = limit?.pace ? PACE[limit.pace].icon : null;
+  return (
+    <div role="group" aria-label="Usage" className="flex flex-col">
+      {usage ? (
+        <div
+          role="group"
+          aria-label={usage.accessibilityLabel}
+          className="flex h-8 min-w-0 items-center gap-2.5 px-2 text-[13px]"
+        >
+          <CoinsIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+          <span className="shrink-0">This thread</span>
+          <span className={cn("min-w-0 flex-1 truncate text-right text-xs tabular-nums", MUTED)}>
+            {usage.tokens}
+          </span>
+          {usage.cost ? (
+            <span className="shrink-0 font-mono text-xs tabular-nums">{usage.cost}</span>
+          ) : null}
+        </div>
+      ) : null}
+      {limit ? (
+        <div
+          role="group"
+          aria-label={limit.accessibilityLabel}
+          className="mx-2 mt-1 mb-1 flex flex-col gap-1.5 rounded-lg border border-sidebar-border bg-sidebar-control-surface px-3 py-2.5"
+        >
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium">{limit.title}</span>
+            <span className="shrink-0 font-mono text-[11px] tabular-nums">
+              {limit.remainingLabel}
+            </span>
+          </div>
+          <div
+            aria-hidden
+            className="h-1 overflow-hidden rounded-full bg-sidebar-muted-foreground/20"
+          >
+            <div
+              className={cn(
+                "h-full rounded-full",
+                limit.warning ? "bg-warning" : "bg-sidebar-muted-foreground/70",
+              )}
+              style={{ width: `${limit.remainingPercent}%` }}
+            />
+          </div>
+          {limit.detail ? (
+            <span
+              className={cn(
+                "flex min-w-0 items-center gap-1.5 font-mono text-[11px] tabular-nums",
+                limit.warning ? "text-warning-foreground" : MUTED,
+              )}
+            >
+              {PaceGlyph ? <PaceGlyph aria-hidden className="size-3 shrink-0" /> : null}
+              <span className="min-w-0 truncate">{limit.detail}</span>
+            </span>
+          ) : null}
+        </div>
       ) : null}
       <SectionDivider />
     </div>
@@ -1135,6 +1236,10 @@ interface InspectorOverviewProps {
   subagentStop: InspectorSubagentStop | null;
   /** Latest context window usage; null when the provider reports none. */
   contextWindow: ContextWindowSnapshot | null;
+  /** Usage summed over every turn, from the thread shell; null when none was reported. */
+  usageTotal: ThreadUsageTotal | null;
+  /** The thread provider's limits; null when it reports none. */
+  planLimits: InspectorPlanLimits | null;
 }
 
 function InspectorOverviewView({
@@ -1145,6 +1250,8 @@ function InspectorOverviewView({
   workspace,
   subagentStop,
   contextWindow,
+  usageTotal,
+  planLimits,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
   return (
@@ -1159,6 +1266,7 @@ function InspectorOverviewView({
             <SourceControlSection workspace={workspace} gitCwd={gitCwd} />
           ) : null}
           {contextWindow ? <ContextSection snapshot={contextWindow} /> : null}
+          <UsageSection usageTotal={usageTotal} planLimits={planLimits} />
           <LineageSection
             model={model}
             threadKey={threadKey}
@@ -1205,6 +1313,17 @@ function sameContextWindow(
   );
 }
 
+/** Every shell refetch decodes a fresh total; compare what it shows. */
+function sameUsageTotal(left: ThreadUsageTotal | null, right: ThreadUsageTotal | null): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  return (
+    left.totalTokens === right.totalTokens &&
+    left.costUsd === right.costUsd &&
+    left.costSource === right.costSource
+  );
+}
+
 /**
  * ChatView rebuilds the workspace object on every render (each streaming
  * delta); comparing it field by field keeps the panel and its controls still.
@@ -1218,5 +1337,7 @@ export const InspectorOverview = memo(
     previous.threadModelLabel === next.threadModelLabel &&
     previous.subagentStop === next.subagentStop &&
     sameContextWindow(previous.contextWindow, next.contextWindow) &&
+    sameUsageTotal(previous.usageTotal, next.usageTotal) &&
+    previous.planLimits === next.planLimits &&
     shallowEqualWorkspace(previous.workspace, next.workspace),
 );

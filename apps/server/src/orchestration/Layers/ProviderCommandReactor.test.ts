@@ -4462,17 +4462,35 @@ describe("ProviderCommandReactor", () => {
           threadId: "thread-1",
           input: "Run the unit tests instead",
         });
+        // The user message already shows the instructions; no second record.
+        expect(
+          thread?.activities.some(
+            (activity) => activity.kind === "approval.declined-with-instructions",
+          ),
+        ).toBe(false);
       }),
   );
 
-  effectIt.effect("adds no message when the provider received the decline instructions", () =>
-    Effect.gen(function* () {
-      const { harness, thread } = yield* respondWithFeedback(true);
-      expect(thread?.messages.some((message) => message.id.startsWith("approval-feedback:"))).toBe(
-        false,
-      );
-      expect(harness.sendTurn).not.toHaveBeenCalled();
-    }),
+  effectIt.effect(
+    "records the decline with its instructions when the provider received them natively",
+    () =>
+      Effect.gen(function* () {
+        const { harness, thread } = yield* respondWithFeedback(true);
+        expect(
+          thread?.messages.some((message) => message.id.startsWith("approval-feedback:")),
+        ).toBe(false);
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        const records = thread?.activities.filter(
+          (activity) => activity.kind === "approval.declined-with-instructions",
+        );
+        expect(records).toHaveLength(1);
+        expect(records?.[0]).toMatchObject({
+          tone: "approval",
+          summary: "Declined · Run the unit tests instead",
+          payload: { requestId: "approval-request-1", feedback: "Run the unit tests instead" },
+        });
+        expect(records?.[0]?.payload).not.toHaveProperty("detail");
+      }),
   );
 
   it("forwards user input answers without reading unrelated message bodies", async () => {

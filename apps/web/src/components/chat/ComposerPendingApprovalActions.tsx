@@ -5,7 +5,7 @@ import {
 } from "@e6tools/contracts";
 import type { ApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
 import type { DestructiveCommand } from "@e6tools/client-runtime/destructive-commands";
-import { memo } from "react";
+import { Fragment, memo } from "react";
 import { EllipsisIcon, TriangleAlertIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -17,7 +17,7 @@ interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
   isResponding: boolean;
   options?: ReadonlyArray<ProviderApprovalOption> | undefined;
-  /** Instructions typed in the composer; with text, Decline also sends them. */
+  /** Instructions typed in the composer; with text, a second Decline sends them. */
   declineFeedback?: {
     readonly agentName: string;
     readonly draft: ApprovalFeedbackDraft;
@@ -76,38 +76,20 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
             />
           );
         }
-        // Typed instructions turn Decline into "Decline and tell <agent>";
-        // clearing the composer makes it a plain decline again.
-        const sendsFeedback =
-          option.decision === "decline" &&
-          declineFeedback !== null &&
-          feedbackDraft !== null &&
-          feedbackDraft.status !== "empty";
-        const label = sendsFeedback
-          ? `Decline and tell ${declineFeedback.agentName}`
-          : option.label;
         const button = (
           <Button
             key={option.decision}
             size="xs"
             variant={option.decision === "accept" ? "default" : "outline"}
-            disabled={isResponding || (sendsFeedback && feedbackDraft.status !== "ready")}
+            disabled={isResponding}
             aria-description={option.warning}
-            onClick={() =>
-              void onRespondToApproval(
-                requestId,
-                option.decision,
-                sendsFeedback && feedbackDraft.status === "ready"
-                  ? feedbackDraft.feedback
-                  : undefined,
-              )
-            }
+            onClick={() => void onRespondToApproval(requestId, option.decision)}
           >
             {option.warning ? <TriangleAlertIcon className="size-3 shrink-0" /> : null}
-            <span className="max-w-48 truncate">{label}</span>
+            <span className="max-w-40 truncate">{option.label}</span>
           </Button>
         );
-        return option.warning ? (
+        const decision = option.warning ? (
           <Tooltip key={option.decision}>
             <TooltipTrigger render={button} />
             <TooltipPopup side="top" className="max-w-72 text-xs leading-snug">
@@ -116,6 +98,32 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
           </Tooltip>
         ) : (
           button
+        );
+        // Typed instructions add "Decline and tell <agent>" beside a plain
+        // Decline, so declining without them never means clearing the text.
+        if (
+          option.decision !== "decline" ||
+          declineFeedback === null ||
+          feedbackDraft === null ||
+          feedbackDraft.status === "empty"
+        ) {
+          return decision;
+        }
+        return (
+          <Fragment key={option.decision}>
+            {decision}
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isResponding || feedbackDraft.status !== "ready"}
+              onClick={() => {
+                if (feedbackDraft.status !== "ready") return;
+                void onRespondToApproval(requestId, "decline", feedbackDraft.feedback);
+              }}
+            >
+              <span className="max-w-48 truncate">{`Decline and tell ${declineFeedback.agentName}`}</span>
+            </Button>
+          </Fragment>
         );
       })}
       {moreOptions.length > 0 ? (
