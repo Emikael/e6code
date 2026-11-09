@@ -47,6 +47,7 @@ import {
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
+import { applyStockAccent } from "~/stockAccent";
 import { useClientSettings } from "../hooks/useSettings";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
@@ -273,6 +274,11 @@ function ContrastAppearanceSync() {
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
   }, [appearanceContrast]);
+
+  const stockAccent = useClientSettings((settings) => settings.stockAccent);
+  useEffect(() => {
+    applyStockAccent(document.documentElement, stockAccent);
+  }, [stockAccent]);
 
   return null;
 }

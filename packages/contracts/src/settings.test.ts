@@ -378,6 +378,23 @@ describe("ClientSettings chat width", () => {
   });
 });
 
+describe("ClientSettings stock accent", () => {
+  it("defaults to Iris when no accent is saved", () => {
+    expect(decodeClientSettings({}).stockAccent).toBe("iris");
+  });
+
+  it.each(["iris", "cobalt", "rose", "graphite"])("round-trips the %s accent", (stockAccent) => {
+    const settings = decodeClientSettings({ stockAccent });
+    expect(encodeClientSettings(settings).stockAccent).toBe(stockAccent);
+    expect(decodeClientSettingsPatch({ stockAccent }).stockAccent).toBe(stockAccent);
+  });
+
+  it("falls back to Iris for an accent this client does not know", () => {
+    expect(decodeClientSettings({ stockAccent: "chartreuse" }).stockAccent).toBe("iris");
+    expect(decodeClientSettings({ stockAccent: 7 }).stockAccent).toBe("iris");
+  });
+});
+
 describe("ClientSettings load balancing", () => {
   it("requires opt-in when settings are new or omit load balancing", () => {
     expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
