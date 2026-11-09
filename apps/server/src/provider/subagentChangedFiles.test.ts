@@ -7,6 +7,21 @@ import {
   openCodeChangedFiles,
 } from "./subagentChangedFiles.ts";
 
+const lines = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, index) => `${prefix}${index}\n`).join("");
+
+/** A clock that never advances, so the diff budget never runs out. */
+const frozenClock = () => 0;
+
+/** A clock that advances `step` ms on every read and counts its reads. */
+function steppingClock(step: number) {
+  let reads = 0;
+  return {
+    now: () => step * reads++,
+    reads: () => reads,
+  };
+}
+
 describe("claudeChangedFiles", () => {
   it("diffs an edit's own strings when the SDK sent no patch", () => {
     expect(
@@ -115,9 +130,75 @@ describe("acpChangedFiles", () => {
     expect(acpChangedFiles(content)).toHaveLength(64);
   });
 
+  it("still counts a small edit in a file at the line cap", () => {
+    const file = lines("line", 1_000);
+    expect(
+      acpChangedFiles(
+        [
+          {
+            type: "diff",
+            path: "/repo/a.ts",
+            oldText: file,
+            newText: file.replace("line500\n", "x\n"),
+          },
+        ],
+        frozenClock,
+      ),
+    ).toEqual([{ path: "/repo/a.ts", additions: 1, deletions: 1 }]);
+  });
+
+  it("skips the diff for a side over the line cap without spending budget", () => {
+    const clock = steppingClock(0);
+    const file = lines("line", 1_001);
+    expect(
+      acpChangedFiles(
+        [
+          { type: "diff", path: "/repo/a.ts", oldText: "a\n", newText: file },
+          { type: "diff", path: "/repo/b.ts", oldText: file, newText: `${file}tail\n` },
+        ],
+        clock.now,
+      ),
+    ).toEqual([{ path: "/repo/a.ts" }, { path: "/repo/b.ts" }]);
+    // Only the budget's start was read: neither file reached the diff.
+    expect(clock.reads()).toBe(1);
+  });
+
+  it("shares one time budget across a whole batch", () => {
+    // Each read advances 3 ms, so a 20 ms budget admits six diffs.
+    const clock = steppingClock(3);
+    const content = Array.from({ length: 64 }, (_, index) => ({
+      type: "diff",
+      path: `/repo/${index}.ts`,
+      oldText: "a\nb\n",
+      newText: "a\nc\n",
+    }));
+    const files = acpChangedFiles(content, clock.now) ?? [];
+    expect(files).toHaveLength(64);
+    expect(files.slice(0, 6).every((file) => file.additions === 1 && file.deletions === 1)).toBe(
+      true,
+    );
+    expect(files.slice(6)).toEqual(content.slice(6).map(({ path }) => ({ path })));
+  });
+
+  it("shares the budget across a MultiEdit's entries", () => {
+    const clock = steppingClock(15);
+    expect(
+      claudeChangedFiles(
+        "MultiEdit",
+        {
+          file_path: "/repo/a.ts",
+          edits: [
+            { old_string: "a\n", new_string: "b\n" },
+            { old_string: "c\n", new_string: "d\n" },
+          ],
+        },
+        undefined,
+        clock.now,
+      ),
+    ).toEqual([{ path: "/repo/a.ts" }]);
+  });
+
   it("lists a rewrite too large or too different to diff without counts", () => {
-    const lines = (prefix: string, count: number) =>
-      Array.from({ length: count }, (_, index) => `${prefix}${index}\n`).join("");
     // Small enough to diff, but every line changed: past the edit-length bound.
     const rewritten = { oldText: lines("old", 3_000), newText: lines("new", 3_000) };
     // Few changes, but past the size bound.
