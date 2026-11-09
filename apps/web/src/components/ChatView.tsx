@@ -236,6 +236,7 @@ import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
 import {
   InspectorOverview,
+  type InspectorPlanLimits,
   type InspectorSubagentStop,
   type InspectorWorkspace,
 } from "./InspectorOverview";
@@ -3199,6 +3200,19 @@ export default function ChatView(props: ChatViewProps) {
     setUsageLimitsPanel(null);
   }
   const usageLimitSources = serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES;
+  // The Overview's plan-limit card reads the same accounts as /usage-limits and
+  // judges them against its own minute clock, so this only rebuilds on new data.
+  const selectedProviderDisplayName = selectedProviderEntry?.displayName ?? null;
+  const inspectorPlanLimits = useMemo((): InspectorPlanLimits | null => {
+    if (activeProviderInstanceId === null || selectedProviderDisplayName === null) return null;
+    const report = collectProviderUsageLimits(
+      activeProviderInstanceId,
+      providerStatuses,
+      usageLimitSources,
+      Date.now(),
+    );
+    return report ? { report, providerLabel: selectedProviderDisplayName } : null;
+  }, [activeProviderInstanceId, providerStatuses, selectedProviderDisplayName, usageLimitSources]);
   const usageLimitsReport = useMemo(
     () =>
       usageLimitsPanel !== null &&
@@ -10148,6 +10162,8 @@ export default function ChatView(props: ChatViewProps) {
         workspace={inspectorWorkspace}
         subagentStop={inspectorSubagentStop}
         contextWindow={activeContextWindow}
+        usageTotal={activeThreadShell?.usageTotal ?? null}
+        planLimits={inspectorPlanLimits}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
