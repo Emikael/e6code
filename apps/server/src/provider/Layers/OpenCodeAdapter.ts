@@ -3777,7 +3777,7 @@ export function makeOpenCodeAdapter(
 
     const respondToRequest: OpenCodeAdapterShape["respondToRequest"] = Effect.fn(
       "respondToRequest",
-    )(function* (threadId, requestId, decision) {
+    )(function* (threadId, requestId, decision, feedback) {
       const context = yield* ensureSessionContext(sessions, threadId);
       const request = context.pendingPermissions.get(requestId);
       if (!request) {
@@ -3799,6 +3799,9 @@ export function makeOpenCodeAdapter(
             sessionID: request.sessionID,
             requestID: requestId,
             decision: reply,
+            // OpenCode hands a rejection message back to the model as the
+            // tool's correction, so the agent continues with the instructions.
+            ...(reply === "reject" && feedback !== undefined ? { message: feedback } : {}),
           },
           { signal },
         ),
@@ -4068,6 +4071,7 @@ export function makeOpenCodeAdapter(
       provider: PROVIDER,
       capabilities: {
         sessionModelSwitch: "in-session",
+        approvalFeedback: "native",
       },
       startSession,
       sendTurn,

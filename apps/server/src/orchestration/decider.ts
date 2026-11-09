@@ -1617,6 +1617,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           requestId: command.requestId,
           decision: command.decision,
+          // Instructions only make sense alongside a refusal to run the tool.
+          ...(command.feedback !== undefined && command.decision === "decline"
+            ? { feedback: command.feedback }
+            : {}),
           createdAt: command.createdAt,
         },
       };

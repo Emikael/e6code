@@ -6510,6 +6510,52 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("returns decline instructions to Claude as the deny message", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "clean up", attachments: [] });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) return;
+      const permissionPromise = canUseTool(
+        "Bash",
+        { command: "rm -rf build" },
+        { signal: new AbortController().signal, requestId: "request-1", toolUseID: "tool-use-1" },
+      );
+      const requested = yield* Stream.runHead(
+        adapter.streamEvents.pipe(Stream.filter((event) => event.type === "request.opened")),
+      );
+      assert.equal(requested._tag, "Some");
+      if (requested._tag !== "Some" || requested.value.requestId === undefined) return;
+
+      yield* adapter.respondToRequest(
+        session.threadId,
+        ApprovalRequestId.make(requested.value.requestId),
+        "decline",
+        "Only delete build/cache",
+      );
+
+      const permissionResult = (yield* Effect.promise(() => permissionPromise)) as PermissionResult;
+      assert.deepEqual(permissionResult, {
+        behavior: "deny",
+        message:
+          "User declined tool execution and said what to do instead:\nOnly delete build/cache",
+      });
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("names the sub-agent that asked for approval", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

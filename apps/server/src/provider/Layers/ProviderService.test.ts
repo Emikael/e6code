@@ -210,6 +210,7 @@ function makeFakeCodexAdapter(
       _threadId: ThreadId,
       _requestId: string,
       _decision: ProviderApprovalDecision,
+      _feedback?: string,
     ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
@@ -283,6 +284,7 @@ function makeFakeCodexAdapter(
       sessionModelSwitch: "in-session",
       ...(supportsConversationRollback !== undefined ? { supportsConversationRollback } : {}),
       ...(provider === CODEX_DRIVER ? { promptlessTurnContinuation: true } : {}),
+      ...(provider === CLAUDE_AGENT_DRIVER ? { approvalFeedback: "native" as const } : {}),
     },
     startSession,
     sendTurn,
@@ -1705,7 +1707,23 @@ routing.layer("ProviderServiceLive routing", (it) => {
         decision: "accept",
       });
       assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-        [session.threadId, asRequestId("req-1"), "accept"],
+        [session.threadId, asRequestId("req-1"), "accept", undefined],
+      ]);
+
+      // Codex has no denial reason on the wire: the decline goes through bare
+      // and the caller learns it must deliver the instructions itself.
+      const declined = yield* provider.respondToRequest({
+        threadId: session.threadId,
+        requestId: asRequestId("req-2"),
+        decision: "decline",
+        feedback: "Use pnpm instead",
+      });
+      assert.deepEqual(declined, { feedbackDelivered: false });
+      assert.deepEqual(routing.codex.respondToRequest.mock.calls[1], [
+        session.threadId,
+        asRequestId("req-2"),
+        "decline",
+        undefined,
       ]);
 
       yield* provider.respondToUserInput({
@@ -3643,6 +3661,20 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         requestId: asRequestId("req-metrics-1"),
         decision: "accept",
       });
+      // Claude carries the instructions natively; they only travel with a decline.
+      const declined = yield* provider.respondToRequest({
+        threadId: session.threadId,
+        requestId: asRequestId("req-metrics-3"),
+        decision: "decline",
+        feedback: "Edit the test instead",
+      });
+      assert.deepEqual(declined, { feedbackDelivered: true });
+      assert.deepEqual(fanout.claude.respondToRequest.mock.calls.at(-1), [
+        session.threadId,
+        asRequestId("req-metrics-3"),
+        "decline",
+        "Edit the test instead",
+      ]);
       yield* provider.respondToUserInput({
         threadId: session.threadId,
         requestId: asRequestId("req-metrics-2"),

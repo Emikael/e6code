@@ -3,6 +3,7 @@ import {
   type ProviderApprovalDecision,
   type ProviderApprovalOption,
 } from "@e6tools/contracts";
+import type { ApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
 import { memo } from "react";
 import { EllipsisIcon, TriangleAlertIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -14,9 +15,15 @@ interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
   isResponding: boolean;
   options?: ReadonlyArray<ProviderApprovalOption> | undefined;
+  /** Instructions typed in the composer; with text, Decline also sends them. */
+  declineFeedback?: {
+    readonly agentName: string;
+    readonly draft: ApprovalFeedbackDraft;
+  } | null;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
+    feedback?: string,
   ) => Promise<unknown>;
 }
 
@@ -31,8 +38,10 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   requestId,
   isResponding,
   options = DEFAULT_APPROVAL_OPTIONS,
+  declineFeedback = null,
   onRespondToApproval,
 }: ComposerPendingApprovalActionsProps) {
+  const feedbackDraft = declineFeedback?.draft ?? null;
   const primaryOptions = options.filter(
     (option) => option.decision === "decline" || option.decision === "accept",
   );
@@ -43,17 +52,35 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   return (
     <>
       {primaryOptions.map((option) => {
+        // Typed instructions turn Decline into "Decline and tell <agent>";
+        // clearing the composer makes it a plain decline again.
+        const sendsFeedback =
+          option.decision === "decline" &&
+          declineFeedback !== null &&
+          feedbackDraft !== null &&
+          feedbackDraft.status !== "empty";
+        const label = sendsFeedback
+          ? `Decline and tell ${declineFeedback.agentName}`
+          : option.label;
         const button = (
           <Button
             key={option.decision}
             size="xs"
             variant={option.decision === "accept" ? "default" : "outline"}
-            disabled={isResponding}
+            disabled={isResponding || (sendsFeedback && feedbackDraft.status !== "ready")}
             aria-description={option.warning}
-            onClick={() => void onRespondToApproval(requestId, option.decision)}
+            onClick={() =>
+              void onRespondToApproval(
+                requestId,
+                option.decision,
+                sendsFeedback && feedbackDraft.status === "ready"
+                  ? feedbackDraft.feedback
+                  : undefined,
+              )
+            }
           >
             {option.warning ? <TriangleAlertIcon className="size-3 shrink-0" /> : null}
-            <span className="max-w-40 truncate">{option.label}</span>
+            <span className="max-w-48 truncate">{label}</span>
           </Button>
         );
         return option.warning ? (

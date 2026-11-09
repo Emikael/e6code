@@ -36,6 +36,11 @@ import type { ProviderServiceError } from "../Errors.ts";
 import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
 import type { ProviderInstanceRoutingInfo } from "./ProviderAdapterRegistry.ts";
 
+export interface ProviderRespondToRequestResult {
+  /** True when the provider received the decline instructions with the decision. */
+  readonly feedbackDelivered: boolean;
+}
+
 /**
  * ProviderServiceShape - Service API for provider session and turn orchestration.
  */
@@ -96,7 +101,7 @@ export interface ProviderServiceShape {
    */
   readonly respondToRequest: (
     input: ProviderRespondToRequestInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
+  ) => Effect.Effect<ProviderRespondToRequestResult, ProviderServiceError>;
 
   /**
    * Respond to a provider structured user-input request.

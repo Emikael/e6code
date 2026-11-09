@@ -289,7 +289,9 @@ describe("ProviderCommandReactor", () => {
     const stopSubagent = vi.fn<ProviderServiceShape["stopSubagent"]>(
       () => input?.stopSubagentEffect?.() ?? Effect.void,
     );
-    const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
+    const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() =>
+      Effect.succeed({ feedbackDelivered: false }),
+    );
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const stopSession = vi.fn((stopInput: unknown) =>
       (input?.stopSessionEffect?.() ?? Effect.void).pipe(
@@ -4075,7 +4077,13 @@ describe("ProviderCommandReactor", () => {
             const thread = (await harness.readModel()).threads.find(
               (entry) => entry.id === ThreadId.make("thread-1"),
             );
-            return thread?.session?.status === "stopped";
+            // The session stop lands before the failure activity is appended.
+            return (
+              thread?.session?.status === "stopped" &&
+              thread.activities.some(
+                (activity) => activity.kind === "provider.turn.interrupt.failed",
+              )
+            );
           }),
         );
 
@@ -4398,6 +4406,74 @@ describe("ProviderCommandReactor", () => {
       decision: "accept",
     });
   });
+
+  const respondWithFeedback = (feedbackDelivered: boolean) =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      harness.respondToRequest.mockImplementation(() => Effect.succeed({ feedbackDelivered }));
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-feedback"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.make("cmd-approval-feedback"),
+        threadId: ThreadId.make("thread-1"),
+        requestId: asApprovalRequestId("approval-request-1"),
+        decision: "decline",
+        feedback: "Run the unit tests instead",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.respondToRequest.mock.calls[0]?.[0]).toEqual({
+        threadId: "thread-1",
+        requestId: "approval-request-1",
+        decision: "decline",
+        feedback: "Run the unit tests instead",
+      });
+      const readModel = yield* Effect.promise(() => harness.readModel());
+      return {
+        harness,
+        thread: readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1")),
+      };
+    });
+
+  effectIt.effect(
+    "sends decline instructions as the next user message when the provider cannot carry them",
+    () =>
+      Effect.gen(function* () {
+        const { harness, thread } = yield* respondWithFeedback(false);
+        expect(
+          thread?.messages.find((message) => message.id === "approval-feedback:approval-request-1"),
+        ).toMatchObject({ role: "user", text: "Run the unit tests instead" });
+        expect(harness.sendTurn.mock.calls.at(-1)?.[0]).toMatchObject({
+          threadId: "thread-1",
+          input: "Run the unit tests instead",
+        });
+      }),
+  );
+
+  effectIt.effect("adds no message when the provider received the decline instructions", () =>
+    Effect.gen(function* () {
+      const { harness, thread } = yield* respondWithFeedback(true);
+      expect(thread?.messages.some((message) => message.id.startsWith("approval-feedback:"))).toBe(
+        false,
+      );
+      expect(harness.sendTurn).not.toHaveBeenCalled();
+    }),
+  );
 
   it("forwards user input answers without reading unrelated message bodies", async () => {
     const harness = await createHarness({ unreadableHistory: true });

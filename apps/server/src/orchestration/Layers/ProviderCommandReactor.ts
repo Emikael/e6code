@@ -1865,13 +1865,16 @@ const make = Effect.gen(function* () {
       });
     }
 
-    yield* providerService
+    const feedback = event.payload.feedback;
+    const response = yield* providerService
       .respondToRequest({
         threadId: event.payload.threadId,
         requestId: event.payload.requestId,
         decision: event.payload.decision,
+        ...(feedback !== undefined ? { feedback } : {}),
       })
       .pipe(
+        Effect.map(Option.some),
         Effect.catchCause((cause) =>
           appendProviderFailureActivity({
             threadId: event.payload.threadId,
@@ -1883,6 +1886,39 @@ const make = Effect.gen(function* () {
             turnId: null,
             createdAt: event.payload.createdAt,
             requestId: event.payload.requestId,
+          }).pipe(Effect.as(Option.none())),
+        ),
+      );
+    if (feedback === undefined || Option.isNone(response) || response.value.feedbackDelivered) {
+      return;
+    }
+    // The provider cannot carry a reason with the refusal, so the instructions
+    // follow as an ordinary user message, which steers the running turn or
+    // starts the next one exactly like a typed message.
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: yield* serverCommandId("approval-feedback"),
+        threadId: event.payload.threadId,
+        message: {
+          messageId: MessageId.make(`approval-feedback:${event.payload.requestId}`),
+          role: "user",
+          text: feedback,
+          attachments: [],
+        },
+        runtimeMode: thread.runtimeMode,
+        interactionMode: thread.interactionMode,
+        createdAt: event.payload.createdAt,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Instructions for the agent were not sent",
+            detail: Cause.pretty(cause),
+            turnId: null,
+            createdAt: event.payload.createdAt,
           }),
         ),
       );

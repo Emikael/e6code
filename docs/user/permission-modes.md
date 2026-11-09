@@ -20,6 +20,10 @@ and modes you choose in a draft keep their permissions.
 Approve or reject requests in the conversation to let the agent continue. Permission modes do
 not prevent the agent from asking questions about the task.
 
+To reject a request and redirect the agent, type what it should do instead while the request is
+waiting, then choose **Decline and tell** the agent. Claude and OpenCode receive your
+instructions with the rejection. Other providers receive them as your next message.
+
 ## Provider differences
 
 Providers enforce permissions differently. Some read-only actions can proceed in **Supervised**.

@@ -301,6 +301,18 @@ interface PendingApproval {
   readonly detail?: string;
   readonly suggestions?: ReadonlyArray<PermissionUpdate>;
   readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
+  /** Set with a decline before `decision` resolves; becomes the deny message. */
+  feedback?: string;
+}
+
+/** The deny message Claude reads when the user refused a tool call. */
+function claudeDeniedToolMessage(
+  decision: ProviderApprovalDecision,
+  feedback: string | undefined,
+): string {
+  if (decision === "cancel") return "User cancelled tool execution.";
+  if (feedback === undefined) return "User declined tool execution.";
+  return `User declined tool execution and said what to do instead:\n${feedback}`;
 }
 
 /**
@@ -4950,10 +4962,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
         return {
           behavior: "deny",
-          message:
-            decision === "cancel"
-              ? "User cancelled tool execution."
-              : "User declined tool execution.",
+          message: claudeDeniedToolMessage(decision, pendingApproval.feedback),
         } satisfies PermissionResult;
       });
 
@@ -5661,7 +5670,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   );
 
   const respondToRequest: ClaudeAdapterShape["respondToRequest"] = Effect.fn("respondToRequest")(
-    function* (threadId, requestId, decision) {
+    function* (threadId, requestId, decision, feedback) {
       const context = yield* requireSession(threadId);
       const pending = context.pendingApprovals.get(requestId);
       if (!pending) {
@@ -5673,6 +5682,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
 
       context.pendingApprovals.delete(requestId);
+      if (decision === "decline" && feedback !== undefined) pending.feedback = feedback;
       yield* Deferred.succeed(pending.decision, decision);
     },
   );
@@ -5744,6 +5754,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      approvalFeedback: "native",
     },
     compaction: { type: "slash-command", command: "/compact" },
     startSession,
