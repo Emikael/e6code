@@ -21,7 +21,11 @@ import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
   BookOpenIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
   CircleDotIcon,
+  CircleHelpIcon,
+  CircleXIcon,
   CopyIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
@@ -106,6 +110,7 @@ import {
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
 import { PullRequestEditButton } from "./PullRequestEditButton";
 import { Input } from "../ui/input";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -160,7 +165,10 @@ import {
   resolvePullRequestPrimaryControl,
   allowsSinglePullRequestMerge,
   resolveBaseFreshness,
+  resolveMergeReadiness,
   resolvePullRequestMergeMethod,
+  type MergeReadiness,
+  type MergeReadinessStatus,
   type PullRequestFinding,
   shouldRefreshPullRequestActivity,
   stripPullRequestHandoffReferences,
@@ -184,6 +192,8 @@ import {
   summarizePullRequestChecks,
 } from "./pullRequestPresentation";
 import { PullRequestGlyph } from "./pullRequestIcons";
+import { usePullRequestMergeCommandStore } from "./pullRequestMergeCommand";
+import { isEditableFocused } from "~/lib/editableFocus";
 
 type DetailTab = "summary" | "timeline" | "code";
 
@@ -418,6 +428,64 @@ function PullRequestBaseFreshnessWarning({
         ) : null}
       </PopoverPopup>
     </Popover>
+  );
+}
+
+const READINESS_STATUS = {
+  ok: { Icon: CircleCheckIcon, className: "text-success-foreground", word: "Met" },
+  blocked: { Icon: CircleXIcon, className: "text-destructive-foreground", word: "Blocked" },
+  waiting: { Icon: CircleDashedIcon, className: "text-warning-foreground", word: "Waiting" },
+  unknown: { Icon: CircleHelpIcon, className: "text-muted-foreground", word: "Unknown" },
+} as const satisfies Record<MergeReadinessStatus, unknown>;
+
+/**
+ * The merge checklist: one worded row per requirement, each with the action that clears it
+ * where this panel has one. The count leaves out what the host could not report.
+ */
+function PullRequestMergeReadinessChecklist({
+  readiness,
+  actions,
+}: {
+  readiness: MergeReadiness;
+  /** Rendered at the end of a row, keyed by that row's action. */
+  actions: Partial<Record<NonNullable<MergeReadiness["rows"][number]["action"]>, ReactNode>>;
+}) {
+  return (
+    <section
+      aria-label={`Merge readiness, ${readiness.met} of ${readiness.counted} met`}
+      className="mt-3 rounded-md border border-border/60 px-3 py-2"
+    >
+      <h2 className="flex items-center gap-1.5 text-xs font-medium">
+        Merge readiness
+        <span className="tabular-nums text-muted-foreground">
+          {readiness.met}/{readiness.counted}
+        </span>
+      </h2>
+      <ul className="mt-1.5 space-y-1">
+        {readiness.rows.map((row) => {
+          const status = READINESS_STATUS[row.status];
+          const action = row.action === null ? null : actions[row.action];
+          return (
+            <li key={row.key} className="flex min-h-6 min-w-0 items-center gap-2 text-xs">
+              <status.Icon aria-hidden className={cn("size-3.5 shrink-0", status.className)} />
+              <span className="sr-only">{status.word}:</span>
+              <span
+                className={cn(
+                  "min-w-0 truncate",
+                  row.status === "ok" ? "text-foreground" : status.className,
+                )}
+              >
+                {row.label}
+              </span>
+              {row.detail ? (
+                <span className="shrink-0 tabular-nums text-muted-foreground">{row.detail}</span>
+              ) : null}
+              {action ? <span className="ml-auto flex shrink-0 gap-1.5">{action}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -1542,6 +1610,78 @@ export function PullRequestDetailPanel({
           (entry) => entry.outcome === "approved" && !entry.stale,
         ).length
       : 0;
+  const mergeReadiness = detail
+    ? resolveMergeReadiness({
+        state: detail.state,
+        checks: detail.checks,
+        checksState,
+        checksStale,
+        reviewDecision: sharedSummary?.reviewDecision,
+        approvalCount,
+        mergeability: detail.mergeability,
+        baseComparison: detail.baseComparison,
+        behindBy: detail.behindBy,
+      })
+    : null;
+
+  // Merging from the keyboard, and from the command palette, goes through the same confirmation
+  // the button opens, and only while that button is live. The panel answers only when the reader
+  // is working in it: focus inside, or the last click landed here.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const pointerInPanel = useRef(false);
+  const canMergeFromShortcut = shortcutsEnabled && primaryAction === "merge" && !actionPending;
+  const mergeFromShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (!canMergeFromShortcut || event.defaultPrevented || isCommandPaletteOpen()) return;
+    const panel = panelRef.current;
+    if (panel === null) return;
+    const command = resolveShortcutCommand(event, keybindings, {
+      context: { ...getShortcutContext(), editableFocus: isEditableFocused(event.target) },
+    });
+    if (command !== "pullRequest.merge") return;
+    if (!panel.contains(document.activeElement) && !pointerInPanel.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) setConfirmation({ open: true, action: "merge" });
+  });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => mergeFromShortcut(event);
+    const onPointerDown = (event: PointerEvent) => {
+      pointerInPanel.current =
+        event.target instanceof Node && panelRef.current?.contains(event.target) === true;
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, []);
+  const publishMergeCommand = usePullRequestMergeCommandStore((state) => state.publish);
+  const withdrawMergeCommand = usePullRequestMergeCommandStore((state) => state.withdraw);
+  const mergeShortcutLabel = shortcutLabelForCommand(keybindings, "pullRequest.merge");
+  const mergeCommandOwner = `${environmentId}:${pullRequestKey}`;
+  const mergeCommandTitle = detail?.title ?? null;
+  useEffect(() => {
+    if (!canMergeFromShortcut || mergeCommandTitle === null) {
+      withdrawMergeCommand(mergeCommandOwner);
+      return;
+    }
+    publishMergeCommand({
+      owner: mergeCommandOwner,
+      number: reference.number,
+      title: mergeCommandTitle,
+      // Withdrawn the moment merging stops being on offer, so this never outlives the button.
+      run: () => setConfirmation({ open: true, action: "merge" }),
+    });
+    return () => withdrawMergeCommand(mergeCommandOwner);
+  }, [
+    canMergeFromShortcut,
+    mergeCommandOwner,
+    mergeCommandTitle,
+    publishMergeCommand,
+    reference.number,
+    withdrawMergeCommand,
+  ]);
 
   const checkoutControl =
     context === "page" ? (
@@ -1655,7 +1795,7 @@ export function PullRequestDetailPanel({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+    <div ref={panelRef} className="relative flex h-full min-h-0 w-full flex-col bg-background">
       {threadPickerOpen && detail ? (
         <PullRequestThreadLinks
           key={`${environmentId}:${detail.url}`}
@@ -1980,7 +2120,16 @@ export function PullRequestDetailPanel({
                     }
                   />
                   <TooltipPopup side="top">
-                    {pendingAction === "merge" ? "Merging..." : selectedMergeMethodLabel}
+                    {pendingAction === "merge" ? (
+                      "Merging..."
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        {selectedMergeMethodLabel}
+                        {mergeShortcutLabel ? (
+                          <Kbd className="text-[10px]">{mergeShortcutLabel}</Kbd>
+                        ) : null}
+                      </span>
+                    )}
                   </TooltipPopup>
                 </Tooltip>
               ) : (primaryAction === "merged" || primaryAction === "closed") &&
@@ -2536,6 +2685,50 @@ export function PullRequestDetailPanel({
                     />
                   </span>
                 </div>
+                {mergeReadiness ? (
+                  <PullRequestMergeReadinessChecklist
+                    readiness={mergeReadiness}
+                    actions={{
+                      "fix-checks": (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={handoff !== null}
+                          onClick={startFixFindings}
+                        >
+                          <HammerIcon aria-hidden className="size-3" />
+                          {handoff === "findings" ? "Preparing..." : handoffLabels.fixCheck}
+                        </Button>
+                      ),
+                      "resolve-conflicts": (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={
+                            handoff !== null || (attachTarget === null && checkoutRoot === null)
+                          }
+                          onClick={startResolveConflicts}
+                        >
+                          {handoff === "conflicts" ? "Preparing..." : "Resolve"}
+                        </Button>
+                      ),
+                      "update-branch":
+                        freshness && freshness.methods.length > 0
+                          ? freshness.methods.map((method) => (
+                              <Button
+                                key={method}
+                                size="xs"
+                                variant="ghost"
+                                disabled={actionPending}
+                                onClick={() => void perform("update-branch", undefined, method)}
+                              >
+                                {method === "rebase" ? "Update with rebase" : "Update branch"}
+                              </Button>
+                            ))
+                          : null,
+                    }}
+                  />
+                ) : null}
               </div>
             ) : null}
           </div>
