@@ -5,16 +5,22 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@e6tools/contracts";
+import {
+  TURN_USAGE_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+  isToolLifecycleItemType,
+} from "@e6tools/contracts";
+import { appendTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
   OrchestrationThreadActivity,
   ToolLifecycleItemType,
   TurnId,
+  TurnUsageActivityPayload,
   UserInputQuestion,
 } from "@e6tools/contracts";
-import { formatDuration } from "@e6tools/shared/orchestrationTiming";
+import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -35,6 +41,13 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
+import {
+  TASK_LIST_TOOL_NAMES,
+  taskListLabel,
+  taskListStepsFromPayload,
+  taskListText,
+  type TaskListStep,
+} from "@e6tools/client-runtime/work-log/task-list";
 import {
   mcpToolCallParts,
   toolCallLines,
@@ -69,6 +82,7 @@ export interface ThreadFeedActivity {
     | "alert"
     | "browser"
     | "check"
+    | "checklist"
     | "command"
     | "computer"
     | "edit"
@@ -126,6 +140,8 @@ export interface WorkLogEntry {
     }>;
   };
   toolData?: unknown;
+  /** The steps of an agent's task list (a plan update), shown when the row opens. */
+  taskList?: ReadonlyArray<TaskListStep>;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -433,6 +449,12 @@ function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
   const ordered = Arr.sort(activities, activityOrder);
+  // Like web: Claude's todo tools also emit a plan update, whose Tasks row already shows the change.
+  const planUpdateTurnIds = new Set(
+    ordered.flatMap((activity) =>
+      activity.kind === "turn.plan.updated" && activity.turnId ? [activity.turnId] : [],
+    ),
+  );
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of foldUserInputActivities(ordered)) {
     // The setup card owns its snapshot, including failed and cancelled outcomes.
@@ -450,10 +472,18 @@ function deriveWorkLogEntries(
     if (activity.kind === "task.updated" && !isTerminalTaskUpdate(activity)) continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    // Folded into the turn's "Worked for ..." row instead.
+    if (activity.kind === TURN_USAGE_ACTIVITY_KIND) continue;
+    if (activity.kind === "turn.plan.updated") {
+      const taskListEntry = taskListWorkLogEntry(activity);
+      if (taskListEntry) entries.push(taskListEntry);
+      continue;
+    }
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
+    if (isTaskListToolActivity(activity, planUpdateTurnIds)) continue;
     entries.push(toDerivedWorkLogEntry(activity));
   }
   return collapseDerivedWorkLogEntries(entries);
@@ -468,6 +498,34 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
     activity.kind === "runtime.warning" &&
     activity.summary.endsWith("(no displayable text content)")
   );
+}
+
+/** A successful todo tool call in a turn whose plan update renders it as a Tasks row. */
+function isTaskListToolActivity(
+  activity: OrchestrationThreadActivity,
+  planUpdateTurnIds: ReadonlySet<string>,
+): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") return false;
+  if (activity.tone === "error" || !activity.turnId || !planUpdateTurnIds.has(activity.turnId)) {
+    return false;
+  }
+  const toolName = asRecord(asRecord(activity.payload)?.data)?.toolName;
+  return typeof toolName === "string" && TASK_LIST_TOOL_NAMES.has(toolName);
+}
+
+/** Each plan update is a quiet `Tasks 2/5 · step` row where the agent wrote it; it opens to every step. */
+function taskListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry | null {
+  const steps = taskListStepsFromPayload(activity.payload);
+  if (!steps || steps.length === 0) return null;
+  return {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    turnId: activity.turnId,
+    label: taskListLabel(steps),
+    tone: "info",
+    sourceActivityKind: activity.kind,
+    taskList: steps,
+  };
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -969,6 +1027,7 @@ function workEntryStatus(entry: WorkLogEntry): ThreadFeedActivity["status"] {
 
 function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
   if (entry.agentSpawn) return "agent";
+  if (entry.taskList) return "checklist";
   if (
     entry.questionAnswer ||
     entry.sourceActivityKind === "user-input.requested" ||
@@ -1006,6 +1065,7 @@ function buildWorkEntryExpandedParts(entry: WorkLogEntry): WorkEntryExpandedPart
     const result = agentSpawnExpandedBody(entry.agentSpawn);
     return result ? { call: null, result } : null;
   }
+  if (entry.taskList) return { call: null, result: taskListText(entry.taskList) };
   const visibleLabel = workEntryRowLabel(entry, true).trim();
   const seen: string[] = [];
   const keep = (value: string | null | undefined) => {
@@ -1038,6 +1098,7 @@ function buildWorkEntryExpandedParts(entry: WorkLogEntry): WorkEntryExpandedPart
 
 function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
   if (entry.agentSpawn) return agentSpawnExpandedBody(entry.agentSpawn);
+  if (entry.taskList) return taskListText(entry.taskList);
   const blocks: string[] = [];
   const visibleLabel = workEntryRowLabel(entry, true).trim();
   const appendBlock = (value: string | null | undefined) => {
@@ -1067,6 +1128,7 @@ function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
 function workEntryCanExpand(entry: WorkLogEntry): boolean {
   if (entry.questionAnswer) return true;
   if (entry.agentSpawn) return agentSpawnMembers(entry.agentSpawn).length > 0;
+  if (entry.taskList) return entry.taskList.length > 0;
   if (entry.itemType === "mcp_tool_call" && entry.toolData !== undefined) return true;
   if (entry.changedFiles?.some((path) => path.trim().length > 0)) return true;
   return Boolean((entry.rawCommand ?? entry.command)?.trim() || entry.detail?.trim());
@@ -1085,6 +1147,8 @@ function stripShellWrapper(value: string): string {
 /** Expanded rows retain detail formatting; commands stay in the separate body. */
 export function workEntryRowLabel(entry: WorkLogEntry, expanded = false): string {
   if (entry.agentSpawn) return agentSpawnLabel(entry.agentSpawn);
+  // The steps are the expanded body; the label stays the summary either way.
+  if (entry.taskList) return entry.label;
   const presentation = resolveWorkEntryToolPresentation(entry);
   if (presentation) return presentation.displayName;
   if (expanded && entry.command?.trim()) return "Command";
@@ -1239,6 +1303,7 @@ function agentSpawnExpandedBody(spawn: NonNullable<WorkLogEntry["agentSpawn"]>):
 
 function workEntryHeading(workEntry: WorkLogEntry): string {
   if (workEntry.agentSpawn) return agentSpawnLabel(workEntry.agentSpawn);
+  if (workEntry.taskList) return workEntry.label;
   const presentation = resolveWorkEntryToolPresentation(workEntry);
   if (presentation) return presentation.displayName;
   if (!workEntry.toolTitle) {
@@ -1695,6 +1760,7 @@ interface ThreadFeedTurnFold {
 function deriveThreadFeedTurnFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestTurn: ThreadFeedLatestTurn | null,
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined,
 ): ReadonlyMap<string, ThreadFeedTurnFold> {
   const firstAssistantMessageIdByTurn = new Map<TurnId, string>();
   const terminalAssistantMessageIdByTurn = new Map<TurnId, string>();
@@ -1816,13 +1882,16 @@ function deriveThreadFeedTurnFolds(
           );
     const duration = elapsedMs === null ? null : formatDuration(elapsedMs);
     const interrupted = latestTurnMatches && latestTurn.state === "interrupted";
-    const label = interrupted
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = appendTurnUsage(
+      interrupted
+        ? duration
+          ? `You stopped after ${duration}`
+          : "You stopped this response"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked",
+      turnUsageByTurnId?.get(turnId),
+    );
 
     foldsByAnchorId.set(firstHiddenEntry.id, {
       turnId,
@@ -1840,6 +1909,7 @@ export function deriveThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1851,7 +1921,7 @@ export function deriveThreadFeedPresentation(
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
   );
-  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
+  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn, turnUsageByTurnId);
   const unsettledTurnId = deriveUnsettledTurnId(latestTurn);
   const isWorking = activeWorkStartedAt !== null;
   const collapsedEntryIds = new Set<string>();
@@ -2032,7 +2102,10 @@ function appendMixedActivityRun(
   }
   const toolSummary = toolRows.find((entry) => entry.type === "work-toggle");
   const thinking = live && (last.type === "message" || !toolSummary?.shimmer);
-  const thoughtCount = run.filter((entry) => entry.type === "message").length;
+  const thoughts = history.flatMap((entry) =>
+    entry.type === "message" ? (entry.reasoningMessages ?? [entry.message]) : [],
+  );
+  const thoughtCount = thoughts.length;
   result.push({
     type: "work-toggle",
     id: live ? LIVE_ACTIVITY_ROW_ID : `work-toggle:${groupId}`,
@@ -2041,9 +2114,7 @@ function appendMixedActivityRun(
     groupId,
     hiddenCount: activities.length + thoughtCount,
     expanded,
-    summary: thinking
-      ? "Thinking"
-      : (toolSummary?.summary ?? `Thought${thoughtCount > 1 ? ` (×${thoughtCount})` : ""}`),
+    summary: thinking ? "Thinking" : (toolSummary?.summary ?? formatThoughtLabel(thoughts)),
     summaryKind: toolSummary?.summaryKind ?? "other",
     ...(thinking || !toolSummary
       ? { summaryToolIcon: "brain" as const }

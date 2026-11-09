@@ -30,6 +30,37 @@ export function formatDuration(durationMs: number): string {
   return parts.join(" ");
 }
 
+type TimedReasoningMessage = {
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly streaming: boolean;
+};
+
+/** Below this, the span is timestamp noise (an imported trace, a flush), not thinking. */
+const MIN_REASONING_DURATION_MS = 1_000;
+
+/**
+ * The label for one or more settled thinking blocks: "Thought for 12s (×3)".
+ *
+ * The server stamps a reasoning message's `createdAt` when the block opened and
+ * its `updatedAt` when the block closed, so each span is the model's time.
+ * Spans are summed, not measured end to end, so tool calls between blocks do
+ * not count as thinking. A block still streaming, or a span too short to mean
+ * anything, leaves the plain "Thought" label.
+ */
+export function formatThoughtLabel(messages: ReadonlyArray<TimedReasoningMessage>): string {
+  const count = messages.length > 1 ? ` (×${messages.length})` : "";
+  let totalMs = 0;
+  for (const message of messages) {
+    if (message.streaming) return `Thought${count}`;
+    const span = Date.parse(message.updatedAt) - Date.parse(message.createdAt);
+    if (Number.isFinite(span) && span > 0) totalMs += span;
+  }
+  return totalMs >= MIN_REASONING_DURATION_MS
+    ? `Thought for ${formatDuration(totalMs)}${count}`
+    : `Thought${count}`;
+}
+
 function isLatestTurnSettled(
   latestTurn: LatestTurnTiming | null,
   session: SessionActivityState | null,

@@ -22,6 +22,7 @@ import {
   type ServerProviderSkill,
   type ToolActivityIcon,
   type TurnId,
+  type TurnUsageActivityPayload,
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
 import { parseScopedThreadKey } from "@e6tools/client-runtime/environment";
@@ -71,7 +72,7 @@ const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@e6tools/shared/chatList";
 import { toolActivityFaviconUrl } from "@e6tools/shared/favicon";
-import { formatDuration } from "@e6tools/shared/orchestrationTiming";
+import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import { getProjectFaviconCacheKey } from "@e6tools/shared/projectFavicon";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
@@ -520,6 +521,8 @@ interface MessagesTimelineProps {
   latestTurn: TimelineLatestTurn | null;
   runningTurnId: TurnId | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
+  /** Settled turns' tokens and cost, shown on their "Worked for ..." row. */
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
   routeThreadKey: string;
   /**
    * Thread whose entries are currently painted. Differs from `routeThreadKey`
@@ -600,6 +603,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   latestTurn,
   runningTurnId,
   turnDiffSummaries,
+  turnUsageByTurnId,
   routeThreadKey,
   displayThreadKey,
   onOpenTurnDiff,
@@ -886,6 +890,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         liveAgentTaskIds,
         worktreeSetup,
         queuedMessages,
+        turnUsageByTurnId,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -909,6 +914,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     liveAgentTaskIds,
     worktreeSetup,
     queuedMessages,
+    turnUsageByTurnId,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
@@ -2924,7 +2930,9 @@ function ActivityGroupTimelineRow({
     ),
     (entry) => entry,
   );
-  const thoughtCount = row.entries.filter((entry) => entry.kind === "message").length;
+  const thoughts = row.entries.flatMap((entry) =>
+    entry.kind === "message" ? [entry.message] : [],
+  );
   const lastThoughtIndex = row.entries.findLastIndex((entry) => entry.kind === "message");
   const trailingWork = omitSupersededLifecycleMarkers(
     row.entries
@@ -2946,7 +2954,7 @@ function ActivityGroupTimelineRow({
       : "Thinking"
     : work.length > 0
       ? summarizeToolGroup(work)
-      : `Thought${thoughtCount > 1 ? ` (×${thoughtCount})` : ""}`;
+      : formatThoughtLabel(thoughts);
   const details: ReactNode[] = [];
   if (row.expanded) {
     for (let index = 0; index < row.entries.length; index += 1) {
@@ -3074,7 +3082,7 @@ function ReasoningTraceBlock({
   ) {
     return null;
   }
-  const label = streaming ? "Thinking" : "Thought";
+  const label = streaming ? "Thinking" : formatThoughtLabel(messages);
   const collapsedPreview = messages.find((message) => message.text.trim().length > 0)?.text.trim();
   const headerText = expanded ? (
     label
@@ -3170,7 +3178,7 @@ const ReasoningTimelineRow = memo(function ReasoningTimelineRow({
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="relative min-w-0 flex-1 truncate text-secondary-label text-sm leading-relaxed">
-            Thought
+            {formatThoughtLabel([message])}
           </span>
           <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
             <ChevronRightIcon

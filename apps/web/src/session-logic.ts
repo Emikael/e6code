@@ -2,7 +2,7 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload } from "@e6tools/contracts";
+import { TURN_USAGE_ACTIVITY_KIND, UserInputAttachmentAnswerPayload } from "@e6tools/contracts";
 import { foldUserInputActivities } from "@e6tools/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -21,6 +21,12 @@ import {
   type WorkLogToolLifecycleStatus,
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
+import {
+  TASK_LIST_TOOL_NAMES,
+  taskListLabel,
+  taskListStepsFromPayload,
+  taskListText,
+} from "@e6tools/client-runtime/work-log/task-list";
 import {
   isToolLifecycleItemType,
   type AssetResource,
@@ -228,30 +234,8 @@ function planStateFromActivity(activity: OrchestrationThreadActivity): ActivePla
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
       : null;
-  const rawPlan = payload?.plan;
-  if (!Array.isArray(rawPlan)) {
-    return null;
-  }
-  const steps: Array<{
-    step: string;
-    status: "pending" | "inProgress" | "completed";
-  }> = [];
-  for (const entry of rawPlan) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    const record = entry as Record<string, unknown>;
-    if (typeof record.step !== "string") {
-      continue;
-    }
-    const status =
-      record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
-    steps.push({
-      step: record.step,
-      status,
-    });
-  }
-  if (steps.length === 0) {
+  const steps = taskListStepsFromPayload(payload);
+  if (!steps || steps.length === 0) {
     return null;
   }
   return {
@@ -490,6 +474,8 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    // Folded into the turn's "Worked for ..." row instead.
+    if (activity.kind === TURN_USAGE_ACTIVITY_KIND) continue;
     if (activity.kind === "turn.plan.updated") {
       const todoEntry = todoListWorkLogEntry(activity);
       if (todoEntry) entries.push(todoEntry);
@@ -537,8 +523,6 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
   );
 }
 
-const PLAN_TOOL_NAMES = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList"]);
-
 /** A successful todo tool call in a turn whose plan update renders it as a Tasks row. */
 function isPlanToolActivity(
   activity: OrchestrationThreadActivity,
@@ -549,7 +533,7 @@ function isPlanToolActivity(
     return false;
   }
   const toolName = asRecord(asRecord(activity.payload)?.data)?.toolName;
-  return typeof toolName === "string" && PLAN_TOOL_NAMES.has(toolName);
+  return typeof toolName === "string" && TASK_LIST_TOOL_NAMES.has(toolName);
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -566,24 +550,18 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
 
 const decodeQuestionAttachmentAnswer = Schema.decodeUnknownOption(UserInputAttachmentAnswerPayload);
 
-const TODO_STEP_MARKS = { completed: "✓", inProgress: "→", pending: "○" } as const;
-
 /** Each todo update is a quiet row where the agent wrote it; it opens to every step. */
 function todoListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry | null {
   const cachedEntry = derivedWorkLogEntryByActivity.get(activity);
   if (cachedEntry) return cachedEntry;
   const plan = planStateFromActivity(activity);
   if (!plan || plan.steps.length === 0) return null;
-  const done = plan.steps.filter((step) => step.status === "completed").length;
-  const current =
-    plan.steps.find((step) => step.status === "inProgress") ??
-    plan.steps.find((step) => step.status === "pending");
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
     turnId: activity.turnId,
-    label: `Tasks ${done}/${plan.steps.length}${current ? ` · ${current.step}` : ""}`,
-    detail: plan.steps.map((step) => `${TODO_STEP_MARKS[step.status]} ${step.step}`).join("\n"),
+    label: taskListLabel(plan.steps),
+    detail: taskListText(plan.steps),
     tone: "info",
     sourceActivityKind: activity.kind,
   };

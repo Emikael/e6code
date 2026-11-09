@@ -71,6 +71,7 @@ import IconLayoutSidebarRight from "@tabler/icons-react-native/IconLayoutSidebar
 import IconLetterSpacing from "@tabler/icons-react-native/IconLetterSpacing";
 import IconMicrophone from "@tabler/icons-react-native/IconMicrophone";
 import IconLink from "@tabler/icons-react-native/IconLink";
+import IconListCheck from "@tabler/icons-react-native/IconListCheck";
 import IconMenu2 from "@tabler/icons-react-native/IconMenu2";
 import IconMessage from "@tabler/icons-react-native/IconMessage";
 import IconMinus from "@tabler/icons-react-native/IconMinus";
@@ -139,6 +140,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "chart.bar.xaxis": IconChartBar,
   checkmark: IconCheck,
   "checkmark.circle": IconCircleCheck,
+  checklist: IconListCheck,
   circle: IconCircle,
   clock: IconClock,
   ticket: IconTicket,

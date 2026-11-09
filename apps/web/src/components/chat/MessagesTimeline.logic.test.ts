@@ -163,6 +163,28 @@ describe("streaming row projection", () => {
     }
   });
 
+  it("keeps the streaming fast path when turn usage is rebuilt with the same records", () => {
+    const initial = fixture("Before");
+    const usage = { totalTokens: 10, partial: false };
+    const previous = deriveMessagesTimelineRowsWithState({
+      ...initial.input,
+      turnUsageByTurnId: new Map([[initial.historyTurnId, usage]]),
+    });
+    const last = initial.messages.at(-1)!;
+    const messages = [...initial.messages.slice(0, -1), { ...last, text: "After" }];
+    const timeline = deriveTimelineEntriesWithState(messages, [], initial.work, initial.timeline);
+    const next = deriveMessagesTimelineRowsWithState(
+      {
+        ...initial.input,
+        timelineEntries: timeline.entries,
+        turnUsageByTurnId: new Map([[initial.historyTurnId, usage]]),
+      },
+      previous,
+    );
+
+    expect(next.rows[0]).toBe(previous.rows[0]);
+  });
+
   it("keeps earlier emitted rows unchanged across two projection branches", () => {
     const initial = fixture();
     const previous = deriveMessagesTimelineRowsWithState(initial.input);
@@ -1822,6 +1844,67 @@ describe("deriveMessagesTimelineRows", () => {
     expect(
       expandedRows.find((row) => row.kind === "turn-fold" && row.expanded === true),
     ).toBeDefined();
+  });
+
+  it("adds a settled turn's tokens and cost to its fold label", () => {
+    const turnId = TurnId.make("turn-1");
+    const message = (id: string, role: "user" | "assistant", at: string) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at,
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        turnId: role === "user" ? null : turnId,
+        createdAt: at,
+        updatedAt: at,
+        streaming: false,
+      },
+    });
+    const timelineEntries = [
+      message("user", "user", "2026-01-01T00:00:00Z"),
+      {
+        id: "work-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:05Z",
+        entry: {
+          id: "work",
+          createdAt: "2026-01-01T00:00:05Z",
+          turnId,
+          label: "Ran command",
+          tone: "tool" as const,
+        },
+      },
+      message("assistant", "assistant", "2026-01-01T00:00:22Z"),
+    ];
+    const foldLabel = (
+      turnUsageByTurnId: Parameters<typeof deriveMessagesTimelineRows>[0]["turnUsageByTurnId"],
+    ) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+        ...(turnUsageByTurnId ? { turnUsageByTurnId } : {}),
+      }).find((row) => row.kind === "turn-fold")?.label;
+
+    expect(foldLabel(undefined)).toBe("Worked for 22s");
+    expect(
+      foldLabel(
+        new Map([
+          [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" }],
+        ]),
+      ),
+    ).toBe("Worked for 22s · 48.6k tokens · $0.12");
+    expect(
+      foldLabel(
+        new Map([
+          [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" }],
+        ]),
+      ),
+    ).toBe("Worked for 22s · 48.6k tokens · ≈$0.12");
   });
 
   it("keeps a tool group after the terminal response visible when the turn is folded", () => {

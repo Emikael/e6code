@@ -440,7 +440,11 @@ import {
   hasDismissedResumeCompaction,
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
-import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "../lib/contextWindow";
+import {
+  deriveLatestContextWindowSnapshot,
+  formatContextWindowTokens,
+} from "@e6tools/client-runtime/work-log/context-window";
+import { deriveTurnUsageByTurnId } from "@e6tools/client-runtime/work-log/turn-usage";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
@@ -2976,6 +2980,10 @@ export default function ChatView(props: ChatViewProps) {
     [threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const turnUsageByTurnId = useMemo(
+    () => deriveTurnUsageByTurnId(threadActivities),
+    [threadActivities],
+  );
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).
@@ -10139,6 +10147,7 @@ export default function ChatView(props: ChatViewProps) {
         threadModelLabel={inspectorThreadModelLabel}
         workspace={inspectorWorkspace}
         subagentStop={inspectorSubagentStop}
+        contextWindow={activeContextWindow}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
@@ -10385,6 +10394,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? EMPTY_HELD_TURN_DIFF_SUMMARIES
                     : activeThread.checkpoints
                 }
+                {...(!paintOnlyDisplayedTimeline ? { turnUsageByTurnId } : {})}
                 activeThreadEnvironmentId={
                   displayedThreadRef?.environmentId ?? activeThread.environmentId
                 }

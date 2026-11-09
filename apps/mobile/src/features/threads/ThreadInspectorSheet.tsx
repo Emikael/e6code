@@ -1,6 +1,7 @@
 /**
- * Thread Overview: a sheet over the thread with source control at a glance
- * and the lineage of every subagent the thread spawned. Selecting a live
+ * Thread Overview: a sheet over the thread with source control at a glance,
+ * how full the context window is, and the lineage of every subagent the
+ * thread spawned. Selecting a live
  * subagent offers Stop, which ends that subagent and not the turn; otherwise
  * read-only apart from closing. The web Overview is the full surface.
  */
@@ -39,6 +40,11 @@ import {
   subagentUserRequests,
 } from "@e6tools/client-runtime/pending-requests";
 import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
+import {
+  type ContextWindowSnapshot,
+  deriveLatestContextWindowSnapshot,
+  describeContextWindowUsage,
+} from "@e6tools/client-runtime/work-log/context-window";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Option from "effect/Option";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -128,6 +134,11 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
   const detail = Option.getOrNull(selectedThreadDetailState.data);
   const model = useThreadSubagentPanelModel(detail?.activities, selectedThread?.session ?? null);
   const lineage = useMemo(() => deriveInspectorLineage(model), [model]);
+  const activities = detail?.activities;
+  const contextWindow = useMemo(
+    () => (activities ? deriveLatestContextWindowSnapshot(activities) : null),
+    [activities],
+  );
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
@@ -205,6 +216,7 @@ export function ThreadInspectorSheet(_props: ThreadInspectorSheetProps) {
           statusFailed={gitStatus.error !== null}
           threadBranch={selectedThread?.branch ?? null}
         />
+        {contextWindow ? <ContextCard snapshot={contextWindow} /> : null}
         <Text
           accessibilityRole="header"
           className="px-1 pt-3 pb-1 font-e6-medium text-sm text-foreground-muted"
@@ -471,6 +483,58 @@ function SourceControlCard(props: {
           </InfoRow>
         </>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * How full the context window is, from the latest usage the provider
+ * reported. Providers that report none never render this card. The text
+ * always states the share, so the warning tint is never the only signal.
+ */
+function ContextCard(props: { readonly snapshot: ContextWindowSnapshot }) {
+  const usage = describeContextWindowUsage(props.snapshot);
+  return (
+    <View
+      accessible
+      accessibilityRole={usage.percent !== null ? "progressbar" : undefined}
+      accessibilityLabel={usage.accessibilityLabel}
+      accessibilityValue={
+        usage.percent !== null ? { min: 0, max: 100, now: usage.percent } : undefined
+      }
+      className={cn(CARD_CLASS_NAME, "flex-row items-start gap-3 px-4 py-3")}
+    >
+      <SymbolView
+        name="chart.bar.xaxis"
+        size={18}
+        tintColorClassName="accent-icon-muted"
+        type="monochrome"
+      />
+      <View className="min-w-0 flex-1 gap-1">
+        <View className="flex-row items-baseline gap-2">
+          <Text className="text-base text-foreground">Context</Text>
+          <Text
+            className="min-w-0 flex-1 text-right text-sm tabular-nums text-foreground-muted"
+            numberOfLines={1}
+          >
+            {usage.label}
+          </Text>
+        </View>
+        {usage.percent !== null ? (
+          <View className="mt-1 h-1 overflow-hidden rounded-full bg-foreground-muted/20">
+            <View
+              className={cn(
+                "h-full rounded-full",
+                usage.warning ? "bg-warning-foreground" : "bg-foreground-muted",
+              )}
+              style={{ width: `${usage.percent}%` }}
+            />
+          </View>
+        ) : null}
+        {usage.compactionNote ? (
+          <Text className="text-sm text-foreground-muted">{usage.compactionNote}</Text>
+        ) : null}
+      </View>
     </View>
   );
 }

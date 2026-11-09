@@ -25,6 +25,8 @@ import type {
   RuntimeMode,
   ServerConfig as E6ServerConfig,
   ThreadId,
+  TurnId,
+  TurnUsageActivityPayload,
   UsageLimitsReport,
   UserInputQuestion,
 } from "@e6tools/contracts";
@@ -131,6 +133,8 @@ export interface ThreadDetailScreenProps {
   readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
   readonly onDismissFeedback: (id: MessageId) => void;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
+  /** Settled turns' tokens and cost, shown on their "Worked for ..." row. */
+  readonly selectedThreadTurnUsage?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
   readonly activeWorkStartedAt: string | null;
   readonly isCompacting: boolean;
   /**
@@ -924,6 +928,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               threadId={props.selectedThread.id}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
+              {...(props.selectedThreadTurnUsage
+                ? { turnUsageByTurnId: props.selectedThreadTurnUsage }
+                : {})}
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}

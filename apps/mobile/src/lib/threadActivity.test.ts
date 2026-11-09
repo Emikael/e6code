@@ -1,4 +1,5 @@
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import { deriveTurnUsageByTurnId } from "@e6tools/client-runtime/work-log/turn-usage";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -1902,6 +1903,33 @@ describe("buildThreadFeed", () => {
     );
     expect(retimed[1]).toMatchObject({ type: "turn-fold", label: "Worked for 23s" });
     expect(collapsed[1]).toMatchObject({ type: "turn-fold", label: "Worked for 17s" });
+
+    // The turn's usage record joins the fold label and never becomes a row.
+    const usageActivities = [
+      ...thread.activities,
+      makeActivity({
+        id: EventId.make("turn-usage"),
+        kind: "turn.usage",
+        tone: "info",
+        summary: "Turn usage",
+        createdAt: "2026-04-01T00:00:18.000Z",
+        turnId,
+        payload: { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" },
+      }),
+    ];
+    const withUsage = deriveThreadFeedPresentation(
+      buildThreadFeed({ ...thread, activities: usageActivities }),
+      thread.latestTurn,
+      new Set(),
+      new Set(),
+      null,
+      deriveTurnUsageByTurnId(usageActivities),
+    );
+    expect(withUsage.map((entry) => entry.id)).toEqual(collapsed.map((entry) => entry.id));
+    expect(withUsage[1]).toMatchObject({
+      type: "turn-fold",
+      label: "Worked for 17s · 48.6k tokens · ≈$0.12",
+    });
   });
 
   it("folds assistant messages between the first and terminal messages", () => {
@@ -3792,4 +3820,83 @@ it("keeps attachment-only question answers expandable outside mobile work groups
   expect(running[0]?.type).toBe("work-toggle");
   expect(running[1]).toBe(group);
   expect(running[2]?.type).toBe("work-toggle");
+});
+
+describe("task list rows", () => {
+  const turnId = TurnId.make("plan-turn");
+  const planUpdate = (id: string, createdAt: string, plan: unknown) =>
+    makeActivity({
+      id: EventId.make(id),
+      kind: "turn.plan.updated",
+      summary: "Plan updated",
+      createdAt,
+      turnId,
+      payload: { plan },
+    });
+  const feedRows = (activities: OrchestrationThreadActivity[]) =>
+    buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("plan-thread"),
+        projectId: ProjectId.make("project-1"),
+        title: "Plan",
+        activities,
+      }),
+    ).flatMap((entry) => (entry.type === "activity-group" ? entry.activities : []));
+
+  it("shows each plan update as a Tasks row that expands to its steps", () => {
+    const [row, ...rest] = feedRows([
+      planUpdate("plan-1", "2026-04-01T00:00:01.000Z", [
+        { step: "Read code", status: "completed" },
+        { step: "Write fix", status: "inProgress" },
+        { step: "Run tests", status: "pending" },
+      ]),
+    ]);
+    expect(rest).toEqual([]);
+    expect(row).toMatchObject({
+      summary: "Tasks 1/3 · Write fix",
+      canExpand: true,
+      icon: "checklist",
+      workEntry: {
+        taskList: [
+          { step: "Read code", status: "completed" },
+          { step: "Write fix", status: "inProgress" },
+          { step: "Run tests", status: "pending" },
+        ],
+      },
+    });
+    expect(workEntryRowLabel(row!.workEntry, true)).toBe("Tasks 1/3 · Write fix");
+    expect(row!.getCopyText()).toBe("Tasks 1/3 · Write fix\n✓ Read code\n→ Write fix\n○ Run tests");
+  });
+
+  it("keeps one row per update and drops updates without steps", () => {
+    const rows = feedRows([
+      planUpdate("plan-1", "2026-04-01T00:00:01.000Z", [{ step: "A", status: "inProgress" }]),
+      planUpdate("plan-empty", "2026-04-01T00:00:02.000Z", []),
+      planUpdate("plan-2", "2026-04-01T00:00:03.000Z", [{ step: "A", status: "completed" }]),
+    ]);
+    expect(rows.map((row) => row.summary)).toEqual(["Tasks 0/1 · A", "Tasks 1/1"]);
+  });
+
+  it("hides the todo tool call that the turn's Tasks row already shows", () => {
+    const todoTool = (id: string, toolTurnId: TurnId) =>
+      makeActivity({
+        id: EventId.make(id),
+        kind: "tool.completed",
+        summary: "TodoWrite",
+        createdAt: "2026-04-01T00:00:02.000Z",
+        turnId: toolTurnId,
+        tone: "tool",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          data: { toolName: "TodoWrite" },
+        },
+      });
+    const rows = feedRows([
+      planUpdate("plan-1", "2026-04-01T00:00:01.000Z", [{ step: "A", status: "pending" }]),
+      todoTool("todo-same-turn", turnId),
+      todoTool("todo-other-turn", TurnId.make("other-turn")),
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(["plan-1", "todo-other-turn"]);
+  });
 });

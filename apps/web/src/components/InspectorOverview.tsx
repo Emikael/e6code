@@ -42,6 +42,10 @@ import {
   summarizeSubagentStatuses,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
+import {
+  type ContextWindowSnapshot,
+  describeContextWindowUsage,
+} from "@e6tools/client-runtime/work-log/context-window";
 import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import {
   BotIcon,
@@ -53,6 +57,7 @@ import {
   EllipsisIcon,
   ExternalLinkIcon,
   FileDiffIcon,
+  GaugeIcon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
   MessageSquareTextIcon,
@@ -364,6 +369,49 @@ function SourceControlSection({
           {changes}
         </div>
       )}
+      <SectionDivider />
+    </div>
+  );
+}
+
+/**
+ * How full the thread's context window is, from the latest usage the provider
+ * reported. Providers that report none never render this section. The bar is
+ * static: it moves only when a new snapshot arrives.
+ */
+function ContextSection({ snapshot }: { snapshot: ContextWindowSnapshot }) {
+  const usage = describeContextWindowUsage(snapshot);
+  return (
+    <div role="group" aria-label="Context" className="flex flex-col">
+      <div className="flex h-8 min-w-0 items-center gap-2.5 px-2 text-[13px]">
+        <GaugeIcon aria-hidden className={ROW_ICON_CLASS_NAME} />
+        <span className="shrink-0">Context</span>
+        <span className={cn("min-w-0 flex-1 truncate text-right text-xs tabular-nums", MUTED)}>
+          {usage.label}
+        </span>
+      </div>
+      {usage.percent !== null ? (
+        <div
+          role="meter"
+          aria-label="Context window usage"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={usage.percent}
+          aria-valuetext={usage.label}
+          className="mr-2 mb-1 ml-[34px] h-1 overflow-hidden rounded-full bg-sidebar-muted-foreground/20"
+        >
+          <div
+            className={cn(
+              "h-full rounded-full",
+              usage.warning ? "bg-warning" : "bg-sidebar-muted-foreground/70",
+            )}
+            style={{ width: `${usage.percent}%` }}
+          />
+        </div>
+      ) : null}
+      {usage.compactionNote ? (
+        <p className={cn("mr-2 ml-[34px] pt-1 text-xs", MUTED)}>{usage.compactionNote}</p>
+      ) : null}
       <SectionDivider />
     </div>
   );
@@ -1085,6 +1133,8 @@ interface InspectorOverviewProps {
   threadModelLabel: string | null;
   workspace: InspectorWorkspace | null;
   subagentStop: InspectorSubagentStop | null;
+  /** Latest context window usage; null when the provider reports none. */
+  contextWindow: ContextWindowSnapshot | null;
 }
 
 function InspectorOverviewView({
@@ -1094,6 +1144,7 @@ function InspectorOverviewView({
   threadModelLabel,
   workspace,
   subagentStop,
+  contextWindow,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
   return (
@@ -1107,6 +1158,7 @@ function InspectorOverviewView({
           {workspace && gitCwd ? (
             <SourceControlSection workspace={workspace} gitCwd={gitCwd} />
           ) : null}
+          {contextWindow ? <ContextSection snapshot={contextWindow} /> : null}
           <LineageSection
             model={model}
             threadKey={threadKey}
@@ -1137,6 +1189,22 @@ function shallowEqualWorkspace(
   );
 }
 
+/** The snapshot is re-derived whenever activities change; compare what it shows. */
+function sameContextWindow(
+  left: ContextWindowSnapshot | null,
+  right: ContextWindowSnapshot | null,
+): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  return (
+    left.updatedAt === right.updatedAt &&
+    left.usedTokens === right.usedTokens &&
+    left.maxTokens === right.maxTokens &&
+    left.compactsAutomatically === right.compactsAutomatically &&
+    left.autoCompactThreshold === right.autoCompactThreshold
+  );
+}
+
 /**
  * ChatView rebuilds the workspace object on every render (each streaming
  * delta); comparing it field by field keeps the panel and its controls still.
@@ -1149,5 +1217,6 @@ export const InspectorOverview = memo(
     previous.providerKind === next.providerKind &&
     previous.threadModelLabel === next.threadModelLabel &&
     previous.subagentStop === next.subagentStop &&
+    sameContextWindow(previous.contextWindow, next.contextWindow) &&
     shallowEqualWorkspace(previous.workspace, next.workspace),
 );
