@@ -50,6 +50,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
+  CircleStopIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -225,6 +226,7 @@ import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
+import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -818,6 +820,7 @@ function OpenCommandPaletteDialog(props: {
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
+  const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1878,6 +1881,59 @@ function OpenCommandPaletteDialog(props: {
       run: async () => {
         pullRequestMergeCommand.run();
       },
+    });
+  }
+
+  if (threadStopCommands?.stopTurn) {
+    const stopTurn = threadStopCommands.stopTurn;
+    actionItems.push({
+      kind: "action",
+      value: "action:stop-turn",
+      searchTerms: ["stop", "interrupt", "cancel", "agent", "turn"],
+      title: "Stop the agent",
+      icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.stop",
+      run: async () => {
+        stopTurn();
+      },
+    });
+  }
+
+  const stoppableSubagents = threadStopCommands?.subagents ?? [];
+  const stopSubagentItem = (
+    subagent: (typeof stoppableSubagents)[number],
+  ): CommandPaletteActionItem => ({
+    kind: "action",
+    value: `action:stop-subagent:${subagent.id}`,
+    searchTerms: ["stop", "subagent", "agent", subagent.title],
+    title: stoppableSubagents.length === 1 ? "Stop subagent" : subagent.title,
+    ...(stoppableSubagents.length === 1 ? { description: subagent.title } : {}),
+    icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      subagent.stop();
+    },
+  });
+  if (stoppableSubagents.length === 1) {
+    actionItems.push({
+      ...stopSubagentItem(stoppableSubagents[0]!),
+      shortcutCommand: "thread.stopSubagent",
+    });
+  } else if (stoppableSubagents.length > 1) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:stop-subagent",
+      searchTerms: ["stop", "subagent", "agent"],
+      title: "Stop subagent...",
+      icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <CircleStopIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "thread.stopSubagent",
+      groups: [
+        {
+          value: "subagents",
+          label: "Running subagents",
+          items: stoppableSubagents.map(stopSubagentItem),
+        },
+      ],
     });
   }
 

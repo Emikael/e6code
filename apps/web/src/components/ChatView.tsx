@@ -11,6 +11,7 @@ import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
+import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
 import {
   buildHandoffDocument,
   buildHandoffTargets,
@@ -4170,6 +4171,42 @@ export default function ChatView(props: ChatViewProps) {
   }, [interruptThreadTurn]);
   const canInterruptRunningThread =
     buildRunningThreadTurnInterruptInput(activeThread, phase) !== null;
+  // Offers the same stops to the command palette that thread.stop and
+  // thread.stopSubagent answer here.
+  const publishThreadStopCommands = useThreadStopCommandsStore((state) => state.publish);
+  const withdrawThreadStopCommands = useThreadStopCommandsStore((state) => state.withdraw);
+  useEffect(() => {
+    if (!activeThreadKey) return;
+    const subagents = inspectorSubagentStop
+      ? [
+          ...agentPanelModel.directAgents,
+          ...agentPanelModel.workflows.map((group) => group.workflow),
+        ]
+          .filter(
+            (agent) =>
+              inspectorSubagentStop.canStop(agent) && !inspectorSubagentStop.isPending(agent.id),
+          )
+          .map((agent) => ({
+            id: agent.id,
+            title: agent.title,
+            stop: () => inspectorSubagentStop.stop(agent.id),
+          }))
+      : [];
+    publishThreadStopCommands({
+      owner: activeThreadKey,
+      stopTurn: canInterruptRunningThread ? () => void onInterrupt() : null,
+      subagents,
+    });
+    return () => withdrawThreadStopCommands(activeThreadKey);
+  }, [
+    activeThreadKey,
+    agentPanelModel,
+    canInterruptRunningThread,
+    inspectorSubagentStop,
+    onInterrupt,
+    publishThreadStopCommands,
+    withdrawThreadStopCommands,
+  ]);
 
   const focusComposer = useCallback(() => {
     composerRef.current?.focusAtEnd();
