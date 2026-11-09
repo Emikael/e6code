@@ -2128,8 +2128,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           ) : null}
                           {/* The short label alone is the live region. The plan-step
                             detail and the ticking duration sit outside it, or screen
-                            readers would announce every step and every second. */}
-                          <span role="status" className="shrink-0">
+                            readers would announce every step and every second. The
+                            open thread is announced by the chat header instead, which
+                            stays heard when the sidebar is a closed sheet. */}
+                          <span role={props.isActive ? undefined : "status"} className="shrink-0">
                             <span aria-hidden={topStatus.fullLabel ? true : undefined}>
                               {topStatus.label}
                             </span>
