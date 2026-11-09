@@ -14,7 +14,7 @@ import type {
   TurnId,
   UserInputQuestion,
 } from "@e6tools/contracts";
-import { formatDuration } from "@e6tools/shared/orchestrationTiming";
+import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -2032,7 +2032,10 @@ function appendMixedActivityRun(
   }
   const toolSummary = toolRows.find((entry) => entry.type === "work-toggle");
   const thinking = live && (last.type === "message" || !toolSummary?.shimmer);
-  const thoughtCount = run.filter((entry) => entry.type === "message").length;
+  const thoughts = history.flatMap((entry) =>
+    entry.type === "message" ? (entry.reasoningMessages ?? [entry.message]) : [],
+  );
+  const thoughtCount = thoughts.length;
   result.push({
     type: "work-toggle",
     id: live ? LIVE_ACTIVITY_ROW_ID : `work-toggle:${groupId}`,
@@ -2041,9 +2044,7 @@ function appendMixedActivityRun(
     groupId,
     hiddenCount: activities.length + thoughtCount,
     expanded,
-    summary: thinking
-      ? "Thinking"
-      : (toolSummary?.summary ?? `Thought${thoughtCount > 1 ? ` (×${thoughtCount})` : ""}`),
+    summary: thinking ? "Thinking" : (toolSummary?.summary ?? formatThoughtLabel(thoughts)),
     summaryKind: toolSummary?.summaryKind ?? "other",
     ...(thinking || !toolSummary
       ? { summaryToolIcon: "brain" as const }

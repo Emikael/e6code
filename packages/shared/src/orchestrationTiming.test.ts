@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatDuration, deriveActiveWorkStartedAt } from "./orchestrationTiming.ts";
+import {
+  formatDuration,
+  formatThoughtLabel,
+  deriveActiveWorkStartedAt,
+} from "./orchestrationTiming.ts";
 
 describe("formatDuration", () => {
   it.each([
@@ -134,5 +138,40 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(deriveActiveWorkStartedAt(null, null, "2026-09-06T23:33:00.000Z")).toBe(
       "2026-09-06T23:33:00.000Z",
     );
+  });
+});
+
+describe("formatThoughtLabel", () => {
+  const block = (createdAt: string, updatedAt: string, streaming = false) => ({
+    createdAt,
+    updatedAt,
+    streaming,
+  });
+
+  it("names how long a settled block thought", () => {
+    expect(
+      formatThoughtLabel([block("2026-09-06T10:00:00.000Z", "2026-09-06T10:00:12.000Z")]),
+    ).toBe("Thought for 12s");
+  });
+
+  it("sums blocks and leaves the gaps between them out", () => {
+    expect(
+      formatThoughtLabel([
+        block("2026-09-06T10:00:00.000Z", "2026-09-06T10:00:04.000Z"),
+        block("2026-09-06T10:01:00.000Z", "2026-09-06T10:01:03.000Z"),
+      ]),
+    ).toBe("Thought for 7.0s (×2)");
+  });
+
+  it("keeps the plain label while a block streams or when the span is noise", () => {
+    expect(
+      formatThoughtLabel([block("2026-09-06T10:00:00.000Z", "2026-09-06T10:00:09.000Z", true)]),
+    ).toBe("Thought");
+    expect(
+      formatThoughtLabel([
+        block("2026-09-06T10:00:00.000Z", "2026-09-06T10:00:00.000Z"),
+        block("2026-09-06T10:00:01.000Z", "2026-09-06T10:00:01.200Z"),
+      ]),
+    ).toBe("Thought (×2)");
   });
 });
