@@ -747,6 +747,33 @@ export function mergePullRequestLists(
   };
 }
 
+/** How many of the reasons a partly read list names before counting the rest. */
+const UNREADABLE_REASONS_SHOWN = 3;
+
+/**
+ * What the page says about the projects a listing could not read, beside the rows it could. Each
+ * server names the repository and, where it knows one, the fix, so those words are kept; the same
+ * sentence from two machines reads once. Null when every project was read.
+ */
+export function describeUnreadablePullRequestProjects(
+  errors: ReadonlyArray<PullRequestListProjectError>,
+): { readonly summary: string; readonly reasons: ReadonlyArray<string> } | null {
+  if (errors.length === 0) return null;
+  const projects = new Set(errors.map((error) => error.projectTitle));
+  const messages = [...new Set(errors.map((error) => error.message))];
+  const hidden = messages.length - UNREADABLE_REASONS_SHOWN;
+  return {
+    summary:
+      projects.size === 1
+        ? `Pull requests from ${[...projects][0]} could not be loaded.`
+        : `Pull requests from ${projects.size} projects could not be loaded.`,
+    reasons:
+      hidden > 0
+        ? [...messages.slice(0, UNREADABLE_REASONS_SHOWN), `${hidden} more could not be read.`]
+        : messages,
+  };
+}
+
 /** One page is what the list itself starts with, and all a cold start needs to look warm. */
 const SNAPSHOT_MAX_ENTRIES = 99;
 

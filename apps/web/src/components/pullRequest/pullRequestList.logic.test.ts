@@ -2,6 +2,7 @@ import type { EnvironmentId, ProjectId, PullRequestListEntry } from "@e6tools/co
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  describeUnreadablePullRequestProjects,
   filterPullRequestsByInvolvement,
   findScopedProject,
   mergePullRequestLists,
@@ -1671,5 +1672,47 @@ describe("when the list was last read", () => {
   it("says nothing when no row says when it was read", () => {
     expect(pullRequestListSyncedAt([entry({ number: 1 })])).toBeNull();
     expect(pullRequestListSyncedAt([])).toBeNull();
+  });
+});
+
+describe("describeUnreadablePullRequestProjects", () => {
+  const unreadable = (projectTitle: string, message: string) => ({
+    projectId: projectTitle as ProjectId,
+    projectTitle,
+    message,
+  });
+
+  it("says nothing when every project was read", () => {
+    expect(describeUnreadablePullRequestProjects([])).toBeNull();
+  });
+
+  it("names the one project it could not read, with the server's reason", () => {
+    expect(
+      describeUnreadablePullRequestProjects([
+        unreadable("api", "acme/api could not be read. Run `gh auth login` and retry."),
+      ]),
+    ).toEqual({
+      summary: "Pull requests from api could not be loaded.",
+      reasons: ["acme/api could not be read. Run `gh auth login` and retry."],
+    });
+  });
+
+  it("counts several projects, says a reason two machines share once, and caps the rest", () => {
+    const description = describeUnreadablePullRequestProjects([
+      unreadable("a", "acme/a could not be read."),
+      unreadable("a", "acme/a could not be read."),
+      unreadable("b", "acme/b could not be read."),
+      unreadable("c", "acme/c could not be read."),
+      unreadable("d", "acme/d could not be read."),
+      unreadable("e", "acme/e could not be read."),
+    ]);
+
+    expect(description?.summary).toBe("Pull requests from 5 projects could not be loaded.");
+    expect(description?.reasons).toEqual([
+      "acme/a could not be read.",
+      "acme/b could not be read.",
+      "acme/c could not be read.",
+      "2 more could not be read.",
+    ]);
   });
 });
