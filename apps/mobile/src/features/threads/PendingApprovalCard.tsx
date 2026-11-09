@@ -1,5 +1,6 @@
 import { RequestActionButton } from "./RequestActionButton";
 import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
+import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import type {
   ApprovalRequestId,
   ProviderApprovalDecision,
@@ -8,6 +9,7 @@ import type {
 import { useState } from "react";
 import { View } from "react-native";
 
+import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import type { PendingApproval } from "../../lib/threadActivity";
 
@@ -31,9 +33,19 @@ const DEFAULT_APPROVAL_OPTIONS: ReadonlyArray<ProviderApprovalOption> = [
   { decision: "decline", label: "Decline" },
 ];
 
+/** Matches the web hold: a destructive command is allowed by a 1s long press. */
+const HOLD_TO_ALLOW_MS = 1000;
+
 export function PendingApprovalCard(props: PendingApprovalCardProps) {
-  const options: ReadonlyArray<ProviderApprovalOption> =
-    props.approval.options ?? DEFAULT_APPROVAL_OPTIONS;
+  const destructive = classifyDestructiveApproval(props.approval);
+  // A destructive command is allowed one hold at a time, never for the session.
+  const options: ReadonlyArray<ProviderApprovalOption> = (
+    props.approval.options ?? DEFAULT_APPROVAL_OPTIONS
+  ).filter(
+    (option) =>
+      destructive === null ||
+      (option.decision !== "acceptForSession" && option.decision !== "acceptAlways"),
+  );
   const warning = options.find((option) => option.warning)?.warning;
   const feedbackAgentName = props.feedbackAgentName ?? null;
   // The card is keyed by request, so instructions never carry to the next one.
@@ -65,6 +77,16 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
       <Text className="font-e6-bold text-lg text-foreground">
         {props.approval.appName ?? props.approval.requestKind}
       </Text>
+      {destructive ? (
+        <View className="flex-row items-center gap-1.5">
+          <SymbolView
+            name="exclamationmark.triangle"
+            size={13}
+            tintColorClassName="accent-danger-foreground"
+          />
+          <Text className="font-e6-bold text-sm text-danger-foreground">{destructive.reason}</Text>
+        </View>
+      ) : null}
       {props.approval.detail ? (
         <Text className="font-sans text-sm leading-normal text-foreground-secondary">
           {props.approval.detail}
@@ -98,6 +120,19 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
             option.decision === "decline" &&
             feedbackAgentName !== null &&
             feedbackDraft.status !== "empty";
+          if (option.decision === "accept" && destructive !== null) {
+            return (
+              <RequestActionButton
+                key={option.decision}
+                label="Hold to allow"
+                tone="danger"
+                disabled={responding}
+                accessibilityHint={`${destructive.reason}. Press and hold for one second to allow.`}
+                delayLongPress={HOLD_TO_ALLOW_MS}
+                onLongPress={() => void props.onRespond(props.approval.requestId, "accept")}
+              />
+            );
+          }
           return (
             <RequestActionButton
               key={option.decision}
