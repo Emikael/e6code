@@ -91,7 +91,7 @@ export function formatContextWindowTokens(value: number | null): string {
 }
 
 /** Usage at or above this share of the window reads as a warning. */
-export const CONTEXT_WINDOW_WARNING_PERCENT = 85;
+const CONTEXT_WINDOW_WARNING_PERCENT = 85;
 
 export interface ContextWindowUsageSummary {
   /** "68% used · 136k of 200k tokens", or "136k tokens used" without a known window. */
