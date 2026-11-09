@@ -110,11 +110,11 @@ export function formatHeaderDiffSummary(
   if (files) {
     return {
       additions: `+${files.reduce((total, file) => total + file.additions, 0)}`,
-      deletions: `-${files.reduce((total, file) => total + file.deletions, 0)}`,
+      deletions: `−${files.reduce((total, file) => total + file.deletions, 0)}`,
     };
   }
   if (parsedDiff.kind !== "files") return { additions: null, deletions: null };
-  return { additions: `+${parsedDiff.additions}`, deletions: `-${parsedDiff.deletions}` };
+  return { additions: `+${parsedDiff.additions}`, deletions: `−${parsedDiff.deletions}` };
 }
 
 export function useReviewDiffData(input: {
