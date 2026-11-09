@@ -349,6 +349,8 @@ interface RepositoryBatch {
   readonly errors: ReadonlyArray<PullRequestListProjectError>;
   readonly truncated: boolean;
   readonly nextCursor: string | null;
+  /** Why this repository could not be read, or null when it was. */
+  readonly failure: PullRequestProviderError | null;
 }
 
 /** What the providers are told, plus the part only the service acts on. */
@@ -456,6 +458,27 @@ function providerDetail(error: PullRequestProviderError): string {
       error.reason === "missing-tool" ? "cli-missing" : "cli-unauthenticated",
     ) ?? error.detail
   );
+}
+
+/**
+ * A repository that could not be read, named on the page. A host that is not set up or is
+ * rate limited says how to fix it; any other failure is left at the repository's name, because
+ * the CLI's own words describe the symptom rather than anything the reader can act on.
+ */
+function unreadableRepository(
+  project: { readonly id: ProjectId; readonly title: string },
+  repository: string,
+  error: PullRequestProviderError,
+): PullRequestListProjectError {
+  const unreadable = `${repository} could not be read.`;
+  return {
+    projectId: project.id,
+    projectTitle: project.title,
+    message:
+      isProviderUnusable(error) || error.reason === "rate-limited"
+        ? `${unreadable} ${providerDetail(error)}`
+        : unreadable,
+  };
 }
 
 function toUnavailableError(error: PullRequestProviderError): PullRequestUnavailableError {
@@ -1185,11 +1208,16 @@ export const make = Effect.gen(function* () {
       // Reporting them keeps "N repositories were unavailable" honest instead of dropping them.
       const unreadable = selected
         .filter(({ host }) => viewers[host] === undefined)
-        .map(({ project, repository }) => ({
-          projectId: project.id,
-          projectTitle: project.title,
-          message: `${repository} could not be read.`,
-        }));
+        .map(({ project, repository, host }) => {
+          const error = viewerResults.find((result) => result.host === host)?.error ?? null;
+          return error === null
+            ? {
+                projectId: project.id,
+                projectTitle: project.title,
+                message: `${repository} could not be read.`,
+              }
+            : unreadableRepository(project, repository, error);
+        });
       if (readable.length === 0) {
         // No host this request covers can be read, so it is not a per-project problem. An
         // unusable host is preferred as the reported cause because it names the fix; a host
@@ -1222,6 +1250,18 @@ export const make = Effect.gen(function* () {
       const limit = input.limit ?? DEFAULT_REPOSITORY_LIST_LIMIT;
       const cursorOf = (project: SupportedProject): ListCursor | undefined =>
         continuation?.get(project.cursorKey);
+
+      const failedRepository = (
+        project: SupportedProject,
+        error: PullRequestProviderError,
+      ): RepositoryBatch => ({
+        key: project.cursorKey,
+        entries: [],
+        errors: [unreadableRepository(project.project, project.repository, error)],
+        truncated: false,
+        nextCursor: null,
+        failure: error,
+      });
 
       /**
        * One repository asked on its own. What every host without a search across repositories
@@ -1278,23 +1318,12 @@ export const make = Effect.gen(function* () {
                     page.continues && page.truncated
                       ? nextListCursor(cursor, page.items, items, page.cursorAdvance)
                       : null,
+                  failure: null,
                 };
               }),
               // One unreachable repository must not blank the page. A host-level failure is
               // already reported through `providers`, so it degrades the same way here.
-              Effect.orElseSucceed((): RepositoryBatch => ({
-                key,
-                entries: [],
-                errors: [
-                  {
-                    projectId: project.project.id,
-                    projectTitle: project.project.title,
-                    message: `${project.repository} could not be read.`,
-                  },
-                ],
-                truncated: false,
-                nextCursor: null,
-              })),
+              Effect.catch((error) => Effect.succeed(failedRepository(project, error))),
             );
         }
       };
@@ -1401,13 +1430,20 @@ export const make = Effect.gen(function* () {
                       page.truncated && boundary !== null
                         ? listCursorAt(cursorHere, boundary, fetched, items.length)
                         : null,
+                    failure: null,
                   });
                 },
                 { concurrency: REPOSITORY_CONCURRENCY },
               );
             }),
           ),
-          Effect.catch(separately),
+          // A host that is not set up will not answer one repository at a time either, and
+          // asking it a dozen more times only keeps the reader waiting for the same answer.
+          Effect.catch((error) =>
+            isProviderUnusable(error)
+              ? Effect.succeed(chunk.map((project) => failedRepository(project, error)))
+              : separately(),
+          ),
         );
       };
 
@@ -1435,6 +1471,30 @@ export const make = Effect.gen(function* () {
         }
       }
       const batches = (yield* Effect.all(reads, { concurrency: REPOSITORY_CONCURRENCY })).flat();
+
+      // Not one repository answered, so an empty list would claim there is nothing to review
+      // when nothing could be asked. It fails the way an unreadable host does above, preferring
+      // the cause that names a fix.
+      if (batches.every((batch) => batch.failure !== null)) {
+        const failures = [
+          ...viewerResults.flatMap((result) =>
+            result.error === null || !selected.some(({ host }) => host === result.host)
+              ? []
+              : [result.error],
+          ),
+          ...batches.flatMap((batch) => (batch.failure === null ? [] : [batch.failure])),
+        ];
+        const blocking = failures.find(isProviderUnusable) ?? failures[0];
+        if (blocking !== undefined) {
+          return yield* isProviderUnusable(blocking)
+            ? toUnavailableError(blocking)
+            : new PullRequestOperationError({
+                operation: "list",
+                detail: `No repository could be read. ${providerDetail(blocking)}`,
+                cause: blocking,
+              });
+        }
+      }
 
       const nextCursors: Record<string, string> = {};
       for (const batch of batches) {

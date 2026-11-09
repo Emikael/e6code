@@ -73,7 +73,10 @@ const classifyNonZeroExit = (command: string, stderr: string): VcsProcessExitFai
     normalized.includes("az devops login") ||
     normalized.includes("please run az login") ||
     normalized.includes("no oauth token") ||
-    normalized.includes("unauthorized")
+    normalized.includes("unauthorized") ||
+    // gh with a revoked or expired token: "HTTP 401: Bad credentials".
+    normalized.includes("bad credentials") ||
+    normalized.includes("http 401")
   ) {
     return "authentication";
   }

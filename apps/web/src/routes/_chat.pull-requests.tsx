@@ -58,6 +58,7 @@ import {
   mergePullRequestDiffStats,
   partitionPullRequestsWithPriority,
   pullRequestDiffStatKey,
+  describeUnreadablePullRequestProjects,
   pullRequestEntryKey,
   pullRequestEntryViewer,
   pullRequestListSyncedAt,
@@ -1796,6 +1797,10 @@ function PullRequestsRouteView() {
       ),
     [listErrors],
   );
+  const unreadableNotice = useMemo(
+    () => describeUnreadablePullRequestProjects(listErrors),
+    [listErrors],
+  );
 
   // Stable so the memoized rows can skip re-rendering when the list around them changes.
   const selectEntry = useCallback(
@@ -1857,6 +1862,39 @@ function PullRequestsRouteView() {
     showingCarried && listQuery.isPending && shownCount === 0 && typedQuery.length === 0;
   const listBody = (
     <>
+      {/* Some projects answered and some could not be asked. The rows (or the empty state) are
+          the truth about the first group only, so the second is named above them. A listing
+          where none answered fails instead, and shows as the error state below. */}
+      {unreadableNotice !== null &&
+      !listQuery.error &&
+      capabilityKnown &&
+      pullRequestsSupported &&
+      !firstLoad ? (
+        <div
+          role="status"
+          className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-xs"
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            <CircleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0 text-warning" />
+            <div className="min-w-0 space-y-0.5">
+              <p className="font-medium text-foreground">{unreadableNotice.summary}</p>
+              {unreadableNotice.reasons.map((reason) => (
+                <p key={reason} className="break-words text-muted-foreground">
+                  {reason}
+                </p>
+              ))}
+            </div>
+          </div>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => void refreshFromHost()}
+            disabled={refreshing}
+          >
+            Check again
+          </Button>
+        </div>
+      ) : null}
       {!capabilityKnown ? (
         <PullRequestListGhost rows={7} />
       ) : !pullRequestsSupported ? (
@@ -1936,8 +1974,11 @@ function PullRequestsRouteView() {
       )}
 
       {listQuery.error && shownCount > 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
-          <span>{listQuery.error} Showing the last pull requests loaded.</span>
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-xs">
+          <span className="flex items-start gap-2">
+            <CircleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0 text-warning" />
+            {listQuery.error} Showing the last pull requests loaded.
+          </span>
           <Button size="xs" variant="outline" onClick={() => listQuery.refresh()}>
             Retry
           </Button>
