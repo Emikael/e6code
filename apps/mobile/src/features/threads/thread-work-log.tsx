@@ -82,6 +82,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useAssetUrl } from "../../state/assets";
+import type { WorkLogDiffStat as WorkLogDiffStatValue } from "@e6tools/client-runtime/work-log/diff-stat";
 
 const SHIMMER_WIDTH = 72;
 const SHIMMER_SWEEP_MS = 1_350;
@@ -743,6 +744,21 @@ function workLogRowKey(row: ThreadFeedActivity): string {
   return row.id;
 }
 
+/** "+48 −12" for a file change, coloured like the other mobile diff counts; the signs carry the meaning. */
+function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
+  const { additions, deletions } = props.stat;
+  return (
+    <View
+      className="flex-row items-center gap-1 pr-1"
+      accessible
+      accessibilityLabel={`${additions} additions, ${deletions} deletions`}
+    >
+      <Text className="text-2xs tabular-nums text-adaptive-emerald-700-300">+{additions}</Text>
+      <Text className="text-2xs tabular-nums text-adaptive-rose-700-300">−{deletions}</Text>
+    </View>
+  );
+}
+
 const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   props: Omit<
     ThreadWorkLogProps,
@@ -861,6 +877,9 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
           )}
 
           <View className="shrink-0 flex-row items-center gap-px">
+            {row.workEntry.diffStat && !(row.live && !expanded) ? (
+              <WorkLogDiffStat stat={row.workEntry.diffStat} />
+            ) : null}
             {props.copied ? (
               <Text className="pr-1 font-e6-medium text-3xs text-adaptive-emerald-600-400">
                 Copied

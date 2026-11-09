@@ -22,6 +22,11 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import {
+  mainAgentDiffStat,
+  type WorkLogDiffStat,
+} from "@e6tools/client-runtime/work-log/diff-stat";
+export type { WorkLogDiffStat } from "@e6tools/client-runtime/work-log/diff-stat";
+import {
   TASK_LIST_TOOL_NAMES,
   taskListLabel,
   taskListStepsFromPayload,
@@ -78,7 +83,7 @@ export interface WorkLogEntry {
    * (which move `createdAt` forward) merge into it. Absent on single-row steps.
    */
   startedAt?: string;
-  /** Lines a completed file change added and removed, when the provider counted every file. */
+  /** Lines a main-agent file change added and removed, when the provider counted its files. */
   diffStat?: WorkLogDiffStat;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
@@ -106,11 +111,6 @@ export interface WorkLogEntry {
     workflowId: string | null;
     agentTaskIds: ReadonlyArray<string>;
   };
-}
-
-export interface WorkLogDiffStat {
-  readonly additions: number;
-  readonly deletions: number;
 }
 
 const workLogCollapseKey = Symbol();
@@ -675,7 +675,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
   }
-  const diffStat = extractWorkLogDiffStat(payload);
+  const diffStat = mainAgentDiffStat(payload, changedFiles);
   if (diffStat) {
     entry.diffStat = diffStat;
   }
@@ -1448,27 +1448,6 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
       return;
     }
   }
-}
-
-/**
- * Totals the per-file line counts an adapter put on a completed file change
- * (`changedFiles[].additions/deletions`). One file without counts makes the
- * total unknown, so nothing is returned rather than an undercount.
- */
-function extractWorkLogDiffStat(payload: Record<string, unknown> | null): WorkLogDiffStat | null {
-  const files = payload?.changedFiles;
-  if (!Array.isArray(files) || files.length === 0) return null;
-  let additions = 0;
-  let deletions = 0;
-  for (const file of files) {
-    const record = asRecord(file);
-    const added = record?.additions;
-    const removed = record?.deletions;
-    if (typeof added !== "number" || typeof removed !== "number") return null;
-    additions += added;
-    deletions += removed;
-  }
-  return { additions, deletions };
 }
 
 function extractChangedFiles(payload: Record<string, unknown> | null): string[] {

@@ -156,6 +156,22 @@ export function deriveWorkStepMeta(
   return duration === null && diffStat === null ? EMPTY_WORK_STEP_META : { duration, diffStat };
 }
 
+/**
+ * Where a work row shows its stats: on a thinking-timeline row the meta column
+ * carries the diff stat and duration, otherwise the diff stat sits inline.
+ * One place only, so a row never shows two diff stats.
+ */
+export function resolveWorkRowStats(
+  entry: Pick<WorkLogEntry, "createdAt" | "startedAt" | "toolLifecycleStatus" | "diffStat">,
+  timeline: boolean,
+): { readonly meta: WorkStepMeta | null; readonly inlineDiffStat: WorkLogDiffStat | null } {
+  if (timeline) {
+    const meta = deriveWorkStepMeta(entry);
+    return { meta: meta.duration || meta.diffStat ? meta : null, inlineDiffStat: null };
+  }
+  return { meta: null, inlineDiffStat: entry.diffStat ?? null };
+}
+
 export interface WorkGroupScrollAnchor {
   readonly entryId: string;
   readonly offset: number;

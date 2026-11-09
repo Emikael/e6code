@@ -587,6 +587,35 @@ describe("buildThreadFeed", () => {
     expect(row?.getCopyText()).toBe(`Command run\n${command}\n\n${command}`);
   });
 
+  it("carries the line counts of a main-agent file change, matched by path", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-main-edit-counts"),
+      projectId: ProjectId.make("project-1"),
+      title: "Main edit counts",
+      activities: [
+        makeActivity({
+          id: EventId.make("main-edit"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          payload: {
+            itemType: "file_change",
+            title: "Edit",
+            status: "completed",
+            data: { input: { file_path: "/repo/src/a.ts" } },
+            changedFiles: [{ path: "/repo/src/a.ts", additions: 48, deletions: 12 }],
+          },
+        }),
+      ],
+    });
+
+    const [group] = buildThreadFeed(thread);
+    expect(group?.type).toBe("activity-group");
+    if (group?.type !== "activity-group") return;
+    expect(group.activities[0]?.workEntry.diffStat).toEqual({ additions: 48, deletions: 12 });
+  });
+
   it("keeps OpenCode detail-only output when it equals the command", () => {
     const command = "printf hello";
     const thread = makeThread({

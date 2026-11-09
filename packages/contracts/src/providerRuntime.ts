@@ -497,9 +497,10 @@ export const ItemLifecyclePayload = Schema.Struct({
   agentId: Schema.optional(TrimmedNonEmptyStringSchema),
   parentToolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
   /**
-   * Files a subagent's completed file change touched. Adapters set it only on
-   * item.completed rows that carry agentId, so clients can list each
-   * subagent's files without walking raw tool data.
+   * Files a completed file change touched, with line counts when the
+   * provider yields them, so clients need not walk raw tool data. Rows with
+   * agentId feed each subagent's file list; consumers that mean subagent
+   * files only must filter on agentId.
    */
   changedFiles: Schema.optional(Schema.Array(ItemChangedFile)),
 });

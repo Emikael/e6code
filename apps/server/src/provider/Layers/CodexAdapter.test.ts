@@ -1369,6 +1369,61 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("lists the files and line counts of the main agent's applied patch", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 3)).pipe(
+        Effect.forkChild,
+      );
+
+      const changes = [
+        {
+          path: "/repo/src/a.ts",
+          kind: { type: "update", move_path: null },
+          diff: "@@ -1,2 +1,3 @@\n-old\n+new\n+added\n keep\n",
+        },
+        { path: "/repo/src/b.ts", kind: { type: "add" }, diff: "one\ntwo\n" },
+      ];
+      const patchEvent = (id: string, method: string, status: string): ProviderEvent => ({
+        id: asEventId(id),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId(`patch-${id}`),
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          ...(method === "item/started"
+            ? { startedAtMs: 1_778_000_000_000 }
+            : { completedAtMs: 1_778_000_000_000 }),
+          item: { type: "fileChange", id: `patch-${id}`, status, changes },
+        },
+      });
+      // The started item is a proposal; a declined patch changed nothing.
+      yield* runtime.emit(patchEvent("main-started", "item/started", "inProgress"));
+      yield* runtime.emit(patchEvent("main-completed", "item/completed", "completed"));
+      yield* runtime.emit(patchEvent("main-declined", "item/completed", "declined"));
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const payloads = events.map((event) =>
+        event.type === "item.started" || event.type === "item.completed"
+          ? event.payload
+          : undefined,
+      );
+      NodeAssert.equal(payloads[0]?.changedFiles, undefined);
+      NodeAssert.equal(payloads[1]?.agentId, undefined);
+      NodeAssert.deepStrictEqual(payloads[1]?.changedFiles, [
+        { path: "/repo/src/a.ts", additions: 2, deletions: 1 },
+        { path: "/repo/src/b.ts", additions: 2, deletions: 0 },
+      ]);
+      NodeAssert.equal(payloads[2]?.status, "declined");
+      NodeAssert.equal(payloads[2]?.changedFiles, undefined);
+    }),
+  );
+
   it.effect("labels MCP lifecycle entries with server and tool names", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

@@ -26,6 +26,7 @@ import {
   findSubagentSpawnRow,
   deriveMessagesTimelineRowsWithState,
   deriveWorkStepMeta,
+  resolveWorkRowStats,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
@@ -890,6 +891,40 @@ describe("deriveWorkStepMeta", () => {
         diffStat: { additions: 0, deletions: 0 },
       }),
     ).toEqual({ duration: null, diffStat: null });
+  });
+});
+
+describe("resolveWorkRowStats", () => {
+  const entry = {
+    createdAt: "2026-02-23T00:00:02.200Z",
+    startedAt: "2026-02-23T00:00:01.000Z",
+    toolLifecycleStatus: "completed" as const,
+    diffStat: { additions: 48, deletions: 12 },
+  };
+
+  it("puts the diff stat in exactly one place", () => {
+    for (const timeline of [true, false]) {
+      const { meta, inlineDiffStat } = resolveWorkRowStats(entry, timeline);
+      const shown = [meta?.diffStat, inlineDiffStat].filter(Boolean);
+      expect(shown).toEqual([{ additions: 48, deletions: 12 }]);
+    }
+  });
+
+  it("uses the timeline meta when the setting is on, the inline label when it is off", () => {
+    expect(resolveWorkRowStats(entry, true)).toEqual({
+      meta: { duration: "1.2s", diffStat: { additions: 48, deletions: 12 } },
+      inlineDiffStat: null,
+    });
+    expect(resolveWorkRowStats(entry, false)).toEqual({
+      meta: null,
+      inlineDiffStat: { additions: 48, deletions: 12 },
+    });
+  });
+
+  it("shows nothing when there is nothing to show", () => {
+    const bare = { createdAt: entry.createdAt };
+    expect(resolveWorkRowStats(bare, true)).toEqual({ meta: null, inlineDiffStat: null });
+    expect(resolveWorkRowStats(bare, false)).toEqual({ meta: null, inlineDiffStat: null });
   });
 });
 

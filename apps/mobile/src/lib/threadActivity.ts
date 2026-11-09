@@ -43,6 +43,10 @@ import {
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
 import {
+  mainAgentDiffStat,
+  type WorkLogDiffStat,
+} from "@e6tools/client-runtime/work-log/diff-stat";
+import {
   TASK_LIST_TOOL_NAMES,
   taskListLabel,
   taskListStepsFromPayload,
@@ -114,6 +118,8 @@ export interface WorkLogEntry {
   command?: string;
   rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
+  /** Lines a main-agent file change added and removed, when the provider counted its files. */
+  diffStat?: WorkLogDiffStat;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
@@ -654,6 +660,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
   }
+  const diffStat = mainAgentDiffStat(payload, changedFiles);
+  if (diffStat) {
+    entry.diffStat = diffStat;
+  }
   if (title) {
     entry.toolTitle = title;
   }
@@ -950,9 +960,11 @@ function mergeDerivedWorkLogEntries(
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolData = next.toolData ?? previous.toolData;
+  const diffStat = next.diffStat ?? previous.diffStat;
   return {
     ...previous,
     ...next,
+    ...(diffStat ? { diffStat } : {}),
     id: previous.id,
     createdAt: previous.createdAt,
     ...(detail ? { detail } : {}),

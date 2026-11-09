@@ -206,7 +206,7 @@ import {
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
   workEntryIsActiveTurnActivity,
-  deriveWorkStepMeta,
+  resolveWorkRowStats,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
@@ -5394,7 +5394,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     setExpanded(next);
   };
   const timeline = groupView?.timeline === true;
-  const stepMeta = timeline ? deriveWorkStepMeta(workEntry) : null;
+  const { meta: stepMeta, inlineDiffStat } = resolveWorkRowStats(workEntry, timeline);
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
@@ -5548,7 +5548,15 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           !toolIconAcceptsTint(entryIconName, entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
-          {stepMeta && (stepMeta.diffStat || stepMeta.duration) ? (
+          {inlineDiffStat ? (
+            <DiffStatLabel
+              additions={inlineDiffStat.additions}
+              deletions={inlineDiffStat.deletions}
+              layout="inline"
+              className="shrink-0 text-xs"
+            />
+          ) : null}
+          {stepMeta ? (
             <ThinkingTimelineMeta>
               {stepMeta.diffStat ? (
                 <DiffStatLabel

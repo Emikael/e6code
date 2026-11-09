@@ -18,6 +18,7 @@ import {
   type AcpToolCallState,
   canonicalItemTypeFromAcpToolKind,
 } from "./AcpRuntimeModel.ts";
+import { acpChangedFiles } from "../subagentChangedFiles.ts";
 
 type AcpAdapterRawSource = Extract<
   RuntimeEventRawSource,
@@ -157,6 +158,11 @@ export function makeAcpToolCallEvent(input: {
   readonly rawPayload: unknown;
 }): ProviderRuntimeEvent {
   const runtimeStatus = runtimeItemStatusFromAcpToolStatus(input.toolCall.status);
+  const itemType = canonicalItemTypeFromAcpToolKind(input.toolCall.kind);
+  const changedFiles =
+    itemType === "file_change" && input.toolCall.status === "completed"
+      ? acpChangedFiles(input.toolCall.data.content)
+      : undefined;
   return {
     type:
       input.toolCall.status === "completed" || input.toolCall.status === "failed"
@@ -168,10 +174,11 @@ export function makeAcpToolCallEvent(input: {
     turnId: input.turnId,
     itemId: RuntimeItemId.make(input.toolCall.toolCallId),
     payload: {
-      itemType: canonicalItemTypeFromAcpToolKind(input.toolCall.kind),
+      itemType,
       ...(runtimeStatus ? { status: runtimeStatus } : {}),
       ...(input.toolCall.title ? { title: input.toolCall.title } : {}),
       ...(input.toolCall.detail ? { detail: input.toolCall.detail } : {}),
+      ...(changedFiles ? { changedFiles } : {}),
       ...(Object.keys(input.toolCall.data).length > 0 ? { data: input.toolCall.data } : {}),
     },
     raw: {

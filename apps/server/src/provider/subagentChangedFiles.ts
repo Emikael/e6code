@@ -1,8 +1,9 @@
 /**
- * Files a subagent's file-change item touched, with line counts where the
+ * Files a completed file-change item touched, with line counts where the
  * provider's own payload yields them. Adapters attach the result to the
  * item.completed row as `changedFiles`, so clients can list each subagent's
- * files without the patches themselves crossing the wire.
+ * files and show a step's diff stat without the patches crossing the wire.
+ * Clients that mean subagent files only filter on the row's `agentId`.
  */
 import type { ItemChangedFile } from "@e6tools/contracts";
 import { diffLines } from "diff";
@@ -159,4 +160,47 @@ export function claudeChangedFiles(
     return undefined;
   }
   return [withCounts(path, counts)];
+}
+
+/**
+ * OpenCode's file tools, from the tool input. An edit is diffed from its
+ * strings (replaceAll hits an unknown number of sites); a write or patch lists
+ * its file without counts, since the input cannot say what was there before.
+ */
+export function openCodeChangedFiles(
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+): ReadonlyArray<ItemChangedFile> | undefined {
+  // The SDK types tool input as an open record, so the edit tool's own
+  // camelCase names come first, with the snake_case spelling as a fallback.
+  // An unrecognised shape only loses the counts, never the file.
+  const path = asPath(input?.filePath) ?? asPath(input?.file_path) ?? asPath(input?.path);
+  if (!input || !path) return undefined;
+  const replaceAll = input.replaceAll === true || input.replace_all === true;
+  const counts =
+    toolName.toLowerCase() === "edit" && !replaceAll
+      ? stringPairCounts(input.oldString ?? input.old_string, input.newString ?? input.new_string)
+      : undefined;
+  return [withCounts(path, counts)];
+}
+
+/**
+ * ACP `diff` tool-call content (Cursor, Grok, Antigravity). A missing
+ * `oldText` means the file was created, so every line is an addition.
+ */
+export function acpChangedFiles(content: unknown): ReadonlyArray<ItemChangedFile> | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const files: ItemChangedFile[] = [];
+  for (const entry of content) {
+    if (files.length >= CHANGED_FILES_CAP) break;
+    const diff = asRecord(entry);
+    const path = asPath(diff?.path);
+    if (!diff || diff.type !== "diff" || !path || typeof diff.newText !== "string") continue;
+    const counts =
+      diff.oldText === undefined || diff.oldText === null
+        ? { additions: countTextLines(diff.newText), deletions: 0 }
+        : stringPairCounts(diff.oldText, diff.newText);
+    files.push(withCounts(path, counts));
+  }
+  return files.length > 0 ? files : undefined;
 }
