@@ -1,4 +1,9 @@
+import {
+  effortSegmentForValue,
+  resolveEffortSegments,
+} from "@e6tools/client-runtime/effort-segments";
 import type { ProviderOptionDescriptor, RuntimeMode } from "@e6tools/contracts";
+import { getProviderOptionCurrentValue } from "@e6tools/shared/model";
 
 /**
  * Desktop-oriented effort keywords that don't belong in the phone picker.
@@ -43,4 +48,23 @@ export function selectableChoices(
   return descriptor.options.filter(
     (option) => !injected.has(option.id) && !HIDDEN_EFFORT_OPTION_IDS.has(option.id),
   );
+}
+
+/**
+ * Fast / Balanced / Deep for the sheet's effort row. Like the web composer, effort is the first
+ * select option; null when it is not effort or the model has too few levels for three steps.
+ */
+export function resolveEffortSteps(descriptors: ReadonlyArray<ProviderOptionDescriptor>) {
+  const descriptor = descriptors.find(
+    (candidate): candidate is Extract<ProviderOptionDescriptor, { type: "select" }> =>
+      candidate.type === "select",
+  );
+  const segments = resolveEffortSegments(descriptor);
+  if (!descriptor || !segments) return null;
+  const current = getProviderOptionCurrentValue(descriptor);
+  return {
+    descriptorId: descriptor.id,
+    segments,
+    selected: effortSegmentForValue(segments, typeof current === "string" ? current : null),
+  };
 }
