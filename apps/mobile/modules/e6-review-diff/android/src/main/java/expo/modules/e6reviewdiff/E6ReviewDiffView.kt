@@ -747,6 +747,7 @@ private class DiffCanvasView(context: Context) : View(context) {
   var style: DiffStyle = DiffStyle.defaults(density)
     set(value) {
       field = value
+      drawing.setFontFamilies(code = value.codeFontFamily, ui = value.uiFontFamily)
       rebuildOffsets()
     }
   var contentWidthPx: Int = (1200 * density).toInt()
@@ -975,7 +976,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = theme.deleteText,
       size = style.fileHeaderMetaFontSizePx,
       weight = style.fileHeaderMetaFontWeight,
-      family = style.uiFontFamily,
     )
     val deleteText = "-${row.deletions}"
     val deleteWidth = boldTextPaint.measureText(deleteText)
@@ -1022,7 +1022,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = theme.text,
       size = style.fileHeaderFontSizePx,
       weight = style.fileHeaderFontWeight,
-      family = style.uiFontFamily,
     )
     val pathX = iconRect.right + 10f * density
     val pathWidth = max(24f * density, countsX - pathX - 12f * density)
@@ -1051,7 +1050,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = theme.deleteText,
       size = style.fileHeaderMetaFontSizePx,
       weight = style.fileHeaderMetaFontWeight,
-      family = style.uiFontFamily,
     )
     val countsX = checkboxRect.left - 10f * density -
       boldTextPaint.measureText("-${row.deletions}") - 4f * density -
@@ -1089,7 +1087,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = theme.hunkText,
       size = style.hunkFontSizePx,
       weight = style.hunkFontWeight,
-      family = style.codeFontFamily,
     )
     drawScrollableCode(canvas, top, bottom) { codeX ->
       canvas.drawText(
@@ -1116,7 +1113,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = theme.mutedText,
       size = style.fileHeaderSubtextFontSizePx,
       weight = style.fileHeaderSubtextFontWeight,
-      family = style.uiFontFamily,
     )
     val textX = iconRect.right + 10f * density
     canvas.drawText(
@@ -1157,7 +1153,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = theme.mutedText,
       size = style.fileHeaderSubtextFontSizePx,
       weight = style.fileHeaderSubtextFontWeight,
-      family = style.uiFontFamily,
     )
     val title = "Comment on ${row.commentRangeLabel.ifEmpty { "line" }}"
     canvas.drawText(
@@ -1248,7 +1243,6 @@ private class DiffCanvasView(context: Context) : View(context) {
       color = drawing.lineNumberColor(row.change),
       size = style.lineNumberFontSizePx,
       weight = style.lineNumberFontWeight,
-      family = style.codeFontFamily,
     )
     textPaint.textAlign = Paint.Align.RIGHT
     canvas.drawText(

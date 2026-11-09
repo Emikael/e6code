@@ -153,13 +153,22 @@ internal class ReviewDiffCanvasDrawing(context: Context) {
     canvas.drawCircle(rect.centerX(), rect.bottom - rect.height() * 0.24f, density, borderPaint)
   }
 
-  fun configureUiPaint(paint: Paint, color: Int, size: Float, weight: String, family: String) {
-    paint.typeface = typefaces.resolve(family, weight, monospace = false)
+  /** Embedded families from the current DiffStyle; empty keeps the system fonts. */
+  private var codeFontFamily = ""
+  private var uiFontFamily = ""
+
+  fun setFontFamilies(code: String, ui: String) {
+    codeFontFamily = code
+    uiFontFamily = ui
+  }
+
+  fun configureUiPaint(paint: Paint, color: Int, size: Float, weight: String) {
+    paint.typeface = typefaces.resolve(uiFontFamily, weight, monospace = false)
     configureTextPaint(paint, color, size)
   }
 
-  fun configureMonospacePaint(color: Int, size: Float, weight: String, family: String) {
-    textPaint.typeface = typefaces.resolve(family, weight, monospace = true)
+  fun configureMonospacePaint(color: Int, size: Float, weight: String) {
+    textPaint.typeface = typefaces.resolve(codeFontFamily, weight, monospace = true)
     configureTextPaint(textPaint, color, size)
   }
 
@@ -412,23 +421,26 @@ internal class ReviewDiffTypefaces(context: Context) {
     Typeface.create(typeface, typeface.style or Typeface.ITALIC)
   }
 
-  private fun load(family: String, weightIndex: Int, monospace: Boolean): Typeface {
-    if (family.isNotEmpty()) {
-      fontResource("${family.substringBeforeLast('-')}-${FACE_SUFFIXES[weightIndex]}")?.let {
-        return it
+  private fun load(family: String, weightIndex: Int, monospace: Boolean): Typeface =
+    embedded(family, weightIndex) ?: systemFallback(weightIndex, monospace)
+
+  // Per-weight family first (Geist-SemiBold), else the family with a bold style.
+  private fun embedded(family: String, weightIndex: Int): Typeface? {
+    if (family.isEmpty()) return null
+    return fontResource("${family.substringBeforeLast('-')}-${FACE_SUFFIXES[weightIndex]}")
+      ?: fontResource(family)?.let {
+        Typeface.create(it, if (weightIndex >= SEMIBOLD) Typeface.BOLD else Typeface.NORMAL)
       }
-      fontResource(family)?.let {
-        return Typeface.create(it, if (weightIndex >= SEMIBOLD) Typeface.BOLD else Typeface.NORMAL)
-      }
-    }
-    return when {
+  }
+
+  private fun systemFallback(weightIndex: Int, monospace: Boolean): Typeface =
+    when {
       monospace && weightIndex == BOLD -> Typeface.create("monospace", Typeface.BOLD)
       monospace && weightIndex > REGULAR -> Typeface.create("monospace-medium", Typeface.NORMAL)
       monospace -> Typeface.create("monospace", Typeface.NORMAL)
       weightIndex > REGULAR -> Typeface.DEFAULT_BOLD
       else -> Typeface.DEFAULT
     }
-  }
 
   // The module cannot see the app's R class, so the expo-font resource is looked up by name.
   @SuppressLint("DiscouragedApi")
