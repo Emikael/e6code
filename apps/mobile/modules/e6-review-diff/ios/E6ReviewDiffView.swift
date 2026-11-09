@@ -330,9 +330,7 @@ private struct ReviewDiffNativeStyle {
 /// Character width comes from `code` only: Geist Mono keeps one advance across weights.
 private struct ReviewDiffResolvedFonts {
   let code: UIFont
-  let codeBold: UIFont
-  let codeItalic: UIFont
-  let codeBoldItalic: UIFont
+  let codeFaces: ReviewDiffCodeFaces
   let lineNumber: UIFont
   let hunk: UIFont
   let fileHeader: UIFont
@@ -354,9 +352,12 @@ private struct ReviewDiffResolvedFonts {
       : .bold
     let bold = mono(style.codeFontSize, boldWeight)
     code = regular
-    codeBold = bold
-    codeItalic = Self.italic(regular)
-    codeBoldItalic = Self.italic(bold)
+    codeFaces = ReviewDiffCodeFaces(
+      regular: regular,
+      bold: bold,
+      italic: Self.italic(regular),
+      boldItalic: Self.italic(bold)
+    )
     lineNumber = mono(style.lineNumberFontSize, style.lineNumberFontWeight)
     hunk = mono(style.hunkFontSize, style.hunkFontWeight)
     fileHeader = ui(style.fileHeaderFontSize, style.fileHeaderFontWeight)
@@ -364,16 +365,6 @@ private struct ReviewDiffResolvedFonts {
     fileHeaderSubtext = ui(style.fileHeaderSubtextFontSize, style.fileHeaderSubtextFontWeight)
     fileHeaderStatus = ui(style.fileHeaderStatusFontSize, style.fileHeaderStatusFontWeight)
     emptyState = ui(style.emptyStateFontSize, style.emptyStateFontWeight)
-  }
-
-  /// Shiki token style bits: 1 italic, 2 bold, 4 underline (handled by the caller).
-  func codeFont(forTokenStyle fontStyle: Int) -> UIFont {
-    switch (fontStyle & 2 != 0, fontStyle & 1 != 0) {
-    case (true, true): return codeBoldItalic
-    case (true, false): return codeBold
-    case (false, true): return codeItalic
-    case (false, false): return code
-    }
   }
 
   /// Uses the family's italic face through the descriptor trait; a family without one
@@ -386,6 +377,24 @@ private struct ReviewDiffResolvedFonts {
     let italic = UIFont(descriptor: descriptor, size: font.pointSize)
     return italic.fontDescriptor.symbolicTraits.contains(.traitItalic) ? italic : font
   }
+}
+
+/// Styled token ranges for rows TextKit measures; fixed-pitch ASCII rows need none.
+private func reviewDiffCodeStyleRuns(
+  text: String,
+  tokens: [ReviewDiffNativeToken]?
+) -> [ReviewDiffCodeStyleRun] {
+  guard let tokens, !tokens.isEmpty, !ReviewDiffCodeLayout.isFixedPitch(text) else { return [] }
+  var runs: [ReviewDiffCodeStyleRun] = []
+  var location = 0
+  for token in tokens {
+    let length = token.content.utf16.count
+    if let fontStyle = token.fontStyle, fontStyle != 0, length > 0 {
+      runs.append(ReviewDiffCodeStyleRun(location: location, length: length, fontStyle: fontStyle))
+    }
+    location += length
+  }
+  return runs
 }
 
 public final class E6ReviewDiffView: ExpoView, UIScrollViewDelegate {
@@ -456,6 +465,9 @@ public final class E6ReviewDiffView: ExpoView, UIScrollViewDelegate {
     }
     contentView.onDrawMetrics = { [weak self] metrics in
       self?.emitDebug("draw-metrics", metrics)
+    }
+    contentView.onRowLayoutChange = { [weak self] in
+      self?.updateContentMetrics()
     }
     scrollView.addSubview(contentView)
   }
@@ -1021,18 +1033,28 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     didSet {
       codeDecorationVersion += 1
       tokenAttributedStringsByRowId.removeAll()
+      remeasureIfCodeStylesChanged(rowIds: codeLayoutsByRowId.keys)
       clampHorizontalOffsets()
       setNeedsDisplayForVisibleBounds()
     }
   }
 
+  /// One mutation, so the observer above runs once per patch rather than once per row.
   func mergeTokensByRowId(_ tokensPatch: [String: [ReviewDiffNativeToken]]) {
-    tokensPatch.forEach { rowId, tokens in
-      tokensByRowId[rowId] = tokens
-      tokenAttributedStringsByRowId.removeValue(forKey: rowId)
+    tokensByRowId.merge(tokensPatch) { _, patched in patched }
+  }
+
+  /// TextKit rows are measured with their token faces, so new token styles can change
+  /// wrapped heights. Only those rows are re-measured; the rest reuse their layouts.
+  private func remeasureIfCodeStylesChanged<RowIds: Sequence>(rowIds: RowIds) where RowIds.Element == String {
+    guard codeWrapColumns != nil else { return }
+    let changed = rowIds.contains { rowId in
+      guard let layout = codeLayoutsByRowId[rowId], layout.usesNativeLayout else { return false }
+      return reviewDiffCodeStyleRuns(text: layout.text, tokens: tokensByRowId[rowId]) != layout.styleRuns
     }
-    clampHorizontalOffsets()
-    setNeedsDisplayForVisibleBounds()
+    guard changed else { return }
+    rebuildRowLayout()
+    onRowLayoutChange?()
   }
 
   var collapsedFileIds: Set<String> = [] {
@@ -1119,6 +1141,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   var onPressLine: (([String: Any]) -> Void)?
   var onToggleComment: ((String) -> Void)?
   var onDrawMetrics: (([String: Any]) -> Void)?
+  var onRowLayoutChange: (() -> Void)?
 
   private var stickyWidth: CGFloat {
     style.changeBarWidth + style.gutterWidth
@@ -1183,14 +1206,20 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       return
     }
     let cached = codeLayoutWidth == width && codeLayoutFont == font ? codeLayoutsByRowId : [:]
+    let tokens = tokensByRowId
+    let faces = fonts.codeFaces
     queue.async { [weak self] in
       var layouts: [String: ReviewDiffCodeLayout] = [:]
       for row in rows where row.kind == "line" {
         guard let text = row.content else { continue }
-        if let previous = cached[row.id], previous.text == text {
+        let styleRuns = reviewDiffCodeStyleRuns(text: text, tokens: tokens[row.id])
+        if let previous = cached[row.id], previous.text == text, previous.styleRuns == styleRuns {
           layouts[row.id] = previous
         } else {
-          layouts[row.id] = ReviewDiffCodeLayout(text: text, font: font, width: width, characterWidth: characterWidth)
+          layouts[row.id] = ReviewDiffCodeLayout(
+            text: text, font: font, width: width, characterWidth: characterWidth,
+            styleRuns: styleRuns, faces: faces
+          )
         }
       }
       DispatchQueue.main.async { [weak self] in
@@ -1242,11 +1271,13 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
         if wrapColumns != nil, let content = row.content {
           let cached = codeLayoutsByRowId[row.id]
           let layout: ReviewDiffCodeLayout
-          if let cached, cached.text == content {
+          let styleRuns = reviewDiffCodeStyleRuns(text: content, tokens: tokensByRowId[row.id])
+          if let cached, cached.text == content, cached.styleRuns == styleRuns {
             layout = cached
           } else {
             layout = ReviewDiffCodeLayout(
-              text: content, font: font, width: wrapAvailableWidth, characterWidth: characterWidth
+              text: content, font: font, width: wrapAvailableWidth, characterWidth: characterWidth,
+              styleRuns: styleRuns, faces: fonts.codeFaces
             )
           }
           nextCodeLayouts[row.id] = layout
@@ -2690,7 +2721,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     for token in tokens where !token.content.isEmpty {
       let fontStyle = token.fontStyle ?? 0
       var attributes: [NSAttributedString.Key: Any] = [
-        .font: fontStyle == 0 ? font : fonts.codeFont(forTokenStyle: fontStyle),
+        .font: fontStyle == 0 ? font : fonts.codeFaces.font(forTokenStyle: fontStyle),
         .foregroundColor: tokenColor(for: token.color, fallbackColor: fallbackColor),
         .ligature: 0,
       ]
