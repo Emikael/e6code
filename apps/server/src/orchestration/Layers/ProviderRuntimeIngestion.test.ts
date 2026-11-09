@@ -68,6 +68,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { UsageService } from "../../usage/UsageService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { makeSqlStatementCounter } from "../../../integration/SqlStatementCounter.integration.ts";
 
@@ -294,6 +295,7 @@ describe("ProviderRuntimeIngestion", () => {
     threadTitle?: string;
     workspaceSubdirectory?: string;
     isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
+    estimateCostUsd?: UsageService["Service"]["estimateCostUsd"];
   }) {
     const repositoryRoot = makeTempDir("e6-provider-project-");
     NodeChildProcess.execFileSync("git", ["init", "--initial-branch=main"], {
@@ -343,7 +345,17 @@ describe("ProviderRuntimeIngestion", () => {
       monotonicTimeNanos: realClock.monotonicTimeNanos,
       sleep: (duration) => realClock.sleep(duration),
     };
+    const estimateCostUsd = options?.estimateCostUsd;
+    const usageLayer =
+      estimateCostUsd === undefined
+        ? Layer.empty
+        : Layer.succeed(UsageService, {
+            readSummary: () => Effect.die("unused"),
+            refreshRates: Effect.die("unused"),
+            estimateCostUsd,
+          });
     const layer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provide(usageLayer),
       Layer.provide(Layer.succeed(Clock.Clock, shiftedClock)),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(ingestionProjectionSnapshotLayer),
@@ -5300,6 +5312,165 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime still processed");
+  });
+  describe("turn usage", () => {
+    const completeUsage = {
+      usageStatus: "complete",
+      usageScope: "main_agent",
+      inputTokens: 40_000,
+      cachedInputTokens: 30_000,
+      cacheCreationTokens: 2_000,
+      outputTokens: 8_600,
+      reasoningTokens: 1_000,
+      hasSubagents: false,
+    } as const;
+
+    const turnUsageActivities = async (harness: Awaited<ReturnType<typeof createHarness>>) =>
+      ((await harness.readModel()).threads[0]?.activities ?? []).filter(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.usage",
+      );
+
+    it("records the provider-reported cost without pricing the model", async () => {
+      const priced: string[] = [];
+      const harness = await createHarness({
+        estimateCostUsd: (model) => {
+          priced.push(model);
+          return Effect.succeed(9);
+        },
+      });
+      await harness.emitAndDrain([
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-reported"),
+          provider: ProviderDriverKind.make("claudeAgent"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-reported"),
+          payload: { state: "completed", turnCostUsd: 0.12, tokenUsage: completeUsage },
+        },
+      ]);
+
+      const [activity, ...rest] = await turnUsageActivities(harness);
+      expect(rest).toEqual([]);
+      expect(activity?.id).toBe("turn-usage:thread-1:turn-usage-reported");
+      expect(activity?.turnId).toBe("turn-usage-reported");
+      expect(activity?.payload).toEqual({
+        totalTokens: 48_600,
+        inputTokens: 40_000,
+        outputTokens: 8_600,
+        cachedInputTokens: 30_000,
+        cacheCreationTokens: 2_000,
+        reasoningTokens: 1_000,
+        partial: false,
+        costUsd: 0.12,
+        costSource: "reported",
+      });
+      expect(priced).toEqual([]);
+    });
+
+    it("estimates cost at the thread model's rates when none is reported", async () => {
+      const pricedTotals: unknown[] = [];
+      const harness = await createHarness({
+        estimateCostUsd: (model, totals) => {
+          pricedTotals.push({ model, totals });
+          return Effect.succeed(0.34);
+        },
+      });
+      await harness.emitAndDrain([
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-estimated"),
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-estimated"),
+          payload: { state: "completed", tokenUsage: completeUsage },
+        },
+      ]);
+
+      const [activity] = await turnUsageActivities(harness);
+      expect(activity?.payload).toMatchObject({
+        totalTokens: 48_600,
+        costUsd: 0.34,
+        costSource: "estimated",
+      });
+      // Cache reads and writes are split out of input; reasoning stays inside output.
+      expect(pricedTotals).toEqual([
+        {
+          model: "gpt-5-codex",
+          totals: {
+            uncachedInputTokens: 8_000,
+            cachedInputTokens: 30_000,
+            cacheCreationTokens: 2_000,
+            outputTokens: 8_600,
+            reasoningTokens: 1_000,
+          },
+        },
+      ]);
+    });
+
+    it("records tokens only when the model has no price", async () => {
+      const harness = await createHarness({ estimateCostUsd: () => Effect.succeed(null) });
+      await harness.emitAndDrain([
+        {
+          type: "turn.aborted",
+          eventId: asEventId("evt-usage-unpriced"),
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-unpriced"),
+          payload: {
+            reason: "Interrupted by user.",
+            tokenUsage: {
+              usageStatus: "partial",
+              usageScope: "main_agent",
+              outputTokens: 1_200,
+              hasSubagents: false,
+            },
+          },
+        },
+      ]);
+
+      const [activity] = await turnUsageActivities(harness);
+      expect(activity?.payload).toEqual({
+        totalTokens: 1_200,
+        outputTokens: 1_200,
+        partial: true,
+      });
+    });
+
+    it("records nothing when the provider reports no usage", async () => {
+      const harness = await createHarness({ estimateCostUsd: () => Effect.succeed(1) });
+      await harness.emitAndDrain([
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-none"),
+          provider: ProviderDriverKind.make("cursor"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-none"),
+          payload: { state: "completed" },
+        },
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-unavailable"),
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:06.000Z",
+          turnId: asTurnId("turn-usage-unavailable"),
+          payload: {
+            state: "completed",
+            tokenUsage: {
+              usageStatus: "unavailable",
+              usageScope: "main_agent",
+              hasSubagents: false,
+            },
+          },
+        },
+      ]);
+
+      expect(await turnUsageActivities(harness)).toEqual([]);
+    });
   });
 });
 

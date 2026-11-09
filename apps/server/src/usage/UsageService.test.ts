@@ -393,6 +393,53 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.live("estimates one turn's cost from the rate table and custom prices", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const totals = {
+        uncachedInputTokens: 1_000,
+        cachedInputTokens: 10_000,
+        cacheCreationTokens: 0,
+        outputTokens: 2_000,
+        reasoningTokens: 500,
+      };
+
+      yield* Effect.gen(function* () {
+        const settingsService = yield* ServerSettings.ServerSettingsService;
+        const service = yield* UsageService.make;
+        yield* service.refreshRates;
+
+        // Reasoning is inside output, so it is not charged again.
+        const tabled = yield* service.estimateCostUsd("table-model", totals);
+        assert.closeTo(tabled ?? -1, 1_000 * 1e-6 + 10_000 * 1e-7 + 2_000 * 4e-6, 1e-12);
+        assert.strictEqual(yield* service.estimateCostUsd("unknown-model", totals), null);
+
+        yield* settingsService.updateSettings({
+          usagePriceOverrides: {
+            "unknown-model": { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 },
+          },
+        });
+        const overridden = yield* service.estimateCostUsd("unknown-model", totals);
+        assert.closeTo(overridden ?? -1, (11_000 * 2 + 2_000 * 8) / 1_000_000, 1e-12);
+      }).pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-estimate-test",
+            home,
+            settings,
+            ratesDocument: {
+              "table-model": {
+                input_cost_per_token: 1e-6,
+                output_cost_per_token: 4e-6,
+                cache_read_input_token_cost: 1e-7,
+              },
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.live("counts appended usage on a rescan of a grown transcript", () =>
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;

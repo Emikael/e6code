@@ -3728,6 +3728,7 @@ describe("ClaudeAdapterLive", () => {
         result: "first",
         stop_reason: "end_turn",
         session_id: "sdk-session-consecutive-usage",
+        total_cost_usd: 0.25,
         usage: {
           input_tokens: 100,
           cache_read_input_tokens: 20,
@@ -3775,6 +3776,7 @@ describe("ClaudeAdapterLive", () => {
         result: "second",
         stop_reason: "end_turn",
         session_id: "sdk-session-consecutive-usage",
+        total_cost_usd: 0.4,
         usage: {
           input_tokens: 30,
           cache_read_input_tokens: 2,
@@ -3817,6 +3819,9 @@ describe("ClaudeAdapterLive", () => {
           outputTokens: 7,
           hasSubagents: false,
         });
+        // total_cost_usd is a running session total; each turn reports its share.
+        assert.equal(completed[0].payload.turnCostUsd, 0.25);
+        assert.closeTo(completed[1].payload.turnCostUsd ?? 0, 0.15, 1e-9);
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

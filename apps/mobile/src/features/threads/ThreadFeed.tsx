@@ -15,6 +15,7 @@ import type {
   OrchestrationMessageContext,
   ThreadId,
   TurnId,
+  TurnUsageActivityPayload,
 } from "@e6tools/contracts";
 import { renderAssistantCitationsAsText } from "@e6tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@e6tools/shared/composerContextClipboard";
@@ -255,6 +256,7 @@ export interface ThreadFeedProps {
   readonly threadId: ThreadId;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
+  readonly turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
   readonly contentPresentation: ThreadContentPresentation;
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
@@ -2458,6 +2460,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           expandedTurnIds,
           expandedWorkGroupIds,
           props.activeWorkStartedAt,
+          props.turnUsageByTurnId,
         ),
         props.feed,
         props.queuedMessages,
@@ -2469,6 +2472,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.activeWorkStartedAt,
       props.feed,
       props.latestTurn,
+      props.turnUsageByTurnId,
     ],
   );
   const setupAnchorIndex = presentedFeed.findIndex(

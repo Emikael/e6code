@@ -2047,6 +2047,21 @@ describe("deriveWorkLogEntries context window handling", () => {
     expect(entries[0]?.label).toBe("Ran command");
   });
 
+  it("excludes turn usage records, which belong to the turn's fold row", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "usage-1",
+        turnId: "turn-1",
+        kind: "turn.usage",
+        summary: "Turn usage",
+        tone: "info",
+        payload: { totalTokens: 10, partial: false },
+      }),
+    ]);
+
+    expect(entries).toEqual([]);
+  });
+
   it("keeps context compaction activities as normal work log entries", () => {
     const entries = deriveWorkLogEntries([
       makeActivity({

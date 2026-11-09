@@ -1,0 +1,84 @@
+import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import { appendTurnUsage, deriveTurnUsageByTurnId } from "./turnUsage.ts";
+
+const activity = (
+  overrides: Partial<OrchestrationThreadActivity> & Pick<OrchestrationThreadActivity, "payload">,
+): OrchestrationThreadActivity => ({
+  id: EventId.make("activity"),
+  tone: "info",
+  kind: "turn.usage",
+  summary: "Turn usage",
+  turnId: TurnId.make("turn-1"),
+  createdAt: "2026-01-01T00:00:00.000Z",
+  ...overrides,
+});
+
+describe("appendTurnUsage", () => {
+  it("adds tokens and the reported cost", () => {
+    expect(
+      appendTurnUsage("Worked for 22s", {
+        totalTokens: 48_600,
+        partial: false,
+        costUsd: 0.1234,
+        costSource: "reported",
+      }),
+    ).toBe("Worked for 22s · 48.6k tokens · $0.12");
+  });
+
+  it("marks an estimated cost and floors sub-cent amounts", () => {
+    expect(
+      appendTurnUsage("Worked for 3s", {
+        totalTokens: 1_250_000,
+        partial: false,
+        costUsd: 2.5,
+        costSource: "estimated",
+      }),
+    ).toBe("Worked for 3s · 1.25m tokens · ≈$2.50");
+    expect(
+      appendTurnUsage("Worked for 3s", {
+        totalTokens: 900,
+        partial: false,
+        costUsd: 0.004,
+        costSource: "reported",
+      }),
+    ).toBe("Worked for 3s · 900 tokens · <$0.01");
+    expect(appendTurnUsage("Worked", { totalTokens: 999_999, partial: false })).toBe(
+      "Worked · 1m tokens",
+    );
+  });
+
+  it("shows tokens alone when the cost is unknown, and nothing without usage", () => {
+    expect(appendTurnUsage("You stopped after 5s", { totalTokens: 1_200, partial: true })).toBe(
+      "You stopped after 5s · 1.2k tokens",
+    );
+    expect(appendTurnUsage("Worked for 5s", undefined)).toBe("Worked for 5s");
+  });
+});
+
+describe("deriveTurnUsageByTurnId", () => {
+  it("keys valid usage records by turn and skips everything else", () => {
+    const usage = deriveTurnUsageByTurnId([
+      activity({ payload: { totalTokens: 10, partial: false } }),
+      activity({ turnId: TurnId.make("turn-2"), payload: { totalTokens: "many" } }),
+      activity({ turnId: null, payload: { totalTokens: 5, partial: false } }),
+      activity({
+        kind: "context-window.updated",
+        turnId: TurnId.make("turn-3"),
+        payload: { totalTokens: 5, partial: false },
+      }),
+    ]);
+    expect([...usage]).toEqual([[TurnId.make("turn-1"), { totalTokens: 10, partial: false }]]);
+  });
+
+  it("decodes a record once, so rebuilt maps hold the same values", () => {
+    const first = activity({ payload: { totalTokens: 10, partial: false } });
+    const unrelated = activity({ kind: "context-window.updated", payload: { usedTokens: 4 } });
+    const turnId = TurnId.make("turn-1");
+
+    expect(deriveTurnUsageByTurnId([first, unrelated]).get(turnId)).toBe(
+      deriveTurnUsageByTurnId([first]).get(turnId),
+    );
+  });
+});

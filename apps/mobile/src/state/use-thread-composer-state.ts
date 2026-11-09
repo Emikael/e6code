@@ -16,6 +16,7 @@ import {
   type ThreadId,
 } from "@e6tools/contracts";
 import { safeErrorLogAttributes } from "@e6tools/client-runtime/errors";
+import { deriveTurnUsageByTurnId } from "@e6tools/client-runtime/work-log/turn-usage";
 import { clampFileAttachmentUploadBytes } from "@e6tools/client-runtime/state/attachments";
 import { nextPastedTextFileName, pastedTextDisposition } from "@e6tools/client-runtime/text-paste";
 import {
@@ -197,6 +198,10 @@ export function useThreadComposerState() {
   // detail is usually present but empty during a worktree checkout, so this
   // cannot be an either/or with the loaded messages.
   const pendingCreationMessage = selectedThreadCreation?.message ?? null;
+  const selectedThreadTurnUsage = useMemo(
+    () => deriveTurnUsageByTurnId(selectedThreadActivities ?? []),
+    [selectedThreadActivities],
+  );
   const selectedThreadFeed = useMemo(() => {
     const loadedMessages = selectedThreadMessages ?? [];
     const feed =
@@ -799,6 +804,7 @@ export function useThreadComposerState() {
     feedbackSubmissions,
     dismissFeedback,
     selectedThreadFeed,
+    selectedThreadTurnUsage,
     selectedThreadQueueCount,
     selectedThreadQueuedMessages,
     dispatchingQueuedMessageId,

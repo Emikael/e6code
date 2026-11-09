@@ -40,8 +40,10 @@ import {
   type MessageId,
   type OrchestrationLatestTurn,
   type TurnId,
+  type TurnUsageActivityPayload,
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
+import { appendTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 
 const TIMELINE_MINIMAP_ITEM_SPACING = 8;
@@ -657,6 +659,7 @@ function deriveTurnFolds(input: {
   terminalAssistantMessageIds: ReadonlySet<string>;
   latestTurn: TimelineLatestTurn | null;
   unfoldedTurnIds: ReadonlySet<TurnId>;
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined;
 }): ReadonlyMap<string, TurnFold> {
   interface TurnGroup {
     entries: Array<TimelineEntry>;
@@ -812,13 +815,16 @@ function deriveTurnFolds(input: {
               lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
-    const label = isLatestInterruptedTurn
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = appendTurnUsage(
+      isLatestInterruptedTurn
+        ? duration
+          ? `You stopped after ${duration}`
+          : "You stopped this response"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked",
+      input.turnUsageByTurnId?.get(turnId),
+    );
 
     foldsByAnchorEntryId.set(firstHiddenEntry.id, {
       turnId,
@@ -982,6 +988,8 @@ export function deriveMessagesTimelineRows(input: {
   worktreeSetup?: WorktreeSetupSnapshot | null;
   /** Messages sent during the running turn, rendered after the live rows. */
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
+  /** Settled turns' tokens and cost, appended to their "Worked for ..." row. */
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined;
 }): MessagesTimelineRow[] {
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
@@ -1016,6 +1024,7 @@ export function deriveMessagesTimelineRows(input: {
     terminalAssistantMessageIds,
     latestTurn: input.latestTurn ?? null,
     unfoldedTurnIds: activeVisualResponseTurnIds,
+    turnUsageByTurnId: input.turnUsageByTurnId,
   });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
@@ -1514,6 +1523,7 @@ function replaceStreamingMessageRows(
     latestTurn: previousLatestTurn,
     expandedTurnIds: previousExpandedTurns,
     expandedWorkGroupIds: previousExpandedGroups,
+    turnUsageByTurnId: previousTurnUsage,
     ...previousContext
   } = previous.input;
   const {
@@ -1522,11 +1532,14 @@ function replaceStreamingMessageRows(
     latestTurn,
     expandedTurnIds,
     expandedWorkGroupIds,
+    turnUsageByTurnId,
     ...context
   } = input;
   if (
     timelineEntries.length !== previousEntries.length ||
     !shallow(previousContext, context) ||
+    // Rebuilt on every activity change; its decoded records keep identity.
+    !shallow(previousTurnUsage, turnUsageByTurnId) ||
     !shallow(previousSummaries, turnDiffSummaries) ||
     !shallow(previousLatestTurn, latestTurn) ||
     !shallow(previousExpandedTurns, expandedTurnIds) ||

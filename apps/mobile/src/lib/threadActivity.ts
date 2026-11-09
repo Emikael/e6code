@@ -5,13 +5,19 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@e6tools/contracts";
+import {
+  TURN_USAGE_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+  isToolLifecycleItemType,
+} from "@e6tools/contracts";
+import { appendTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
   OrchestrationThreadActivity,
   ToolLifecycleItemType,
   TurnId,
+  TurnUsageActivityPayload,
   UserInputQuestion,
 } from "@e6tools/contracts";
 import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
@@ -466,6 +472,8 @@ function deriveWorkLogEntries(
     if (activity.kind === "task.updated" && !isTerminalTaskUpdate(activity)) continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    // Folded into the turn's "Worked for ..." row instead.
+    if (activity.kind === TURN_USAGE_ACTIVITY_KIND) continue;
     if (activity.kind === "turn.plan.updated") {
       const taskListEntry = taskListWorkLogEntry(activity);
       if (taskListEntry) entries.push(taskListEntry);
@@ -1752,6 +1760,7 @@ interface ThreadFeedTurnFold {
 function deriveThreadFeedTurnFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestTurn: ThreadFeedLatestTurn | null,
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined,
 ): ReadonlyMap<string, ThreadFeedTurnFold> {
   const firstAssistantMessageIdByTurn = new Map<TurnId, string>();
   const terminalAssistantMessageIdByTurn = new Map<TurnId, string>();
@@ -1873,13 +1882,16 @@ function deriveThreadFeedTurnFolds(
           );
     const duration = elapsedMs === null ? null : formatDuration(elapsedMs);
     const interrupted = latestTurnMatches && latestTurn.state === "interrupted";
-    const label = interrupted
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = appendTurnUsage(
+      interrupted
+        ? duration
+          ? `You stopped after ${duration}`
+          : "You stopped this response"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked",
+      turnUsageByTurnId?.get(turnId),
+    );
 
     foldsByAnchorId.set(firstHiddenEntry.id, {
       turnId,
@@ -1897,6 +1909,7 @@ export function deriveThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1908,7 +1921,7 @@ export function deriveThreadFeedPresentation(
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
   );
-  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
+  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn, turnUsageByTurnId);
   const unsettledTurnId = deriveUnsettledTurnId(latestTurn);
   const isWorking = activeWorkStartedAt !== null;
   const collapsedEntryIds = new Set<string>();
