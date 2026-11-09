@@ -35,16 +35,16 @@
   --e6-foreground: oklch(0.269 0 0);
   --e6-popover: white;
   --e6-popover-foreground: oklch(0.269 0 0);
-  --e6-primary: #c4ee3a;
-  --e6-primary-foreground: #1b1c18;
-  --e6-primary-text: #4b6b00;
+  --e6-primary: #5b4ae0;
+  --e6-primary-foreground: #ffffff;
+  --e6-primary-text: #4a3ad0;
   --e6-muted: rgb(0 0 0 / 4%);
   --e6-muted-foreground: oklch(0.556 0 0);
   --e6-accent: rgb(0 0 0 / 4%);
   --e6-accent-foreground: oklch(0.269 0 0);
   --e6-border: rgb(0 0 0 / 8%);
   --e6-input: rgb(0 0 0 / 10%);
-  --e6-ring: #4b6b00;
+  --e6-ring: #5b4ae0;
   color: var(--e6-foreground);
   font-family: var(--e6-font-sans);
 }

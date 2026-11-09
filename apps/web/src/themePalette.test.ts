@@ -91,31 +91,31 @@ describe("theme files", () => {
     }
   });
 
-  it("keeps stock dark surfaces stepping lighter as they rise off the graphite canvas", () => {
+  it("keeps stock dark surfaces on the Slate hierarchy: cards recess, overlays rise", () => {
     expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0e0f0d",
-      surface: "#171815",
-      surfaceRaised: "#1b1c19",
-      surfaceOverlay: "#22231f",
-      toolbarControl: "#171815",
-      secondary: "#151614",
-      muted: "#151614",
-      accentSurface: "#242a12",
+      canvas: "#1a1d23",
+      surface: "#22252c",
+      surfaceRaised: "#13151a",
+      surfaceOverlay: "#22252c",
+      toolbarControl: "#22252c",
+      secondary: "#1f2228",
+      muted: "#1f2228",
+      accentSurface: "#2a2a3d",
     });
   });
 
   it("keeps the stock sidebar and chat on distinct surfaces in both appearances", () => {
     expectThemeColors(getStandardThemeColors("light"), {
-      canvas: "#f6f6f2",
-      sidebar: "#eeeee8",
+      canvas: "#ffffff",
+      sidebar: "#f8f9fb",
       sidebarRowActive: "#ffffff",
-      messageSurface: "#e9eae2",
+      messageSurface: "#eceef2",
     });
     expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0e0f0d",
-      sidebar: "#141512",
-      sidebarRowActive: "#2c2d29",
-      messageSurface: "#1f201c",
+      canvas: "#1a1d23",
+      sidebar: "#13151a",
+      sidebarRowActive: "#262930",
+      messageSurface: "#22252c",
     });
   });
 
@@ -978,8 +978,9 @@ describe("theme files", () => {
 
 describe("derived accent roles", () => {
   it("darkens a light action color until it reads as text and as an edge on every ground", () => {
-    // A theme seeded from the stock light palette keeps Volt as its action color.
-    const colors = getStandardThemeColors("light");
+    // A light action color (Volt) on the stock light grounds: too pale to read
+    // as text or an edge until the derivation darkens it.
+    const colors = { ...getStandardThemeColors("light"), messageAction: "#c4ee3a" };
     const derived = deriveThemeAccentVariables(colors);
     const text = derived["--app-theme-primary-text"]!;
     const edge = derived["--app-theme-primary-edge"]!;

@@ -50,10 +50,10 @@ describe("generate mobile Uniwind themes", () => {
 
     expect(variables.light).toEqual(readDefaultMobileThemeVariables("light"));
     expect(variables.dark).toEqual(readDefaultMobileThemeVariables("dark"));
-    expect(variables.light["--color-screen"]).toBe("#f6f6f2");
-    expect(variables.light["--color-drawer"]).toBe("#eeeee8");
-    expect(variables.dark["--color-screen"]).toBe("#0e0f0d");
-    expect(variables.dark["--color-drawer"]).toBe("#040504");
+    expect(variables.light["--color-screen"]).toBe("#ffffff");
+    expect(variables.light["--color-drawer"]).toBe("#f8f9fb");
+    expect(variables.dark["--color-screen"]).toBe("#1a1d23");
+    expect(variables.dark["--color-drawer"]).toBe("#0c0d10");
     expect(Object.keys(variables.light)).toEqual(Object.keys(variables.dark));
   });
 
@@ -81,11 +81,11 @@ describe("generate mobile Uniwind themes", () => {
         ),
         name,
       ).toEqual({
-        "--color-clerk-page": isDark ? "#0e0f0d" : "#f6f6f2",
-        "--color-clerk-foreground": isDark ? "#ecede5" : "#1b1c18",
-        "--color-clerk-foreground-muted": isDark ? "#9d9f95" : "#5d5f56",
-        "--color-clerk-border": isDark ? "#242523" : "#dfdfd7",
-        "--color-clerk-danger": isDark ? "#fda29b" : "#b42318",
+        "--color-clerk-page": isDark ? "#1a1d23" : "#ffffff",
+        "--color-clerk-foreground": isDark ? "#eceef3" : "#14161b",
+        "--color-clerk-foreground-muted": isDark ? "#9da3b0" : "#5a606d",
+        "--color-clerk-border": isDark ? "#2a2d33" : "#e3e5ea",
+        "--color-clerk-danger": isDark ? "#fca5a5" : "#b42318",
       });
     }
   });

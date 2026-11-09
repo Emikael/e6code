@@ -1030,7 +1030,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 :root {
   color-scheme: light;
   --radius: 0.5rem;
-  --background: #f6f6f2;
+  /* Porcelain: white content over cool slate-tinted chrome. */
+  --background: #ffffff;
   --app-chrome-background: var(--background);
   --toolbar-background: var(--app-chrome-background);
   --toolbar-foreground: var(--foreground);
@@ -1038,65 +1039,66 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --toolbar-control: var(--popover);
   --toolbar-control-foreground: var(--foreground);
   --toolbar-control-hover: var(--accent);
-  --surface-well: #e6e6df;
-  --surface-raised: #fbfbf8;
+  --surface-well: #eceef2;
+  --surface-raised: #f8f9fb;
   --surface-floating: var(--popover);
   --bezel-highlight: rgb(255 255 255 / 72%);
   --bezel-border: color-mix(in srgb, var(--foreground) 8%, transparent);
-  --command-deck-shadow: 0 16px 36px -14px rgb(27 28 24 / 12%), 0 2px 6px -1px rgb(27 28 24 / 5%);
-  --foreground: #1b1c18;
+  --command-deck-shadow: 0 16px 36px -14px rgb(20 22 27 / 16%), 0 2px 6px -1px rgb(20 22 27 / 5%);
+  --foreground: #14161b;
   --card: #ffffff;
   --card-foreground: var(--foreground);
   --popover: #ffffff;
   --popover-foreground: var(--foreground);
-  --primary: #c4ee3a;
-  --primary-foreground: #1b1c18;
-  /* Volt is a light fill: it carries ink text, a darker edge on light grounds,
-     a readable text variant, and a translucent wash for selections. */
-  --primary-hover: #b6e021;
-  --primary-edge: #6f920a;
-  --primary-text: #4b6b00;
-  --primary-surface: rgb(196 238 58 / 16%);
-  --secondary: #e9eae2;
-  --secondary-foreground: #2a2b26;
-  --muted: #efefe9;
-  --muted-foreground: #5d5f56;
-  --placeholder: #6f7168;
+  /* Iris is the one accent: the next action and a working agent. It carries
+     white ink on Porcelain, a darker edge and text variant, and a translucent
+     wash for selections and the Working pill. */
+  --primary: #5b4ae0;
+  --primary-foreground: #ffffff;
+  --primary-hover: #4c3bd1;
+  --primary-edge: #4a3ad0;
+  --primary-text: #4a3ad0;
+  --primary-surface: rgb(91 74 224 / 8%);
+  --secondary: #eceef2;
+  --secondary-foreground: #2a2d35;
+  --muted: #f1f3f6;
+  --muted-foreground: #5a606d;
+  --placeholder: #6b7180;
   --secondary-label: var(--muted-foreground);
   --icon-muted: var(--muted-foreground);
-  --message-surface: #e9eae2;
+  --message-surface: #eceef2;
   --message-foreground: var(--foreground);
   --message-action: var(--primary);
   --message-action-foreground: var(--primary-foreground);
   --message-action-hover: var(--primary-hover);
-  --accent: #e7e8e0;
+  --accent: #eef0f4;
   --accent-foreground: var(--foreground);
-  --error: #d92d20;
+  --error: #dc2626;
   --error-foreground: #b42318;
   --tool-error-icon: var(--error);
   --error-surface: color-mix(in srgb, var(--error) 8%, transparent);
   --destructive: var(--error);
-  --border: #dfdfd7;
-  --input: #cfd0c6;
-  --ring: #4b6b00;
+  --border: #e3e5ea;
+  --input: #cdd1d9;
+  --ring: #5b4ae0;
   --destructive-foreground: var(--error-foreground);
-  --info: #2970ff;
-  --info-foreground: #1849a9;
-  --success: #0e9384;
-  --success-foreground: #107569;
-  --warning: #b86e00;
-  --warning-foreground: #93570a;
+  --info: #2563eb;
+  --info-foreground: #1d4ed8;
+  --success: #0f9f8c;
+  --success-foreground: #0b7a6c;
+  --warning: #d97706;
+  --warning-foreground: #92400e;
   --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
   --update: var(--info);
   --update-foreground: var(--info-foreground);
   --update-surface: color-mix(in srgb, var(--update) 12%, transparent);
   /* Keep every sidebar primitive on the same light surface hierarchy, including
      portaled mobile sheets and settings navigation outside the app sidebar. */
-  --sidebar: #eeeee8;
+  --sidebar: #f8f9fb;
   --sidebar-foreground: var(--foreground);
-  --sidebar-muted-foreground: #5a5c53;
-  --sidebar-control-surface: #e5e6de;
-  --sidebar-row-hover: #e5e6de;
+  --sidebar-muted-foreground: #5a606d;
+  --sidebar-control-surface: #eceef2;
+  --sidebar-row-hover: #eceef2;
   --sidebar-row-active: #ffffff;
   --sidebar-row-selected: #ffffff;
   --sidebar-border: var(--border);
@@ -1105,104 +1107,103 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --code-foreground: var(--foreground);
   --terminal-background: var(--background);
   --terminal-foreground: var(--foreground);
-  --terminal-cursor: #1b1c18;
-  --terminal-selection-background: rgb(75 107 0 / 20%);
+  --terminal-cursor: #14161b;
+  --terminal-selection-background: rgb(91 74 224 / 18%);
 
   @variant dark {
     color-scheme: dark;
-    /* Graphite: warm near-black canvas with surfaces stepping lighter as they
-       rise. Borders and hover states provide separation without milky fills.
-       Chrome (sidebar, inspector) sits one step above the thread so the work
-       stays the brightest thing without the rail reading as a hole. */
-    --background: #0e0f0d;
-    --surface-well: #090a08;
-    --surface-raised: #1b1c19;
-    --surface-floating: #22231f;
+    /* Slate: cool blue-grey surfaces. The sidebar sits one step darker than
+       the thread, cards and overlays step lighter, and borders and hover
+       states provide separation without milky fills. */
+    --background: #1a1d23;
+    --surface-well: #0f1114;
+    --surface-raised: #13151a;
+    --surface-floating: #22252c;
     --bezel-highlight: rgb(255 255 255 / 5%);
     --bezel-border: color-mix(in srgb, var(--color-white) 7.5%, transparent);
-    --command-deck-shadow: 0 22px 44px -16px rgb(0 0 0 / 68%), 0 4px 12px -2px rgb(0 0 0 / 42%);
-    --foreground: #ecede5;
-    --card: #171815;
+    --command-deck-shadow: 0 22px 44px -16px rgb(0 0 0 / 70%), 0 4px 12px -2px rgb(0 0 0 / 42%);
+    --foreground: #eceef3;
+    --card: #22252c;
     --card-foreground: var(--foreground);
-    --popover: #22231f;
+    --popover: #22252c;
     --popover-foreground: var(--foreground);
-    --primary: #c4ee3a;
-    --primary-foreground: #141510;
-    --primary-hover: #d2f566;
-    --primary-edge: #c4ee3a;
-    --primary-text: #c4ee3a;
-    --primary-surface: rgb(196 238 58 / 12%);
-    --ring: #c4ee3a;
-    --placeholder: #85877d;
-    --info: #528bff;
-    --success: #2ed3b7;
-    --warning: #fdb022;
+    --primary: #9b8cff;
+    --primary-foreground: #14102e;
+    --primary-hover: #ada0ff;
+    --primary-edge: #9b8cff;
+    --primary-text: #b9afff;
+    --primary-surface: rgb(155 140 255 / 12%);
+    --ring: #9b8cff;
+    --placeholder: #8c92a0;
+    --info: #60a5fa;
+    --success: #2dd4bf;
+    --warning: #fbbf24;
     --secondary: --alpha(var(--color-white) / 3%);
-    --secondary-foreground: #e1e2da;
+    --secondary-foreground: #dfe2e8;
     --muted: --alpha(var(--color-white) / 3%);
-    --muted-foreground: #9d9f95;
+    --muted-foreground: #9da3b0;
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--foreground);
-    /* A user turn sits above the composer tone, level with the selected sidebar row. */
-    --message-surface: #1f201c;
-    --error: #f97066;
-    --error-foreground: #fda29b;
+    /* A user turn sits on the composer tone, level with floating surfaces. */
+    --message-surface: #22252c;
+    --error: #f87171;
+    --error-foreground: #fca5a5;
     --tool-error-icon: #fca5a5;
     --error-surface: color-mix(in srgb, var(--error) 16%, transparent);
-    --border: rgb(255 255 255 / 9%);
-    --input: rgb(255 255 255 / 14%);
-    --info-foreground: #84adff;
-    --success-foreground: #5fe9d0;
-    --warning-foreground: #fec84b;
+    --border: rgb(255 255 255 / 7%);
+    --input: rgb(255 255 255 / 13%);
+    --info-foreground: #93c5fd;
+    --success-foreground: #5eead4;
+    --warning-foreground: #fcd34d;
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
-    --update-foreground: #84adff;
+    --update-foreground: #93c5fd;
     --update-surface: color-mix(in srgb, var(--update) 18%, transparent);
-    --sidebar: #141512;
+    --sidebar: #13151a;
     --sidebar-control-surface: var(--muted);
     --sidebar-row-hover: var(--accent);
     --sidebar-row-active: var(--accent);
     --sidebar-row-selected: var(--muted);
     --sidebar-stage-fade: var(--sidebar);
-    --terminal-cursor: #c4ee3a;
-    --terminal-selection-background: rgb(196 238 58 / 22%);
+    --terminal-cursor: #9b8cff;
+    --terminal-selection-background: rgb(155 140 255 / 22%);
   }
 }
 
 /* Keep both sidebar implementations (default and legacy) on the same quiet
-   paper hierarchy: a chrome-toned rail, a tinted hover, and white
+   porcelain hierarchy: a slate-tinted rail, a tinted hover, and white
    selected/raised surfaces. */
 [data-app-sidebar] {
-  --background: #f6f6f2;
-  --foreground: #1b1c18;
+  --background: #ffffff;
+  --foreground: #14161b;
   --card: #ffffff;
-  --card-foreground: #1b1c18;
-  --accent: #e7e8e0;
-  --accent-foreground: #1b1c18;
-  --muted: #efefe9;
-  --muted-foreground: #5d5f56;
-  --border: #dfdfd7;
-  --input: #cfd0c6;
-  --sidebar: #eeeee8;
-  --sidebar-foreground: #1b1c18;
-  --sidebar-muted-foreground: #5a5c53;
-  --sidebar-control-surface: #e5e6de;
-  --sidebar-row-hover: #e5e6de;
+  --card-foreground: #14161b;
+  --accent: #eef0f4;
+  --accent-foreground: #14161b;
+  --muted: #f1f3f6;
+  --muted-foreground: #5a606d;
+  --border: #e3e5ea;
+  --input: #cdd1d9;
+  --sidebar: #f8f9fb;
+  --sidebar-foreground: #14161b;
+  --sidebar-muted-foreground: #5a606d;
+  --sidebar-control-surface: #eceef2;
+  --sidebar-row-hover: #eceef2;
   --sidebar-row-active: #ffffff;
   --sidebar-row-selected: #ffffff;
-  --sidebar-border: #dfdfd7;
+  --sidebar-border: #e3e5ea;
   --sidebar-stage-fade: var(--sidebar);
 
   @variant dark {
-    --background: #0e0f0d;
-    --foreground: #ecede5;
-    --card: #141512;
+    --background: #1a1d23;
+    --foreground: #eceef3;
+    --card: #13151a;
     --card-foreground: var(--foreground);
-    --accent: #22231f;
-    --accent-foreground: #f4f5ee;
-    --muted: #1b1c19;
-    --muted-foreground: #9d9f95;
-    --border: rgb(255 255 255 / 9%);
-    --input: rgb(255 255 255 / 18%);
+    --accent: #22252c;
+    --accent-foreground: #f1f2f6;
+    --muted: #1a1d23;
+    --muted-foreground: #9da3b0;
+    --border: rgb(255 255 255 / 7%);
+    --input: rgb(255 255 255 / 16%);
     --sidebar: var(--card);
     --sidebar-foreground: var(--foreground);
     --sidebar-muted-foreground: var(--muted-foreground);
@@ -1212,8 +1213,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --sidebar-row-selected: color-mix(in srgb, var(--contrast-foreground) 7%, transparent);
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
-    /* Row metadata sits a step below read titles (75% white). */
-    --secondary-label: #8f9188;
+    /* Row metadata sits a step below read titles. */
+    --secondary-label: #8f95a2;
   }
 }
 

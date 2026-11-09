@@ -2338,7 +2338,7 @@ describe("PreviewManager", () => {
           "preview:annotation-theme",
           expect.objectContaining({
             colorScheme: "light",
-            primary: "#c4ee3a",
+            primary: "#5b4ae0",
           }),
         );
 
