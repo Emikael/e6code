@@ -164,8 +164,8 @@ private final class ReviewDiffTextLayout {
     font: UIFont,
     width: CGFloat,
     characterWidth: CGFloat,
-    styleRuns: [ReviewDiffCodeStyleRun],
-    faces: ReviewDiffCodeFaces?
+    styleRuns: [ReviewDiffCodeStyleRun] = [],
+    faces: ReviewDiffCodeFaces? = nil
   ) {
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byCharWrapping
