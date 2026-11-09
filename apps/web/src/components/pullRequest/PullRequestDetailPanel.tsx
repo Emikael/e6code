@@ -41,7 +41,6 @@ import {
   RotateCcwIcon,
   SquareCheckIcon,
   SquareDashedIcon,
-  SquareIcon,
   SquareXIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -193,7 +192,7 @@ import {
   resolvePullRequestState,
   summarizePullRequestChecks,
 } from "./pullRequestPresentation";
-import { PullRequestGlyph } from "./pullRequestIcons";
+import { PullRequestGlyph, SquareQuestionMarkIcon } from "./pullRequestIcons";
 import { usePullRequestMergeCommandStore } from "./pullRequestMergeCommand";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { destructiveApprovalPendingIn } from "../chat/holdToConfirm";
@@ -438,7 +437,7 @@ const READINESS_STATUS = {
   ok: { Icon: SquareCheckIcon, className: "text-success-foreground", word: "Met" },
   blocked: { Icon: SquareXIcon, className: "text-destructive-foreground", word: "Blocked" },
   waiting: { Icon: SquareDashedIcon, className: "text-warning-foreground", word: "Waiting" },
-  unknown: { Icon: SquareIcon, className: "text-muted-foreground", word: "Unknown" },
+  unknown: { Icon: SquareQuestionMarkIcon, className: "text-muted-foreground", word: "Unknown" },
 } as const satisfies Record<MergeReadinessStatus, unknown>;
 
 /**

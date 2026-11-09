@@ -1,4 +1,5 @@
 import {
+  createLucideIcon,
   GitMergeIcon,
   GitPullRequestArrowIcon,
   GitPullRequestClosedIcon,
@@ -21,6 +22,16 @@ export const PullRequestGlyph = {
   link: Link2Icon,
   unlink: Unlink2Icon,
 } as const;
+
+/**
+ * Lucide's square holding its circle-question-mark glyph. Lucide ships no square variant, and
+ * the merge-readiness rows need one beside the square check, x and dashed icons.
+ */
+export const SquareQuestionMarkIcon = createLucideIcon("square-question-mark", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "square" }],
+  ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "question" }],
+  ["path", { d: "M12 17h.01", key: "dot" }],
+]);
 
 export type PullRequestGlyphIcon = (typeof PullRequestGlyph)[keyof typeof PullRequestGlyph];
 
