@@ -745,6 +745,44 @@ it.effect("defaults settled fields when decoding historical thread data", () =>
   }),
 );
 
+it.effect("decodes a newer server's agent state kind as no state", () =>
+  Effect.gen(function* () {
+    const shellWith = (agentState: unknown) =>
+      decodeOrchestrationThreadShell({
+        id: "thread-1",
+        projectId: "project-1",
+        title: "Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: null,
+        session: null,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+        agentState,
+      });
+
+    assert.strictEqual((yield* shellWith({ kind: "future-thing" })).agentState, undefined);
+    assert.deepStrictEqual((yield* shellWith({ kind: "compacting" })).agentState, {
+      kind: "compacting",
+    });
+    assert.deepStrictEqual(
+      (yield* shellWith({ kind: "retrying", attempt: 2, maxAttempts: 5 })).agentState,
+      { kind: "retrying", attempt: 2, maxAttempts: 5 },
+    );
+    assert.deepStrictEqual(
+      (yield* shellWith({ kind: "rate-limited", resetsAt: "2026-01-01T01:00:00.000Z" })).agentState,
+      { kind: "rate-limited", resetsAt: "2026-01-01T01:00:00.000Z" },
+    );
+  }),
+);
+
 it.effect("decodes thread pull request links with snapshot and stack", () =>
   Effect.gen(function* () {
     const shell = yield* decodeOrchestrationThreadShell({

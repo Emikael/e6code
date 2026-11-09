@@ -1799,14 +1799,13 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       const compaction = promiseWithResolvers<unknown>();
       runtimeMock.state.subscribedEvents = [busy.promise, retry.promise, compaction.promise];
 
-      const statesFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter(
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.threadId === threadId),
+        Stream.takeUntil(
           (event) =>
-            event.threadId === threadId &&
             event.type === "session.state.changed" &&
-            event.payload.agentState !== undefined,
+            event.payload.agentState?.kind === "compacting",
         ),
-        Stream.take(2),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1849,10 +1848,16 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         data: { sessionID, reason: "auto", recent: "" },
       });
 
-      const states = Array.from(
-        yield* Fiber.join(statesFiber).pipe(Effect.timeout("1 second")),
-      ).map((event) =>
-        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      // The retry is named by the working indicator, not a warning row.
+      NodeAssert.equal(
+        events.some((event) => event.type === "runtime.warning"),
+        false,
+      );
+      const states = events.flatMap((event) =>
+        event.type === "session.state.changed" && event.payload.agentState !== undefined
+          ? [event.payload.agentState]
+          : [],
       );
       NodeAssert.deepStrictEqual(states, [
         { kind: "retrying", attempt: 3 },

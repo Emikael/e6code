@@ -12,6 +12,7 @@ import {
   ClientSurface,
   CommandId,
   EventId,
+  ForwardCompatibleOptional,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -970,9 +971,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   /**
    * Live agent state while a turn runs (see ThreadAgentState). Omitted when
-   * the agent is simply working, so idle threads pay nothing on the wire.
+   * the agent is simply working, so idle threads pay nothing on the wire. A
+   * kind from a newer server decodes as absent instead of failing the shell.
    */
-  agentState: Schema.optional(ThreadAgentState),
+  agentState: ForwardCompatibleOptional(ThreadAgentState),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 

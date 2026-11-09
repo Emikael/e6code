@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
   EventId,
+  ForwardCompatibleOptional,
   IsoDateTime,
   NonNegativeInt,
   ProviderItemId,
@@ -234,9 +235,9 @@ const SessionStateChangedPayload = Schema.Struct({
   /**
    * What the agent is doing now, when it is not plain work; null ends it.
    * Absent leaves it as is while the session runs or waits; any other state
-   * ends it.
+   * ends it. A kind this build does not know decodes as absent.
    */
-  agentState: Schema.optional(Schema.NullOr(ThreadAgentState)),
+  agentState: ForwardCompatibleOptional(Schema.NullOr(ThreadAgentState)),
 });
 export type SessionStateChangedPayload = typeof SessionStateChangedPayload.Type;
 

@@ -6,6 +6,26 @@ import { classifyTaskAgentKind, ProviderRuntimeEvent } from "./providerRuntime.t
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
+  it("decodes an unknown agent state kind as absent, keeping null and known kinds", () => {
+    const stateChanged = (agentState: unknown) => {
+      const event = decodeRuntimeEvent({
+        type: "session.state.changed",
+        eventId: "event-agent-state",
+        provider: "claudeAgent",
+        createdAt: "2026-02-28T00:00:00.000Z",
+        threadId: "thread-1",
+        payload: { state: "running", agentState },
+      });
+      return event.type === "session.state.changed" ? event.payload : undefined;
+    };
+    expect(stateChanged({ kind: "future-thing" })).toEqual({ state: "running" });
+    expect(stateChanged(null)?.agentState).toBeNull();
+    expect(stateChanged({ kind: "retrying", attempt: 1 })?.agentState).toEqual({
+      kind: "retrying",
+      attempt: 1,
+    });
+  });
+
   it("requires input and output totals for complete turn usage", () => {
     const completeEvent = {
       type: "turn.completed",

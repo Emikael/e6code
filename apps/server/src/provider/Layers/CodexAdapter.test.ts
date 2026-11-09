@@ -1880,41 +1880,39 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("maps retryable Codex error notifications to runtime.warning", () =>
+  it.effect("names retries in the working indicator and leaves only final failures as rows", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      yield* runtime.emit({
-        id: asEventId("evt-retryable-error"),
-        kind: "notification",
-        provider: ProviderDriverKind.make("codex"),
-        threadId: asThreadId("thread-1"),
-        createdAt: "2026-01-01T00:00:00.000Z",
-        method: "error",
-        turnId: asTurnId("turn-1"),
-        payload: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          error: {
-            message: "Reconnecting... 2/5",
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      for (const [index, willRetry] of [true, false].entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-codex-error-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          method: "error",
+          turnId: asTurnId("turn-1"),
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message: willRetry ? "Reconnecting... 2/5" : "Stream failed" },
+            willRetry,
           },
-          willRetry: true,
-        },
-      } satisfies ProviderEvent);
-
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-
-      NodeAssert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
+        } satisfies ProviderEvent);
       }
-      NodeAssert.equal(firstEvent.value.type, "runtime.warning");
-      if (firstEvent.value.type !== "runtime.warning") {
-        return;
+
+      const [retry, failure] = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.equal(retry?.type, "session.state.changed");
+      NodeAssert.equal(failure?.type, "runtime.error");
+      if (failure?.type === "runtime.error") {
+        NodeAssert.equal(failure.turnId, "turn-1");
+        NodeAssert.equal(failure.payload.message, "Stream failed");
       }
-      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
-      NodeAssert.equal(firstEvent.value.payload.message, "Reconnecting... 2/5");
     }),
   );
 

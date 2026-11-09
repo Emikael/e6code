@@ -2181,25 +2181,26 @@ function mapToRuntimeEvents(
   if (event.method === "error") {
     const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
     const message = payload?.error.message ?? event.message ?? "Provider runtime error";
-    const willRetry = payload?.willRetry === true;
-    const errorEvent: ProviderRuntimeEvent = {
-      type: willRetry ? "runtime.warning" : "runtime.error",
-      ...runtimeEventBase(event, canonicalThreadId),
-      payload: {
-        message,
-        ...(!willRetry ? { class: "provider_error" as const } : {}),
-        ...(event.payload !== undefined ? { detail: event.payload } : {}),
-      },
-    };
-    if (!willRetry) return [errorEvent];
-    // The warning row keeps the reason; the working indicator names the retry
-    // until the stream resumes. Codex only reports its counters in the text.
+    if (payload?.willRetry !== true) {
+      return [
+        {
+          type: "runtime.error",
+          ...runtimeEventBase(event, canonicalThreadId),
+          payload: {
+            message,
+            class: "provider_error" as const,
+            ...(event.payload !== undefined ? { detail: event.payload } : {}),
+          },
+        },
+      ];
+    }
+    // A retry is not a work-log row: the working indicator names it until the
+    // stream resumes, and a final failure arrives as a non-retried error.
+    // Codex only reports its counters in the text.
     const counters = /(\d+)\s*\/\s*(\d+)/.exec(message);
     return [
-      errorEvent,
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        eventId: EventId.make(`${event.id}:agent-retrying`),
         type: "session.state.changed",
         payload: {
           state: "running",
