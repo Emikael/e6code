@@ -156,16 +156,16 @@ function PullRequestRowImpl({
   const { Icon, providerName } = getSourceControlPresentationForKind(entry.provider);
   const status = resolvePullRequestRowStatus(entry, authoredByViewer);
   return (
-    <button
-      ref={statsRef}
-      data-pull-request-stats-key={statsKey}
-      type="button"
-      aria-current={selected ? "true" : undefined}
+    // The row's action is a button laid behind the content rather than around it, so the
+    // linked-thread link and the checks and stack menus are its siblings, not nested inside a
+    // button. It comes first, so Tab still reaches the row before its controls. A click anywhere
+    // on the row bubbles here; the inner controls stop their own clicks.
+    <div
       onClick={() => onSelect(entry)}
       className={cn(
         PULL_REQUEST_ROW_CLASS,
         PAGE_ROW_CLASS,
-        "cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "relative isolate cursor-pointer transition-colors",
         // Offscreen rows are skipped for style, layout and paint: a long list costs what the
         // viewport shows, not what the pages have loaded. The intrinsic size keeps the
         // scrollbar honest while a row is skipped.
@@ -173,6 +173,15 @@ function PullRequestRowImpl({
         selected ? "bg-accent" : "hover:bg-accent/60",
       )}
     >
+      <button
+        ref={statsRef}
+        data-pull-request-stats-key={statsKey}
+        type="button"
+        aria-current={selected ? "true" : undefined}
+        aria-label={`#${entry.number} ${entry.title}, ${status.label}`}
+        // Inset: the row's paint containment would clip a ring drawn outside it.
+        className="absolute inset-0 -z-10 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      />
       {/* No conflict badge on the glyph: the status chip always words a conflict. */}
       <PullRequestRowGlyph
         state={entry.state}
@@ -292,7 +301,7 @@ function PullRequestRowImpl({
         }
         updatedAt={entry.updatedAt}
       />
-    </button>
+    </div>
   );
 }
 
