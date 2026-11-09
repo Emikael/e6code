@@ -1,3 +1,4 @@
+import { HOLD_TO_CONFIRM_MS } from "@e6tools/client-runtime/destructive-commands";
 import { useState } from "react";
 import { Alert, Platform, Pressable } from "react-native";
 import Animated, {
@@ -11,9 +12,6 @@ import Animated, {
 
 import { AppText as Text } from "../../components/AppText";
 import { showConfirmDialog } from "../../components/ConfirmDialogHost";
-
-/** Matches the web hold: a destructive command is allowed by a 1s press. */
-const HOLD_TO_ALLOW_MS = 1000;
 
 /**
  * Asks before allowing, for people who cannot hold: a screen reader's
@@ -67,11 +65,11 @@ export function HoldToAllowButton(props: {
         confirmAllow(props.reason, props.onConfirm);
       }}
       disabled={props.disabled}
-      delayLongPress={HOLD_TO_ALLOW_MS}
+      delayLongPress={HOLD_TO_CONFIRM_MS}
       onPressIn={() => {
         setPressed(true);
         if (reduceMotion) return;
-        progress.set(withTiming(1, { duration: HOLD_TO_ALLOW_MS, easing: Easing.linear }));
+        progress.set(withTiming(1, { duration: HOLD_TO_CONFIRM_MS, easing: Easing.linear }));
       }}
       onPressOut={release}
       onLongPress={() => {

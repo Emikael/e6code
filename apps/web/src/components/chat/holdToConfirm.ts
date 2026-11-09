@@ -1,5 +1,4 @@
-/** How long a destructive approval must be held before it is allowed. */
-export const HOLD_TO_CONFIRM_MS = 1000;
+import { HOLD_TO_CONFIRM_MS } from "@e6tools/client-runtime/destructive-commands";
 
 /**
  * macOS and Electron send no keyup for Enter while ⌘ is down, so a held ⌘↵

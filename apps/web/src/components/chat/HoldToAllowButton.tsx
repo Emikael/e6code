@@ -18,8 +18,8 @@ import {
   approvalShortcutClaimsKeyDown,
   approvalShortcutKeyUpReleases,
   createHoldToConfirm,
-  HOLD_TO_CONFIRM_MS,
 } from "./holdToConfirm";
+import { HOLD_TO_CONFIRM_MS } from "@e6tools/client-runtime/destructive-commands";
 
 interface HoldToAllowButtonProps {
   /** What the command would do, e.g. "Deletes files recursively". */

@@ -1,3 +1,4 @@
+import { HOLD_TO_CONFIRM_MS } from "@e6tools/client-runtime/destructive-commands";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -6,7 +7,6 @@ import {
   approvalShortcutKeyUpReleases,
   createHoldToConfirm,
   destructiveApprovalPendingIn,
-  HOLD_TO_CONFIRM_MS,
   SHORTCUT_FIRST_REPEAT_GRACE_MS,
   SHORTCUT_REPEAT_WATCHDOG_MS,
   type HoldSource,
