@@ -37,6 +37,7 @@ import {
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
   type MessageId,
   type OrchestrationLatestTurn,
   type ThreadAgentState,
@@ -64,6 +65,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
   // A Tasks row's detail is its step list, shown when expanded; the label is its summary.
   if (entry.sourceActivityKind === "turn.plan.updated") return entry.label;
+  // "Declined · <instructions>"; the full instructions are the expanded detail.
+  if (entry.sourceActivityKind === APPROVAL_FEEDBACK_ACTIVITY_KIND) return entry.label;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;

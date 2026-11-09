@@ -1,5 +1,6 @@
 import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
 import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
   type ChatAttachment,
   CommandId,
   EventId,
@@ -97,6 +98,18 @@ type ProviderIntentEvent = Extract<
       | "thread.session-set";
   }
 >;
+
+const APPROVAL_FEEDBACK_PREVIEW_CHARS = 160;
+
+/** One line of the instructions, short enough for a work log row. */
+function approvalFeedbackPreview(feedback: string): string {
+  const firstLine = feedback.split("\n", 1)[0]!.trim();
+  const shortened =
+    firstLine.length > APPROVAL_FEEDBACK_PREVIEW_CHARS
+      ? `${firstLine.slice(0, APPROVAL_FEEDBACK_PREVIEW_CHARS - 1).trimEnd()}…`
+      : firstLine;
+  return shortened === feedback ? feedback : shortened.length > 0 ? shortened : "instructions";
+}
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -1889,7 +1902,33 @@ const make = Effect.gen(function* () {
           }).pipe(Effect.as(Option.none())),
         ),
       );
-    if (feedback === undefined || Option.isNone(response) || response.value.feedbackDelivered) {
+    if (feedback === undefined || Option.isNone(response)) return;
+    if (response.value.feedbackDelivered) {
+      // The provider read the instructions with the refusal, so nothing in the
+      // conversation shows them. Record them where the approval resolved.
+      const preview = approvalFeedbackPreview(feedback);
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: yield* serverCommandId("approval-feedback-activity"),
+          threadId: event.payload.threadId,
+          activity: {
+            id: EventId.make(`approval-feedback:${event.payload.requestId}`),
+            tone: "approval",
+            kind: APPROVAL_FEEDBACK_ACTIVITY_KIND,
+            summary: `Declined · ${preview}`,
+            payload: {
+              requestId: event.payload.requestId,
+              feedback,
+              // Only a shortened preview needs the full text behind it.
+              ...(preview !== feedback ? { detail: feedback } : {}),
+            },
+            turnId: thread.session?.activeTurnId ?? null,
+            createdAt: event.payload.createdAt,
+          },
+          createdAt: event.payload.createdAt,
+        })
+        .pipe(Effect.ignoreCause({ log: true }));
       return;
     }
     // The provider cannot carry a reason with the refusal, so the instructions

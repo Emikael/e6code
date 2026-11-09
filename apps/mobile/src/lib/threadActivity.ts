@@ -6,6 +6,7 @@ import {
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
 import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
   TURN_USAGE_ACTIVITY_KIND,
   UserInputAttachmentAnswerPayload,
   isToolLifecycleItemType,
@@ -1149,6 +1150,8 @@ export function workEntryRowLabel(entry: WorkLogEntry, expanded = false): string
   if (entry.agentSpawn) return agentSpawnLabel(entry.agentSpawn);
   // The steps are the expanded body; the label stays the summary either way.
   if (entry.taskList) return entry.label;
+  // "Declined · <instructions>"; the full instructions are the expanded detail.
+  if (entry.sourceActivityKind === APPROVAL_FEEDBACK_ACTIVITY_KIND) return entry.label;
   const presentation = resolveWorkEntryToolPresentation(entry);
   if (presentation) return presentation.displayName;
   if (expanded && entry.command?.trim()) return "Command";

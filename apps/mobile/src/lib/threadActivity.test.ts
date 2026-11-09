@@ -707,6 +707,55 @@ describe("buildThreadFeed", () => {
     expect(row?.canExpand).toBe(input.canExpand);
   });
 
+  it("shows a declined approval with the instructions the provider received", () => {
+    const thread = makeThread({
+      id: ThreadId.make("declined-with-instructions"),
+      projectId: ProjectId.make("project-1"),
+      title: "Declined",
+      activities: [
+        makeActivity({
+          id: EventId.make("approval-feedback:approval-1"),
+          createdAt: "2026-09-01T00:00:00.000Z",
+          kind: "approval.declined-with-instructions",
+          tone: "approval",
+          summary: "Declined · Only delete build/cache",
+          payload: { requestId: "approval-1", feedback: "Only delete build/cache" },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    expect(group?.type).toBe("activity-group");
+    if (group?.type !== "activity-group") return;
+    expect(group.activities.map((row) => workEntryRowLabel(row.workEntry))).toEqual([
+      "Declined · Only delete build/cache",
+    ]);
+  });
+
+  it("keeps the declined label when long instructions expand to their full text", () => {
+    const full = `Only delete build/cache\nKeep ${"the fixtures ".repeat(20).trim()}`;
+    const thread = makeThread({
+      id: ThreadId.make("declined-long"),
+      projectId: ProjectId.make("project-1"),
+      title: "Declined",
+      activities: [
+        makeActivity({
+          id: EventId.make("approval-feedback:approval-2"),
+          createdAt: "2026-09-01T00:00:00.000Z",
+          kind: "approval.declined-with-instructions",
+          tone: "approval",
+          summary: "Declined · Only delete build/cache",
+          payload: { requestId: "approval-2", feedback: full, detail: full },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    const row = group.activities[0]!;
+    expect(workEntryRowLabel(row.workEntry)).toBe("Declined · Only delete build/cache");
+    expect(workEntryRowLabel(row.workEntry, true)).toBe("Declined · Only delete build/cache");
+    expect(row.canExpand).toBe(true);
+  });
+
   it.each(["runtime.error", "runtime.warning"] as const)(
     "shows and copies the message of %s without a duplicate expanded body",
     (kind) => {
