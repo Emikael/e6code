@@ -73,7 +73,10 @@ const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@e6tools/shared/chatList";
 import { toolActivityFaviconUrl } from "@e6tools/shared/favicon";
 import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
-import { resolveWorkRowStats } from "@e6tools/client-runtime/work-log/step-meta";
+import {
+  resolveWorkRowStats,
+  workRowAccessibleText,
+} from "@e6tools/client-runtime/work-log/step-meta";
 import { getProjectFaviconCacheKey } from "@e6tools/shared/projectFavicon";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
@@ -424,7 +427,7 @@ function TimelineLoadEarlierHeader({
           type="button"
           onClick={onLoadEarlier}
           disabled={loading}
-          className="w-full py-1.5 text-xs text-muted-foreground/60 hover:text-foreground disabled:cursor-default"
+          className="w-full py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-default"
         >
           {loading ? "Loading earlier turns…" : "Load earlier turns"}
         </button>
@@ -5452,16 +5455,21 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             : iconConfig.className,
   );
   const headingClass = showWarningIndicator
-    ? "font-medium text-warning"
+    ? "font-medium text-warning-foreground"
     : showDestructiveRowStyle
       ? "font-medium text-destructive"
       : workLogEntryIsToolLike(workEntry)
         ? "text-secondary-label"
         : "text-foreground/80";
   const accessiblePreview = [previewText, answerPreview].filter(Boolean).join(": ");
-  const accessibleDisplayText = showFailedIndicator
-    ? `${accessiblePreview}, tool call failed`
-    : accessiblePreview;
+  const isLiveStep = timeline && groupView?.liveEntryId === workEntry.id;
+  const accessibleDisplayText = workRowAccessibleText({
+    label: accessiblePreview,
+    failed: showFailedIndicator,
+    diffStat: stepMeta?.diffStat ?? inlineDiffStat,
+    duration: stepMeta?.duration ?? null,
+    running: isLiveStep,
+  });
   const rowToggleProps = canExpand
     ? {
         role: "button" as const,
@@ -5496,7 +5504,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           aria-label={showFailedIndicator ? "Tool call failed" : undefined}
         >
           {timeline ? (
-            <ThinkingTimelineMarker live={groupView?.liveEntryId === workEntry.id}>
+            <ThinkingTimelineMarker live={isLiveStep}>
               <ToolActivityIconView
                 icon={entryToolIcon}
                 fallbackName={entryIconName}

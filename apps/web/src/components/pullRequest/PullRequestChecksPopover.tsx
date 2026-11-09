@@ -130,9 +130,11 @@ export function PullRequestChecksPopover({
   const summary = checks === undefined || stale ? null : summarizePullRequestChecks(checks);
   return (
     <Popover>
-      {/* A listing row is itself a button, so the trigger renders as a span: a nested button is
-          not valid inside one. The click is stopped here so opening the checks does not also
-          select the row it sits on. */}
+      {/* Used in a pull request listing row and in the detail panel's checks line. Neither
+          nests it inside a button: the row's own button is a sibling laid behind the content.
+          The trigger is a span with the button role so it sits inline with the text around it.
+          The click is stopped so opening the checks in a row does not also select that row;
+          in the detail panel there is nothing above it to select. */}
       <PopoverTrigger
         nativeButton={false}
         render={

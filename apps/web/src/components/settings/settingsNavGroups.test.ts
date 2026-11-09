@@ -61,7 +61,7 @@ describe("settingsProvidersBadge", () => {
         provider(true, false, "unauthenticated"),
         provider(true, true, "unknown"),
       ]),
-    ).toEqual({ text: "1 signed out", tone: "warning" });
+    ).toEqual({ text: "1 signed out", label: "1 signed out", tone: "warning" });
   });
 
   it("shows nothing when every enabled provider is signed in", () => {
@@ -84,7 +84,7 @@ describe("settingsConnectionsBadge", () => {
         environment({ _tag: "SshConnectionTarget", connectionId: "ssh-1" }),
         environment({ _tag: "RelayConnectionTarget" }),
       ]),
-    ).toEqual({ text: "3", tone: "muted" });
+    ).toEqual({ text: "3", label: "3 saved", tone: "muted" });
   });
 
   it("shows nothing without saved environments", () => {

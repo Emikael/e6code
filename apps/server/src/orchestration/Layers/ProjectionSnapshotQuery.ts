@@ -2877,7 +2877,7 @@ pending_approval_requests AS (
                         pinnedAt: row.pinnedAt,
                         pinOrderKey: row.pinOrderKey ?? null,
                         activeOrderKey: row.activeOrderKey ?? null,
-                        setupScriptHash: row.setupScriptHash ?? null,
+                        ...(row.setupScriptHash ? { setupScriptHash: row.setupScriptHash } : {}),
                         titleRegeneration: mapTitleRegeneration(row),
                         titleState: row.titleState,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -3062,7 +3062,7 @@ pending_approval_requests AS (
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   activeOrderKey: row.activeOrderKey ?? null,
-                  setupScriptHash: row.setupScriptHash ?? null,
+                  ...(row.setupScriptHash ? { setupScriptHash: row.setupScriptHash } : {}),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -3431,7 +3431,9 @@ pending_approval_requests AS (
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
-        setupScriptHash: threadRow.value.setupScriptHash ?? null,
+        ...(threadRow.value.setupScriptHash
+          ? { setupScriptHash: threadRow.value.setupScriptHash }
+          : {}),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         session,

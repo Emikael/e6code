@@ -330,7 +330,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                       <span className="block truncate text-sm font-medium text-sidebar-foreground">
                         {item.title}
                       </span>
-                      <span className="block truncate text-[11px] text-sidebar-muted-foreground/75">
+                      <span className="block truncate text-[11px] text-sidebar-muted-foreground">
                         {SETTINGS_SECTION_LABELS[item.to]}
                       </span>
                     </span>
@@ -346,7 +346,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   <section key={group.label} aria-labelledby={headingId}>
                     <h2
                       id={headingId}
-                      className="px-[var(--sidebar-row-content-inset)] pb-1 text-[11px] font-medium text-sidebar-muted-foreground/70"
+                      className="px-[var(--sidebar-row-content-inset)] pb-1 text-[11px] font-medium text-sidebar-muted-foreground"
                     >
                       {group.label}
                     </h2>
@@ -380,10 +380,11 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                                     "shrink-0 text-[11px] font-medium tabular-nums",
                                     badge.tone === "warning"
                                       ? "rounded-sm bg-warning-surface px-1.5 py-px text-warning-foreground"
-                                      : "text-sidebar-muted-foreground/80",
+                                      : "text-sidebar-muted-foreground",
                                   )}
                                 >
-                                  {badge.text}
+                                  <span aria-hidden="true">{badge.text}</span>
+                                  <span className="sr-only">{badge.label}</span>
                                 </span>
                               ) : null}
                             </SidebarMenuButton>

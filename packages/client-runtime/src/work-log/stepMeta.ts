@@ -77,3 +77,30 @@ export function resolveWorkRowStats(
   }
   return { meta: null, inlineDiffStat: step.diffStat ?? null };
 }
+
+const countWord = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/**
+ * The accessible name of an expandable work row. The row's own label replaces
+ * its content for screen readers, so it repeats the meta the row shows beside
+ * the label: "Edit app.ts, 48 additions, 12 deletions, took 1.2s, running".
+ */
+export function workRowAccessibleText(input: {
+  readonly label: string;
+  readonly failed: boolean;
+  readonly diffStat: WorkLogDiffStat | null;
+  readonly duration: string | null;
+  readonly running: boolean;
+}): string {
+  const parts = [input.label];
+  if (input.failed) parts.push("tool call failed");
+  if (input.diffStat) {
+    parts.push(
+      countWord(input.diffStat.additions, "addition"),
+      countWord(input.diffStat.deletions, "deletion"),
+    );
+  }
+  if (input.duration) parts.push(`took ${input.duration}`);
+  if (input.running) parts.push("running");
+  return parts.join(", ");
+}

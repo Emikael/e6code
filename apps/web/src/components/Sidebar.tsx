@@ -427,7 +427,7 @@ function SidebarThreadTooltip({
             </div>
           ) : null}
           {branchMismatch ? (
-            <div className="flex min-w-0 items-start gap-2 text-warning">
+            <div className="flex min-w-0 items-start gap-2 text-warning-foreground">
               <CircleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
               <div className="min-w-0 flex-1 wrap-break-word leading-5">
                 You're currently checked out on another branch.
@@ -536,7 +536,7 @@ function SnoozePopoverButton(props: {
             className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
           >
             <span className="flex-1">{preset.label}</span>
-            <span className="font-mono text-[10px] text-muted-foreground/60 tabular-nums">
+            <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
               {preset.whenLabel}
             </span>
           </button>
@@ -711,7 +711,7 @@ function SidebarSectionHeader(props: {
   const onMenu = props.onMenu;
   const className = cn(
     "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
-    snoozed ? "text-info-foreground" : "text-sidebar-muted-foreground/60",
+    snoozed ? "text-info-foreground" : "text-sidebar-muted-foreground",
     props.dragging && "text-sidebar-foreground/80",
     props.isDropTarget && "text-primary-text",
   );
@@ -2126,22 +2126,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           ) : topStatus.icon === "done" ? (
                             <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />
                           ) : null}
-                          {/* The label alone is the live region: a role="status"
-                            wrapper around the ticking duration would make
-                            screen readers announce every second. */}
-                          <span role="status" className="flex min-w-0 items-center gap-1">
+                          {/* The short label alone is the live region. The plan-step
+                            detail and the ticking duration sit outside it, or screen
+                            readers would announce every step and every second. The
+                            open thread is announced by the chat header instead, which
+                            stays heard when the sidebar is a closed sheet. */}
+                          <span role={props.isActive ? undefined : "status"} className="shrink-0">
                             <span aria-hidden={topStatus.fullLabel ? true : undefined}>
                               {topStatus.label}
                             </span>
-                            {topStatus.detail ? (
-                              <span className="max-w-28 truncate font-normal text-secondary-label">
-                                · {topStatus.detail}
-                              </span>
-                            ) : null}
                             {topStatus.fullLabel ? (
                               <span className="sr-only">{topStatus.fullLabel}</span>
                             ) : null}
                           </span>
+                          {topStatus.detail ? (
+                            <span className="min-w-0 max-w-28 truncate font-normal text-secondary-label">
+                              · {topStatus.detail}
+                            </span>
+                          ) : null}
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
@@ -2362,7 +2364,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex min-w-0 items-center gap-2.5">
               <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-              <span className="shrink-0 text-xs text-muted-foreground/55 tabular-nums">
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {threadTimeLabel(thread)}
               </span>
             </span>
@@ -5410,7 +5412,7 @@ export default function Sidebar() {
                           data-sidebar-row="settled:more"
                           data-sidebar-parent="shelf:settled"
                           onClick={showMoreSettled}
-                          className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                          className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                         >
                           <PlusIcon aria-hidden className="size-4 shrink-0" />
                           Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
@@ -5429,7 +5431,7 @@ export default function Sidebar() {
             snoozedThreads.length +
             settledThreads.length ===
             0 ? (
-            <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
+            <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground">
               {projects.length === 0 ? (
                 <>
                   <span>No projects yet</span>

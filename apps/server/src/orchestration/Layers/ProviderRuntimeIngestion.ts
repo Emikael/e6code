@@ -1088,6 +1088,13 @@ const make = Effect.gen(function* () {
   // Optional so harnesses without usage pricing still ingest; turns then
   // record tokens and only provider-reported cost.
   const usageService = yield* Effect.serviceOption(UsageService);
+  // The model each thread's current turn started on, when the provider named
+  // it. Turn estimates price at it rather than the thread's selection, which
+  // may have changed since. One entry per thread, replaced by the next turn.
+  const turnModelByThread = new Map<
+    ThreadId,
+    { readonly turnId: TurnId; readonly model: string }
+  >();
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1817,8 +1824,9 @@ const make = Effect.gen(function* () {
   /**
    * Builds the `turn.usage` activity for a finished turn. Cost is the
    * provider's own figure when it reports one, otherwise an estimate at the
-   * thread model's rates, otherwise absent. The id is stable per turn, so a
-   * redelivered completion replaces the row instead of adding one.
+   * rates of the model the turn started on (or the thread's selection when the
+   * provider did not name one), otherwise absent. The id is stable per turn,
+   * so a redelivered completion replaces the row instead of adding one.
    */
   const turnUsageActivity = Effect.fn("turnUsageActivity")(function* (
     event: Extract<ProviderRuntimeEvent, { readonly type: "turn.completed" | "turn.aborted" }>,
@@ -1833,10 +1841,14 @@ const make = Effect.gen(function* () {
     if (reportedCostUsd !== undefined && Number.isFinite(reportedCostUsd) && reportedCostUsd > 0) {
       cost = { costUsd: reportedCostUsd, costSource: "reported" };
     } else if (Option.isSome(usageService)) {
-      const model = yield* projectionSnapshotQuery.getThreadShellById(threadId).pipe(
-        Effect.map((shell) => Option.getOrUndefined(shell)?.modelSelection.model),
-        Effect.orElseSucceed(() => undefined),
-      );
+      const started = turnModelByThread.get(threadId);
+      const model =
+        started && sameId(started.turnId, turnId)
+          ? started.model
+          : yield* projectionSnapshotQuery.getThreadShellById(threadId).pipe(
+              Effect.map((shell) => Option.getOrUndefined(shell)?.modelSelection.model),
+              Effect.orElseSucceed(() => undefined),
+            );
       const estimatedCostUsd = model
         ? yield* usageService.value.estimateCostUsd(model, turnUsagePricingTotals(usage))
         : null;
@@ -1959,11 +1971,12 @@ const make = Effect.gen(function* () {
       // Working-indicator agent state (compacting / retrying / paused). Recorded
       // before the lifecycle dispatch below so that dispatch's shell refetch
       // reads it. Events from a superseded turn neither set nor clear it;
-      // session.exited always clears.
-      const agentStateChange =
-        event.type === "session.exited" || !conflictsWithActiveTurn
-          ? agentStateTransition(event)
-          : null;
+      // session.exited always clears. A turn.started follows the lifecycle
+      // decision, so a steer's new turn clears the superseded turn's state.
+      const agentStateApplies =
+        event.type === "session.exited" ||
+        (event.type === "turn.started" ? shouldApplyThreadLifecycle : !conflictsWithActiveTurn);
+      const agentStateChange = agentStateApplies ? agentStateTransition(event) : null;
       const agentStateChanged =
         agentStateChange !== null &&
         threadAgentState.setThreadAgentState(thread.id, agentStateChange.state);
@@ -1973,6 +1986,15 @@ const make = Effect.gen(function* () {
         event.type === "turn.started" && shouldApplyThreadLifecycle
           ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
           : null;
+      if (event.type === "turn.started" && shouldApplyThreadLifecycle) {
+        // Tolerates a turn.started sent without a payload.
+        const startedModel = event.payload?.model;
+        if (eventTurnId !== undefined && startedModel !== undefined) {
+          turnModelByThread.set(thread.id, { turnId: eventTurnId, model: startedModel });
+        } else {
+          turnModelByThread.delete(thread.id);
+        }
+      }
 
       if (
         event.type === "session.started" ||

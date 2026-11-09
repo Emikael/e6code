@@ -1,6 +1,6 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { MessageSquareIcon } from "lucide-react";
-import { useEffect, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect } from "react";
 import { create } from "zustand";
 
 import { cn } from "~/lib/utils";
@@ -35,20 +35,12 @@ export function PullRequestThreadJoin(): null {
 /**
  * "Agent working" while an agent in a linked thread is running, otherwise how many threads are
  * linked; either opens the thread. Primary only for the live agent, and always with words or a
- * count beside the mark. A span acting as a link, because the row around it is a button.
+ * count beside the mark. A real link beside the row's button, never inside it; it stops its click
+ * so following it does not also select the row.
  */
 export function PullRequestRowThreads({ threadKey }: { threadKey: string }) {
   const linked = useLinkedThreadsStore((state) => state.byKey.get(threadKey) ?? null);
-  const navigate = useNavigate();
   if (linked === null) return null;
-  const open = (event: MouseEvent | KeyboardEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: { environmentId: linked.environmentId, threadId: linked.threadId },
-    });
-  };
   const label = linked.working
     ? `Agent working in ${linked.title}`
     : linked.count === 1
@@ -58,14 +50,11 @@ export function PullRequestRowThreads({ threadKey }: { threadKey: string }) {
     <Tooltip>
       <TooltipTrigger
         render={
-          <span
-            role="link"
-            tabIndex={0}
+          <Link
+            to="/$environmentId/$threadId"
+            params={{ environmentId: linked.environmentId, threadId: linked.threadId }}
             aria-label={label}
-            onClick={open}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") open(event);
-            }}
+            onClick={(event) => event.stopPropagation()}
             className={cn(
               "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm px-1 outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring",
               linked.working ? "font-medium text-primary-text" : "text-muted-foreground",

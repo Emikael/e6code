@@ -98,9 +98,9 @@ function rowToneClass(kind: ProviderUpdateRowStatusKind): string {
     case "failed":
       return "text-destructive";
     case "unchanged":
-      return "text-warning";
+      return "text-warning-foreground";
     case "success":
-      return "text-success";
+      return "text-success-foreground";
     default:
       return "text-muted-foreground";
   }

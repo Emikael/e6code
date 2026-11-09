@@ -106,11 +106,27 @@ function structuredPatchCounts(value: unknown): LineCounts | undefined {
   return { additions, deletions };
 }
 
+/**
+ * Bounds on line-diffing a pair of texts during ingestion, which runs on the
+ * event loop. ACP diffs carry whole files, and jsdiff is O(N·D): a big rewrite
+ * would stall every session. Past these bounds the file is listed without
+ * counts rather than guessed at.
+ */
+const DIFF_MAX_TEXT_LENGTH = 512 * 1024;
+const DIFF_MAX_EDIT_LENGTH = 2_000;
+const DIFF_TIMEOUT_MS = 50;
+
 function stringPairCounts(oldString: unknown, newString: unknown): LineCounts | undefined {
   if (typeof oldString !== "string" || typeof newString !== "string") return undefined;
+  if (oldString.length + newString.length > DIFF_MAX_TEXT_LENGTH) return undefined;
+  const parts = diffLines(oldString, newString, {
+    maxEditLength: DIFF_MAX_EDIT_LENGTH,
+    timeout: DIFF_TIMEOUT_MS,
+  });
+  if (parts === undefined) return undefined;
   let additions = 0;
   let deletions = 0;
-  for (const part of diffLines(oldString, newString)) {
+  for (const part of parts) {
     if (part.added) additions += part.count;
     else if (part.removed) deletions += part.count;
   }

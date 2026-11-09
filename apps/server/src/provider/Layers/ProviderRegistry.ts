@@ -307,6 +307,10 @@ export const ProviderRegistryLive = Layer.effect(
     // Optional so registry suites need no rate table; models then carry no
     // price tier.
     const usageService = yield* Effect.serviceOption(UsageService);
+    // The newest price-tier lookup, replaced only by `restampPriceTiers`. Both
+    // stamping paths read it inside their `Ref.modify`, so an upsert that
+    // started before a re-stamp cannot write the older table's tiers back.
+    let latestPriceTierOf: ((model: string) => ModelPriceTier | undefined) | undefined;
 
     // Aggregator PubSub — consumers (WS gateway, etc.) subscribe here for
     // coalesced updates across every instance.
@@ -450,13 +454,8 @@ export const ProviderRegistryLive = Layer.effect(
         readonly replace?: boolean;
       },
     ) {
-      const priceTierOf = Option.isSome(usageService)
-        ? yield* usageService.value.modelPriceTiers
-        : undefined;
       const nextProvidersWithUpdateState = yield* Effect.forEach(
-        priceTierOf
-          ? nextProviders.map((provider) => applyModelPriceTiers(provider, priceTierOf))
-          : nextProviders,
+        nextProviders,
         applyProviderUpdateState,
         {
           concurrency: "unbounded",
@@ -469,8 +468,12 @@ export const ProviderRegistryLive = Layer.effect(
             previousProviders.map((provider) => [snapshotInstanceKey(provider), provider] as const),
           );
           const updatedKeys = new Set<ProviderInstanceId>();
+          const priceTierOf = latestPriceTierOf;
 
-          for (const provider of nextProvidersWithUpdateState) {
+          for (const nextProvider of nextProvidersWithUpdateState) {
+            const provider = priceTierOf
+              ? applyModelPriceTiers(nextProvider, priceTierOf)
+              : nextProvider;
             const key = snapshotInstanceKey(provider);
             updatedKeys.add(key);
             mergedProviders.set(
@@ -513,6 +516,7 @@ export const ProviderRegistryLive = Layer.effect(
       usage: UsageService["Service"],
     ) {
       const priceTierOf = yield* usage.modelPriceTiers;
+      latestPriceTierOf = priceTierOf;
       const [changedProviders, providers] = yield* Ref.modify(providersRef, (previous) => {
         const next = previous.map((provider) => applyModelPriceTiers(provider, priceTierOf));
         const changed = next.filter((provider, index) => provider !== previous[index]);
@@ -801,10 +805,13 @@ export const ProviderRegistryLive = Layer.effect(
     // resolves. Cached snapshots (already in `providersRef`) merge with
     // these via `upsertProviders` so on-disk state wins where present
     // and pending fallbacks fill the gaps.
-    // Subscribed first, so the rate snapshot this upsert may load is not missed.
+    // Subscribed first, so the rate snapshot this lookup may load is not missed.
     const priceTierChanges = Option.isSome(usageService)
       ? yield* usageService.value.subscribeModelPriceTierChanges
       : undefined;
+    if (Option.isSome(usageService)) {
+      latestPriceTierOf = yield* usageService.value.modelPriceTiers;
+    }
     yield* upsertProviders(fallbackProviders, { publish: false });
     if (priceTierChanges && Option.isSome(usageService)) {
       yield* Stream.runForEach(priceTierChanges, () => restampPriceTiers(usageService.value)).pipe(

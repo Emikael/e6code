@@ -51,7 +51,7 @@ export function EffortSegmentedControl(props: {
                   className={cn(
                     "cursor-pointer rounded-[calc(var(--control-radius)-2px)] px-2 text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-default data-disabled:opacity-64",
                     props.size === "xs" ? "h-5" : "h-6",
-                    "data-checked:bg-background data-checked:font-medium data-checked:text-foreground data-checked:shadow-xs data-checked:ring-1 data-checked:ring-border data-checked:ring-inset",
+                    "data-checked:bg-background data-checked:font-medium data-checked:text-foreground data-checked:shadow-xs data-checked:ring-1 data-checked:ring-primary-edge data-checked:ring-inset",
                   )}
                 />
               }

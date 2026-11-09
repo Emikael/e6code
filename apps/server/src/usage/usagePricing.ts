@@ -166,6 +166,39 @@ export function lookupRate(table: RateTable, model: string): ModelRate | null {
   return table.get(key) ?? null;
 }
 
+/**
+ * Reasoning-effort suffixes some providers bake into model IDs, such as
+ * Antigravity's `gemini-3.8-flash-high`. The effort changes how many tokens a
+ * turn uses, not the per-token rate.
+ */
+const EFFORT_SUFFIX = /-(?:minimal|low|medium|high|xhigh|max)$/i;
+
+/**
+ * The rate for a model slug, shared by turn estimates, the Usage page, and the
+ * picker's price tier so a model that shows a tier also gets a cost. Custom
+ * prices win on the exact trimmed slug. Otherwise the slug is tried as is,
+ * then as its bare model name when provider-qualified (OpenCode's
+ * `anthropic/claude-…`), then without an effort suffix. Each fallback only
+ * finds a rate the table holds unambiguously: a canonical entry, or a bare
+ * alias every qualified entry agrees on.
+ */
+function resolveModelRate(
+  table: RateTable,
+  model: string,
+  overrides?: RateTable,
+): ModelRate | null {
+  const trimmed = model.trim();
+  const override = overrides?.get(trimmed);
+  if (override !== undefined) return override;
+  const bareName = bareModelName(trimmed);
+  const withoutEffort = bareName.replace(EFFORT_SUFFIX, "");
+  return (
+    lookupRate(table, trimmed) ??
+    (bareName !== trimmed ? lookupRate(table, bareName) : null) ??
+    (withoutEffort !== bareName ? lookupRate(table, withoutEffort) : null)
+  );
+}
+
 export interface PricedUsage {
   readonly costUsd: number;
   readonly costSource: UsageCostSource;
@@ -189,7 +222,7 @@ export function priceUsage(
     return { costUsd: reportedCostUsd, costSource: "providerReported" };
   }
 
-  const rate = override ?? lookupRate(table, model);
+  const rate = override ?? resolveModelRate(table, model);
   if (rate === null) return { costUsd: 0, costSource: "unpriced" };
 
   const costUsd =
@@ -211,7 +244,7 @@ export function cacheSavingsUsd(
   totals: UsageTokenTotals,
   overrides?: RateTable,
 ): number {
-  const rate = overrides?.get(model.trim()) ?? lookupRate(table, model);
+  const rate = resolveModelRate(table, model, overrides);
   if (rate === null) return 0;
   return totals.cachedInputTokens * (rate.inputCostPerToken - rate.cacheReadCostPerToken);
 }
@@ -241,32 +274,14 @@ function priceTierForRate(rate: ModelRate): ModelPriceTier {
 }
 
 /**
- * Reasoning-effort suffixes some providers bake into model IDs, such as
- * Antigravity's `gemini-3.8-flash-high`. The effort changes how many tokens a
- * turn uses, not the per-token rate.
- */
-const EFFORT_SUFFIX = /-(?:minimal|low|medium|high|xhigh|max)$/i;
-
-/**
  * The model picker's price tier for a slug, or undefined when nothing prices
- * it. Custom prices win, as on the Usage page. Otherwise the slug is tried as
- * is, then as its bare model name when provider-qualified (OpenCode's
- * `anthropic/claude-…`), then without an effort suffix. Each fallback only
- * finds a rate the table holds unambiguously: a canonical entry, or a bare
- * alias every qualified entry agrees on.
+ * it. Resolves the slug the same way turn estimates do; see `resolveModelRate`.
  */
 export function lookupModelPriceTier(
   table: RateTable,
   model: string,
   overrides?: RateTable,
 ): ModelPriceTier | undefined {
-  const trimmed = model.trim();
-  const bareName = bareModelName(trimmed);
-  const withoutEffort = bareName.replace(EFFORT_SUFFIX, "");
-  const rate =
-    overrides?.get(trimmed) ??
-    lookupRate(table, trimmed) ??
-    (bareName !== trimmed ? lookupRate(table, bareName) : null) ??
-    (withoutEffort !== bareName ? lookupRate(table, withoutEffort) : null);
+  const rate = resolveModelRate(table, model, overrides);
   return rate === null ? undefined : priceTierForRate(rate);
 }

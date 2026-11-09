@@ -29,7 +29,7 @@ export const DiffStatLabel = memo(function DiffStatLabel(props: {
   const { additions, deletions, className, showParentheses = false, layout = "aligned" } = props;
   return (
     <>
-      {showParentheses && <span className="text-muted-foreground/70">(</span>}
+      {showParentheses && <span className="text-muted-foreground">(</span>}
       <span
         role="group"
         aria-label={`${additions} additions, ${deletions} deletions`}
@@ -40,14 +40,14 @@ export const DiffStatLabel = memo(function DiffStatLabel(props: {
           className,
         )}
       >
-        <span aria-hidden="true" className="font-mono text-diff-addition">
+        <span aria-hidden="true" className="font-mono text-diff-addition-foreground">
           +{formatCompactDiffCount(additions)}
         </span>
-        <span aria-hidden="true" className="font-mono text-diff-deletion">
+        <span aria-hidden="true" className="font-mono text-diff-deletion-foreground">
           -{formatCompactDiffCount(deletions)}
         </span>
       </span>
-      {showParentheses && <span className="text-muted-foreground/70">)</span>}
+      {showParentheses && <span className="text-muted-foreground">)</span>}
     </>
   );
 });
