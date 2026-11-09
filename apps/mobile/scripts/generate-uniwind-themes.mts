@@ -123,7 +123,6 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
   "--color-adaptive-rose-500-a12-a16": [color("rose", 500, 0.12), color("rose", 500, 0.16)],
   "--color-adaptive-rose-500-400": [color("rose", 500), color("rose", 400)],
   "--color-adaptive-rose-600-400": [color("rose", 600), color("rose", 400)],
-  "--color-adaptive-rose-700-300": [color("rose", 700), color("rose", 300)],
   "--color-adaptive-violet-600-400": [color("violet", 600), color("violet", 400)],
   "--color-adaptive-violet-700-300": [color("violet", 700), color("violet", 300)],
   "--color-adaptive-white-neutral-950-a70": [color("white"), color("neutral", 950, 0.7)],
@@ -132,13 +131,20 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
   "--color-adaptive-zinc-600-300": [color("zinc", 600), color("zinc", 300)],
 };
 
+// Semantic roles that keep one hue in every theme, like the info and success
+// roles. `+N −M` line counts read through these, never a raw palette class.
+const SEMANTIC_COLORS: Readonly<Record<string, readonly [light: string, dark: string]>> = {
+  "--color-diff-addition": [color("emerald", 700), color("emerald", 300)],
+  "--color-diff-deletion": [color("rose", 700), color("rose", 300)],
+};
+
 export const customThemeNames = BUILT_IN_THEME_IDS.flatMap((themeId) =>
   APPEARANCES.map((appearance) => `${themeId}-${appearance}`),
 );
 
 const adaptiveVariablesFor = (appearance: MobileThemeAppearance) =>
   Object.fromEntries(
-    Object.entries(ADAPTIVE_COLORS).map(([name, [light, dark]]) => [
+    Object.entries({ ...SEMANTIC_COLORS, ...ADAPTIVE_COLORS }).map(([name, [light, dark]]) => [
       name,
       appearance === "light" ? light : dark,
     ]),

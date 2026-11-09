@@ -781,15 +781,15 @@ function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
       accessible
       accessibilityLabel={`${additions} additions, ${deletions} deletions`}
     >
-      <Text className="text-2xs tabular-nums text-adaptive-emerald-700-300">+{additions}</Text>
-      <Text className="text-2xs tabular-nums text-adaptive-rose-700-300">−{deletions}</Text>
+      <Text className="text-2xs tabular-nums text-diff-addition">+{additions}</Text>
+      <Text className="text-2xs tabular-nums text-diff-deletion">−{deletions}</Text>
     </View>
   );
 }
 
 /**
  * A step's dot on the thinking timeline, holding the step's icon so it reads
- * without colour. The running step gets a static, thicker primary ring, never
+ * without colour. The running step gets a static, thicker primary-edge ring, never
  * an animation. The dot is opaque so the rail stops at its edge; while the row
  * is pressed it repeats the row's `bg-subtle` tint so the two still match.
  */
@@ -804,7 +804,7 @@ function ThreadTimelineMarker(props: {
     <View
       className={cn(
         "h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-screen",
-        props.running ? "border-2 border-primary" : "border border-border",
+        props.running ? "border-2 border-primary-edge" : "border border-border",
       )}
     >
       {props.pressed ? <View className="absolute inset-0 bg-subtle" /> : null}

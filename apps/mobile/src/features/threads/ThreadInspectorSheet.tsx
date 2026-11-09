@@ -480,10 +480,10 @@ function SourceControlCard(props: {
             <Text className="min-w-0 flex-1 text-base text-foreground">Changes</Text>
             {status !== null ? (
               <>
-                <Text className="text-sm tabular-nums text-adaptive-emerald-700-300">
+                <Text className="text-sm tabular-nums text-diff-addition">
                   +{status.workingTree.insertions}
                 </Text>
-                <Text className="text-sm tabular-nums text-adaptive-rose-700-300">
+                <Text className="text-sm tabular-nums text-diff-deletion">
                   −{status.workingTree.deletions}
                 </Text>
               </>
@@ -688,12 +688,8 @@ function LineCounts(props: {
   if (props.additions === null || props.deletions === null) return null;
   return (
     <>
-      <Text className="shrink-0 text-sm tabular-nums text-adaptive-emerald-700-300">
-        +{props.additions}
-      </Text>
-      <Text className="shrink-0 text-sm tabular-nums text-adaptive-rose-700-300">
-        −{props.deletions}
-      </Text>
+      <Text className="shrink-0 text-sm tabular-nums text-diff-addition">+{props.additions}</Text>
+      <Text className="shrink-0 text-sm tabular-nums text-diff-deletion">−{props.deletions}</Text>
     </>
   );
 }
