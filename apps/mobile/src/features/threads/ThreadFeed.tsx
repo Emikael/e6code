@@ -2295,43 +2295,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // One definition of "still live", shared with the fold derivation: two
   // copies of this test are what let a row and the fold beside it disagree.
   const unsettledTurnId = deriveUnsettledTurnId(props.latestTurn ?? null);
-  // LegendList does not invalidate visible rows when only the renderItem closure changes.
-  // Include turn completion so unchanged message rows reveal their footer and spacing
-  // even when the final message update arrives before the turn settles.
-  const listAppearanceData = useMemo(
-    () => ({
-      worktreeSetup: props.worktreeSetup,
-      setupWorkingStartedAt: props.setupWorkingStartedAt,
-      dispatchingMessageId: props.dispatchingMessageId,
-      unsettledTurnId,
-      copiedRowId,
-      expandedWorkRows,
-      expandedReasoningMessageIds,
-      workRowSizing,
-      iconSubtleColor,
-      markdownStyles,
-      reviewCommentColors,
-      themeAppearance,
-      userBubbleColor,
-      viewportWidth,
-    }),
-    [
-      props.worktreeSetup,
-      props.setupWorkingStartedAt,
-      props.dispatchingMessageId,
-      unsettledTurnId,
-      copiedRowId,
-      expandedWorkRows,
-      expandedReasoningMessageIds,
-      workRowSizing,
-      iconSubtleColor,
-      markdownStyles,
-      reviewCommentColors,
-      themeAppearance,
-      userBubbleColor,
-      viewportWidth,
-    ],
-  );
   const reportHeaderMaterialVisibility = useCallback(
     (visible: boolean) => {
       if (headerMaterialVisibleRef.current === visible) {
@@ -2524,6 +2487,47 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const assistantUsageLabels = useMemo(
     () => deriveAssistantUsageLabels(presentedFeed, props.turnUsageByTurnId),
     [presentedFeed, props.turnUsageByTurnId],
+  );
+  // LegendList does not invalidate visible rows when only the renderItem closure changes.
+  // Include turn completion so unchanged message rows reveal their footer and spacing
+  // even when the final message update arrives before the turn settles.
+  const listAppearanceData = useMemo(
+    () => ({
+      worktreeSetup: props.worktreeSetup,
+      setupWorkingStartedAt: props.setupWorkingStartedAt,
+      dispatchingMessageId: props.dispatchingMessageId,
+      unsettledTurnId,
+      assistantUsageLabels,
+      showThinkingTimeline: appearance.showThinkingTimeline,
+      copiedRowId,
+      expandedWorkRows,
+      expandedReasoningMessageIds,
+      workRowSizing,
+      iconSubtleColor,
+      markdownStyles,
+      reviewCommentColors,
+      themeAppearance,
+      userBubbleColor,
+      viewportWidth,
+    }),
+    [
+      props.worktreeSetup,
+      props.setupWorkingStartedAt,
+      props.dispatchingMessageId,
+      unsettledTurnId,
+      assistantUsageLabels,
+      appearance.showThinkingTimeline,
+      copiedRowId,
+      expandedWorkRows,
+      expandedReasoningMessageIds,
+      workRowSizing,
+      iconSubtleColor,
+      markdownStyles,
+      reviewCommentColors,
+      themeAppearance,
+      userBubbleColor,
+      viewportWidth,
+    ],
   );
   useEffect(() => {
     const previous = previousLatestTurnRef.current;
