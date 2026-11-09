@@ -17,13 +17,19 @@ import {
   MIN_PROMPT_FONT_SIZE,
 } from "@e6tools/contracts";
 
+// Geist and Geist Mono are bundled (see main.tsx); the platform stacks behind
+// them cover glyphs Geist lacks and the moment before the face loads.
 export const DEFAULT_SANS_FONT_STACK =
-  '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+  '"Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
 
 // Concrete names first: some engines alias `ui-monospace` to the
 // proportional system UI font, which would break every code surface.
 export const DEFAULT_CODE_FONT_STACK =
-  '"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
+  '"Geist Mono Variable", "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
+
+/** Picker values that opt back into the platform's own faces. */
+export const SYSTEM_SANS_FONT_FAMILY = "system-ui";
+export const SYSTEM_CODE_FONT_FAMILY = "ui-monospace";
 
 export const TYPOGRAPHY_ADVANCED_STORAGE_KEY = "e6code:typography-advanced";
 

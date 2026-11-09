@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { createHashHistory, createBrowserHistory } from "@tanstack/react-router";
 
+// Geist ships with the app (no font CDN), so remote, offline and desktop
+// clients render the same type. Each subset loads only when its glyphs appear.
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "./index.css";
 
 import { isElectron } from "./env";
