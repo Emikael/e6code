@@ -35,16 +35,32 @@ const TITLEBAR_HEIGHT = 40;
 // buttons are 14 points tall and do not scale with the renderer's zoom.
 const MACOS_WORKSPACE_TOPBAR_HEIGHT = 52;
 const MACOS_WINDOW_BUTTON_RADIUS = 7;
+const MACOS_WINDOW_BUTTON_LEFT = 16;
+// From md up (48rem in apps/web/src/index.css) the sidebar floats as a panel
+// --panel-gap (8px) in from the window edge, plus its 1px border. The buttons
+// move by the same inset so they stay inside the sidebar's header.
+const MACOS_FLOATING_PANEL_INSET = 9;
+const MACOS_FLOATING_PANEL_MIN_WIDTH = 768;
+
+/** Where the native buttons sit for a zoom factor and window content width. */
+function macosWindowButtonPosition(zoomFactor: number, contentWidth: number): Electron.Point {
+  const inset =
+    contentWidth >= MACOS_FLOATING_PANEL_MIN_WIDTH * zoomFactor
+      ? MACOS_FLOATING_PANEL_INSET * zoomFactor
+      : 0;
+  return {
+    x: Math.round(MACOS_WINDOW_BUTTON_LEFT + inset),
+    y: Math.round(
+      (MACOS_WORKSPACE_TOPBAR_HEIGHT * zoomFactor) / 2 - MACOS_WINDOW_BUTTON_RADIUS + inset,
+    ),
+  };
+}
 
 function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   if (window.isDestroyed() || window.isFullScreen()) return;
-  window.setWindowButtonPosition({
-    x: 16,
-    y: Math.round(
-      (MACOS_WORKSPACE_TOPBAR_HEIGHT * window.webContents.getZoomFactor()) / 2 -
-        MACOS_WINDOW_BUTTON_RADIUS,
-    ),
-  });
+  window.setWindowButtonPosition(
+    macosWindowButtonPosition(window.webContents.getZoomFactor(), window.getContentBounds().width),
+  );
 }
 
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
@@ -257,10 +273,9 @@ function getWindowTitleBarOptions(
   if (platform === "darwin") {
     return {
       titleBarStyle: "hiddenInset",
-      trafficLightPosition: {
-        x: 16,
-        y: MACOS_WORKSPACE_TOPBAR_HEIGHT / 2 - MACOS_WINDOW_BUTTON_RADIUS,
-      },
+      // Windows open wider than the floating-panel breakpoint; the first load
+      // re-syncs against the real width and zoom.
+      trafficLightPosition: macosWindowButtonPosition(1, MACOS_FLOATING_PANEL_MIN_WIDTH),
     };
   }
 
@@ -672,7 +687,11 @@ export const make = Effect.gen(function* () {
       event.preventDefault();
       window.setTitle(environment.displayName);
     });
-    window.on("resize", scheduleBoundsPersist);
+    window.on("resize", () => {
+      scheduleBoundsPersist();
+      // Crossing the floating-panel breakpoint moves the sidebar header.
+      if (environment.platform === "darwin") syncMacosWindowButtons(window);
+    });
     window.on("move", scheduleBoundsPersist);
     window.on("maximize", scheduleBoundsPersist);
     window.on("unmaximize", scheduleBoundsPersist);

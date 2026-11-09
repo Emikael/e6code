@@ -197,12 +197,16 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? getWindowFullscreenState()
       : false;
   });
+  // Window-fixed controls follow the floating sidebar's header in by a panel
+  // gap. On macOS the desktop shell moves the traffic lights by the same inset
+  // (apps/desktop/src/window/DesktopWindow.ts), so the controls stay beside them.
   const controlsPlacement: Record<string, string> =
     isMacosDesktop && !isWindowFullscreen
-      ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
-      : // Elsewhere the window-fixed controls follow the floating sidebar's
-        // header down by a panel gap; macOS keeps them on the traffic lights.
-        { "--workspace-controls-top": "var(--floating-controls-top)" };
+      ? {
+          "--workspace-controls-left": `calc(${MACOS_TRAFFIC_LIGHTS_LEFT_INSET} + var(--floating-controls-left))`,
+          "--workspace-controls-top": "var(--floating-controls-top)",
+        }
+      : { "--workspace-controls-top": "var(--floating-controls-top)" };
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
