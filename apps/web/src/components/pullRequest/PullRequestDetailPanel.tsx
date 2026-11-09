@@ -22,11 +22,7 @@ import {
   ArrowRightIcon,
   ArrowUpRightIcon,
   BookOpenIcon,
-  CircleCheckIcon,
-  CircleDashedIcon,
   CircleDotIcon,
-  CircleHelpIcon,
-  CircleXIcon,
   CopyIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
@@ -43,6 +39,10 @@ import {
   PanelRightIcon,
   PlayIcon,
   RotateCcwIcon,
+  SquareCheckIcon,
+  SquareDashedIcon,
+  SquareIcon,
+  SquareXIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import {
@@ -435,10 +435,10 @@ function PullRequestBaseFreshnessWarning({
 }
 
 const READINESS_STATUS = {
-  ok: { Icon: CircleCheckIcon, className: "text-success-foreground", word: "Met" },
-  blocked: { Icon: CircleXIcon, className: "text-destructive-foreground", word: "Blocked" },
-  waiting: { Icon: CircleDashedIcon, className: "text-warning-foreground", word: "Waiting" },
-  unknown: { Icon: CircleHelpIcon, className: "text-muted-foreground", word: "Unknown" },
+  ok: { Icon: SquareCheckIcon, className: "text-success-foreground", word: "Met" },
+  blocked: { Icon: SquareXIcon, className: "text-destructive-foreground", word: "Blocked" },
+  waiting: { Icon: SquareDashedIcon, className: "text-warning-foreground", word: "Waiting" },
+  unknown: { Icon: SquareIcon, className: "text-muted-foreground", word: "Unknown" },
 } as const satisfies Record<MergeReadinessStatus, unknown>;
 
 /**
