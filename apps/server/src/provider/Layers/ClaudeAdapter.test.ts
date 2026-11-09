@@ -2892,6 +2892,102 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("shows a usage-limit pause again when it recurs after clearing in a turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "go", attachments: [] });
+      const nowMs = yield* Clock.currentTimeMillis;
+      const resetsAt = Math.floor(nowMs / 1000) + 4320;
+      const rejected = {
+        type: "rate_limit_event",
+        rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt },
+      };
+      for (const [index, message] of [
+        rejected,
+        // Streamed progress clears the pause without a recovery event.
+        {
+          type: "stream_event",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
+        },
+        {
+          type: "stream_event",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "Working" },
+          },
+        },
+        rejected,
+        // Another agent state replaces the pause.
+        {
+          type: "system",
+          subtype: "api_retry",
+          attempt: 1,
+          max_retries: 5,
+          retry_delay_ms: 1,
+          error_status: 529,
+          error: { type: "overloaded_error" },
+        },
+        rejected,
+        // While the pause still shows, a re-fire is not reported again.
+        rejected,
+      ].entries()) {
+        harness.query.emit({
+          ...message,
+          session_id: "sdk-pause-recur",
+          uuid: `pause-recur-${index}`,
+        } as unknown as SDKMessage);
+      }
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "done",
+        session_id: "sdk-pause-recur",
+        uuid: "pause-recur-result",
+      } as unknown as SDKMessage);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const pause = {
+        kind: "rate-limited" as const,
+        resetsAt: DateTime.formatIso(DateTime.makeUnsafe(resetsAt * 1000)),
+      };
+      const agentStates = events.flatMap((event) =>
+        event.type === "session.state.changed" && event.payload.agentState !== undefined
+          ? [event.payload.agentState]
+          : [],
+      );
+      assert.deepEqual(agentStates, [
+        pause,
+        pause,
+        { kind: "retrying", attempt: 1, maxAttempts: 5 },
+        pause,
+      ]);
+      // The warning row stays once per limit per turn.
+      assert.equal(events.filter((event) => event.type === "runtime.warning").length, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("names repeated usage limits without carrying them into a later turn", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

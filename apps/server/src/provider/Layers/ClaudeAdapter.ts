@@ -30,6 +30,7 @@ import { parseCliArgs } from "@e6tools/shared/cliArgs";
 import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 import { isWorkspaceImagePreviewPath } from "@e6tools/shared/filePreview";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
+import { agentStateTransition } from "../agentStateTransition.ts";
 import { retryingAgentState } from "../agentState.ts";
 import {
   ApprovalRequestId,
@@ -2306,7 +2307,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    runtimeEventQueue.publish(event);
+    Effect.suspend(() => {
+      // Anything that moves the working indicator off the pause (progress,
+      // another agent state, a clear) ends the pause it showed, so the same
+      // limit blocking again later in the turn is reported again.
+      const agentStateChange = agentStateTransition(event);
+      if (agentStateChange !== null && agentStateChange.state?.kind !== "rate-limited") {
+        const context = sessions.get(event.threadId);
+        if (context) context.pausedUsageLimit = undefined;
+      }
+      return runtimeEventQueue.publish(event);
+    });
 
   const logNativeSdkMessage = Effect.fnUntraced(function* (
     context: ClaudeSessionContext,
@@ -4381,8 +4392,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         }
       }
       // The working indicator names the pause while a window blocks the turn,
-      // once per limit identity (a parked window re-fires with the same key),
-      // and ends it when a recovery leaves no window blocking.
+      // once per limit identity while it shows (a parked window re-fires with
+      // the same key), and ends it when a recovery leaves no window blocking.
+      // Unlike the warning row, the pause re-arms once anything clears it.
       if (context.turnState !== undefined) {
         const turnId = context.turnState.turnId;
         const paused =
