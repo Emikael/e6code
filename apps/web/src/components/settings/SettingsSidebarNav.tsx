@@ -24,8 +24,12 @@ import {
   Settings2Icon,
   XIcon,
 } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
+import { cn } from "../../lib/utils";
+import { useEnvironments } from "../../state/environments";
+import { primaryServerProvidersAtom } from "../../state/server";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
@@ -49,6 +53,11 @@ import {
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
+import {
+  groupSettingsNavItems,
+  settingsConnectionsBadge,
+  settingsProvidersBadge,
+} from "./settingsNavGroups";
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -109,9 +118,18 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
-  const navItems = SETTINGS_NAV_ITEMS.filter(
-    (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
+  const showProjectPage = isSettingsOverviewVisible(scopeSearch);
+  const navGroups = useMemo(
+    () =>
+      groupSettingsNavItems(
+        SETTINGS_NAV_ITEMS.filter((item) => item.to !== "/settings/projects" || showProjectPage),
+      ),
+    [showProjectPage],
   );
+  const providers = useAtomValue(primaryServerProvidersAtom);
+  const { environments } = useEnvironments();
+  const providersBadge = useMemo(() => settingsProvidersBadge(providers), [providers]);
+  const connectionsBadge = useMemo(() => settingsConnectionsBadge(environments), [environments]);
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -321,26 +339,62 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               ))}
             </SidebarMenu>
           ) : (
-            <SidebarMenu className="ps-px">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isGeneralDetailPage =
-                  item.to === "/settings/general" && pathname === "/settings/open-source-licenses";
-                const isActive =
-                  isGeneralDetailPage || pathname === item.to || pathname.startsWith(`${item.to}/`);
+            <nav aria-label="Settings sections" className="flex flex-col gap-3">
+              {navGroups.map((group) => {
+                const headingId = `settings-nav-group-${group.label.toLowerCase()}`;
                 return (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => handleSectionClick(item.to)}
+                  <section key={group.label} aria-labelledby={headingId}>
+                    <h2
+                      id={headingId}
+                      className="px-[var(--sidebar-row-content-inset)] pb-1 text-[11px] font-medium text-sidebar-muted-foreground/70"
                     >
-                      <Icon />
-                      <span className="truncate">{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                      {group.label}
+                    </h2>
+                    <SidebarMenu className="ps-px">
+                      {group.items.map((item) => {
+                        const Icon = item.icon;
+                        const isGeneralDetailPage =
+                          item.to === "/settings/general" &&
+                          pathname === "/settings/open-source-licenses";
+                        const isActive =
+                          isGeneralDetailPage ||
+                          pathname === item.to ||
+                          pathname.startsWith(`${item.to}/`);
+                        const badge =
+                          item.to === "/settings/providers"
+                            ? providersBadge
+                            : item.to === "/settings/connections"
+                              ? connectionsBadge
+                              : null;
+                        return (
+                          <SidebarMenuItem key={item.to}>
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              onClick={() => handleSectionClick(item.to)}
+                            >
+                              <Icon />
+                              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                              {badge ? (
+                                <span
+                                  className={cn(
+                                    "shrink-0 text-[11px] font-medium tabular-nums",
+                                    badge.tone === "warning"
+                                      ? "rounded-sm bg-warning-surface px-1.5 py-px text-warning-foreground"
+                                      : "text-sidebar-muted-foreground/80",
+                                  )}
+                                >
+                                  {badge.text}
+                                </span>
+                              ) : null}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })}
+                    </SidebarMenu>
+                  </section>
                 );
               })}
-            </SidebarMenu>
+            </nav>
           )}
         </SidebarGroup>
       </SidebarContent>
