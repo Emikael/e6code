@@ -4,6 +4,7 @@ import {
   formatAgentStateLabel,
   formatPlanStepPosition,
   formatRunningThreadStatus,
+  isPausedForUsageLimit,
   joinThreadRowStatus,
 } from "./agentState.ts";
 
@@ -84,5 +85,22 @@ describe("formatRunningThreadStatus", () => {
     expect(row({ kind: "rate-limited" })).toBe("Paused");
     expect(row({ kind: "rate-limited", resetsAt: "bad" })).toBe("Paused");
     expect(row({ kind: "retrying", attempt: 2 })).toBe("Retrying");
+  });
+});
+
+describe("isPausedForUsageLimit", () => {
+  const rateLimited = { kind: "rate-limited" } as const;
+
+  it("is true only for a running turn waiting on a usage limit", () => {
+    expect(isPausedForUsageLimit({ session: { status: "running" }, agentState: rateLimited })).toBe(
+      true,
+    );
+    expect(
+      isPausedForUsageLimit({ session: { status: "running" }, agentState: { kind: "compacting" } }),
+    ).toBe(false);
+    expect(isPausedForUsageLimit({ session: { status: "ready" }, agentState: rateLimited })).toBe(
+      false,
+    );
+    expect(isPausedForUsageLimit({ session: null, agentState: rateLimited })).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import {
 import type { SnoozePreset } from "@e6tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
+import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
@@ -145,7 +146,7 @@ export function resolveThreadListV2Status(
     return "input";
   }
   // A running turn parked until a usage limit resets.
-  if (thread.session?.status === "running" && thread.agentState?.kind === "rate-limited") {
+  if (isPausedForUsageLimit(thread)) {
     return "paused";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
