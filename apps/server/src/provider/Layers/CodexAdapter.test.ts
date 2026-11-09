@@ -1968,6 +1968,57 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("reads Codex retry counters only from its own retry wording", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const cases = [
+        ["Reconnecting... 2/5", { kind: "retrying", attempt: 2, maxAttempts: 5 }],
+        ["Reconnecting... 3 / 10", { kind: "retrying", attempt: 3, maxAttempts: 10 }],
+        ["stream error: retrying 1/5 in 200ms", { kind: "retrying", attempt: 1, maxAttempts: 5 }],
+        ["RECONNECTING 5/5", { kind: "retrying", attempt: 5, maxAttempts: 5 }],
+        // Numbers elsewhere in the text are not counters.
+        ["upstream 502/503, Reconnecting...", { kind: "retrying" }],
+        ["Reconnecting... (HTTP 429) 2/5", { kind: "retrying" }],
+        // Implausible pairs are dropped whole.
+        ["Reconnecting... 0/5", { kind: "retrying" }],
+        ["Reconnecting... 6/5", { kind: "retrying" }],
+        ["Reconnecting... 2/5000", { kind: "retrying" }],
+        ["Reconnecting... 2/500", { kind: "retrying" }],
+      ] as const;
+      const statesFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "session.state.changed"),
+        Stream.take(cases.length),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      for (const [index, [message]] of cases.entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-retry-variant-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          turnId: asTurnId("turn-1"),
+          method: "error",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message },
+            willRetry: true,
+          },
+        } satisfies ProviderEvent);
+      }
+
+      const states = Array.from(yield* Fiber.join(statesFiber)).map((event) =>
+        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      );
+      NodeAssert.deepStrictEqual(
+        states,
+        cases.map(([, state]) => state),
+      );
+    }),
+  );
+
   it.effect("maps process stderr notifications to runtime.warning", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
