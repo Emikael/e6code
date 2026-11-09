@@ -13,7 +13,7 @@ const {
 // inherits the dated framework dialog chrome (square gray panel, teal
 // all-caps buttons) from the app theme. These resources restyle it with the
 // generated default palette: card panel, foreground text, readable primary
-// buttons, DM Sans type. Alert exposes no runtime custom-palette API, so these
+// buttons, Geist type. Alert exposes no runtime custom-palette API, so these
 // build-time resources use the stock palette for each native appearance.
 // The fonts are embedded by the expo-font plugin config in app.config.ts.
 
@@ -88,7 +88,7 @@ function withAlertDialogStyles(config) {
           // Theme-level fontFamily is the lowest-priority fallback in attribute
           // resolution, so it reaches every text view in the dialog that does
           // not carry its own fontFamily (the message body in particular).
-          { _: "@font/xml_dm_sans_regular", $: { name: "android:fontFamily" } },
+          { _: "@font/xml_geist_regular", $: { name: "android:fontFamily" } },
           // AppCompat's alert title view styles itself from the framework
           // attr (?android:attr/windowTitleStyle); there is no unprefixed
           // AppCompat equivalent.
@@ -101,7 +101,7 @@ function withAlertDialogStyles(config) {
       {
         $: { name: "AppAlertDialog.Title", parent: "RtlOverlay.DialogWindowTitle.AppCompat" },
         item: [
-          { _: "@font/dm_sans_500medium", $: { name: "android:fontFamily" } },
+          { _: "@font/geist_500medium", $: { name: "android:fontFamily" } },
           { _: "18sp", $: { name: "android:textSize" } },
           { _: "@color/alert_dialog_text", $: { name: "android:textColor" } },
         ],
@@ -115,7 +115,7 @@ function withAlertDialogStyles(config) {
           // The AppCompat button appearance hardcodes sans-serif-medium, so
           // the font must be set here rather than relying on the theme
           // fallback.
-          { _: "@font/dm_sans_500medium", $: { name: "android:fontFamily" } },
+          { _: "@font/geist_500medium", $: { name: "android:fontFamily" } },
           { _: "@color/alert_dialog_button_text", $: { name: "android:textColor" } },
           { _: "false", $: { name: "android:textAllCaps" } },
           { _: "0", $: { name: "android:letterSpacing" } },

@@ -2,21 +2,13 @@
 @import "uniwind";
 @import "./generated-uniwind-themes.css";
 
-/* ─── Theme tokens ──────────────────────────────────────────────────── */
-@layer theme {
-  :root {
-    @variant android {
-      --font-mono: "monospace";
-    }
-  }
-}
-
 /* ─── Typography ────────────────────────────────────────────────────── */
 @theme {
   /* Keep these native family names aligned with app.config.ts. */
-  --font-sans: "DMSans-Regular";
-  --font-medium: "DMSans-Medium";
-  --font-bold: "DMSans-Bold";
+  --font-sans: "Geist-Regular";
+  --font-medium: "Geist-Medium";
+  --font-bold: "Geist-Bold";
+  --font-mono: "GeistMono-Regular";
 
   /* Keep this scale aligned with src/lib/typography.ts for native style props. */
   --text-3xs: 11px;
@@ -42,6 +34,11 @@
 /* ─── Custom utilities ──────────────────────────────────────────────── */
 @utility font-e6-medium {
   font-family: var(--font-medium);
+}
+
+/* Not a theme key: --font-semibold would turn `font-semibold` into a family utility. */
+@utility font-e6-semibold {
+  font-family: "Geist-SemiBold";
 }
 
 @utility font-e6-bold {

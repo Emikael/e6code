@@ -1,7 +1,8 @@
 import type { ViewStyle } from "react-native";
 import type { MobileThemeVariables } from "../../lib/mobileTheme";
+import { MONO_FONT_FAMILY } from "../../lib/useFontFamily";
 
-export const THREAD_LIST_V2_MONO_FONT = "Menlo";
+export const THREAD_LIST_V2_MONO_FONT = MONO_FONT_FAMILY;
 export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-5 py-2.5";
 export const THREAD_LIST_V2_ROW_DIVIDERS = true;
 

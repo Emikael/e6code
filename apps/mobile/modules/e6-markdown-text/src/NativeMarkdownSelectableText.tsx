@@ -50,11 +50,8 @@ const SKILL_ICON_PLACEHOLDER = "\uFFFC";
 // for the chip attachment either way.
 const IOS_CHIP_PLACEHOLDER = "\u200B";
 const PARAGRAPH_STYLE_ENCODING_OFFSET = 1000;
-const MONO_FONT_FAMILY = Platform.select({
-  ios: "ui-monospace",
-  android: "monospace",
-  default: "monospace",
-});
+// Geist Mono, registered by the app's expo-font plugin config.
+const MONO_FONT_FAMILY = "GeistMono-Regular";
 const styles = StyleSheet.create({
   inlineIcon: {
     width: 14,
