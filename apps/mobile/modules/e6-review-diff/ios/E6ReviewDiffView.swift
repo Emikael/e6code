@@ -326,8 +326,13 @@ private struct ReviewDiffNativeStyle {
 
 /// Fonts resolved once per style. Code and gutters use the code family, headers the UI family;
 /// glyph width, line height, and tab stops are measured from these fonts, not assumed.
+/// Syntax token variants are resolved here too so drawing never builds fonts per token.
+/// Character width comes from `code` only: Geist Mono keeps one advance across weights.
 private struct ReviewDiffResolvedFonts {
   let code: UIFont
+  let codeBold: UIFont
+  let codeItalic: UIFont
+  let codeBoldItalic: UIFont
   let lineNumber: UIFont
   let hunk: UIFont
   let fileHeader: UIFont
@@ -343,7 +348,15 @@ private struct ReviewDiffResolvedFonts {
     func ui(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
       ReviewDiffFontResolver.font(family: style.uiFontFamily, size: size, weight: weight, monospaced: false)
     }
-    code = mono(style.codeFontSize, style.codeFontWeight)
+    let regular = mono(style.codeFontSize, style.codeFontWeight)
+    let boldWeight = style.codeFontWeight.rawValue >= UIFont.Weight.bold.rawValue
+      ? style.codeFontWeight
+      : .bold
+    let bold = mono(style.codeFontSize, boldWeight)
+    code = regular
+    codeBold = bold
+    codeItalic = Self.italic(regular)
+    codeBoldItalic = Self.italic(bold)
     lineNumber = mono(style.lineNumberFontSize, style.lineNumberFontWeight)
     hunk = mono(style.hunkFontSize, style.hunkFontWeight)
     fileHeader = ui(style.fileHeaderFontSize, style.fileHeaderFontWeight)
@@ -351,6 +364,27 @@ private struct ReviewDiffResolvedFonts {
     fileHeaderSubtext = ui(style.fileHeaderSubtextFontSize, style.fileHeaderSubtextFontWeight)
     fileHeaderStatus = ui(style.fileHeaderStatusFontSize, style.fileHeaderStatusFontWeight)
     emptyState = ui(style.emptyStateFontSize, style.emptyStateFontWeight)
+  }
+
+  /// Shiki token style bits: 1 italic, 2 bold, 4 underline (handled by the caller).
+  func codeFont(forTokenStyle fontStyle: Int) -> UIFont {
+    switch (fontStyle & 2 != 0, fontStyle & 1 != 0) {
+    case (true, true): return codeBoldItalic
+    case (true, false): return codeBold
+    case (false, true): return codeItalic
+    case (false, false): return code
+    }
+  }
+
+  /// Uses the family's italic face through the descriptor trait; a family without one
+  /// keeps the upright face rather than a synthesized slant.
+  private static func italic(_ font: UIFont) -> UIFont {
+    let traits = font.fontDescriptor.symbolicTraits.union(.traitItalic)
+    guard let descriptor = font.fontDescriptor.withSymbolicTraits(traits) else {
+      return font
+    }
+    let italic = UIFont(descriptor: descriptor, size: font.pointSize)
+    return italic.fontDescriptor.symbolicTraits.contains(.traitItalic) ? italic : font
   }
 }
 
@@ -2654,16 +2688,16 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
 
     let attributedString = NSMutableAttributedString(string: "")
     for token in tokens where !token.content.isEmpty {
-      attributedString.append(
-        NSAttributedString(
-          string: token.content,
-          attributes: [
-            .font: font,
-            .foregroundColor: tokenColor(for: token.color, fallbackColor: fallbackColor),
-            .ligature: 0,
-          ]
-        )
-      )
+      let fontStyle = token.fontStyle ?? 0
+      var attributes: [NSAttributedString.Key: Any] = [
+        .font: fontStyle == 0 ? font : fonts.codeFont(forTokenStyle: fontStyle),
+        .foregroundColor: tokenColor(for: token.color, fallbackColor: fallbackColor),
+        .ligature: 0,
+      ]
+      if fontStyle & 4 != 0 {
+        attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+      }
+      attributedString.append(NSAttributedString(string: token.content, attributes: attributes))
     }
 
     tokenAttributedStringsByRowId[rowId] = attributedString
