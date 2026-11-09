@@ -50,6 +50,7 @@ import {
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
+  CirclePauseIcon,
   ClockIcon,
   EllipsisIcon,
   EyeIcon,
@@ -1277,45 +1278,51 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // full of them (and repaints every vsync on high-refresh displays).
           className: "text-info-foreground",
         }
-      : status === "monitoring"
+      : status === "paused"
         ? {
-            // Monitoring is calm background presence, not active progress
-            // (monitoring-pill D6), so it keeps the label at full strength.
-            label: "Monitoring",
-            icon: "monitoring" as const,
-            className: "text-foreground dark:text-white",
+            label: "Paused",
+            icon: "paused" as const,
+            className: "text-warning-foreground",
           }
-        : status === "approval"
+        : status === "monitoring"
           ? {
-              label: "Approval",
-              icon: "approval" as const,
-              className: "text-warning-foreground",
+              // Monitoring is calm background presence, not active progress
+              // (monitoring-pill D6), so it keeps the label at full strength.
+              label: "Monitoring",
+              icon: "monitoring" as const,
+              className: "text-foreground dark:text-white",
             }
-          : status === "input"
+          : status === "approval"
             ? {
-                label: "Input",
-                icon: "input" as const,
-                className: "text-indigo-600 dark:text-indigo-300",
+                label: "Approval",
+                icon: "approval" as const,
+                className: "text-warning-foreground",
               }
-            : status === "failed"
+            : status === "input"
               ? {
-                  label: "Failed",
-                  icon: "failed" as const,
-                  className: "text-destructive-foreground",
+                  label: "Input",
+                  icon: "input" as const,
+                  className: "text-indigo-600 dark:text-indigo-300",
                 }
-              : isWoke
+              : status === "failed"
                 ? {
-                    label: "Woke",
-                    icon: "woke" as const,
-                    className: "text-warning-foreground",
+                    label: "Failed",
+                    icon: "failed" as const,
+                    className: "text-destructive-foreground",
                   }
-                : isUnread
+                : isWoke
                   ? {
-                      label: "Done",
-                      icon: "done" as const,
-                      className: "text-success-foreground",
+                      label: "Woke",
+                      icon: "woke" as const,
+                      className: "text-warning-foreground",
                     }
-                  : null;
+                  : isUnread
+                    ? {
+                        label: "Done",
+                        icon: "done" as const,
+                        className: "text-success-foreground",
+                      }
+                    : null;
   const isWokeStatus = topStatus?.icon === "woke";
   const statusCellRef = useRef<HTMLSpanElement>(null);
   const previousStatusIconRef = useRef(topStatus?.icon);
@@ -1324,7 +1331,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     const previous = previousStatusIconRef.current;
     previousStatusIconRef.current = statusIcon;
     const cell = statusCellRef.current;
-    if (previous !== "working" || statusIcon === "working" || !canAnimate(cell)) return;
+    // A pause is not a settle: the turn is still open.
+    if (
+      previous !== "working" ||
+      statusIcon === "working" ||
+      statusIcon === "paused" ||
+      !canAnimate(cell)
+    )
+      return;
     const motion = playSidebarStatusSettle(cell);
     return () => motion.cancel();
   }, [statusIcon]);
@@ -2049,6 +2063,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             <ShieldQuestionIcon aria-hidden className="size-3.5 shrink-0" />
                           ) : topStatus.icon === "failed" ? (
                             <CircleAlertIcon aria-hidden className="size-3.5 shrink-0" />
+                          ) : topStatus.icon === "paused" ? (
+                            <CirclePauseIcon aria-hidden className="size-3.5 shrink-0" />
                           ) : topStatus.icon === "monitoring" ? (
                             <EyeIcon aria-hidden className="size-3.5 shrink-0" />
                           ) : topStatus.icon === "done" ? (
