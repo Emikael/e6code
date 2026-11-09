@@ -324,13 +324,17 @@ const TurnStartedPayload = Schema.Struct({
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 
 /**
- * Normalized main-agent usage for one turn. Input includes cache reads and
- * writes. Output includes reasoning, and reasoningTokens is an optional subset.
- * Complete means the provider supplied full input and output totals. Partial
- * means every included count is valid, but the full turn total is not known.
+ * Normalized usage for one turn. Input includes cache reads and writes. Output
+ * includes reasoning, and reasoningTokens is an optional subset. Complete means
+ * the provider supplied full input and output totals. Partial means every
+ * included count is valid, but the full turn total is not known.
+ *
+ * `usageScope` says whose calls the counts cover: `main_agent` is the main
+ * agent loop only, `all_agents` adds subagents and internal calls such as
+ * compaction, the same calls a provider-reported cost covers.
  */
 const TurnTokenUsageCommonFields = {
-  usageScope: Schema.Literal("main_agent"),
+  usageScope: Schema.Literals(["main_agent", "all_agents"]),
   cachedInputTokens: Schema.optional(NonNegativeInt),
   cacheCreationTokens: Schema.optional(NonNegativeInt),
   reasoningTokens: Schema.optional(NonNegativeInt),

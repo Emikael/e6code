@@ -1,4 +1,9 @@
-import { EnvironmentId, ProviderInstanceId, USAGE_CONTRACT_VERSION } from "@e6tools/contracts";
+import {
+  EnvironmentId,
+  ProviderInstanceId,
+  USAGE_CONTRACT_VERSION,
+  type UsageSummaryInput,
+} from "@e6tools/contracts";
 import { mergeUsage } from "@e6tools/shared/usageMerge";
 import { StrictMode, act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -8,6 +13,8 @@ const state = vi.hoisted(() => ({
   presentations: new Map(),
   refreshProviders: vi.fn(async () => undefined),
   metric: "limits",
+  merged: null as ReturnType<typeof mergeUsage> | null,
+  usageRefreshes: [] as unknown[],
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.presentations }));
 vi.mock("../../state/presentation", () => ({
@@ -19,7 +26,7 @@ vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../hooks/useSettings", () => ({ usePrimarySettings: () => "24h" }));
 vi.mock("../../state/usage", () => ({
   useUsage: () => ({
-    merged: mergeUsage([], USAGE_CONTRACT_VERSION),
+    merged: state.merged ?? mergeUsage([], USAGE_CONTRACT_VERSION),
     environments: [
       {
         environmentId: EnvironmentId.make("test"),
@@ -40,7 +47,9 @@ vi.mock("../../state/usage", () => ({
     ],
     isPending: false,
     isPartial: false,
-    refresh: async () => undefined,
+    refresh: async (input: unknown) => {
+      state.usageRefreshes.push(input);
+    },
   }),
 }));
 vi.mock("./usagePagePreferences", () => ({
@@ -82,6 +91,7 @@ vi.mock("../settings/RedactedSensitiveText", () => ({ RedactedSensitiveText: "sp
 vi.mock("../settings/providerDriverMeta", () => ({ getDriverOption: () => ({ label: "Codex" }) }));
 
 import { UsagePage } from "./UsagePage";
+import { previousWindow } from "./usageInsights";
 
 let renderer: ReactTestRenderer;
 let environmentNumber = 0;
@@ -90,6 +100,8 @@ beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-11T12:00:00Z"));
   environmentNumber += 1;
   state.metric = "limits";
+  state.merged = null;
+  state.usageRefreshes = [];
   state.refreshProviders.mockClear();
   state.presentations = new Map([
     [
@@ -185,7 +197,7 @@ it("uses the current time when returning to limits from tokens", async () => {
   expect(state.refreshProviders).toHaveBeenCalledTimes(2);
 });
 
-it("refreshes once on opening Limits and suppresses rapid returns and remounts", async () => {
+it("checks limits once for Plan limits and suppresses rapid tab switches and remounts", async () => {
   state.metric = "tokens";
   await act(() => {
     renderer = create(
@@ -194,7 +206,8 @@ it("refreshes once on opening Limits and suppresses rapid returns and remounts",
       </StrictMode>,
     );
   });
-  expect(state.refreshProviders).not.toHaveBeenCalled();
+  // Plan limits on the tokens view asks for the same check the Limits tab does.
+  expect(state.refreshProviders).toHaveBeenCalledTimes(1);
   const selectMetric = (metric: string) =>
     renderer.root
       .findAll((node) => node.type === "div" && node.props["aria-label"] === "Usage metric")[0]!
@@ -269,4 +282,21 @@ it("keeps manual refresh busy until the already-running automatic check settles"
     });
   }
   expect(button().props["aria-busy"]).toBe(false);
+});
+
+it("rescans the previous window with the current one while the comparison is shown", async () => {
+  state.metric = "cost";
+  state.merged = { ...mergeUsage([], USAGE_CONTRACT_VERSION), records: 3, costUsd: 10 };
+  await act(() => {
+    renderer = create(<UsagePage />);
+  });
+  expect(JSON.stringify(renderer.toJSON())).toContain("About the same as the 30 days before");
+  await act(async () => {
+    renderer.root
+      .findAll((node) => node.type === "button" && node.props["aria-label"] === "Refresh usage")[0]!
+      .props.onClick();
+  });
+  const [current, previous] = state.usageRefreshes as UsageSummaryInput[];
+  expect(state.usageRefreshes).toHaveLength(2);
+  expect(previous).toEqual(previousWindow(current!));
 });
