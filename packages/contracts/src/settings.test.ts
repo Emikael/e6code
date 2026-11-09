@@ -361,6 +361,27 @@ describe("ClientSettings diff colors", () => {
   });
 });
 
+describe("ClientSettings thinking timeline", () => {
+  it("shows the timeline for settings saved before it existed", () => {
+    expect(decodeClientSettings({}).showThinkingTimeline).toBe(true);
+  });
+
+  it("keeps an explicit choice and patches it", () => {
+    const settings = decodeClientSettings({ showThinkingTimeline: false });
+    expect(settings.showThinkingTimeline).toBe(false);
+    expect(encodeClientSettings(settings).showThinkingTimeline).toBe(false);
+    expect(decodeClientSettingsPatch({ showThinkingTimeline: false })).toEqual({
+      showThinkingTimeline: false,
+    });
+  });
+
+  it("falls back to on for a malformed stored value without failing other settings", () => {
+    const settings = decodeClientSettings({ showThinkingTimeline: "yes", chatWidth: "wide" });
+    expect(settings.showThinkingTimeline).toBe(true);
+    expect(settings.chatWidth).toBe("wide");
+  });
+});
+
 describe("ClientSettings chat width", () => {
   it("keeps the comfortable width for existing settings without a saved width", () => {
     expect(decodeClientSettings({}).chatWidth).toBe("comfortable");

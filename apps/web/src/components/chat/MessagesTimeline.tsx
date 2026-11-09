@@ -206,6 +206,7 @@ import {
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
   workEntryIsActiveTurnActivity,
+  deriveWorkStepMeta,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
@@ -326,6 +327,8 @@ interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
+  /** Opened work logs draw as a rail with one dot per step (Settings › Appearance). */
+  thinkingTimeline: boolean;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
@@ -393,6 +396,10 @@ interface WorkGroupViewState {
 const WorkGroupViewCtx = createContext<{
   state: WorkGroupViewState;
   onToggleEntry: (collapsed: boolean) => void;
+  /** Draw each entry as a step on the thinking timeline's rail. */
+  timeline: boolean;
+  /** The running step, ringed on the rail. */
+  liveEntryId: string | null;
 } | null>(null);
 const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
 const TIMELINE_LIST_FADE_HEADER = (
@@ -1119,6 +1126,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
+  const thinkingTimeline = useClientSettings((settings) => settings.showThinkingTimeline);
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1342,6 +1350,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       citationRequest: readyCitationRequest,
       listRef,
       timestampFormat,
+      thinkingTimeline,
       routeThreadKey,
       // Keep Markdown callbacks memoized during unrelated activity updates.
       threadRef: citationThreadRef,
@@ -1380,6 +1389,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       readyCitationRequest,
       listRef,
       timestampFormat,
+      thinkingTimeline,
       routeThreadKey,
       citationThreadRef,
       markdownCwd,
@@ -2952,8 +2962,12 @@ function ActivityGroupTimelineRow({
       ),
     (entry) => entry,
   );
-  const liveWork = trailingWork.findLast(workEntryIsActiveTurnActivity) ?? trailingWork.at(-1);
+  const runningWork = trailingWork.findLast(workEntryIsActiveTurnActivity);
+  const liveWork = runningWork ?? trailingWork.at(-1);
   const thinking = row.active && liveWork === undefined;
+  // Reasoning with no header has no step to put on a rail.
+  const timeline = ctx.thinkingTimeline && work.length > 0;
+  const liveEntryId = row.active ? (runningWork?.id ?? null) : null;
   const iconWork = row.active ? liveWork : work.at(-1);
   const failed = iconWork !== undefined && workEntryDisplayIndicatesToolFailure(iconWork);
   const label = row.active
@@ -2980,6 +2994,8 @@ function ActivityGroupTimelineRow({
             disclosureAnchorKey={row.id}
             groupedEntries={omitSupersededLifecycleMarkers(entries, (entry) => entry)}
             isExpandedToolGroup
+            railed={timeline}
+            liveEntryId={liveEntryId}
           />,
         );
       } else {
@@ -2995,6 +3011,7 @@ function ActivityGroupTimelineRow({
             messages={messages}
             live={row.active && index === row.entries.length - 1}
             showHeader={work.length > 0}
+            timeline={timeline}
           />,
         );
       }
@@ -3018,8 +3035,63 @@ function ActivityGroupTimelineRow({
           shimmer={thinking}
         />
       </button>
-      {row.expanded ? <div className="mt-2">{details}</div> : null}
+      {row.expanded ? (
+        timeline ? (
+          <ThinkingTimelineRail className="mt-2">{details}</ThinkingTimelineRail>
+        ) : (
+          <div className="mt-2">{details}</div>
+        )
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * The thinking timeline's rail: one static line through the step dots. It sits
+ * outside any scrolling list, so the dots move over it and nothing repaints.
+ * The offset centres it on the 24px marker column after the rows' 2px inset.
+ */
+function ThinkingTimelineRail({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={cn("relative", className)}>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-y-3 start-[calc(0.875rem-0.5px)] w-px bg-border"
+      />
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A step's dot on the rail. The icon stays inside so the step reads without
+ * colour; the live step gets a static ring rather than an animation.
+ */
+function ThinkingTimelineMarker({ live, children }: { live: boolean; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "flex size-5 items-center justify-center rounded-full bg-background",
+        live ? "ring-2 ring-primary-edge" : "ring-1 ring-border",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Settled-step meta at the right of a timeline row: "+48 -12", "1.2s", "Thought for 3s". */
+function ThinkingTimelineMeta({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground text-xs tabular-nums">
+      {children}
+    </span>
   );
 }
 
@@ -3068,11 +3140,13 @@ function ReasoningTraceBlock({
   messages,
   live,
   showHeader,
+  timeline = false,
 }: {
   anchorKey: string;
   messages: ReadonlyArray<ChatMessage>;
   live: boolean;
   showHeader: boolean;
+  timeline?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
   const { isWorking, unsettledTurnId } = use(TimelineRowActivityCtx);
@@ -3109,7 +3183,13 @@ function ReasoningTraceBlock({
           className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-start text-sm leading-relaxed transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
-            <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-[1.8] opacity-70" />
+            {timeline ? (
+              <ThinkingTimelineMarker live={streaming}>
+                <BrainIcon aria-hidden className="block size-3 shrink-0 stroke-[1.8] opacity-70" />
+              </ThinkingTimelineMarker>
+            ) : (
+              <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-[1.8] opacity-70" />
+            )}
           </span>
           <span
             ref={streaming ? observeVisibleAnimation : undefined}
@@ -3118,6 +3198,9 @@ function ReasoningTraceBlock({
             {headerText}
             {streaming ? <ActivityShimmerOverlay>{headerText}</ActivityShimmerOverlay> : null}
           </span>
+          {timeline && !expanded && !streaming ? (
+            <ThinkingTimelineMeta>{label}</ThinkingTimelineMeta>
+          ) : null}
           <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
             <ChevronRightIcon
               className={cn(
@@ -3292,14 +3375,27 @@ const WorkGroupSection = memo(function WorkGroupSection({
   groupedEntries,
   isExpandedToolGroup,
   displayLabel,
+  railed = false,
+  liveEntryId,
 }: {
   anchorKey: string;
   disclosureAnchorKey?: string;
   groupedEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
   isExpandedToolGroup: boolean;
   displayLabel?: string | undefined;
+  /** The parent already draws the timeline rail around this section. */
+  railed?: boolean;
+  /** The running step; when omitted, the newest running entry of the unsettled turn. */
+  liveEntryId?: string | null;
 }) {
-  const { workspaceRoot, routeThreadKey, onToggleWorkEntry } = use(TimelineRowCtx);
+  const { workspaceRoot, routeThreadKey, onToggleWorkEntry, thinkingTimeline } =
+    use(TimelineRowCtx);
+  // Only a railed list that must find its own live step subscribes to activity
+  // changes; collapsed and plain sections stay off that context.
+  const activity =
+    isExpandedToolGroup && thinkingTimeline && liveEntryId === undefined
+      ? use(TimelineRowActivityCtx)
+      : null;
   const onToggleStandaloneEntry = useCallback(
     (collapsed: boolean) => onToggleWorkEntry(disclosureAnchorKey, collapsed),
     [disclosureAnchorKey, onToggleWorkEntry],
@@ -3311,15 +3407,27 @@ const WorkGroupSection = memo(function WorkGroupSection({
 
   if (nonEmptyEntries.length === 0) return null;
   if (isExpandedToolGroup) {
-    return (
+    const resolvedLiveEntryId =
+      liveEntryId !== undefined
+        ? liveEntryId
+        : activity?.isWorking && activity.unsettledTurnId !== null
+          ? (nonEmptyEntries.findLast(
+              (entry) =>
+                entry.turnId === activity.unsettledTurnId && workEntryIsActiveTurnActivity(entry),
+            )?.id ?? null)
+          : null;
+    const list = (
       <ExpandedWorkGroupEntries
         key={`${routeThreadKey}:${anchorKey}`}
         anchorKey={anchorKey}
         disclosureAnchorKey={disclosureAnchorKey}
         entries={nonEmptyEntries}
         workspaceRoot={workspaceRoot}
+        timeline={thinkingTimeline}
+        liveEntryId={resolvedLiveEntryId}
       />
     );
+    return thinkingTimeline && !railed ? <ThinkingTimelineRail>{list}</ThinkingTimelineRail> : list;
   }
 
   return (
@@ -3345,11 +3453,15 @@ function ExpandedWorkGroupEntries({
   disclosureAnchorKey,
   entries,
   workspaceRoot,
+  timeline,
+  liveEntryId,
 }: {
   anchorKey: string;
   disclosureAnchorKey: string;
   entries: TimelineWorkEntry[];
   workspaceRoot: string | undefined;
+  timeline: boolean;
+  liveEntryId: string | null;
 }) {
   const { workGroupViewState: viewState, onToggleWorkEntry } = use(TimelineRowCtx);
   const [initialScrollIndex] = useState(() =>
@@ -3370,12 +3482,16 @@ function ExpandedWorkGroupEntries({
     });
   }
 
+  // Recycled rows read the timeline flags from context, so a new live step
+  // re-renders the mounted rows without remounting the list.
   const groupView = useMemo(
     () => ({
       state: viewState,
       onToggleEntry: (collapsed: boolean) => onToggleWorkEntry(disclosureAnchorKey, collapsed),
+      timeline,
+      liveEntryId,
     }),
-    [disclosureAnchorKey, onToggleWorkEntry, viewState],
+    [disclosureAnchorKey, onToggleWorkEntry, viewState, timeline, liveEntryId],
   );
   const updateScrollFades = useCallback(() => {
     const element = listRef.current?.getScrollableNode();
@@ -5265,6 +5381,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     }
     setExpanded(next);
   };
+  const timeline = groupView?.timeline === true;
+  const stepMeta = timeline ? deriveWorkStepMeta(workEntry) : null;
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
@@ -5365,12 +5483,23 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           role={showFailedIndicator ? "img" : undefined}
           aria-label={showFailedIndicator ? "Tool call failed" : undefined}
         >
-          <ToolActivityIconView
-            icon={entryToolIcon}
-            fallbackName={entryIconName}
-            className="block size-4 shrink-0 stroke-[1.8]"
-            muted
-          />
+          {timeline ? (
+            <ThinkingTimelineMarker live={groupView?.liveEntryId === workEntry.id}>
+              <ToolActivityIconView
+                icon={entryToolIcon}
+                fallbackName={entryIconName}
+                className="block size-3 shrink-0 stroke-[1.8]"
+                muted
+              />
+            </ThinkingTimelineMarker>
+          ) : (
+            <ToolActivityIconView
+              icon={entryToolIcon}
+              fallbackName={entryIconName}
+              className="block size-4 shrink-0 stroke-[1.8]"
+              muted
+            />
+          )}
         </span>
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <div className="min-w-0 flex-1 overflow-hidden">
@@ -5406,6 +5535,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           !showDestructiveRowStyle &&
           !toolIconAcceptsTint(entryIconName, entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
+          ) : null}
+          {stepMeta && (stepMeta.diffStat || stepMeta.duration) ? (
+            <ThinkingTimelineMeta>
+              {stepMeta.diffStat ? (
+                <DiffStatLabel
+                  additions={stepMeta.diffStat.additions}
+                  deletions={stepMeta.diffStat.deletions}
+                  layout="inline"
+                />
+              ) : null}
+              {stepMeta.duration ? <span>{stepMeta.duration}</span> : null}
+            </ThinkingTimelineMeta>
           ) : null}
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
           <span
