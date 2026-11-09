@@ -56,8 +56,11 @@ export function PullRequestRowThreads({ threadKey }: { threadKey: string }) {
             aria-label={label}
             onClick={(event) => event.stopPropagation()}
             className={cn(
-              "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm px-1 outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring",
-              linked.working ? "font-medium text-primary-text" : "text-muted-foreground",
+              "inline-flex shrink-0 cursor-pointer items-center outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              // A live agent wears the iris chip the status chips share the shape of.
+              linked.working
+                ? "h-[22px] gap-1.5 rounded-md bg-primary-surface px-1.5 text-xs font-medium text-primary-text hover:bg-primary/12"
+                : "gap-1 rounded-sm px-1 text-muted-foreground hover:bg-accent",
             )}
           />
         }
