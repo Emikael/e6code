@@ -352,12 +352,40 @@ export const TurnTokenUsage = Schema.Union([
 ]);
 export type TurnTokenUsage = typeof TurnTokenUsage.Type;
 
+/** Thread activity kind that records what one finished turn cost. */
+export const TURN_USAGE_ACTIVITY_KIND = "turn.usage";
+
+/**
+ * Payload of a `turn.usage` activity. Token fields follow `TurnTokenUsage`:
+ * input includes cache reads and writes, output includes reasoning, and
+ * `totalTokens` is input plus output. `partial` marks a turn whose provider
+ * reported only some counts (usually an aborted turn). `costUsd` is present
+ * only when known: `reported` by the provider or `estimated` from model rates.
+ */
+export const TurnUsageActivityPayload = Schema.Struct({
+  totalTokens: NonNegativeInt,
+  inputTokens: Schema.optional(NonNegativeInt),
+  outputTokens: Schema.optional(NonNegativeInt),
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  cacheCreationTokens: Schema.optional(NonNegativeInt),
+  reasoningTokens: Schema.optional(NonNegativeInt),
+  partial: Schema.Boolean,
+  costUsd: Schema.optional(Schema.Number),
+  costSource: Schema.optional(Schema.Literals(["reported", "estimated"])),
+});
+export type TurnUsageActivityPayload = typeof TurnUsageActivityPayload.Type;
+
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
   stopReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   usage: Schema.optional(Schema.Unknown),
   modelUsage: Schema.optional(UnknownRecordSchema),
   totalCostUsd: Schema.optional(Schema.Number),
+  /**
+   * The provider-reported cost of this turn alone. Claude's `totalCostUsd` is
+   * a running total for the session, so its adapter reports the difference.
+   */
+  turnCostUsd: Schema.optional(Schema.Number),
   errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
   tokenUsage: Schema.optional(TurnTokenUsage),
 });

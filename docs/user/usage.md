@@ -22,6 +22,11 @@ results appear as each one responds.
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
 
+A finished turn's **Worked for** summary also shows the tokens that turn used and, when known, its
+cost. Claude reports its own cost; Codex and OpenCode costs are estimated from model prices and
+marked with `≈`. Custom model prices apply to these estimates too. Cursor, Grok, and Antigravity
+do not report per-turn usage.
+
 ## Set custom model prices
 
 On web or desktop, open the environment dropdown on **Usage**, then choose **Model prices** to add,

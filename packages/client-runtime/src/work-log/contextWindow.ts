@@ -89,3 +89,62 @@ export function formatContextWindowTokens(value: number | null): string {
   }
   return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
 }
+
+/** Usage at or above this share of the window reads as a warning. */
+const CONTEXT_WINDOW_WARNING_PERCENT = 85;
+
+export interface ContextWindowUsageSummary {
+  /** "68% used · 136k of 200k tokens", or "136k tokens used" without a known window. */
+  readonly label: string;
+  /** Share of the window in use, 0-100, rounded; null without a known window. */
+  readonly percent: number | null;
+  /** True at or above CONTEXT_WINDOW_WARNING_PERCENT. The label carries the number. */
+  readonly warning: boolean;
+  /** "Compacts automatically near 90%", when the provider reports a threshold. */
+  readonly compactionNote: string | null;
+  /** The label and note as one sentence for assistive technology. */
+  readonly accessibilityLabel: string;
+}
+
+function formatUsedPercent(percentage: number): string {
+  if (percentage > 0 && percentage < 1) return "<1%";
+  return `${Math.round(percentage)}%`;
+}
+
+/**
+ * Text for the Overview inspector's Context section, shared by web and mobile.
+ * The compaction note says what the composer meter says ("Compacts
+ * automatically at 200,000 tokens."), as a share of the window when the
+ * window is known.
+ */
+export function describeContextWindowUsage(
+  snapshot: ContextWindowSnapshot,
+): ContextWindowUsageSummary {
+  const used = formatContextWindowTokens(snapshot.usedTokens);
+  const maxTokens = snapshot.maxTokens ?? null;
+  const max = maxTokens !== null && maxTokens > 0 ? maxTokens : null;
+  const percentage =
+    max !== null && snapshot.usedPercentage !== null
+      ? Math.max(0, Math.min(100, snapshot.usedPercentage))
+      : null;
+  const label =
+    max !== null && percentage !== null
+      ? `${formatUsedPercent(percentage)} used · ${used} of ${formatContextWindowTokens(max)} tokens`
+      : `${used} tokens used`;
+
+  const threshold = snapshot.autoCompactThreshold ?? null;
+  const compactionNote =
+    snapshot.compactsAutomatically && threshold !== null && threshold > 0
+      ? max !== null
+        ? `Compacts automatically near ${Math.min(100, Math.round((threshold / max) * 100))}%`
+        : `Compacts automatically at ${formatContextWindowTokens(threshold)} tokens`
+      : null;
+
+  return {
+    label,
+    percent: percentage === null ? null : Math.round(percentage),
+    warning: percentage !== null && percentage >= CONTEXT_WINDOW_WARNING_PERCENT,
+    compactionNote,
+    accessibilityLabel: [`Context window ${label}`, compactionNote].filter(Boolean).join(". "),
+  };
+}
