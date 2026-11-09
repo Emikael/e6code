@@ -24,6 +24,8 @@ const emitXAiAskUserQuestion = process.env.E6_ACP_EMIT_XAI_ASK_USER_QUESTION ===
 const emitXAiExitPlanMode = process.env.E6_ACP_EMIT_XAI_EXIT_PLAN_MODE === "1";
 const emitXAiPlanMdWrite = process.env.E6_ACP_EMIT_XAI_PLAN_MD_WRITE === "1";
 const emitXAiPromptCompleteThenHang = process.env.E6_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG === "1";
+/** Writes the chunks that follow prompt_complete this many ms later, forcing a separate read. */
+const xAiTrailingChunkDelayMs = Number(process.env.E6_ACP_XAI_TRAILING_CHUNK_DELAY_MS ?? "0");
 const emitXAiRateLimitThenHang = process.env.E6_ACP_EMIT_XAI_RATE_LIMIT_THEN_HANG === "1";
 const emitXAiAskUserQuestionThenHang =
   process.env.E6_ACP_EMIT_XAI_ASK_USER_QUESTION_THEN_HANG === "1";
@@ -826,6 +828,9 @@ const program = Effect.gen(function* () {
           });
         }
 
+        if (xAiTrailingChunkDelayMs > 0) {
+          yield* Effect.sleep(`${xAiTrailingChunkDelayMs} millis`);
+        }
         for (const text of [" ", "mo", "ck"]) {
           writeJsonRpcNotification("session/update", {
             sessionId: requestedSessionId,

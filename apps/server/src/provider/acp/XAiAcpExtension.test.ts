@@ -18,6 +18,7 @@ import {
   makeXAiAskUserQuestionResponse,
   makeXAiExitPlanModeCapturedResponse,
   makeXAiPromptCompletionRuntime,
+  promptResponseCameFromXAiNotification,
   XAI_EMPTY_PLAN_MARKDOWN,
   XAiAskUserQuestionRequest,
   XAiExitPlanModeRequest,
@@ -303,6 +304,8 @@ describe("XAiAcpExtension", () => {
           requestId: promptId,
         },
       });
+      // The adapter waits for Grok's trailing chunks only on this path.
+      expect(promptResponseCameFromXAiNotification(promptResult)).toBe(true);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
@@ -341,6 +344,8 @@ describe("XAiAcpExtension", () => {
         stopReason: "end_turn",
         _meta: { promptId: "mock-stale-xai-prompt-1" },
       });
+      // Answered by the session/prompt response itself, which follows every update.
+      expect(promptResponseCameFromXAiNotification(firstPromptResult)).toBe(false);
 
       const secondPromptResult = yield* runtime.prompt({
         prompt: [{ type: "text", text: "second" }],

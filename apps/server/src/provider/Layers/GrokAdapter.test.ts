@@ -702,6 +702,55 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
     }),
   );
 
+  it.effect("keeps the chunks Grok writes after prompt_complete in the turn", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-xai-trailing-chunks");
+      // The trailing chunks arrive in a later read than prompt_complete, so
+      // only the trailing-output window can place them in this turn.
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({
+          E6_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG: "1",
+          E6_ACP_XAI_TRAILING_CHUNK_DELAY_MS: "15",
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath);
+
+      const runtimeEvents: ProviderRuntimeEvent[] = [];
+      const turnCompleted = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => {
+          runtimeEvents.push(event);
+        }).pipe(
+          Effect.andThen(() =>
+            event.type === "turn.completed"
+              ? Deferred.succeed(turnCompleted, undefined)
+              : Effect.void,
+          ),
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { instanceId: ProviderInstanceId.make("grok"), model: "grok-build" },
+      });
+      yield* adapter.sendTurn({ threadId, input: "trailing chunks", attachments: [] });
+      yield* Deferred.await(turnCompleted);
+
+      const terminalIndex = runtimeEvents.findIndex((event) => event.type === "turn.completed");
+      const contentBeforeTerminal = runtimeEvents
+        .slice(0, terminalIndex)
+        .flatMap((event) => (event.type === "content.delta" ? [event.payload.delta] : []))
+        .join("");
+      assert.equal(contentBeforeTerminal, "hello from mock");
+
+      yield* Fiber.interrupt(runtimeEventsFiber);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("does not time out a Grok turn before ACP emits progress", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("grok-watchdog-silent-turn");
@@ -1067,10 +1116,15 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
         }),
       );
       const adapter = yield* makeTestAdapter(wrapperPath);
-      const contentDelta = yield* Deferred.make<void>();
-      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        event.type === "content.delta" ? Deferred.succeed(contentDelta, undefined) : Effect.void,
-      ).pipe(Effect.forkChild);
+      // The last chunk follows prompt_complete on the wire, so once it is out
+      // the prompt has resolved and the turn is waiting for trailing output.
+      const lastChunk = yield* Deferred.make<void>();
+      let content = "";
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) => {
+        if (event.type !== "content.delta") return Effect.void;
+        content += event.payload.delta;
+        return content === "hello from mock" ? Deferred.succeed(lastChunk, undefined) : Effect.void;
+      }).pipe(Effect.forkChild);
 
       yield* adapter.startSession({
         threadId,
@@ -1088,7 +1142,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
         })
         .pipe(Effect.forkChild);
 
-      yield* Deferred.await(contentDelta);
+      yield* Deferred.await(lastChunk);
       for (let yieldAttempt = 0; yieldAttempt < 6; yieldAttempt += 1) {
         yield* Effect.yieldNow;
       }
