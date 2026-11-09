@@ -46,6 +46,20 @@ const GROUNDS = {
   ],
 } as const;
 
+// index.css washes the merged tone at 8% on Porcelain and 16% on Slate.
+const MERGED_WASH_ALPHA = { light: 0.08, dark: 0.16 } as const;
+// index.css --success, which no theme overrides.
+const SUCCESS = { light: "#0f9f8c", dark: "#2dd4bf" } as const;
+
+function mixHex(base: string, overlay: string, amount: number): string {
+  const channels = [1, 3, 5].map((index) => {
+    const from = Number.parseInt(base.slice(index, index + 2), 16);
+    const to = Number.parseInt(overlay.slice(index, index + 2), 16);
+    return Math.round(from + (to - from) * amount);
+  });
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
 describe("stock accent palettes", () => {
   it("keeps Iris identical to the stock E6 Code tokens", () => {
     for (const [appearance, stock] of [
@@ -57,6 +71,8 @@ describe("stock accent palettes", () => {
       expect(iris.primaryForeground).toBe(stock.messageActionForeground);
       expect(iris.primaryHover).toBe(stock.messageActionHover);
       expect(iris.primary).toBe(stock.focus);
+      expect(iris.merged).toBe(stock.merged);
+      expect(iris.mergedForeground).toBe(stock.mergedForeground);
     }
   });
 
@@ -74,7 +90,35 @@ describe("stock accent palettes", () => {
         expect(contrastRatio(colors.primaryEdge, ground)).toBeGreaterThanOrEqual(3);
         expect(contrastRatio(colors.primary, ground)).toBeGreaterThanOrEqual(3);
       }
+      // The merged wash is the merged tone over the canvas, as index.css mixes it.
+      const mergedWash = mixHex(
+        GROUNDS[appearance][0],
+        colors.merged,
+        MERGED_WASH_ALPHA[appearance],
+      );
+      for (const ground of [...GROUNDS[appearance], mergedWash]) {
+        expect(contrastRatio(colors.mergedForeground, ground)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.merged, ground)).toBeGreaterThanOrEqual(3);
+      }
     });
+
+    it.each(["light", "dark"] as const)(
+      "keeps merged apart from the accent, success and error in %s",
+      (appearance) => {
+        const colors = STOCK_ACCENT_PALETTES[accent][appearance];
+        const stock =
+          appearance === "dark" ? E6_CODE_DARK_THEME_COLORS : E6_CODE_LIGHT_THEME_COLORS;
+        for (const other of [
+          colors.primary,
+          colors.primaryText,
+          SUCCESS[appearance],
+          stock.error,
+        ]) {
+          expect(colorDifference(colors.merged, other)).toBeGreaterThanOrEqual(15);
+          expect(colorDifference(colors.mergedForeground, other)).toBeGreaterThanOrEqual(15);
+        }
+      },
+    );
   });
 });
 
@@ -91,11 +135,15 @@ describe("stockAccentVariables", () => {
       "--stock-primary-hover": cobalt.light.primaryHover,
       "--stock-primary-edge": cobalt.light.primaryEdge,
       "--stock-primary-text": cobalt.light.primaryText,
+      "--stock-merged": cobalt.light.merged,
+      "--stock-merged-foreground": cobalt.light.mergedForeground,
       "--stock-primary-dark": cobalt.dark.primary,
       "--stock-primary-foreground-dark": cobalt.dark.primaryForeground,
       "--stock-primary-hover-dark": cobalt.dark.primaryHover,
       "--stock-primary-edge-dark": cobalt.dark.primaryEdge,
       "--stock-primary-text-dark": cobalt.dark.primaryText,
+      "--stock-merged-dark": cobalt.dark.merged,
+      "--stock-merged-foreground-dark": cobalt.dark.mergedForeground,
       "--stock-terminal-selection": "rgb(13 71 161 / 18%)",
       "--stock-terminal-selection-dark": "rgb(99 135 246 / 22%)",
       "--stock-terminal-cursor-dark": cobalt.dark.primary,

@@ -81,6 +81,14 @@ export const THEME_COLOR_ROLES = [
   "update",
   "updateForeground",
   "updateSurface",
+  // Merged pull requests. Each palette picks a hue clear of its accent, action,
+  // success and error: violet by default, magenta beside Ocean's blue, cerulean
+  // beside Iris's violet and magenta, and the stock accent's own pairing
+  // (STOCK_ACCENT_PALETTES) on E6 Code. Text clears 4.5:1 and the icon tone
+  // 3:1 on the canvas, surfaces, sidebar rows and the merged wash.
+  "merged",
+  "mergedForeground",
+  "mergedSurface",
   "accentSurface",
   "accentSurfaceForeground",
   "messageSurface",
@@ -165,6 +173,9 @@ export const E6_CODE_LIGHT_THEME_COLORS: ThemeColors = {
   update: "#2563eb",
   updateForeground: "#1d4ed8",
   updateSurface: "#e5ecfd",
+  merged: "#c026d3",
+  mergedForeground: "#a21caf",
+  mergedSurface: "#faeefb",
   accentSurface: "#f2f1fd",
   accentSurfaceForeground: "#14161b",
   messageSurface: "#eceef2",
@@ -225,6 +236,9 @@ export const E6_CODE_DARK_THEME_COLORS: ThemeColors = {
   update: "#60a5fa",
   updateForeground: "#93c5fd",
   updateSurface: "#27364a",
+  merged: "#e879f9",
+  mergedForeground: "#f39be6",
+  mergedSurface: "#3b2c45",
   accentSurface: "#2a2a3d",
   accentSurfaceForeground: "#eceef3",
   messageSurface: "#22252c",
@@ -274,6 +288,14 @@ export type StockAccentColors = Readonly<{
   primaryEdge: string;
   /** Accent used as text or an icon on Porcelain/Slate grounds. */
   primaryText: string;
+  /**
+   * The merged pull request family rides with the accent so it never wears
+   * the primary's hue: fuchsia beside Iris and Cobalt, violet beside Rose and
+   * Graphite. `merged` is the icon and dot tone (3:1), `mergedForeground` the
+   * text tone (4.5:1); both hold on the grounds and on the merged wash.
+   */
+  merged: string;
+  mergedForeground: string;
 }>;
 
 /**
@@ -295,6 +317,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#4c3bd1",
       primaryEdge: "#4a3ad0",
       primaryText: "#4a3ad0",
+      merged: "#c026d3",
+      mergedForeground: "#a21caf",
     },
     dark: {
       primary: "#9b8cff",
@@ -302,6 +326,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#ada0ff",
       primaryEdge: "#9b8cff",
       primaryText: "#b9afff",
+      merged: "#e879f9",
+      mergedForeground: "#f39be6",
     },
   },
   cobalt: {
@@ -314,6 +340,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#0b3d8f",
       primaryEdge: "#0d47a1",
       primaryText: "#0d47a1",
+      merged: "#c026d3",
+      mergedForeground: "#a21caf",
     },
     dark: {
       primary: "#6387f6",
@@ -321,6 +349,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#7d9bf8",
       primaryEdge: "#6387f6",
       primaryText: "#9db4fa",
+      merged: "#e879f9",
+      mergedForeground: "#f39be6",
     },
   },
   rose: {
@@ -331,6 +361,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#b81d61",
       primaryEdge: "#b81d61",
       primaryText: "#b81d61",
+      merged: "#7c3aed",
+      mergedForeground: "#6d28d9",
     },
     dark: {
       primary: "#f472b6",
@@ -338,6 +370,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#f78fc6",
       primaryEdge: "#f472b6",
       primaryText: "#f9a8d4",
+      merged: "#a78bfa",
+      mergedForeground: "#c4b5fd",
     },
   },
   graphite: {
@@ -348,6 +382,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#14161b",
       primaryEdge: "#2a2d35",
       primaryText: "#2a2d35",
+      merged: "#7c3aed",
+      mergedForeground: "#6d28d9",
     },
     dark: {
       primary: "#d4d7de",
@@ -355,6 +391,8 @@ export const STOCK_ACCENT_PALETTES: Readonly<
       primaryHover: "#e6e8ec",
       primaryEdge: "#c0c4cc",
       primaryText: "#e6e8ec",
+      merged: "#a78bfa",
+      mergedForeground: "#c4b5fd",
     },
   },
 };
@@ -398,6 +436,9 @@ export const E6_CHAT_THEME: ThemeDefinition = {
     update: "oklch(0.591646 0.217985 0.584)",
     updateForeground: "oklch(0.494754 0.190937 354.544)",
     updateSurface: "oklch(0.930264 0.036194 341.45)",
+    merged: "oklch(0.58 0.2 300)",
+    mergedForeground: "oklch(0.5 0.2 300)",
+    mergedSurface: "oklch(0.949522 0.023738 313.134)",
     accentSurface: "oklch(0.939552 0.024286 321.664)",
     accentSurfaceForeground: "oklch(0.396296 0.025134 285.196)",
     messageSurface: "oklch(0.926746 0.037898 332.6)",
@@ -458,6 +499,9 @@ export const E6_CHAT_THEME: ThemeDefinition = {
       update: "oklch(0.460685 0.185347 4.099)",
       updateForeground: "oklch(0.901233 0.057189 343.694)",
       updateSurface: "oklch(0.256077 0.063004 342.914)",
+      merged: "oklch(0.66 0.15 300)",
+      mergedForeground: "oklch(0.78 0.131 300)",
+      mergedSurface: "oklch(0.304737 0.046256 303.977)",
       accentSurface: "oklch(0.364912 0.050794 308.491)",
       accentSurfaceForeground: "oklch(0.964695 0.009139 341.803)",
       messageSurface: "oklch(0.273791 0.025541 309.079)",
@@ -525,6 +569,9 @@ export const GROVE_THEME: ThemeDefinition = {
     update: "oklch(0.523295 0.112292 158.089)",
     updateForeground: "oklch(0.388012 0.080082 158.768)",
     updateSurface: "oklch(0.900411 0.02384 164.795)",
+    merged: "oklch(0.555 0.2 300)",
+    mergedForeground: "oklch(0.467 0.2 300)",
+    mergedSurface: "oklch(0.937102 0.010753 291.945)",
     accentSurface: "oklch(0.909438 0.021521 164.612)",
     accentSurfaceForeground: "oklch(0.222003 0.03479 328.979)",
     messageSurface: "oklch(0.891377 0.026164 164.929)",
@@ -585,6 +632,9 @@ export const GROVE_THEME: ThemeDefinition = {
       update: "oklch(0.796228 0.133058 157.319)",
       updateForeground: "oklch(0.86276 0.089288 159.704)",
       updateSurface: "oklch(0.448116 0.062637 158.86)",
+      merged: "oklch(0.745 0.15 300)",
+      mergedForeground: "oklch(0.852 0.086 300)",
+      mergedSurface: "oklch(0.345211 0.019999 269.552)",
       accentSurface: "oklch(0.437021 0.060312 158.962)",
       accentSurfaceForeground: "oklch(0.990339 0.008411 325.64)",
       messageSurface: "oklch(0.470111 0.067221 158.676)",
@@ -652,6 +702,9 @@ export const OCEAN_THEME: ThemeDefinition = {
     update: "oklch(0.536684 0.120219 247.01)",
     updateForeground: "oklch(0.397497 0.084999 246.523)",
     updateSurface: "oklch(0.904165 0.021144 241.874)",
+    merged: "oklch(0.56 0.2 322)",
+    mergedForeground: "oklch(0.473 0.2 322)",
+    mergedSurface: "oklch(0.939633 0.016423 313.612)",
     accentSurface: "oklch(0.91295 0.018827 241.836)",
     accentSurfaceForeground: "oklch(0.222003 0.03479 328.979)",
     messageSurface: "oklch(0.895373 0.023469 241.913)",
@@ -712,6 +765,9 @@ export const OCEAN_THEME: ThemeDefinition = {
       update: "oklch(0.758933 0.105833 241.548)",
       updateForeground: "oklch(0.840844 0.069217 240.151)",
       updateSurface: "oklch(0.424017 0.053575 243.695)",
+      merged: "oklch(0.719 0.15 322)",
+      mergedForeground: "oklch(0.825 0.149 322)",
+      mergedSurface: "oklch(0.326053 0.038736 290.326)",
       accentSurface: "oklch(0.413315 0.051874 243.855)",
       accentSurfaceForeground: "oklch(0.990339 0.008411 325.64)",
       messageSurface: "oklch(0.445224 0.056936 243.413)",
@@ -779,6 +835,9 @@ export const EMBER_THEME: ThemeDefinition = {
     update: "oklch(0.552831 0.129438 44.656)",
     updateForeground: "oklch(0.408647 0.091207 45.037)",
     updateSurface: "oklch(0.907902 0.020621 49.36)",
+    merged: "oklch(0.555 0.2 300)",
+    mergedForeground: "oklch(0.47 0.2 300)",
+    mergedSurface: "oklch(0.942063 0.014092 318.696)",
     accentSurface: "oklch(0.916502 0.01832 49.597)",
     accentSurfaceForeground: "oklch(0.222003 0.03479 328.979)",
     messageSurface: "oklch(0.899296 0.022939 49.163)",
@@ -839,6 +898,9 @@ export const EMBER_THEME: ThemeDefinition = {
       update: "oklch(0.762174 0.124117 52.082)",
       updateForeground: "oklch(0.841456 0.079585 53.521)",
       updateSurface: "oklch(0.426749 0.057547 50.618)",
+      merged: "oklch(0.709 0.15 300)",
+      mergedForeground: "oklch(0.812 0.111 300)",
+      mergedSurface: "oklch(0.328331 0.031631 332.872)",
       accentSurface: "oklch(0.416048 0.055354 50.484)",
       accentSurfaceForeground: "oklch(0.990339 0.008411 325.64)",
       messageSurface: "oklch(0.447961 0.061874 50.849)",
@@ -906,6 +968,9 @@ export const IRIS_THEME: ThemeDefinition = {
     update: "oklch(0.525348 0.15373 294.176)",
     updateForeground: "oklch(0.389926 0.10825 294.547)",
     updateSurface: "oklch(0.90602 0.025754 299.867)",
+    merged: "oklch(0.528 0.121 240)",
+    mergedForeground: "oklch(0.44 0.1 240)",
+    mergedSurface: "oklch(0.939072 0.012781 244.258)",
     accentSurface: "oklch(0.914882 0.022965 299.986)",
     accentSurfaceForeground: "oklch(0.222003 0.03479 328.979)",
     messageSurface: "oklch(0.897143 0.028558 299.758)",
@@ -966,6 +1031,9 @@ export const IRIS_THEME: ThemeDefinition = {
       update: "oklch(0.671712 0.169136 293.929)",
       updateForeground: "oklch(0.785032 0.108439 296.344)",
       updateSurface: "oklch(0.381668 0.081286 294.195)",
+      merged: "oklch(0.663 0.12 240)",
+      mergedForeground: "oklch(0.78 0.12 240)",
+      mergedSurface: "oklch(0.302334 0.044596 264.304)",
       accentSurface: "oklch(0.372436 0.07841 294.204)",
       accentSurfaceForeground: "oklch(0.990339 0.008411 325.64)",
       messageSurface: "oklch(0.399975 0.086965 294.177)",

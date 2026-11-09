@@ -161,6 +161,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --color-update-foreground: var(--update-foreground);
   --color-update: var(--update);
   --color-update-surface: var(--update-surface);
+  --color-merged-foreground: var(--merged-foreground);
+  --color-merged: var(--merged);
+  --color-merged-surface: var(--merged-surface);
   --color-success-foreground: var(--success-foreground);
   --color-success: var(--success);
   --color-diff-addition: var(--diff-addition);
@@ -986,6 +989,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --update: var(--info);
   --update-foreground: var(--info-foreground);
   --update-surface: color-mix(in srgb, var(--update) 12%, transparent);
+  /* Merged pull requests pair with the accent (STOCK_ACCENT_PALETTES in
+     themePalettes.ts) so they never share the primary's hue; the literals
+     are Iris's fuchsia. */
+  --merged: var(--stock-merged, #c026d3);
+  --merged-foreground: var(--stock-merged-foreground, #a21caf);
+  --merged-surface: color-mix(in srgb, var(--merged) 8%, transparent);
   /* Keep every sidebar primitive on the same light surface hierarchy, including
      portaled mobile sheets and settings navigation outside the app sidebar. */
   --sidebar: #f8f9fb;
@@ -1053,6 +1062,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
     --update-foreground: #93c5fd;
     --update-surface: color-mix(in srgb, var(--update) 18%, transparent);
+    --merged: var(--stock-merged-dark, #e879f9);
+    --merged-foreground: var(--stock-merged-foreground-dark, #f39be6);
+    --merged-surface: color-mix(in srgb, var(--merged) 16%, transparent);
     --sidebar: #13151a;
     --sidebar-control-surface: var(--muted);
     --sidebar-row-hover: var(--accent);
@@ -1125,7 +1137,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
    semantic surface tokens here. Keep this block after the sidebar-version
    compatibility overrides so both navigation implementations receive the
    same palette. Success, info, provider, and channel identity colors remain
-   independent; error, warning, and update roles are themeable below. */
+   independent; error, warning, update, and merged roles are themeable below. */
 
 /* The non-empty marker adds enough specificity to outrank the generated root
    dark variant without reintroducing raw `.dark` selectors. */
@@ -1188,6 +1200,9 @@ html[data-theme-id]:not([data-theme-id=""]) {
   --update: var(--app-theme-update);
   --update-foreground: var(--app-theme-update-foreground);
   --update-surface: var(--app-theme-update-surface);
+  --merged: var(--app-theme-merged);
+  --merged-foreground: var(--app-theme-merged-foreground);
+  --merged-surface: var(--app-theme-merged-surface);
   --border: var(--app-theme-border);
   --input: var(--app-theme-input);
   --ring: var(--app-theme-focus);

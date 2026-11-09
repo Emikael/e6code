@@ -59,7 +59,7 @@ export const PULL_REQUEST_STATE_PRESENTATION = {
   },
   merged: {
     label: "Merged",
-    toneClassName: "text-violet-600 dark:text-violet-300/90",
+    toneClassName: "text-merged-foreground",
     Icon: PullRequestGlyph.merged,
   },
 } as const satisfies Record<PullRequestState | "draft", PullRequestStatePresentation>;

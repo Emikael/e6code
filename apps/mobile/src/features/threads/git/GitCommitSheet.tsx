@@ -208,13 +208,13 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                       {file.path}
                     </Text>
                     <Text
-                      className="text-xs font-e6-bold text-diff-addition"
+                      className="text-xs font-e6-bold text-diff-addition-foreground"
                       accessibilityLabel={`${file.insertions} additions`}
                     >
                       +{file.insertions}
                     </Text>
                     <Text
-                      className="text-xs font-e6-bold text-diff-deletion"
+                      className="text-xs font-e6-bold text-diff-deletion-foreground"
                       accessibilityLabel={`${file.deletions} deletions`}
                     >
                       −{file.deletions}
@@ -298,13 +298,13 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                         </View>
                         <View className="items-end gap-1">
                           <Text
-                            className="text-xs font-e6-bold text-diff-addition"
+                            className="text-xs font-e6-bold text-diff-addition-foreground"
                             accessibilityLabel={`${file.insertions} additions`}
                           >
                             +{file.insertions}
                           </Text>
                           <Text
-                            className="text-xs font-e6-bold text-diff-deletion"
+                            className="text-xs font-e6-bold text-diff-deletion-foreground"
                             accessibilityLabel={`${file.deletions} deletions`}
                           >
                             −{file.deletions}

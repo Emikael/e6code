@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { BUILT_IN_THEMES } from "@e6tools/shared/themePalettes";
+import { BUILT_IN_THEMES, type ThemeColors } from "@e6tools/shared/themePalettes";
+import { differenceCiede2000 } from "culori/fn";
 
 import {
   applyThemeColorPreview,
@@ -1138,5 +1139,77 @@ describe("singleAppearanceOf", () => {
     const { variants: _pair, ...base } = E6_CHAT_THEME;
     expect(singleAppearanceOf({ ...base, id: "x", appearance: "dark" })).toBe("dark");
     expect(singleAppearanceOf(E6_CHAT_THEME)).toBe(null);
+  });
+});
+
+describe("merged pull request roles", () => {
+  const colorDifference = differenceCiede2000();
+
+  function expectReadableMerged(colors: ThemeColors, label: string): void {
+    for (const ground of [
+      colors.canvas,
+      colors.surface,
+      colors.surfaceRaised,
+      colors.surfaceOverlay,
+      colors.sidebar,
+      colors.mergedSurface,
+    ]) {
+      expect(contrastRatio(colors.mergedForeground, ground), label).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.merged, ground), label).toBeGreaterThanOrEqual(3);
+    }
+  }
+
+  function expectDistinctMerged(colors: ThemeColors, label: string): void {
+    for (const other of [colors.accent, colors.messageAction, colors.error]) {
+      expect(colorDifference(asHex(colors.merged), asHex(other)), label).toBeGreaterThanOrEqual(15);
+    }
+  }
+
+  it("keeps every built-in and stock palette readable and apart from its accent", () => {
+    const palettes: Array<[string, ThemeColors]> = [
+      ["e6-code light", getStandardThemeColors("light")],
+      ["e6-code dark", getStandardThemeColors("dark")],
+      ...BUILT_IN_THEMES.flatMap((theme) =>
+        [theme.colors, ...Object.values(theme.variants ?? {})].map(
+          (colors, index): [string, ThemeColors] => [`${theme.id} ${index}`, colors],
+        ),
+      ),
+    ];
+    for (const [label, colors] of palettes) {
+      expectReadableMerged(colors, label);
+      expectDistinctMerged(colors, label);
+    }
+  });
+
+  it("derives a readable merged family that steers clear of a violet accent", () => {
+    for (const [appearance, canvas, accent] of [
+      ["light", "#faf8ff", "#7c3aed"],
+      ["dark", "#17131f", "#a78bfa"],
+      ["light", "#f4f9f2", "#1d8a4e"],
+      ["dark", "#101a2c", "#4f8fe8"],
+    ] as const) {
+      const colors = createVividThemeColors(appearance, canvas, accent);
+      expectReadableMerged(colors, `${appearance} ${accent}`);
+      expectDistinctMerged(colors, `${appearance} ${accent}`);
+    }
+  });
+
+  it("derives merged roles for a theme file that leaves them out and keeps ones it names", () => {
+    const derived = parseThemeFile({
+      version: THEME_FILE_VERSION,
+      name: "Night violet",
+      appearance: "dark",
+      colors: { canvas: "#120d1d", surface: "#120d1d", sidebar: "#0d0915", accent: "#8b5cf6" },
+    });
+    expect(derived.colors.merged).not.toBe(getDefaultThemeColors("dark").merged);
+    expectReadableMerged(derived.colors, "derived");
+
+    const named = parseThemeFile({
+      version: THEME_FILE_VERSION,
+      name: "Named merged",
+      appearance: "light",
+      colors: { merged: "#7c3aed" },
+    });
+    expect(asHex(named.colors.merged)).toBe("#7c3aed");
   });
 });

@@ -24,6 +24,15 @@ const GENERATED_DEFAULT_VARIABLES_PATH = NodePath.resolve(
   "../generated-uniwind-default-theme-variables.json",
 );
 const GENERATED_CLERK_THEME_PATH = NodePath.resolve(import.meta.dirname, "../clerk-theme.json");
+// Widget layouts are serialized into the extension without module scope, so
+// they cannot import the palette. Their status colors are written into a
+// marked block inside each widget function instead.
+const WIDGET_SOURCE_PATHS = [
+  NodePath.resolve(import.meta.dirname, "../src/widgets/AgentActivity.tsx"),
+  NodePath.resolve(import.meta.dirname, "../src/widgets/SubscriptionUsage.tsx"),
+];
+const WIDGET_STATUS_COLORS_START = "  // <generated widget-status-colors>\n";
+const WIDGET_STATUS_COLORS_END = "  // </generated widget-status-colors>\n";
 
 type TailwindColorFamily = keyof typeof tailwindColors;
 type TailwindColorShade = 50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 950;
@@ -123,19 +132,11 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
   "--color-adaptive-rose-500-a12-a16": [color("rose", 500, 0.12), color("rose", 500, 0.16)],
   "--color-adaptive-rose-500-400": [color("rose", 500), color("rose", 400)],
   "--color-adaptive-rose-600-400": [color("rose", 600), color("rose", 400)],
-  "--color-adaptive-violet-600-400": [color("violet", 600), color("violet", 400)],
   "--color-adaptive-violet-700-300": [color("violet", 700), color("violet", 300)],
   "--color-adaptive-white-neutral-950-a70": [color("white"), color("neutral", 950, 0.7)],
   "--color-adaptive-zinc-500-a12-a16": [color("zinc", 500, 0.12), color("zinc", 500, 0.16)],
   "--color-adaptive-zinc-500-400": [color("zinc", 500), color("zinc", 400)],
   "--color-adaptive-zinc-600-300": [color("zinc", 600), color("zinc", 300)],
-};
-
-// Semantic roles that keep one hue in every theme, like the info and success
-// roles. `+N −M` line counts read through these, never a raw palette class.
-const SEMANTIC_COLORS: Readonly<Record<string, readonly [light: string, dark: string]>> = {
-  "--color-diff-addition": [color("emerald", 700), color("emerald", 300)],
-  "--color-diff-deletion": [color("rose", 700), color("rose", 300)],
 };
 
 export const customThemeNames = BUILT_IN_THEME_IDS.flatMap((themeId) =>
@@ -144,7 +145,7 @@ export const customThemeNames = BUILT_IN_THEME_IDS.flatMap((themeId) =>
 
 const adaptiveVariablesFor = (appearance: MobileThemeAppearance) =>
   Object.fromEntries(
-    Object.entries({ ...SEMANTIC_COLORS, ...ADAPTIVE_COLORS }).map(([name, [light, dark]]) => [
+    Object.entries(ADAPTIVE_COLORS).map(([name, [light, dark]]) => [
       name,
       appearance === "light" ? light : dark,
     ]),
@@ -227,6 +228,53 @@ export const renderUniwindThemesCSS = () => {
   ].join("\n");
 };
 
+/**
+ * The stock palette's status text roles for widgets, which render on the
+ * system's light or dark material rather than an app theme.
+ */
+const widgetStatusColorsFor = (appearance: MobileThemeAppearance) => {
+  const variables = getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, appearance);
+  return {
+    primary: variables["--color-primary-text"],
+    warning: variables["--color-warning-foreground"],
+    update: variables["--color-update-foreground"],
+    success: variables["--color-success-foreground"],
+    error: variables["--color-danger-foreground"],
+  };
+};
+
+const renderWidgetStatusColors = () => {
+  const lines = [
+    WIDGET_STATUS_COLORS_START.trimEnd(),
+    "  // Written by scripts/generate-uniwind-themes.mts from the stock palette.",
+    "  const statusColors = {",
+    ...APPEARANCES.flatMap((appearance) => [
+      `    ${appearance}: {`,
+      ...Object.entries(widgetStatusColorsFor(appearance)).map(
+        ([role, value]) => `      ${role}: "${value}",`,
+      ),
+      "    },",
+    ]),
+    "  } as const;",
+    WIDGET_STATUS_COLORS_END.trimEnd(),
+  ];
+  return `${lines.join("\n")}\n`;
+};
+
+const renderWidgetSource = (filename: string) => {
+  const source = NodeFS.readFileSync(filename, "utf8");
+  const start = source.indexOf(WIDGET_STATUS_COLORS_START);
+  const end = source.indexOf(WIDGET_STATUS_COLORS_END);
+  if (start === -1 || end < start) {
+    throw new Error(`${filename} has no generated widget-status-colors block.`);
+  }
+  return (
+    source.slice(0, start) +
+    renderWidgetStatusColors() +
+    source.slice(end + WIDGET_STATUS_COLORS_END.length)
+  );
+};
+
 export const renderDefaultThemeVariablesJSON = () =>
   `${JSON.stringify(
     Object.fromEntries(
@@ -249,6 +297,7 @@ export const getGeneratedUniwindThemeOutputs = (): ReadonlyArray<
     GENERATED_CLERK_THEME_PATH,
     `${JSON.stringify({ colors: clerkColorsFor("light"), darkColors: clerkColorsFor("dark"), design: { borderRadius: 18 } }, null, 2)}\n`,
   ],
+  ...WIDGET_SOURCE_PATHS.map((filename) => [filename, renderWidgetSource(filename)] as const),
 ];
 
 const writeFileAtomically = (filename: string, contents: string) => {

@@ -52,12 +52,13 @@ describe("getStockAccentVariableOverrides", () => {
           "--color-primary-edge": iris.primaryEdge,
           "--color-md-link": iris.primaryText,
           "--color-user-bubble-skill-foreground": iris.primaryText,
+          "--color-merged-foreground": iris.mergedForeground,
         });
       }
     },
   );
 
-  it("replaces only the primary family on the stock palette", () => {
+  it("replaces only the primary and merged families on the stock palette", () => {
     const overrides = getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, "cobalt", "light");
     const cobalt = STOCK_ACCENT_PALETTES.cobalt.light;
     expect(overrides).toEqual({
@@ -72,6 +73,8 @@ describe("getStockAccentVariableOverrides", () => {
       "--color-user-bubble-skill-foreground": cobalt.primaryText,
       "--color-inline-skill-border": "rgba(13, 71, 161, 0.42)",
       "--color-inline-skill-background": "#ecf0f7",
+      "--color-merged": "#faeefb",
+      "--color-merged-foreground": cobalt.mergedForeground,
     });
     for (const name of Object.keys(overrides)) {
       expect(MOBILE_THEME_VARIABLE_NAMES).toContain(name);
@@ -93,6 +96,17 @@ describe("getStockAccentVariableOverrides", () => {
           variables["--color-card-alt"],
         ]) {
           expect(contrastRatio(text, surface)).toBeGreaterThanOrEqual(4.5);
+        }
+        for (const surface of [
+          variables["--color-merged"],
+          variables["--color-screen"],
+          variables["--color-card"],
+          variables["--color-grouped-card"],
+          variables["--color-card-alt"],
+        ]) {
+          expect(
+            contrastRatio(variables["--color-merged-foreground"], surface),
+          ).toBeGreaterThanOrEqual(4.5);
         }
         expect(
           contrastRatio(

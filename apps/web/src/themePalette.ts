@@ -145,7 +145,7 @@ export function lenientThemeColorOverrides(
 
 function parseStoredThemeColors(value: unknown, appearance: ThemeAppearance): ThemeColors | null {
   if (!isRecord(value)) return null;
-  return { ...getDefaultThemeColors(appearance), ...lenientThemeColorOverrides(value) };
+  return completeThemeColors(getDefaultThemeColors(appearance), lenientThemeColorOverrides(value));
 }
 
 function parseStoredThemeVariants(
@@ -660,6 +660,92 @@ function standardStatusColors(canvas: ThemeRgbColor): {
   };
 }
 
+type MergedThemeColors = Pick<ThemeColors, "merged" | "mergedForeground" | "mergedSurface">;
+const MERGED_THEME_COLOR_ROLES = ["merged", "mergedForeground", "mergedSurface"] as const;
+
+// Violet is the conventional merged hue; the rest stand in, in order, when a
+// palette's accent or action already sits near it. Each also keeps clear of
+// the error, warning and success hues.
+const MERGED_HUE_CANDIDATES = [300, 325, 275, 240, 345, 210] as const;
+const MERGED_HUE_CLEARANCE = 40;
+const STATUS_HUES = [25, 70, 180] as const;
+const STATUS_HUE_CLEARANCE = 30;
+
+function hueDistance(first: number, second: number): number {
+  const distance = Math.abs(first - second) % 360;
+  return distance > 180 ? 360 - distance : distance;
+}
+
+/**
+ * The merged pull request family for a palette that does not choose one: a
+ * hue clear of the palette's accent and action, an icon tone at 3:1 and a
+ * text tone at 4.5:1 on every ground and on its own wash. The wash matches
+ * the error and warning surfaces (8% light, 16% dark over the canvas).
+ */
+function deriveMergedThemeColors(colors: ThemeColors): MergedThemeColors {
+  const canvas = parseThemeRgbColor(colors.canvas, THEME_WHITE_FOREGROUND);
+  const dark = themeRelativeLuminance(canvas) < 0.179;
+  const avoidedHues = [colors.accent, colors.messageAction]
+    .map((value) => themeRgbToOklch(parseThemeRgbColor(value, canvas)))
+    .filter((color) => color.C >= 0.04)
+    .map((color) => color.h);
+  const clearance = (hue: number, from: ReadonlyArray<number>) =>
+    Math.min(180, ...from.map((avoided) => hueDistance(hue, avoided)));
+  const hue =
+    MERGED_HUE_CANDIDATES.find(
+      (candidate) =>
+        clearance(candidate, avoidedHues) >= MERGED_HUE_CLEARANCE &&
+        clearance(candidate, STATUS_HUES) >= STATUS_HUE_CLEARANCE,
+    ) ??
+    MERGED_HUE_CANDIDATES.reduce((best, candidate) =>
+      clearance(candidate, avoidedHues) > clearance(best, avoidedHues) ? candidate : best,
+    );
+  const grounds = [
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+    colors.sidebar,
+  ].map((value) => parseThemeRgbColor(value, canvas));
+  const direction = dark ? "lighter" : "darker";
+  // Each solve only moves away from the grounds, so solving them in turn
+  // keeps every earlier ground's contrast.
+  const readableOn = (base: ThemeOklch, against: ReadonlyArray<ThemeRgbColor>, ratio: number) =>
+    against.reduce((color, ground) => solveOklchLightness(color, ground, ratio, direction), base);
+  const iconOnGrounds = readableOn(
+    { L: dark ? 0.7 : 0.56, C: dark ? 0.15 : 0.2, h: hue },
+    grounds,
+    3.1,
+  );
+  const surface = mixThemeRgbColors(canvas, themeOklchToRgb(iconOnGrounds), dark ? 0.16 : 0.08);
+  const icon = readableOn(iconOnGrounds, [surface], 3.1);
+  const foreground = readableOn(
+    { L: dark ? 0.8 : 0.5, C: dark ? 0.13 : 0.2, h: hue },
+    [...grounds, surface],
+    4.6,
+  );
+  return {
+    merged: themeOklchToThemeColor(icon),
+    mergedForeground: themeOklchToThemeColor(foreground),
+    mergedSurface: themeRgbToThemeColor(surface),
+  };
+}
+
+/**
+ * Fill roles a theme file, stored theme or published theme leaves out. The
+ * merged family is derived from the theme's own grounds and accent when the
+ * source names none of it, rather than inheriting the fallback palette's
+ * hue tuned for another canvas.
+ */
+export function completeThemeColors(
+  fallback: ThemeColors,
+  overrides: Partial<Record<ThemeColorRole, string>>,
+): ThemeColors {
+  const colors = { ...fallback, ...overrides };
+  if (MERGED_THEME_COLOR_ROLES.every((role) => overrides[role] !== undefined)) return colors;
+  return { ...colors, ...deriveMergedThemeColors(colors), ...overrides };
+}
+
 /**
  * Derive a full palette from two exact seed colors, in OKLCH. Surfaces climb a
  * perceptually even lightness ramp that carries the accent hue at low chroma,
@@ -745,7 +831,7 @@ export function createVividThemeColors(
 
   const actionHover: ThemeOklch = { ...action, L: action.L + (dark ? 0.06 : -0.06) };
 
-  return {
+  const colors: ThemeColors = {
     ...defaults,
     ...standardStatusColors(canvasRgb),
     canvas: themeRgbToThemeColor(canvasRgb),
@@ -801,6 +887,7 @@ export function createVividThemeColors(
     terminalScrollbar: themeColor(surfaceAt(dark ? 0.22 : 0.16, tintC)),
     terminalScrollbarHover: themeColor(surfaceAt(dark ? 0.3 : 0.22, tintC)),
   };
+  return { ...colors, ...deriveMergedThemeColors(colors) };
 }
 
 function themeContrastRatio(first: ThemeRgbColor, second: ThemeRgbColor): number {
@@ -1118,6 +1205,15 @@ export function updateThemeColorFamily(
         warning: normalized,
         warningForeground: status.foreground,
         warningSurface: status.surface,
+      };
+    }
+    case "merged": {
+      const status = statusColors();
+      return {
+        ...colors,
+        merged: normalized,
+        mergedForeground: status.foreground,
+        mergedSurface: status.surface,
       };
     }
     default:
@@ -1450,10 +1546,10 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
         throw new Error(`Theme variants must not repeat the base appearance "${appearance}".`);
       }
       const variantFallback = getDefaultThemeColors(variantAppearance);
-      variants[variantAppearance] = {
-        ...variantFallback,
-        ...parseThemeColorOverrides(variantColors),
-      };
+      variants[variantAppearance] = completeThemeColors(
+        variantFallback,
+        parseThemeColorOverrides(variantColors),
+      );
     }
   }
 
@@ -1461,7 +1557,7 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     id,
     label: name.trim(),
     appearance,
-    colors: { ...fallback, ...overrides },
+    colors: completeThemeColors(fallback, overrides),
     ...(Object.keys(variants).length > 0 ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
@@ -1518,6 +1614,9 @@ const APP_THEME_VARIABLES: Readonly<Record<ThemeColorRole, string>> = {
   update: "--app-theme-update",
   updateForeground: "--app-theme-update-foreground",
   updateSurface: "--app-theme-update-surface",
+  merged: "--app-theme-merged",
+  mergedForeground: "--app-theme-merged-foreground",
+  mergedSurface: "--app-theme-merged-surface",
   accentSurface: "--app-theme-accent-surface",
   accentSurfaceForeground: "--app-theme-accent-surface-foreground",
   messageSurface: "--app-theme-message-surface",

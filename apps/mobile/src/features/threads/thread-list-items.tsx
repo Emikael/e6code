@@ -47,7 +47,6 @@ const SIDEBAR_ROW_RADIUS = 12;
 function pullRequestTintColor(
   pr: Pick<ThreadPrPresentation, "state" | "isDraft" | "others" | "kind">,
   theme: MobileThemeVariables,
-  colorScheme: "light" | "dark",
 ) {
   if (pr.state === "open" && pr.isDraft === true) {
     return theme["--color-icon-muted"];
@@ -56,8 +55,7 @@ function pullRequestTintColor(
     case "open":
       return theme["--color-success-foreground"];
     case "merged":
-      // No semantic role for "merged" yet, so it keeps the conventional violet.
-      return colorScheme === "dark" ? "#a78bfa" : "#7c3aed";
+      return theme["--color-merged-foreground"];
     case "closed":
       if (pr.kind === "stack" || pr.others > 0) {
         return theme["--color-danger-foreground"];
@@ -502,7 +500,7 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
   >["simultaneousWithExternalGesture"];
 }) {
   const { width: windowWidth } = useWindowDimensions();
-  const { themeAppearance: colorScheme, themeVariables } = useAppearancePreferences();
+  const { themeVariables } = useAppearancePreferences();
   const compact = props.variant === "compact";
   const selected = props.selected === true;
   const visuallySelected = selected && (!compact || Platform.OS === "android");
@@ -640,12 +638,12 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
               <SymbolView
                 name="square.3.layers.3d"
                 size={compact ? 13 : 11}
-                tintColor={pullRequestTintColor(pr, themeVariables, colorScheme)}
+                tintColor={pullRequestTintColor(pr, themeVariables)}
               />
             ) : (
               <PullRequestIcon
                 size={compact ? 13 : 11}
-                color={pullRequestTintColor(pr, themeVariables, colorScheme)}
+                color={pullRequestTintColor(pr, themeVariables)}
               />
             )}
             <Text

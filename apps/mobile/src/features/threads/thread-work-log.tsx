@@ -617,8 +617,8 @@ function WorkLogDiffStat(props: { readonly stat: WorkLogDiffStatValue }) {
       accessible
       accessibilityLabel={`${additions} additions, ${deletions} deletions`}
     >
-      <Text className="text-2xs tabular-nums text-diff-addition">+{additions}</Text>
-      <Text className="text-2xs tabular-nums text-diff-deletion">−{deletions}</Text>
+      <Text className="text-2xs tabular-nums text-diff-addition-foreground">+{additions}</Text>
+      <Text className="text-2xs tabular-nums text-diff-deletion-foreground">−{deletions}</Text>
     </View>
   );
 }
