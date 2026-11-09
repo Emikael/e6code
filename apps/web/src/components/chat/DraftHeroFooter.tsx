@@ -38,7 +38,7 @@ import {
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
   ["commandPalette.toggle", "Commands"],
-  ["rightPanel.toggle", "Inspector"],
+  ["rightPanel.toggle", "Run details"],
   ["terminal.toggle", "Terminal"],
 ];
 
@@ -56,7 +56,7 @@ export function DraftHeroFooter({
   unpushed: UnpushedCommits | null;
   /** The draft's project and its resolved scripts, to flag worktrees set up with an older setup script. */
   setupProject: Parameters<typeof selectStaleSetupThread>[1];
-  /** Opens the Overview, where Commit pushes or opens a pull request. */
+  /** Opens Run details, where Commit pushes or opens a pull request. */
   onOpenSourceControl: () => void;
 }) {
   const router = useRouter();
@@ -138,7 +138,7 @@ export function DraftHeroFooter({
               );
             })}
             {staleSetup ? (
-              // Opens the thread; its Overview re-runs the setup script there.
+              // Opens the thread; its Run details re-runs the setup script there.
               // Dismissing marks the worktree as matching the current script.
               <li className="flex items-center border-border not-last:border-b">
                 <button

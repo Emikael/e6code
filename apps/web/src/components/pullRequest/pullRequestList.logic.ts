@@ -5,6 +5,7 @@ import {
   PullRequestListEntry,
   PullRequestListProjectError,
   PullRequestListResult,
+  PullRequestOperationError,
   resolvePullRequestAuthorFilter,
 } from "@e6tools/contracts";
 import type {
@@ -36,6 +37,18 @@ export interface EnvironmentPullRequestStat extends PullRequestDiffStat {
 
 export interface EnvironmentPullRequestError extends PullRequestListProjectError {
   readonly environmentId: EnvironmentId;
+}
+
+const isPullRequestOperationError = Schema.is(PullRequestOperationError);
+
+/**
+ * A failed pull request read, told the way the server worded it, or null for any other failure.
+ * The operation error's message wraps its detail in "Pull request operation list failed:", which
+ * names the request rather than the problem; the detail already says what went wrong and, when
+ * the server knows, how to fix it.
+ */
+export function pullRequestOperationFailureText(error: unknown): string | null {
+  return isPullRequestOperationError(error) ? error.detail : null;
 }
 
 export type PullRequestGroupKey = "reviewRequested" | "authored" | "others" | "needsYou";

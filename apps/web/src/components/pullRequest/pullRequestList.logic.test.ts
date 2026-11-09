@@ -1,4 +1,10 @@
-import type { EnvironmentId, ProjectId, PullRequestListEntry } from "@e6tools/contracts";
+import {
+  PullRequestOperationError,
+  PullRequestUnavailableError,
+  type EnvironmentId,
+  type ProjectId,
+  type PullRequestListEntry,
+} from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -20,6 +26,7 @@ import {
   mergePullRequestDiffStats,
   narrowPullRequestsToFilters,
   partitionPullRequestsWithPriority,
+  pullRequestOperationFailureText,
   readPullRequestListSnapshot,
   writePullRequestListSnapshot,
   rankPullRequestMatches,
@@ -1672,6 +1679,29 @@ describe("when the list was last read", () => {
   it("says nothing when no row says when it was read", () => {
     expect(pullRequestListSyncedAt([entry({ number: 1 })])).toBeNull();
     expect(pullRequestListSyncedAt([])).toBeNull();
+  });
+});
+
+describe("pullRequestOperationFailureText", () => {
+  it("reads a failed listing in the server's words, without the operation wrapper", () => {
+    const error = new PullRequestOperationError({
+      operation: "list",
+      detail: "Couldn't read any repository. GitHub CLI command failed.",
+    });
+    expect(error.message).toMatch(/^Pull request operation list failed:/);
+    expect(pullRequestOperationFailureText(error)).toBe(
+      "Couldn't read any repository. GitHub CLI command failed.",
+    );
+  });
+
+  it("leaves other failures, such as a signed-out host and its fix, to their own message", () => {
+    const signedOut = new PullRequestUnavailableError({
+      reason: "cli-unauthenticated",
+      provider: "github",
+    });
+    expect(pullRequestOperationFailureText(signedOut)).toBeNull();
+    expect(signedOut.message).toContain("gh auth login");
+    expect(pullRequestOperationFailureText(new Error("boom"))).toBeNull();
   });
 });
 

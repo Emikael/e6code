@@ -174,9 +174,10 @@ export function resolveThreadHeaderStatus(
   }
 }
 
-// Same icons and semantic hues as the sidebar row status, on a matching wash. A working agent
-// reads as the live accent with a dot, like the sidebar; every other state keeps its glyph, and
-// the label always names the state.
+// Each state takes the semantic tone its sidebar row status uses (resolveSidebarRowStatus), on a
+// matching wash: paused and approval read as warning, failed as destructive, done as success. A
+// working agent reads as the live accent with a dot; every other state shows a glyph, and the
+// label always names the state.
 const THREAD_HEADER_STATUS_STYLE: Record<
   ThreadHeaderStatusKind,
   { icon: LucideIcon | null; className: string }
@@ -596,11 +597,9 @@ export const ChatHeader = memo(function ChatHeader({
       >
         {headerStatus?.label ?? ""}
       </span>
-      {/* Which machine runs this thread, and whether it is reachable, as a dot and a word. */}
-      <EnvironmentConnectionChip
-        environmentId={activeThreadEnvironmentId}
-        className="hidden @2xl/header-actions:inline-flex"
-      />
+      {/* Which machine runs this thread, and whether it is reachable, as a dot and a word.
+          Never hidden: narrow headers drop only the machine name. */}
+      <EnvironmentConnectionChip environmentId={activeThreadEnvironmentId} />
       <div
         data-chat-header-actions
         className={cn(
@@ -621,7 +620,7 @@ export const ChatHeader = memo(function ChatHeader({
                 size="icon-sm"
                 variant="ghost"
                 className="text-muted-foreground"
-                aria-label="Thread actions: scripts, open in editor, Git"
+                aria-label="Thread actions"
               />
             }
           >

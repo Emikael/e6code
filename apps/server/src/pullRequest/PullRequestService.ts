@@ -1490,7 +1490,7 @@ export const make = Effect.gen(function* () {
             ? toUnavailableError(blocking)
             : new PullRequestOperationError({
                 operation: "list",
-                detail: `No repository could be read. ${providerDetail(blocking)}`,
+                detail: `Couldn't read any repository. ${providerDetail(blocking)}`,
                 cause: blocking,
               });
         }

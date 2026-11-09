@@ -212,7 +212,7 @@ export function buildCommandPaletteProjectMetadata(input: {
  * Palette entries for what the open chat can stop. "Stop the agent" carries the
  * `thread.stop` hint because that key does the same thing. Subagent entries
  * carry no hint: `thread.stopSubagent` only stops the subagent selected in the
- * Overview, not the one an entry names.
+ * visible Run details, not the one an entry names.
  */
 export function buildThreadStopActionItems(input: {
   readonly commands: ThreadStopCommands;

@@ -2051,7 +2051,7 @@ describe("resolveThreadStatusPill", () => {
           hasPendingUserInput: true,
         },
       }),
-    ).toMatchObject({ label: "Pending Approval" });
+    ).toMatchObject({ label: "Needs approval" });
   });
 
   it("shows paused between awaiting input and working", () => {
@@ -2192,7 +2192,7 @@ describe("resolveProjectStatusIndicator", () => {
           dotClass: "bg-success",
         },
         {
-          label: "Pending Approval",
+          label: "Needs approval",
           colorClass: "text-warning-foreground",
           dotClass: "bg-warning",
         },
@@ -2202,7 +2202,7 @@ describe("resolveProjectStatusIndicator", () => {
           dotClass: "bg-primary ring-2 ring-primary-surface",
         },
       ]),
-    ).toMatchObject({ label: "Pending Approval", dotClass: "bg-warning" });
+    ).toMatchObject({ label: "Needs approval", dotClass: "bg-warning" });
   });
 
   it("prefers plan-ready over completed when no stronger action is needed", () => {
@@ -2765,16 +2765,16 @@ describe("resolveSidebarRowStatus", () => {
     ).toEqual({ text: "Retrying · attempt 2 of 10", marker: "ring", tone: "muted" });
     expect(
       line({ status: "paused", agentState: { kind: "rate-limited", resetsAt: "later" } }),
-    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "muted" });
+    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "warning" });
     expect(line({ status: "working", agentState: { kind: "compacting" } })).toMatchObject({
       text: "Compacting",
       marker: "live",
     });
   });
 
-  it("asks for the user's action in full words", () => {
+  it("asks for the user's action in the header's words", () => {
     expect(line({ status: "approval" })).toEqual({
-      text: "Waiting for your approval",
+      text: "Needs approval",
       marker: "dot",
       tone: "warning",
     });
@@ -2795,7 +2795,7 @@ describe("resolveSidebarRowStatus", () => {
   it("lets a wake outrank Done but not live work", () => {
     expect(line({ isWoke: true, latestTurnCompleted: true })).toMatchObject({ text: "Woke" });
     expect(line({ isWoke: true, status: "approval" })).toMatchObject({
-      text: "Waiting for your approval",
+      text: "Needs approval",
     });
   });
 });
