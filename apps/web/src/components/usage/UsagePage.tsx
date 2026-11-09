@@ -14,7 +14,7 @@ import {
   MinusIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { refreshUsageLimits } from "@e6tools/client-runtime/state/usage";
 
 import {
@@ -65,7 +65,7 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
-import { describePeriodChange, previousWindow, sharePercents } from "./usageInsights";
+import { describePeriodChange, previousWindow, sharePercents, tokenSplit } from "./usageInsights";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
@@ -462,6 +462,7 @@ export function UsagePage() {
                 </section>
 
                 <div className="grid gap-6 empty:hidden md:grid-cols-2">
+                  <TokenSplit totals={merged} />
                   <UsagePlanLimits
                     selectedEnvironmentIds={selectedEnvironmentIds}
                     now={limitsNow}
@@ -754,6 +755,69 @@ function ProviderShare({
         ))}
       </ul>
     </div>
+  );
+}
+
+// Steps of the foreground ink: these parts are one quantity split, not
+// identities, so they share a hue and the legend names each one.
+const TOKEN_PART_FILL = {
+  uncached: "bg-foreground",
+  cacheRead: "bg-foreground/60",
+  cacheWrite: "bg-foreground/35",
+  output: "bg-foreground/15",
+} as const;
+
+/** Tokens by kind for the period. Reasoning sits inside output, so it is never a fifth part. */
+function TokenSplit({ totals }: { readonly totals: Parameters<typeof tokenSplit>[0] }) {
+  const split = tokenSplit(totals);
+  if (split.totalTokens === 0) return null;
+  const summary = `Tokens by kind: ${split.parts
+    .map((part) => `${part.label} ${part.percent}%`)
+    .join(", ")}`;
+
+  return (
+    <section aria-labelledby="usage-token-split" className="flex min-w-0 flex-col gap-3">
+      <h2 id="usage-token-split" className="text-sm font-medium text-foreground">
+        Where the tokens went
+      </h2>
+      <div role="img" aria-label={summary} className="flex h-1.5 gap-0.5">
+        {split.parts.map((part) =>
+          part.percent > 0 ? (
+            <span
+              key={part.key}
+              className={cn("rounded-sm", TOKEN_PART_FILL[part.key])}
+              style={{ width: `${part.percent}%` }}
+            />
+          ) : null,
+        )}
+      </div>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1 text-xs">
+        {split.parts.map((part) => (
+          <Fragment key={part.key}>
+            <dt className="flex min-w-0 items-center gap-2 text-foreground">
+              <span
+                aria-hidden
+                className={cn("size-2 shrink-0 rounded-sm", TOKEN_PART_FILL[part.key])}
+              />
+              <span className="truncate">{part.label}</span>
+            </dt>
+            <dd className="text-right text-muted-foreground tabular-nums">{part.percent}%</dd>
+            <dd className="text-right text-foreground tabular-nums">{formatTokens(part.tokens)}</dd>
+          </Fragment>
+        ))}
+        {split.reasoning.tokens > 0 ? (
+          <>
+            <dt className="ps-4 text-muted-foreground">of which reasoning</dt>
+            <dd className="text-right text-muted-foreground tabular-nums">
+              {split.reasoning.percentOfOutput}% of output
+            </dd>
+            <dd className="text-right text-muted-foreground tabular-nums">
+              {formatTokens(split.reasoning.tokens)}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </section>
   );
 }
 

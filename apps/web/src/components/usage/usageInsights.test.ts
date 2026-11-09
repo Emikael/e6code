@@ -1,7 +1,7 @@
 import { UsageDay } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePeriodChange, previousWindow, sharePercents } from "./usageInsights";
+import { describePeriodChange, previousWindow, sharePercents, tokenSplit } from "./usageInsights";
 
 describe("previousWindow", () => {
   it("covers the same number of calendar days just before the window", () => {
@@ -88,5 +88,48 @@ describe("sharePercents", () => {
   it("gives all zeros when there is nothing to share", () => {
     expect(sharePercents([0, 0])).toEqual([0, 0]);
     expect(sharePercents([])).toEqual([]);
+  });
+});
+
+describe("tokenSplit", () => {
+  it("splits input three ways plus output without counting reasoning twice", () => {
+    const split = tokenSplit({
+      uncachedInputTokens: 100,
+      cachedInputTokens: 600,
+      cacheCreationTokens: 100,
+      outputTokens: 200,
+      reasoningTokens: 50,
+    });
+    expect(split.totalTokens).toBe(1_000);
+    expect(split.parts.map((part) => [part.key, part.tokens, part.percent])).toEqual([
+      ["uncached", 100, 10],
+      ["cacheRead", 600, 60],
+      ["cacheWrite", 100, 10],
+      ["output", 200, 20],
+    ]);
+    expect(split.reasoning).toEqual({ tokens: 50, percentOfOutput: 25 });
+  });
+
+  it("never reports more reasoning than output", () => {
+    const split = tokenSplit({
+      uncachedInputTokens: 0,
+      cachedInputTokens: 0,
+      cacheCreationTokens: 0,
+      outputTokens: 10,
+      reasoningTokens: 40,
+    });
+    expect(split.reasoning).toEqual({ tokens: 10, percentOfOutput: 100 });
+  });
+
+  it("reports zero reasoning share when there is no output", () => {
+    const split = tokenSplit({
+      uncachedInputTokens: 5,
+      cachedInputTokens: 0,
+      cacheCreationTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+    });
+    expect(split.reasoning.percentOfOutput).toBe(0);
+    expect(split.parts[0]?.percent).toBe(100);
   });
 });

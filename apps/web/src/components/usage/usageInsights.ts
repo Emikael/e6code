@@ -91,3 +91,36 @@ export function sharePercents(values: readonly number[]): readonly number[] {
   }
   return floored;
 }
+
+interface TokenTotals {
+  readonly uncachedInputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly cacheCreationTokens: number;
+  readonly outputTokens: number;
+  readonly reasoningTokens: number;
+}
+
+/**
+ * Where the period's tokens went: the three disjoint input parts and output,
+ * whose percentages add up to 100. Reasoning is a subset of output, so it is
+ * reported as a share of output rather than as a fifth part.
+ */
+export function tokenSplit(totals: TokenTotals) {
+  const parts = [
+    { key: "uncached", label: "Input, uncached", tokens: totals.uncachedInputTokens },
+    { key: "cacheRead", label: "Input, cache read", tokens: totals.cachedInputTokens },
+    { key: "cacheWrite", label: "Input, cache write", tokens: totals.cacheCreationTokens },
+    { key: "output", label: "Output", tokens: totals.outputTokens },
+  ] as const;
+  const percents = sharePercents(parts.map((part) => part.tokens));
+  const reasoningTokens = Math.min(totals.reasoningTokens, totals.outputTokens);
+  return {
+    totalTokens: parts.reduce((sum, part) => sum + part.tokens, 0),
+    parts: parts.map((part, index) => ({ ...part, percent: percents[index] ?? 0 })),
+    reasoning: {
+      tokens: reasoningTokens,
+      percentOfOutput:
+        totals.outputTokens > 0 ? Math.round((reasoningTokens / totals.outputTokens) * 100) : 0,
+    },
+  };
+}
