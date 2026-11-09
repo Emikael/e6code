@@ -13,6 +13,10 @@ import {
 } from "@e6tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
 import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
+import {
   ChevronDownIcon,
   CircleAlertIcon,
   CircleCheckIcon,
@@ -55,6 +59,8 @@ import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useThreadShell } from "../../state/entities";
+import { useClientSettings } from "~/hooks/useSettings";
+import { formatUpcomingTimestamp } from "~/timestampFormat";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
 import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
@@ -125,13 +131,16 @@ type ThreadHeaderStatusKind =
 interface ThreadHeaderStatus {
   readonly kind: ThreadHeaderStatusKind;
   readonly label: string;
+  /** Truncatable detail after the label, such as "step 4 of 6". */
+  readonly detail: string | null;
 }
 
 /**
- * Header status pill for the open thread. Uses the sidebar's resolution so
- * both surfaces agree, with full wording since the header has room. A
- * resting thread reads Done only after a completed turn; a fresh or stopped
- * thread shows no pill.
+ * Header status pill for the open thread. Uses the sidebar's resolution and
+ * the shared running-status detail so both surfaces agree ("Working · step 4
+ * of 6", "Paused · resets 14:20"), with full wording for attention states
+ * since the header has room. A resting thread reads Done only after a
+ * completed turn; a fresh or stopped thread shows no pill.
  */
 export function resolveThreadHeaderStatus(
   thread: Pick<
@@ -142,23 +151,34 @@ export function resolveThreadHeaderStatus(
     | "backgroundLiveness"
     | "agentState"
     | "latestTurn"
+    | "planProgress"
   >,
+  formatResetTime: (resetsAt: string) => string,
 ): ThreadHeaderStatus | null {
-  switch (resolveSidebarThreadStatus(thread)) {
+  const status = resolveSidebarThreadStatus(thread);
+  switch (status) {
     case "approval":
-      return { kind: "approval", label: "Needs approval" };
+      return { kind: "approval", label: "Needs approval", detail: null };
     case "input":
-      return { kind: "input", label: "Needs your answer" };
+      return { kind: "input", label: "Needs your answer", detail: null };
     case "paused":
-      return { kind: "paused", label: "Paused" };
     case "working":
-      return { kind: "working", label: "Working" };
+      return {
+        kind: status,
+        ...formatRunningThreadStatus({
+          agentState: thread.agentState,
+          planProgress: thread.planProgress,
+          formatResetTime,
+        }),
+      };
     case "monitoring":
-      return { kind: "monitoring", label: "Monitoring" };
+      return { kind: "monitoring", label: "Monitoring", detail: null };
     case "failed":
-      return { kind: "failed", label: "Failed" };
+      return { kind: "failed", label: "Failed", detail: null };
     case "ready":
-      return thread.latestTurn?.state === "completed" ? { kind: "done", label: "Done" } : null;
+      return thread.latestTurn?.state === "completed"
+        ? { kind: "done", label: "Done", detail: null }
+        : null;
   }
 }
 
@@ -178,17 +198,32 @@ const THREAD_HEADER_STATUS_STYLE: Record<
 
 function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
   const { icon: Icon, className } = THREAD_HEADER_STATUS_STYLE[status.kind];
-  return (
+  const fullText = joinThreadRowStatus(status);
+  const pill = (
     <span
       role="status"
+      aria-label={fullText}
       className={cn(
-        "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-xs font-medium whitespace-nowrap",
+        "inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-1.5 text-xs font-medium whitespace-nowrap",
         className,
       )}
     >
       <Icon aria-hidden className="size-3 shrink-0" />
-      {status.label}
+      <span className="shrink-0">{status.label}</span>
+      {status.detail ? (
+        <span className="max-w-32 truncate font-normal text-muted-foreground">
+          · {status.detail}
+        </span>
+      ) : null}
     </span>
+  );
+  if (status.detail === null) return pill;
+  // The detail can truncate in the pill; the tooltip keeps it whole.
+  return (
+    <Tooltip>
+      <TooltipTrigger render={pill} />
+      <TooltipPopup side="top">{fullText}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -347,7 +382,12 @@ export const ChatHeader = memo(function ChatHeader({
     setRenaming(null);
   }
   const renamingTitle = renaming?.threadId === activeThreadId ? renaming.title : null;
-  const headerStatus = activeThreadShell ? resolveThreadHeaderStatus(activeThreadShell) : null;
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const headerStatus = activeThreadShell
+    ? resolveThreadHeaderStatus(activeThreadShell, (resetsAt) =>
+        formatUpcomingTimestamp(resetsAt, timestampFormat),
+      )
+    : null;
   const headerBranch = activeThreadShell?.branch ?? null;
   const showThreadStatus =
     renamingTitle === null && (headerStatus !== null || headerBranch !== null);

@@ -1,4 +1,5 @@
 import { DEFAULT_RUNTIME_MODE, EnvironmentId, ThreadId, TurnId } from "@e6tools/contracts";
+import { joinThreadRowStatus } from "@e6tools/client-runtime/state/agent-state";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -111,8 +112,36 @@ describe("resolveThreadHeaderStatus", () => {
     session: null,
     latestTurn: null,
   };
+  const resolve = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) =>
+    resolveThreadHeaderStatus({ ...idle, ...thread }, (resetsAt) =>
+      resetsAt === "2026-03-09T14:20:00.000Z" ? "14:20" : "",
+    );
   const label = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) =>
-    resolveThreadHeaderStatus({ ...idle, ...thread })?.label ?? null;
+    resolve(thread)?.label ?? null;
+  const fullText = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) => {
+    const status = resolve(thread);
+    return status === null ? null : joinThreadRowStatus(status);
+  };
+
+  it("carries the plan step and agent-state detail of a running thread", () => {
+    const planProgress = { step: "Write tests", completedSteps: 3, totalSteps: 6 };
+    expect(fullText({ session, planProgress })).toBe("Working · step 4 of 6");
+    expect(
+      fullText({
+        session,
+        planProgress,
+        agentState: { kind: "rate-limited", resetsAt: "2026-03-09T14:20:00.000Z" },
+      }),
+    ).toBe("Paused · resets 14:20");
+    expect(
+      fullText({ session, agentState: { kind: "retrying", attempt: 2, maxAttempts: 10 } }),
+    ).toBe("Retrying · 2 of 10");
+    expect(fullText({ session, planProgress, agentState: { kind: "compacting" } })).toBe(
+      "Compacting",
+    );
+    expect(resolve({ session, agentState: { kind: "compacting" } })?.kind).toBe("working");
+    expect(fullText({ hasPendingApprovals: true, session, planProgress })).toBe("Needs approval");
+  });
 
   it("follows the sidebar's priorities with full wording", () => {
     expect(label({ hasPendingApprovals: true, hasPendingUserInput: true, session })).toBe(
