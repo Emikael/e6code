@@ -2249,10 +2249,14 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
               onMouseMove={props.onHighlight}
               onClick={props.onSelect}
               className={cn(
-                "flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none",
+                "relative flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none",
                 props.isHighlighted || props.isRouteActive
                   ? "bg-sidebar-row-active text-sidebar-foreground"
                   : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                // The highlighted result takes the same leading primary-edge bar as
+                // multi-selected rows, so it does not rely on the fill alone.
+                props.isHighlighted &&
+                  "before:absolute before:inset-y-2 before:left-1 before:w-0.5 before:rounded-full before:bg-primary-edge",
                 isFileDragOver && "ring-1 ring-inset ring-primary-edge",
                 isFileDragOver && !props.isRouteActive && "bg-sidebar-row-hover",
               )}
