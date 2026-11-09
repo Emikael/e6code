@@ -512,9 +512,10 @@ const PHASE_STATE_WORD: Readonly<Record<LineagePhase["state"], string>> = {
 /**
  * One subagent in the lineage. Hover or focus trades the elapsed time for a
  * menu with the ways back out: the thread card, the task text and the session,
- * and Stop while it runs.
+ * and Stop while it runs. Memoised: SubagentsSection passes stable callbacks,
+ * so a row repaints only when its agent, selection or stop control changes.
  */
-function LineageRow({
+const LineageRow = memo(function LineageRow({
   agent,
   providerKind,
   selected,
@@ -619,7 +620,7 @@ function LineageRow({
       </Menu>
     </div>
   );
-}
+});
 
 function moveLineageFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -1234,8 +1235,9 @@ function sameUsageTotal(left: ThreadUsageTotal | null, right: ThreadUsageTotal |
 }
 
 /**
- * ChatView rebuilds the workspace object on every render (each streaming
- * delta); comparing it field by field keeps the panel and its controls still.
+ * Streaming deltas re-render ChatView; the derived props are compared by what
+ * they show, and ChatView memoises the workspace on stable inputs, so the panel
+ * and its controls stay still between deltas.
  */
 export const InspectorOverview = memo(
   InspectorOverviewView,

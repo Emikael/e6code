@@ -9980,6 +9980,52 @@ export default function ChatView(props: ChatViewProps) {
   const onRevertTimelineTurn = useCallback((targetTurnCount: number, messageId: MessageId) => {
     void onRevertToTurnCountRef.current(targetTurnCount, messageId);
   }, []);
+  // runProjectScript closes over activeThread, which changes on every streamed
+  // delta; Run details calls through a ref so its workspace keeps one identity.
+  const runProjectScriptRef = useRef(runProjectScript);
+  runProjectScriptRef.current = runProjectScript;
+  const onInspectorRunProjectScript = useCallback((script: ProjectScript) => {
+    void runProjectScriptRef.current(script);
+  }, []);
+  // Run details memoises on workspace identity, so build it from primitives
+  // and stable callbacks only. Kept above the no-active-thread early return.
+  const inspectorEnvironmentId = activeThread?.environmentId ?? null;
+  const inspectorThreadId = activeThread?.id ?? null;
+  const inspectorWorktreeSetupScript = activeThread?.worktreePath
+    ? setupProjectScript(activeProjectScripts)
+    : null;
+  const inspectorWorktreeSetupChanged =
+    inspectorWorktreeSetupScript !== null &&
+    activeThreadShell !== null &&
+    isWorktreeSetupStale(activeThreadShell, activeProjectScripts);
+  const inspectorCanOpenDiff = isServerThread && isGitRepo;
+  const inspectorWorkspace = useMemo(
+    (): InspectorWorkspace | null =>
+      inspectorEnvironmentId !== null && inspectorThreadId !== null
+        ? {
+            environmentId: inspectorEnvironmentId,
+            threadId: inspectorThreadId,
+            gitCwd,
+            worktreeSetup: inspectorWorktreeSetupScript
+              ? { script: inspectorWorktreeSetupScript, changed: inspectorWorktreeSetupChanged }
+              : null,
+            onRunProjectScript: onInspectorRunProjectScript,
+            onOpenDiff: inspectorCanOpenDiff ? addDiffSurface : null,
+            onOpenTurnDiff: inspectorCanOpenDiff ? onOpenTurnDiff : null,
+          }
+        : null,
+    [
+      addDiffSurface,
+      gitCwd,
+      inspectorCanOpenDiff,
+      inspectorEnvironmentId,
+      inspectorThreadId,
+      inspectorWorktreeSetupChanged,
+      inspectorWorktreeSetupScript,
+      onInspectorRunProjectScript,
+      onOpenTurnDiff,
+    ],
+  );
 
   // Files dropped on a sidebar row land here once the dropped-on thread is
   // actually open, then take the exact same path as a workspace drop:
@@ -10079,27 +10125,6 @@ export default function ChatView(props: ChatViewProps) {
       <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
     </div>
   );
-  const inspectorWorktreeSetupScript = activeThread?.worktreePath
-    ? setupProjectScript(activeProjectScripts)
-    : null;
-  const inspectorWorkspace: InspectorWorkspace | null = activeThread
-    ? {
-        environmentId: activeThread.environmentId,
-        threadId: activeThread.id,
-        gitCwd,
-        worktreeSetup: inspectorWorktreeSetupScript
-          ? {
-              script: inspectorWorktreeSetupScript,
-              changed:
-                activeThreadShell !== null &&
-                isWorktreeSetupStale(activeThreadShell, activeProjectScripts),
-            }
-          : null,
-        onRunProjectScript: runProjectScript,
-        onOpenDiff: isServerThread && isGitRepo ? addDiffSurface : null,
-        onOpenTurnDiff: isServerThread && isGitRepo ? onOpenTurnDiff : null,
-      }
-    : null;
   const rightPanelContent = activeThreadRef ? (
     renderedRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
