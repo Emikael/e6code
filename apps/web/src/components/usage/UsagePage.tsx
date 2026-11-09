@@ -6,9 +6,12 @@ import {
   type UsageProviderKind,
 } from "@e6tools/contracts";
 import {
+  ArrowDownRightIcon,
+  ArrowUpRightIcon,
   CircleAlertIcon,
   ChevronDownIcon,
   CircleDashedIcon,
+  MinusIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -61,6 +64,7 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection, UsagePlanLimits } from "./UsageLimits";
+import { describePeriodChange, previousWindow } from "./usageInsights";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
@@ -116,6 +120,18 @@ export function UsagePage() {
     window,
     selectedEnvironmentIds,
   );
+  // Same query path and cache key strategy as the main window; it renders
+  // nothing until it has answered, so it never holds up the page.
+  const previous = useMemo(() => previousWindow(window), [window]);
+  const previousUsage = useUsage(previous, selectedEnvironmentIds);
+  const periodChange =
+    previousUsage.isPending || previousUsage.isPartial || previousUsage.merged.records === 0
+      ? null
+      : describePeriodChange(
+          metric === "tokens" ? merged.totalTokens : merged.costUsd,
+          metric === "tokens" ? previousUsage.merged.totalTokens : previousUsage.merged.costUsd,
+          isPast24Hours ? "24 hours" : `${windowDays} days`,
+        );
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -395,6 +411,18 @@ export function UsagePage() {
                           ? formatUsd(merged.costUsd)
                           : formatTokens(merged.totalTokens)}
                       </span>
+                      {periodChange ? (
+                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                          {periodChange.direction === "same" ? (
+                            <MinusIcon className="size-3.5 shrink-0" aria-hidden />
+                          ) : periodChange.direction === "more" ? (
+                            <ArrowUpRightIcon className="size-3.5 shrink-0" aria-hidden />
+                          ) : (
+                            <ArrowDownRightIcon className="size-3.5 shrink-0" aria-hidden />
+                          )}
+                          {periodChange.text}
+                        </span>
+                      ) : null}
                       <span className="text-xs text-muted-foreground">
                         {metric !== "cost"
                           ? `${formatCount(merged.sessions)} sessions`
