@@ -1033,15 +1033,22 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     didSet {
       codeDecorationVersion += 1
       tokenAttributedStringsByRowId.removeAll()
-      remeasureIfCodeStylesChanged(rowIds: codeLayoutsByRowId.keys)
+      if !isMergingTokens {
+        remeasureIfCodeStylesChanged(rowIds: nativeLayoutRowIds)
+      }
       clampHorizontalOffsets()
       setNeedsDisplayForVisibleBounds()
     }
   }
 
   /// One mutation, so the observer above runs once per patch rather than once per row.
+  /// Only patched rows that use the TextKit path are checked for new token styles.
   func mergeTokensByRowId(_ tokensPatch: [String: [ReviewDiffNativeToken]]) {
+    isMergingTokens = true
     tokensByRowId.merge(tokensPatch) { _, patched in patched }
+    isMergingTokens = false
+    guard !nativeLayoutRowIds.isEmpty else { return }
+    remeasureIfCodeStylesChanged(rowIds: tokensPatch.keys.filter(nativeLayoutRowIds.contains))
   }
 
   /// TextKit rows are measured with their token faces, so new token styles can change
@@ -1054,6 +1061,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     }
     guard changed else { return }
     rebuildRowLayout()
+    clampHorizontalOffsets()
     onRowLayoutChange?()
   }
 
@@ -1120,7 +1128,15 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   /// Columns per visual line while word wrap is on; nil while code rows pan horizontally.
   private var codeWrapColumns: Int?
   /// Text geometry survives comment height changes; width, font, and content invalidate it.
-  private var codeLayoutsByRowId: [String: ReviewDiffCodeLayout] = [:]
+  private var codeLayoutsByRowId: [String: ReviewDiffCodeLayout] = [:] {
+    didSet {
+      // Only replaced or cleared wholesale, alongside an O(rows) layout pass.
+      nativeLayoutRowIds = Set(codeLayoutsByRowId.lazy.filter { $0.value.usesNativeLayout }.map(\.key))
+    }
+  }
+  /// Rows whose cached layout went through TextKit; only these depend on token styles.
+  private var nativeLayoutRowIds: Set<String> = []
+  private var isMergingTokens = false
   private var codeLayoutWidth: CGFloat = 0
   private var codeLayoutFont: UIFont?
   private var fonts = ReviewDiffResolvedFonts(style: ReviewDiffNativeStyle.resolve(nil))
