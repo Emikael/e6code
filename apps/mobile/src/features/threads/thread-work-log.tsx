@@ -58,6 +58,11 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { resolveWorkGroupScrollAnchor } from "@e6tools/client-runtime/work-log/scroll-anchor";
 import {
+  TASK_LIST_STEP_STATUS_LABELS,
+  type TaskListStep,
+  type TaskListStepStatus,
+} from "@e6tools/client-runtime/work-log/task-list";
+import {
   describeSubagentUserRequest,
   type SubagentUserRequest,
 } from "@e6tools/client-runtime/pending-requests";
@@ -357,6 +362,8 @@ function workRowSymbolName(icon: ThreadFeedActivity["icon"]): AppSymbolName {
       return { ios: "safari", android: "public" };
     case "check":
       return { ios: "checkmark", android: "check" };
+    case "checklist":
+      return "checklist";
     case "command":
       return { ios: "terminal", android: "terminal" };
     case "computer":
@@ -767,6 +774,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
   const icon = toolPresentation?.icon ?? workRowSymbolName(row.icon);
+  const taskList = row.workEntry.taskList;
 
   return (
     <Animated.View
@@ -783,7 +791,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
             : "Long press to copy."
         }
         accessibilityState={canExpand ? { expanded } : undefined}
-        hitSlop={4}
+        hitSlop={taskList ? 6 : 4}
         onPress={() => {
           if (canExpand) {
             void Haptics.selectionAsync();
@@ -904,35 +912,91 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
               {props.renderImage({ href: viewedImagePath, alt: null, title: null })}
             </View>
           ) : null}
-          <ScrollView
-            nestedScrollEnabled
-            directionalLockEnabled
-            showsVerticalScrollIndicator
-            className="max-h-60"
-            contentContainerStyle={{ paddingRight: 8 }}
-          >
-            {expandedParts?.call ? (
-              <Text selectable className="font-mono text-2xs leading-normal text-foreground">
-                {expandedParts.call}
-              </Text>
-            ) : null}
-            {expandedParts?.result ? (
-              <Text
-                selectable
-                className={cn(
-                  "font-mono text-2xs leading-normal text-foreground-muted",
-                  expandedParts.call && "mt-1.5",
-                )}
-              >
-                {expandedParts.result}
-              </Text>
-            ) : null}
-          </ScrollView>
+          {taskList ? (
+            <TaskListSteps steps={taskList} />
+          ) : (
+            <ScrollView
+              nestedScrollEnabled
+              directionalLockEnabled
+              showsVerticalScrollIndicator
+              className="max-h-60"
+              contentContainerStyle={{ paddingRight: 8 }}
+            >
+              {expandedParts?.call ? (
+                <Text selectable className="font-mono text-2xs leading-normal text-foreground">
+                  {expandedParts.call}
+                </Text>
+              ) : null}
+              {expandedParts?.result ? (
+                <Text
+                  selectable
+                  className={cn(
+                    "font-mono text-2xs leading-normal text-foreground-muted",
+                    expandedParts.call && "mt-1.5",
+                  )}
+                >
+                  {expandedParts.result}
+                </Text>
+              ) : null}
+            </ScrollView>
+          )}
         </Animated.View>
       ) : null}
     </Animated.View>
   );
 });
+
+const TASK_LIST_STEP_SYMBOLS = {
+  completed: "checkmark.circle",
+  inProgress: "arrow.right.circle",
+  pending: "circle",
+} as const satisfies Record<TaskListStepStatus, AppSymbolName>;
+
+/** A task list's steps, each with its status as an icon and a word. Only the live step uses primary. */
+function TaskListSteps(props: { readonly steps: ReadonlyArray<TaskListStep> }) {
+  // Steps have no id and their text may repeat, so key by text and occurrence.
+  const occurrences = new Map<string, number>();
+  return (
+    <View className="gap-1 pb-0.5">
+      {props.steps.map((step) => {
+        const occurrence = occurrences.get(step.step) ?? 0;
+        occurrences.set(step.step, occurrence + 1);
+        const live = step.status === "inProgress";
+        const statusLabel = TASK_LIST_STEP_STATUS_LABELS[step.status];
+        return (
+          <View
+            key={`${step.step}:${occurrence}`}
+            accessible
+            accessibilityLabel={`${statusLabel}: ${step.step}`}
+            className="flex-row items-start gap-2"
+          >
+            <View className="h-5 w-4 items-center justify-center">
+              <SymbolView
+                name={TASK_LIST_STEP_SYMBOLS[step.status]}
+                size={13}
+                weight="medium"
+                tintColorClassName={live ? "accent-primary-text" : "accent-icon-subtle"}
+                type="monochrome"
+              />
+            </View>
+            <Text
+              selectable
+              className={cn(
+                "min-w-0 flex-1 text-xs leading-5",
+                live ? "font-e6-medium text-foreground" : "text-foreground-muted",
+              )}
+            >
+              {step.step}
+              <Text
+                className={cn("text-2xs", live ? "text-primary-text" : "text-foreground-subtle")}
+              >{`  ${statusLabel}`}</Text>
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 export function ThreadWorkGroupToggle(props: {
   readonly environmentId: EnvironmentId;
