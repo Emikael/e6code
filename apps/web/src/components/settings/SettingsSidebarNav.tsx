@@ -61,7 +61,7 @@ import {
   settingsConnectionsBadge,
   settingsProvidersBadge,
 } from "./settingsNavGroups";
-import { useSettingsBackNavigation } from "./useSettingsBackNavigation";
+import { useSettingsBackLabel, useSettingsBackNavigation } from "./useSettingsBackNavigation";
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -134,6 +134,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const connectionsBadge = useMemo(() => settingsConnectionsBadge(environments), [environments]);
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const navigateBack = useSettingsBackNavigation();
+  const backLabel = useSettingsBackLabel();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(0);
@@ -266,7 +267,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             className="flex h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 text-left text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeftIcon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Threads</span>
+            <span className="min-w-0 flex-1 truncate">{backLabel}</span>
             <Kbd className="h-[18px] rounded-sm border border-sidebar-border bg-transparent px-1.5 font-mono text-[11px] font-normal text-sidebar-muted-foreground">
               esc
             </Kbd>
