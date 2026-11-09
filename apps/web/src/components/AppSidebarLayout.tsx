@@ -197,12 +197,16 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? getWindowFullscreenState()
       : false;
   });
+  const controlsPlacement: Record<string, string> =
+    isMacosDesktop && !isWindowFullscreen
+      ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
+      : // Elsewhere the window-fixed controls follow the floating sidebar's
+        // header down by a panel gap; macOS keeps them on the traffic lights.
+        { "--workspace-controls-top": "var(--floating-controls-top)" };
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
-    ...(isMacosDesktop && !isWindowFullscreen
-      ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
-      : {}),
+    ...controlsPlacement,
   } as CSSProperties;
 
   useEffect(() => {
@@ -245,7 +249,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
       <SidebarProvider
-        className="h-dvh! min-h-0!"
+        className="h-dvh! min-h-0! bg-(--app-window-background)"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         defaultOpen
         style={sidebarProviderStyle}
@@ -254,10 +258,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <WorkspaceFocusControl />
         <Sidebar
           side="left"
+          variant="floating"
           collapsible="offcanvas"
           {...workspaceAreaProps("sidebar", 0, "Sidebar")}
           data-app-sidebar=""
-          className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+          className="text-sidebar-foreground"
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: THREAD_SIDEBAR_MIN_WIDTH,
