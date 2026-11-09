@@ -95,6 +95,7 @@ import {
   formatPullRequestLensCount,
   groupPullRequestsForNeedsYou,
   holdPullRequestLensCounts,
+  needsYouPartialNotice,
   PULL_REQUEST_LENSES,
   pullRequestLensCounts,
   pullRequestLensOf,
@@ -1528,6 +1529,10 @@ function PullRequestsRouteView() {
     [involvementGroups, lens, viewers],
   );
   const shownCount = groups.reduce((total, group) => total + group.entries.length, 0);
+  // "Needs you" reads no further than its partitions' first page, so a partial count is said
+  // under the list with a way to the whole open list instead of a "Load more" it cannot honour.
+  const needsYouNotice =
+    lens === "needs-you" ? needsYouPartialNotice(lensCounts["needs-you"], shownCount) : null;
 
   // Date sorts keep optional line-count reads near the viewport. Size and readiness sorts need
   // every loaded count before their order is final. Counts stay cached across both policies.
@@ -1981,6 +1986,14 @@ function PullRequestsRouteView() {
           </span>
           <Button size="xs" variant="outline" onClick={() => listQuery.refresh()}>
             Retry
+          </Button>
+        </div>
+      ) : null}
+      {needsYouNotice ? (
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 py-3 text-xs text-muted-foreground">
+          <span>{needsYouNotice}</span>
+          <Button size="sm" variant="outline" onClick={() => selectLens("open")}>
+            Show all open
           </Button>
         </div>
       ) : null}
