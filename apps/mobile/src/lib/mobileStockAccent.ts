@@ -34,6 +34,7 @@ export function getStockAccentVariableOverrides(
     "--color-primary": colors.primary,
     "--color-primary-foreground": colors.primaryForeground,
     "--color-primary-text": colors.primaryText,
+    "--color-primary-edge": colors.primaryEdge,
     "--color-focus": colors.primary,
     "--color-switch-active-track": colors.primary,
     "--color-switch-active-thumb": colors.primaryForeground,

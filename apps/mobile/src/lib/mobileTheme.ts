@@ -7,6 +7,7 @@ import {
   getThemeColorsForAppearance,
   MOBILE_DEFAULT_THEME_ID,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
+  STOCK_ACCENT_PALETTES,
   type MobileThemeId as SharedMobileThemeId,
   type ThemeAppearance,
   type ThemeColors,
@@ -203,15 +204,19 @@ function contrastRatio(
   );
 }
 
-/** Preserve the color's hue while giving text 4.5:1 contrast on every supplied surface. */
-function readableTextColor(accent: string, surface: string | ReadonlyArray<string>): string {
+/** Preserve the color's hue while reaching `ratio` contrast (4.5:1 for text) on every supplied surface. */
+function readableTextColor(
+  accent: string,
+  surface: string | ReadonlyArray<string>,
+  ratio = 4.5,
+): string {
   const accentChannels = rgbChannels(accent);
   const surfaceChannels = (typeof surface === "string" ? [surface] : surface)
     .map(rgbChannels)
     .filter((channels) => channels !== null);
   const minimumContrast = (channels: readonly [number, number, number]) =>
     Math.min(...surfaceChannels.map((surface) => contrastRatio(channels, surface)));
-  if (!accentChannels || surfaceChannels.length === 0 || minimumContrast(accentChannels) >= 4.5) {
+  if (!accentChannels || surfaceChannels.length === 0 || minimumContrast(accentChannels) >= ratio) {
     return accent;
   }
 
@@ -228,7 +233,7 @@ function readableTextColor(accent: string, surface: string | ReadonlyArray<strin
       Math.round(accentChannels[1] + (target[1] - accentChannels[1]) * amount),
       Math.round(accentChannels[2] + (target[2] - accentChannels[2]) * amount),
     ];
-    if (minimumContrast(candidate) >= 4.5) {
+    if (minimumContrast(candidate) >= ratio) {
       readable = candidate;
       upperAmount = amount;
     } else {
@@ -297,6 +302,8 @@ export function createMobileThemeVariables(
     "--color-primary": c.messageAction,
     "--color-primary-foreground": c.messageActionForeground,
     "--color-primary-text": readableTextColor(c.messageAction, textSurfaces),
+    // Selected outlines and the running timeline ring: 3:1 against the grounds.
+    "--color-primary-edge": readableTextColor(c.messageAction, textSurfaces, 3),
     "--color-primary-shadow": "#000000",
     "--color-secondary": c.secondary,
     "--color-secondary-foreground": c.secondaryForeground,
@@ -406,7 +413,20 @@ export function getMobileThemeVariables(
           ),
         }
       : colors;
-  const baseVariables = createMobileThemeVariables(mobileColors, appearance, groupedCard);
+  const generated = createMobileThemeVariables(mobileColors, appearance, groupedCard);
+  // The stock palette wears Iris, so its accent text and edges take the shared
+  // palette's tuned values, as on web; other accents then shift only the hue.
+  const iris = STOCK_ACCENT_PALETTES.iris[appearance];
+  const baseVariables: MobileThemeVariables =
+    themeId === DEFAULT_MOBILE_THEME_ID
+      ? {
+          ...generated,
+          "--color-primary-text": iris.primaryText,
+          "--color-primary-edge": iris.primaryEdge,
+          "--color-md-link": iris.primaryText,
+          "--color-user-bubble-skill-foreground": iris.primaryText,
+        }
+      : generated;
 
   // The complete base record guarantees that optional overrides cannot leave a token undefined.
   return overrides ? ({ ...baseVariables, ...overrides } as MobileThemeVariables) : baseVariables;

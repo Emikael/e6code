@@ -134,7 +134,7 @@ describe("pendingAttentionFloatingStatus", () => {
     expect(approvalPill).toMatchObject({
       kind: "attention",
       tone: "approval",
-      label: "Approval waiting",
+      label: "Needs approval",
     });
     if (approvalPill?.kind !== "attention") throw new Error("expected an attention pill");
     approvalPill.onPress();
@@ -149,7 +149,7 @@ describe("pendingAttentionFloatingStatus", () => {
     expect(inputPill).toMatchObject({
       kind: "attention",
       tone: "input",
-      label: "Question waiting",
+      label: "Needs your answer",
     });
   });
 });
