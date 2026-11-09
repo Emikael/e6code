@@ -47,6 +47,7 @@ import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/La
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
+import { agentStateTransition, ThreadAgentStateService } from "../ThreadAgentState.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,
@@ -1023,6 +1024,7 @@ export function runtimeEventToActivities(
 const make = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
+  const threadAgentState = yield* ThreadAgentStateService;
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -1855,6 +1857,19 @@ const make = Effect.gen(function* () {
             return true;
         }
       })();
+      // Working-indicator agent state (compacting / retrying / paused). Recorded
+      // before the lifecycle dispatch below so that dispatch's shell refetch
+      // reads it. Events from a superseded turn neither set nor clear it;
+      // session.exited always clears.
+      const agentStateChange =
+        event.type === "session.exited" || !conflictsWithActiveTurn
+          ? agentStateTransition(event)
+          : null;
+      const agentStateChanged =
+        agentStateChange !== null &&
+        threadAgentState.setThreadAgentState(thread.id, agentStateChange.state);
+      let dispatchedSessionSet = false;
+
       const acceptedTurnStartedSourcePlan =
         event.type === "turn.started" && shouldApplyThreadLifecycle
           ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
@@ -1951,7 +1966,22 @@ const make = Effect.gen(function* () {
             },
             createdAt: now,
           });
+          dispatchedSessionSet = true;
         }
+      }
+
+      // Progress that clears the state may not touch the thread aggregate yet
+      // (buffered text, a reasoning item), and the shell only refetches on a
+      // thread event. Re-assert the running session so clients drop the label
+      // now instead of showing a stale "Retrying…" until the next flush.
+      if (agentStateChanged && !dispatchedSessionSet && thread.session?.status === "running") {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.session.set",
+          commandId: yield* providerCommandId(event, "agent-state-cleared"),
+          threadId: thread.id,
+          session: { ...thread.session, updatedAt: now },
+          createdAt: now,
+        });
       }
 
       const assistantDelta =

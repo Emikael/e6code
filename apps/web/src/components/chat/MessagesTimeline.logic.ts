@@ -39,6 +39,7 @@ import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import {
   type MessageId,
   type OrchestrationLatestTurn,
+  type ThreadAgentState,
   type TurnId,
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
@@ -1813,4 +1814,32 @@ export function findSubagentSpawnRow(
     }
   }
   return null;
+}
+
+/** What the working row says while a turn runs. */
+export type WorkingRowStatus =
+  | { readonly kind: "preparing" }
+  | { readonly kind: "compacting" }
+  | { readonly kind: "attention"; readonly attention: "approval" | "input" }
+  | { readonly kind: "agent-state"; readonly agentState: ThreadAgentState }
+  | { readonly kind: "working" };
+
+/**
+ * Setup and a requested /compact describe the whole turn, so they win. A
+ * pending request needs the user, so it outranks what the agent reports
+ * about itself; the agent's state outranks plain "Working".
+ */
+export function resolveWorkingRowStatus(input: {
+  readonly isPreparingWorktree: boolean;
+  readonly isCompacting: boolean;
+  readonly pendingAttention: "approval" | "input" | null;
+  readonly agentState: ThreadAgentState | null;
+}): WorkingRowStatus {
+  if (input.isPreparingWorktree) return { kind: "preparing" };
+  if (input.isCompacting) return { kind: "compacting" };
+  if (input.pendingAttention !== null) {
+    return { kind: "attention", attention: input.pendingAttention };
+  }
+  if (input.agentState !== null) return { kind: "agent-state", agentState: input.agentState };
+  return { kind: "working" };
 }

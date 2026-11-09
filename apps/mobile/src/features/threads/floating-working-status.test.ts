@@ -1,9 +1,52 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  activeWorkFloatingStatus,
   connectionFloatingStatus,
   pendingAttentionFloatingStatus,
 } from "./floating-working-status";
+
+describe("activeWorkFloatingStatus", () => {
+  const startedAt = "2026-01-01T00:00:00.000Z";
+  const retrying = { kind: "retrying", attempt: 2, maxAttempts: 5 } as const;
+
+  it("names the agent state instead of the working timer while the turn runs", () => {
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: false,
+        agentState: retrying,
+        activeWorkStartedAt: startedAt,
+      }),
+    ).toEqual({ kind: "agent-state", agentState: retrying });
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: false,
+        agentState: undefined,
+        activeWorkStartedAt: startedAt,
+      }),
+    ).toEqual({ kind: "working", startedAt });
+  });
+
+  it("keeps a requested /compact ahead of what the agent reports", () => {
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: true,
+        agentState: { kind: "compacting" },
+        activeWorkStartedAt: startedAt,
+      }),
+    ).toEqual({ kind: "compacting" });
+  });
+
+  it("drops a leftover agent state once no turn is running", () => {
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: false,
+        agentState: { kind: "rate-limited" },
+        activeWorkStartedAt: null,
+      }),
+    ).toBeNull();
+  });
+});
 
 const status = (
   connectionState: Parameters<typeof connectionFloatingStatus>[0]["connectionState"],

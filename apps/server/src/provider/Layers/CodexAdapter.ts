@@ -1,4 +1,5 @@
 import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
+import { retryingAgentState } from "../agentState.ts";
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
@@ -1717,7 +1718,21 @@ function mapToRuntimeEvents(
 
   if (event.method === "item/started") {
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
-    return started ? [started] : [];
+    if (!started) return [];
+    // Auto-compaction runs as an item; the working indicator names it until
+    // the item completes (thread.state.changed "compacted" clears it).
+    if (started.type === "item.started" && started.payload.itemType === "context_compaction") {
+      return [
+        started,
+        {
+          ...runtimeEventBase(event, canonicalThreadId),
+          eventId: EventId.make(`${event.id}:agent-compacting`),
+          type: "session.state.changed",
+          payload: { state: "running", agentState: { kind: "compacting" } },
+        },
+      ];
+    }
+    return [started];
   }
 
   if (event.method === "item/completed") {
@@ -2167,14 +2182,31 @@ function mapToRuntimeEvents(
     const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
     const message = payload?.error.message ?? event.message ?? "Provider runtime error";
     const willRetry = payload?.willRetry === true;
+    const errorEvent: ProviderRuntimeEvent = {
+      type: willRetry ? "runtime.warning" : "runtime.error",
+      ...runtimeEventBase(event, canonicalThreadId),
+      payload: {
+        message,
+        ...(!willRetry ? { class: "provider_error" as const } : {}),
+        ...(event.payload !== undefined ? { detail: event.payload } : {}),
+      },
+    };
+    if (!willRetry) return [errorEvent];
+    // The warning row keeps the reason; the working indicator names the retry
+    // until the stream resumes. Codex only reports its counters in the text.
+    const counters = /(\d+)\s*\/\s*(\d+)/.exec(message);
     return [
+      errorEvent,
       {
-        type: willRetry ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
+        eventId: EventId.make(`${event.id}:agent-retrying`),
+        type: "session.state.changed",
         payload: {
-          message,
-          ...(!willRetry ? { class: "provider_error" as const } : {}),
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
+          state: "running",
+          agentState: retryingAgentState(
+            counters ? Number(counters[1]) : undefined,
+            counters ? Number(counters[2]) : undefined,
+          ),
         },
       },
     ];

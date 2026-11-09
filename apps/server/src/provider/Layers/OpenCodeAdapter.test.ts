@@ -1790,6 +1790,78 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
+  it.effect("names OpenCode retries and compaction as agent states", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-agent-states");
+      const busy = promiseWithResolvers<unknown>();
+      const retry = promiseWithResolvers<unknown>();
+      const compaction = promiseWithResolvers<unknown>();
+      runtimeMock.state.subscribedEvents = [busy.promise, retry.promise, compaction.promise];
+
+      const statesFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            event.type === "session.state.changed" &&
+            event.payload.agentState !== undefined,
+        ),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Work through a flaky provider",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "opencode/kimi-k3",
+        ),
+      });
+      const sessionID = "http://127.0.0.1:9999/session";
+      busy.resolve({
+        id: "evt-agent-state-busy",
+        type: "session.execution.started",
+        created: 0,
+        data: { sessionID },
+      });
+      retry.resolve({
+        id: "evt-agent-state-retry",
+        type: "session.retry.scheduled",
+        created: 0,
+        data: {
+          sessionID,
+          assistantMessageID: "msg-retry",
+          attempt: 3,
+          at: 0,
+          error: { type: "api", message: "Overloaded" },
+        },
+      });
+      compaction.resolve({
+        id: "evt-agent-state-compaction",
+        type: "session.compaction.started",
+        created: 0,
+        data: { sessionID, reason: "auto", recent: "" },
+      });
+
+      const states = Array.from(
+        yield* Fiber.join(statesFiber).pipe(Effect.timeout("1 second")),
+      ).map((event) =>
+        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      );
+      NodeAssert.deepStrictEqual(states, [
+        { kind: "retrying", attempt: 3 },
+        { kind: "compacting" },
+      ]);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("marks subagents when a child is proven related by ancestry lookup", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;

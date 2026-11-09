@@ -1,3 +1,8 @@
+import {
+  agentStateLabelTicks,
+  formatAgentStateLabel,
+} from "@e6tools/client-runtime/state/agent-state";
+import type { ThreadAgentState } from "@e6tools/contracts";
 import { formatDuration } from "@e6tools/shared/orchestrationTiming";
 import { GlassContainer, GlassView } from "expo-glass-effect";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -147,7 +152,9 @@ export function FloatingWorkingControl(props: {
             key={
               props.status.kind === "working" || props.status.kind === "compacting"
                 ? props.status.kind
-                : `${props.status.kind}:${props.status.label}`
+                : props.status.kind === "agent-state"
+                  ? `agent-state:${props.status.agentState.kind}`
+                  : `${props.status.kind}:${props.status.label}`
             }
             status={props.status}
             onLayout={handleLabelLayout}
@@ -271,6 +278,46 @@ function CompactingLabel(props: { readonly onLayout: (event: LayoutChangeEvent) 
   );
 }
 
+const AGENT_STATE_SYMBOL = {
+  compacting: "arrow.down.right.and.arrow.up.left",
+  retrying: "arrow.clockwise",
+  "rate-limited": "pause.circle",
+} as const;
+
+function AgentStateLabel(props: {
+  readonly agentState: ThreadAgentState;
+  readonly onLayout: (event: LayoutChangeEvent) => void;
+}) {
+  // Only a countdown needs a clock, and it moves by the minute.
+  const ticks = agentStateLabelTicks(props.agentState);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticks) return;
+    const intervalId = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(intervalId);
+  }, [ticks]);
+  const label = formatAgentStateLabel(props.agentState, nowMs);
+  const paused = props.agentState.kind === "rate-limited";
+  return (
+    <StatusLabelRow accessibilityLabel={label} className="gap-1.5" onLayout={props.onLayout}>
+      <SymbolView
+        name={AGENT_STATE_SYMBOL[props.agentState.kind]}
+        size={13}
+        tintColorClassName={paused ? "accent-warning-foreground" : "foreground"}
+        type="monochrome"
+      />
+      <Text
+        className={`max-w-[260px] shrink font-e6-medium text-xs ${
+          paused ? "text-warning-foreground" : "text-foreground"
+        }`}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </StatusLabelRow>
+  );
+}
+
 function FloatingStatusLabel(props: {
   readonly status: FloatingWorkingStatus;
   readonly onLayout: (event: LayoutChangeEvent) => void;
@@ -294,6 +341,15 @@ function FloatingStatusLabel(props: {
   }
   if (props.status.kind === "compacting") {
     return <CompactingLabel key="compacting" onLayout={props.onLayout} />;
+  }
+  if (props.status.kind === "agent-state") {
+    return (
+      <AgentStateLabel
+        key={`agent-state:${props.status.agentState.kind}`}
+        agentState={props.status.agentState}
+        onLayout={props.onLayout}
+      />
+    );
   }
   if (props.status.kind === "attention") {
     return (

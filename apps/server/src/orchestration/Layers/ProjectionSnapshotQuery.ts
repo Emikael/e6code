@@ -55,6 +55,7 @@ import {
 } from "../../persistence/Errors.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
+import { ThreadAgentStateService } from "../ThreadAgentState.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -499,6 +500,17 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
+  const threadAgentState = yield* ThreadAgentStateService;
+  // Only a running session can be compacting, retrying or paused, so a missed
+  // clear can never outlive its turn. Omitted when absent to keep shells small.
+  const agentStateField = (
+    threadId: string,
+    session: { readonly status: string } | null,
+  ): Pick<OrchestrationThreadShell, "agentState"> => {
+    const agentState =
+      session?.status === "running" ? threadAgentState.getThreadAgentState(threadId) : null;
+    return agentState === null ? {} : { agentState };
+  };
   const sql = yield* SqlClient.SqlClient;
   // Sums the latest turn's checkpoint in SQL so shell reads never decode
   // per-file JSON; mapLatestTurn turns these into diffStat.
@@ -2754,6 +2766,7 @@ pending_approval_requests AS (
                           row.threadId,
                         ),
                         planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
+                        ...agentStateField(row.threadId, sessionByThread.get(row.threadId) ?? null),
                       } satisfies OrchestrationThreadShell)
                     : Result.failVoid,
                 ),
@@ -2918,6 +2931,7 @@ pending_approval_requests AS (
                     row.threadId,
                   ),
                   planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
+                  ...agentStateField(row.threadId, sessionByThread.get(row.threadId) ?? null),
                 })),
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               };
@@ -3233,6 +3247,7 @@ pending_approval_requests AS (
         return Option.none<OrchestrationThreadShell>();
       }
 
+      const session = Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null;
       return Option.some({
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
@@ -3266,7 +3281,7 @@ pending_approval_requests AS (
         setupScriptHash: threadRow.value.setupScriptHash ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
-        session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
+        session,
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
@@ -3275,6 +3290,7 @@ pending_approval_requests AS (
           threadRow.value.threadId,
         ),
         planProgress: threadPlanProgress.getThreadPlanProgress(threadRow.value.threadId),
+        ...agentStateField(threadRow.value.threadId, session),
       } satisfies OrchestrationThreadShell);
     });
 

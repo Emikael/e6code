@@ -30,6 +30,7 @@ import { parseCliArgs } from "@e6tools/shared/cliArgs";
 import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 import { isWorkspaceImagePreviewPath } from "@e6tools/shared/filePreview";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
+import { retryingAgentState } from "../agentState.ts";
 import {
   ApprovalRequestId,
   classifyTaskAgentKind,
@@ -463,6 +464,10 @@ interface ClaudeSessionContext {
   lastThreadStartedId: string | undefined;
   /** Limits already announced for the running turn, keyed `window:resetsAt`. */
   announcedUsageLimits: { turnId: string; keys: Set<string> } | undefined;
+  /** The limit the working indicator currently reports the turn paused on. */
+  pausedUsageLimit: { turnId: string; key: string } | undefined;
+  /** Between `status: compacting` and the status that follows it. */
+  compacting: boolean;
   stopped: boolean;
 }
 
@@ -672,6 +677,16 @@ function describeClaudeUsageLimit(
   return `Claude usage limit reached. This turn is paused until the ${
     label ? `${label} ` : ""
   }limit resets${wait ? ` in ${wait}` : ""}.`;
+}
+
+/** The reset as an ISO time for the working indicator, within the same bounds as the row. */
+function claudeUsageLimitResetsAt(info: SDKRateLimitInfo, nowMs: number): string | undefined {
+  if (info.resetsAt === undefined || !Number.isFinite(nowMs)) return undefined;
+  const resetsAtMs = info.resetsAt * 1000;
+  const waitMs = resetsAtMs - nowMs;
+  return waitMs > 0 && waitMs <= CLAUDE_USAGE_LIMIT_MAX_WAIT_MS
+    ? DateTime.formatIso(DateTime.makeUnsafe(resetsAtMs))
+    : undefined;
 }
 
 function formatClaudeUsageLimitWait(waitMs: number): string {
@@ -3656,17 +3671,29 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           },
         });
         return;
-      case "status":
+      case "status": {
+        // Compaction is the status the working indicator names. Only the
+        // status that follows it ends it: "requesting" also fires between
+        // API retries and must not clear a retry the indicator is showing.
+        const compacting = message.status === "compacting";
+        const agentState = compacting
+          ? { kind: "compacting" as const }
+          : context.compacting
+            ? null
+            : undefined;
+        context.compacting = compacting;
         yield* offerRuntimeEvent({
           ...base,
           type: "session.state.changed",
           payload: {
-            state: message.status === "compacting" ? "waiting" : "running",
+            state: compacting ? "waiting" : "running",
             reason: `status:${message.status ?? "active"}`,
             detail: message,
+            ...(agentState !== undefined ? { agentState } : {}),
           },
         });
         return;
+      }
       case "compact_boundary": {
         if (context.turnState) {
           context.turnState.latestAssistantUsage = undefined;
@@ -3928,14 +3955,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       case "api_retry":
         // Transport-level retry heartbeat. Surfacing each attempt as a
         // warning row spammed the work log (10 rows during a 502 storm);
-        // the terminal result/error path reports the actual failure. Keep
-        // the session visibly alive instead.
+        // the terminal result/error path reports the actual failure. The
+        // working indicator names the retry instead; the next streamed
+        // output clears it.
         yield* offerRuntimeEvent({
           ...base,
           type: "session.state.changed",
           payload: {
             state: "running",
             reason: `api_retry:${message.attempt}/${message.max_retries}`,
+            agentState: retryingAgentState(message.attempt, message.max_retries),
           },
         });
         return;
@@ -4166,6 +4195,38 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             names,
           );
           yield* emitRuntimeWarning(context, notice, rateLimitInfo);
+        }
+      }
+      // The working indicator names the pause while a window blocks the turn,
+      // once per limit identity (a parked window re-fires with the same key),
+      // and ends it when a recovery leaves no window blocking.
+      if (context.turnState !== undefined) {
+        const turnId = context.turnState.turnId;
+        const paused =
+          context.pausedUsageLimit?.turnId === turnId ? context.pausedUsageLimit : undefined;
+        if (blocked && paused?.key !== limitKey) {
+          context.pausedUsageLimit = { turnId, key: limitKey };
+          const resetsAt = claudeUsageLimitResetsAt(rateLimitInfo, Date.parse(stamp.createdAt));
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "session.state.changed",
+            payload: {
+              state: "waiting",
+              reason: `rate_limit:${limitType}`,
+              agentState: { kind: "rate-limited", ...(resetsAt ? { resetsAt } : {}) },
+            },
+          });
+        } else if (
+          !blocked &&
+          paused !== undefined &&
+          context.turnState.rejectedRateLimitTypes.size === 0
+        ) {
+          context.pausedUsageLimit = undefined;
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "session.state.changed",
+            payload: { state: "running", reason: `rate_limit:${limitType}`, agentState: null },
+          });
         }
       }
       return;
@@ -5103,6 +5164,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
         announcedUsageLimits: undefined,
+        pausedUsageLimit: undefined,
+        compacting: false,
         stopped: false,
       };
       yield* Ref.set(contextRef, context);

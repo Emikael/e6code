@@ -1918,6 +1918,58 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("names Codex retries and auto-compaction as agent states", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const statesFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "session.state.changed"),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const base = {
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        turnId: asTurnId("turn-1"),
+      } as const;
+      for (const [index, message] of ["Reconnecting... 2/5", "stream disconnected"].entries()) {
+        yield* runtime.emit({
+          ...base,
+          id: asEventId(`evt-retry-${index}`),
+          method: "error",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message },
+            willRetry: true,
+          },
+        } satisfies ProviderEvent);
+      }
+      yield* runtime.emit({
+        ...base,
+        id: asEventId("evt-compaction-started"),
+        method: "item/started",
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAtMs: 1_778_000_000_000,
+          item: { id: "compact-item", type: "contextCompaction" },
+        },
+      } satisfies ProviderEvent);
+
+      const states = Array.from(yield* Fiber.join(statesFiber)).map((event) =>
+        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      );
+      NodeAssert.deepStrictEqual(states, [
+        { kind: "retrying", attempt: 2, maxAttempts: 5 },
+        { kind: "retrying" },
+        { kind: "compacting" },
+      ]);
+    }),
+  );
+
   it.effect("maps process stderr notifications to runtime.warning", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

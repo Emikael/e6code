@@ -187,6 +187,10 @@
       "types": "./src/state/runtime.ts",
       "default": "./src/state/runtime.ts"
     },
+    "./state/agent-state": {
+      "types": "./src/state/agentState.ts",
+      "default": "./src/state/agentState.ts"
+    },
     "./state/usage": {
       "types": "./src/state/usage.ts",
       "default": "./src/state/usage.ts"

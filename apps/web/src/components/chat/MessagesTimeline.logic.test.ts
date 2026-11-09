@@ -36,6 +36,7 @@ import {
   WORKTREE_SETUP_ROW_ID,
   buildToolCallExpandedBody,
   workEntryDisplayLabel,
+  resolveWorkingRowStatus,
 } from "./MessagesTimeline.logic";
 import {
   createMessageAttachmentPreviewProjector,
@@ -4005,5 +4006,43 @@ describe("buildToolCallExpandedBody", () => {
         "/repo/shot.png",
       ),
     ).toEqual({ call: null, result: "repo/src/a.ts" });
+  });
+});
+
+describe("resolveWorkingRowStatus", () => {
+  const retrying = { kind: "retrying", attempt: 2, maxAttempts: 5 } as const;
+  const base = {
+    isPreparingWorktree: false,
+    isCompacting: false,
+    pendingAttention: null,
+    agentState: null,
+  } as const;
+
+  it("names what the agent reports over plain Working", () => {
+    expect(resolveWorkingRowStatus(base)).toEqual({ kind: "working" });
+    expect(resolveWorkingRowStatus({ ...base, agentState: retrying })).toEqual({
+      kind: "agent-state",
+      agentState: retrying,
+    });
+  });
+
+  it("keeps a requested /compact and worktree setup ahead of the agent state", () => {
+    const compacting = { kind: "compacting" } as const;
+    expect(
+      resolveWorkingRowStatus({ ...base, isCompacting: true, agentState: compacting }),
+    ).toEqual({ kind: "compacting" });
+    expect(
+      resolveWorkingRowStatus({ ...base, isPreparingWorktree: true, agentState: retrying }),
+    ).toEqual({ kind: "preparing" });
+  });
+
+  it("lets a request waiting on the user outrank a usage-limit pause", () => {
+    expect(
+      resolveWorkingRowStatus({
+        ...base,
+        pendingAttention: "approval",
+        agentState: { kind: "rate-limited" },
+      }),
+    ).toEqual({ kind: "attention", attention: "approval" });
   });
 });

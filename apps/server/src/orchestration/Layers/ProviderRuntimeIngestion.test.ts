@@ -22,6 +22,7 @@ import {
   ProviderItemId,
   RuntimeRequestId,
   type ServerSettings,
+  type ThreadAgentState as AgentState,
   ThreadId,
   TurnId,
 } from "@e6tools/contracts";
@@ -58,6 +59,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import * as ThreadAgentState from "../ThreadAgentState.ts";
 import {
   ProviderRuntimeIngestionLive,
   splitBufferedAssistantText,
@@ -351,6 +353,7 @@ describe("ProviderRuntimeIngestion", () => {
       // engine, and the snapshot query (reader).
       Layer.provideMerge(ThreadBackgroundLiveness.layer),
       Layer.provideMerge(ThreadPlanProgress.layer),
+      Layer.provideMerge(ThreadAgentState.layer),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
@@ -819,6 +822,93 @@ describe("ProviderRuntimeIngestion", () => {
       state: "running",
       requestedAt: pendingAt,
     });
+  });
+
+  it("shows the agent state on the shell until progress or the turn end clears it", async () => {
+    const harness = await createHarness();
+    const base = {
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-agent-state"),
+    } as const;
+    const stateChanged = (
+      id: string,
+      createdAt: string,
+      agentState: AgentState | null,
+      turnId: TurnId = base.turnId,
+    ): ProviderRuntimeEvent => ({
+      ...base,
+      turnId,
+      type: "session.state.changed",
+      eventId: asEventId(id),
+      createdAt,
+      payload: { state: "running", agentState },
+    });
+    const shellAgentState = async () => (await harness.readThreadShell()).agentState;
+
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.started",
+        eventId: asEventId("as-started"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+      },
+      stateChanged("as-retry", "2026-01-01T00:00:02.000Z", {
+        kind: "retrying",
+        attempt: 2,
+        maxAttempts: 5,
+      }),
+    ]);
+    expect(await shellAgentState()).toEqual({ kind: "retrying", attempt: 2, maxAttempts: 5 });
+
+    // A superseded turn neither replaces nor clears the state.
+    await harness.emitAndDrain([
+      stateChanged(
+        "as-stale",
+        "2026-01-01T00:00:03.000Z",
+        { kind: "compacting" },
+        asTurnId("turn-old"),
+      ),
+    ]);
+    expect(await shellAgentState()).toEqual({ kind: "retrying", attempt: 2, maxAttempts: 5 });
+
+    // Streamed text proves the retry landed. The session is re-asserted so
+    // clients refetch the shell even while the text is still buffered.
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("as-delta"),
+        itemId: asItemId("as-text"),
+        createdAt: "2026-01-01T00:00:04.000Z",
+        payload: { streamKind: "assistant_text", delta: "Back on track." },
+      },
+    ]);
+    const cleared = await harness.readThreadShell();
+    expect(cleared.agentState).toBeUndefined();
+    expect(cleared.session?.status).toBe("running");
+    expect(cleared.session?.updatedAt).toBe("2026-01-01T00:00:04.000Z");
+
+    await harness.emitAndDrain([
+      stateChanged("as-paused", "2026-01-01T00:00:05.000Z", {
+        kind: "rate-limited",
+        resetsAt: "2026-01-01T01:00:00.000Z",
+      }),
+    ]);
+    expect(await shellAgentState()).toEqual({
+      kind: "rate-limited",
+      resetsAt: "2026-01-01T01:00:00.000Z",
+    });
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("as-completed"),
+        createdAt: "2026-01-01T00:00:06.000Z",
+        payload: { state: "interrupted" },
+      },
+    ]);
+    expect(await shellAgentState()).toBeUndefined();
   });
 
   it("applies provider session.state.changed transitions directly", async () => {
