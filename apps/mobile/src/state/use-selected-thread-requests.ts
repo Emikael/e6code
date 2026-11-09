@@ -224,7 +224,7 @@ export function useSelectedThreadRequests() {
   );
 
   const onRespondToApproval = useCallback(
-    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
+    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision, feedback?: string) => {
       if (!selectedThreadShell) {
         return;
       }
@@ -236,6 +236,7 @@ export function useSelectedThreadRequests() {
           threadId: selectedThreadShell.id,
           requestId,
           decision,
+          ...(feedback !== undefined ? { feedback } : {}),
         },
       });
       setRespondingApprovalId((current) => (current === requestId ? null : current));

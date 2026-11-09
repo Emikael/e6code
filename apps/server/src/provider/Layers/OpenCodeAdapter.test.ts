@@ -99,7 +99,7 @@ const runtimeMock = {
     subscribedEvents: [] as Array<unknown | Promise<unknown>>,
     eventSubscribeObserved: null as (() => void) | null,
     eventStreamError: null as ((cause: unknown) => void) | null,
-    permissionReplyCalls: [] as Array<{ requestID: string; reply: string }>,
+    permissionReplyCalls: [] as Array<{ requestID: string; reply: string; message?: string }>,
     permissionReplyImplementation: null as ((signal?: AbortSignal) => Promise<void>) | null,
     permissionReplySignals: [] as AbortSignal[],
     questionReplyCalls: [] as Array<{
@@ -557,10 +557,18 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
             : runtimeMock.state.pendingPermissions;
         },
         reply: async (
-          { requestID, decision }: { requestID: string; decision: string },
+          {
+            requestID,
+            decision,
+            message,
+          }: { requestID: string; decision: string; message?: string },
           options?: { signal?: AbortSignal },
         ) => {
-          runtimeMock.state.permissionReplyCalls.push({ requestID, reply: decision });
+          runtimeMock.state.permissionReplyCalls.push({
+            requestID,
+            reply: decision,
+            ...(message !== undefined ? { message } : {}),
+          });
           if (options?.signal) runtimeMock.state.permissionReplySignals.push(options.signal);
           if (runtimeMock.state.permissionReplyImplementation) {
             await runtimeMock.state.permissionReplyImplementation(options?.signal);
@@ -2163,14 +2171,15 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
   );
 
   it.effect.each([
-    { permission: "external_directory", decision: "accept", reply: "once" },
-    { permission: "doom_loop", decision: "acceptForSession", reply: "always" },
-    { permission: "todowrite", decision: "decline", reply: "reject" },
-    { permission: "webfetch", decision: "cancel", reply: "reject" },
-    { permission: "custom_tool", decision: "accept", reply: "once" },
+    { permission: "external_directory", decision: "accept", reply: "once", feedback: undefined },
+    { permission: "doom_loop", decision: "acceptForSession", reply: "always", feedback: undefined },
+    { permission: "todowrite", decision: "decline", reply: "reject", feedback: undefined },
+    { permission: "bash", decision: "decline", reply: "reject", feedback: "Use the test DB" },
+    { permission: "webfetch", decision: "cancel", reply: "reject", feedback: undefined },
+    { permission: "custom_tool", decision: "accept", reply: "once", feedback: undefined },
   ] as const)(
     "shows $permission approval and resolves its $decision reply without SSE",
-    ({ permission, decision, reply }) =>
+    ({ permission, decision, reply, feedback }) =>
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId(`thread-permission-${permission}`);
@@ -2212,12 +2221,17 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           Stream.runHead,
           Effect.forkChild,
         );
-        yield* adapter.respondToRequest(threadId, ApprovalRequestId.make(request.id), decision);
+        yield* adapter.respondToRequest(
+          threadId,
+          ApprovalRequestId.make(request.id),
+          decision,
+          feedback,
+        );
         const resolved = Option.getOrThrow(yield* Fiber.join(resolvedFiber));
         NodeAssert.equal(resolved.requestId, request.id);
         yield* adapter.respondToRequest(threadId, ApprovalRequestId.make(request.id), decision);
         NodeAssert.deepEqual(runtimeMock.state.permissionReplyCalls, [
-          { requestID: request.id, reply },
+          { requestID: request.id, reply, ...(feedback ? { message: feedback } : {}) },
         ]);
         yield* adapter.stopSession(threadId);
       }),

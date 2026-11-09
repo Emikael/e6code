@@ -89,6 +89,7 @@ import type {
 } from "../../lib/threadActivity";
 import type { SubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { approvalFeedbackAgentName } from "@e6tools/client-runtime/approval-feedback";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -193,6 +194,7 @@ export interface ThreadDetailScreenProps {
   readonly onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
+    feedback?: string,
   ) => Promise<unknown>;
   readonly onSelectUserInputOption: (
     requestId: ApprovalRequestId,
@@ -1057,7 +1059,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   >
                     {props.activePendingApproval ? (
                       <PendingApprovalCard
+                        key={props.activePendingApproval.requestId}
                         approval={props.activePendingApproval}
+                        feedbackAgentName={approvalFeedbackAgentName(
+                          props.serverConfig?.providers.find(
+                            (provider) =>
+                              provider.instanceId ===
+                              (props.selectedThread.session?.providerInstanceId ??
+                                selectedInstanceId),
+                          ),
+                        )}
                         agentTitle={props.activePendingApprovalAgentTitle ?? null}
                         respondingApprovalId={props.respondingApprovalId}
                         onRespond={props.onRespondToApproval}

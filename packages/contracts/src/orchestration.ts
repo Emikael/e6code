@@ -153,6 +153,22 @@ export const ProviderApprovalDecision = Schema.Literals([
   "cancel",
 ]);
 export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
+/** Upper bound on instructions sent with a declined approval. */
+export const PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS = 8_000;
+/**
+ * Instructions the user sends with a declined approval, telling the agent what
+ * to do instead. Persisted events decode it without the length cap so a later
+ * cap change cannot strand stored history.
+ */
+/**
+ * Activity recording a decline whose instructions went to the provider with
+ * the refusal; its summary reads "Declined · <instructions>". Providers that
+ * get the instructions as a user message do not record one.
+ */
+export const APPROVAL_FEEDBACK_ACTIVITY_KIND = "approval.declined-with-instructions";
+export const ProviderApprovalFeedback = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS),
+);
 export const ProviderApprovalOption = Schema.Struct({
   decision: ProviderApprovalDecision,
   label: TrimmedNonEmptyString,
@@ -1431,6 +1447,8 @@ const ThreadApprovalRespondCommand = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   decision: ProviderApprovalDecision,
+  /** Only meaningful with "decline"; the decider drops it for other decisions. */
+  feedback: Schema.optional(ProviderApprovalFeedback),
   createdAt: IsoDateTime,
 });
 
@@ -2018,6 +2036,7 @@ export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   decision: ProviderApprovalDecision,
+  feedback: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
 });
 

@@ -47,6 +47,7 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@e6tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@e6tools/client-runtime/connection";
+import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
 import {
   isPasteAsTextShortcut,
   nextPastedTextFileName,
@@ -1369,6 +1370,8 @@ export interface ChatComposerProps {
   activePendingApproval: PendingApproval | null;
   /** Title of the subagent behind activePendingApproval, when one asked. */
   activePendingApprovalAgentTitle?: string | null;
+  /** Agent that decline instructions go to; null when the provider cannot take them. */
+  approvalFeedbackAgentName?: string | null;
   /** Title of the subagent behind the active question, when one asked. */
   activePendingUserInputAgentTitle?: string | null;
   pendingApprovals: PendingApproval[];
@@ -1453,6 +1456,7 @@ export interface ChatComposerProps {
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
+    feedback?: string,
   ) => Promise<unknown>;
   onSelectActivePendingUserInputOption: (questionId: string, optionValue: string) => void;
   onAdvanceActivePendingUserInput: () => void;
@@ -1519,6 +1523,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentUnavailable,
     activePendingApproval,
     activePendingApprovalAgentTitle = null,
+    approvalFeedbackAgentName = null,
     activePendingUserInputAgentTitle = null,
     pendingApprovals,
     pendingUserInputs,
@@ -2518,6 +2523,47 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
 
   const isComposerApprovalState = activePendingApproval !== null;
+  // Instructions typed while an approval waits belong to that request only and
+  // never touch the thread's draft, which comes back once the approval clears.
+  const [approvalFeedbackEntry, setApprovalFeedbackEntry] = useState<{
+    readonly requestId: ApprovalRequestId;
+    readonly text: string;
+    readonly cursor: number;
+  } | null>(null);
+  const approvalFeedbackEntryForRequest =
+    activePendingApproval !== null &&
+    approvalFeedbackEntry?.requestId === activePendingApproval.requestId
+      ? approvalFeedbackEntry
+      : null;
+  const approvalFeedbackText = approvalFeedbackEntryForRequest?.text ?? "";
+  const approvalFeedbackDraft = readApprovalFeedbackDraft(approvalFeedbackText);
+  const isRespondingToActiveApproval =
+    activePendingApproval !== null &&
+    respondingRequestIds.includes(activePendingApproval.requestId);
+  const canTypeApprovalFeedback = isComposerApprovalState && approvalFeedbackAgentName !== null;
+  const onApprovalFeedbackChange = useCallback(
+    (nextText: string, nextCursor: number) => {
+      if (!activePendingApproval) return;
+      setApprovalFeedbackEntry({
+        requestId: activePendingApproval.requestId,
+        text: nextText,
+        cursor: nextCursor,
+      });
+    },
+    [activePendingApproval],
+  );
+  // Instructions are plain text: files and large pastes must not land in the
+  // thread draft behind the approval, so the editor's own paste handles them.
+  const ignoreApprovalFeedbackPaste = useCallback(() => {}, []);
+  const submitApprovalFeedback = () => {
+    if (!activePendingApproval || approvalFeedbackDraft.status !== "ready") return;
+    if (isRespondingToActiveApproval) return;
+    void onRespondToApproval(
+      activePendingApproval.requestId,
+      "decline",
+      approvalFeedbackDraft.feedback,
+    );
+  };
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const isChoiceOnlyPendingQuestion =
     activePendingProgress?.activeQuestion?.allowCustomAnswer === false;
@@ -4007,6 +4053,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isTaskItem = false,
     isCodeBlock = false,
   ) => {
+    if (isComposerApprovalState) {
+      // Only submission is claimed here: menus, history, and list editing all
+      // belong to the thread draft, not to instructions for a pending approval.
+      if (key !== "Enter" || event.isComposing) return false;
+      const intent = composerSubmissionIntentForEnter({
+        isMobileViewport,
+        shiftKey: event.shiftKey,
+        modifierKey: event.metaKey || event.ctrlKey,
+        isDraftThread: false,
+        sendShortcut: settings.sendShortcut,
+        prompt: approvalFeedbackText,
+      });
+      if (!intent) return false;
+      submitApprovalFeedback();
+      return true;
+    }
     if (isCodeBlock && (key !== "Enter" || !(event.metaKey || event.ctrlKey))) return false;
     if (key === "Tab" && event.shiftKey) {
       if (!planModeUiEnabled) return false;
@@ -6032,6 +6094,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           activePendingApproval.requestId,
                         )}
                         options={activePendingApproval.options}
+                        declineFeedback={
+                          approvalFeedbackAgentName !== null
+                            ? { agentName: approvalFeedbackAgentName, draft: approvalFeedbackDraft }
+                            : null
+                        }
                         onRespondToApproval={onRespondToApproval}
                       />
                     </ComposerBanner.Actions>
@@ -6649,12 +6716,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     richTextEnabled={settings.composerRichTextEnabled}
                     value={
                       isComposerApprovalState
-                        ? ""
+                        ? approvalFeedbackText
                         : activePendingProgress
                           ? activePendingProgress.customAnswer
                           : prompt
                     }
-                    cursor={composerCursor}
+                    cursor={
+                      isComposerApprovalState
+                        ? (approvalFeedbackEntryForRequest?.cursor ?? 0)
+                        : composerCursor
+                    }
                     contextRecords={composerContextRecords}
                     buildContextClipboardFragment={buildContextClipboardFragment}
                     importContextFragment={importContextFragment}
@@ -6670,16 +6741,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       isComposerResting &&
                         "flex items-center overflow-hidden whitespace-nowrap leading-8",
                     )}
-                    onChange={onPromptChange}
+                    onChange={isComposerApprovalState ? onApprovalFeedbackChange : onPromptChange}
                     onCommandKeyDown={onComposerCommandKey}
                     onPageScrollKeyDown={onPageScrollKeyDown}
                     onPageScrollKeyUp={onPageScrollKeyUp}
                     onPageScrollRelease={onPageScrollRelease}
                     onCitationSubmitAndSend={submitCitationAndSend}
-                    onPaste={onComposerPaste}
+                    onPaste={
+                      isComposerApprovalState ? ignoreApprovalFeedbackPaste : onComposerPaste
+                    }
                     placeholder={
                       isComposerApprovalState
-                        ? "Resolve this approval request to continue"
+                        ? approvalFeedbackAgentName !== null
+                          ? `Tell ${approvalFeedbackAgentName} what to do instead…`
+                          : "Resolve this approval request to continue"
                         : activePendingProgress
                           ? isChoiceOnlyPendingQuestion
                             ? "Choose an option above"
@@ -6696,7 +6771,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     disabled={
                       isConnecting ||
-                      isComposerApprovalState ||
+                      (isComposerApprovalState &&
+                        (!canTypeApprovalFeedback || isRespondingToActiveApproval)) ||
                       projectSelectionRequired ||
                       isChoiceOnlyPendingQuestion ||
                       activePendingIsResponding
@@ -6736,7 +6812,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </div>
 
             <ComposerPromptLengthValidation
-              message={providerInputSubmissionError ?? composerSubmissionError}
+              message={
+                isComposerApprovalState
+                  ? approvalFeedbackDraft.status === "too-long"
+                    ? `Shorten your instructions to ${approvalFeedbackDraft.maxChars.toLocaleString()} characters.`
+                    : null
+                  : (providerInputSubmissionError ?? composerSubmissionError)
+              }
             />
 
             {/* Bottom Command Deck toolbar */}

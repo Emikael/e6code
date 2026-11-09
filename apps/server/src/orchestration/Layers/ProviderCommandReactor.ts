@@ -1,5 +1,6 @@
 import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
 import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
   type ChatAttachment,
   CommandId,
   EventId,
@@ -97,6 +98,18 @@ type ProviderIntentEvent = Extract<
       | "thread.session-set";
   }
 >;
+
+const APPROVAL_FEEDBACK_PREVIEW_CHARS = 160;
+
+/** One line of the instructions, short enough for a work log row. */
+function approvalFeedbackPreview(feedback: string): string {
+  const firstLine = feedback.split("\n", 1)[0]!.trim();
+  const shortened =
+    firstLine.length > APPROVAL_FEEDBACK_PREVIEW_CHARS
+      ? `${firstLine.slice(0, APPROVAL_FEEDBACK_PREVIEW_CHARS - 1).trimEnd()}…`
+      : firstLine;
+  return shortened === feedback ? feedback : shortened.length > 0 ? shortened : "instructions";
+}
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -1865,13 +1878,16 @@ const make = Effect.gen(function* () {
       });
     }
 
-    yield* providerService
+    const feedback = event.payload.feedback;
+    const response = yield* providerService
       .respondToRequest({
         threadId: event.payload.threadId,
         requestId: event.payload.requestId,
         decision: event.payload.decision,
+        ...(feedback !== undefined ? { feedback } : {}),
       })
       .pipe(
+        Effect.map(Option.some),
         Effect.catchCause((cause) =>
           appendProviderFailureActivity({
             threadId: event.payload.threadId,
@@ -1883,6 +1899,65 @@ const make = Effect.gen(function* () {
             turnId: null,
             createdAt: event.payload.createdAt,
             requestId: event.payload.requestId,
+          }).pipe(Effect.as(Option.none())),
+        ),
+      );
+    if (feedback === undefined || Option.isNone(response)) return;
+    if (response.value.feedbackDelivered) {
+      // The provider read the instructions with the refusal, so nothing in the
+      // conversation shows them. Record them where the approval resolved.
+      const preview = approvalFeedbackPreview(feedback);
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: yield* serverCommandId("approval-feedback-activity"),
+          threadId: event.payload.threadId,
+          activity: {
+            id: EventId.make(`approval-feedback:${event.payload.requestId}`),
+            tone: "approval",
+            kind: APPROVAL_FEEDBACK_ACTIVITY_KIND,
+            summary: `Declined · ${preview}`,
+            payload: {
+              requestId: event.payload.requestId,
+              feedback,
+              // Only a shortened preview needs the full text behind it.
+              ...(preview !== feedback ? { detail: feedback } : {}),
+            },
+            turnId: thread.session?.activeTurnId ?? null,
+            createdAt: event.payload.createdAt,
+          },
+          createdAt: event.payload.createdAt,
+        })
+        .pipe(Effect.ignoreCause({ log: true }));
+      return;
+    }
+    // The provider cannot carry a reason with the refusal, so the instructions
+    // follow as an ordinary user message, which steers the running turn or
+    // starts the next one exactly like a typed message.
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: yield* serverCommandId("approval-feedback"),
+        threadId: event.payload.threadId,
+        message: {
+          messageId: MessageId.make(`approval-feedback:${event.payload.requestId}`),
+          role: "user",
+          text: feedback,
+          attachments: [],
+        },
+        runtimeMode: thread.runtimeMode,
+        interactionMode: thread.interactionMode,
+        createdAt: event.payload.createdAt,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Instructions for the agent were not sent",
+            detail: Cause.pretty(cause),
+            turnId: null,
+            createdAt: event.payload.createdAt,
           }),
         ),
       );

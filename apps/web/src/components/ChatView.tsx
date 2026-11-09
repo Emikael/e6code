@@ -59,6 +59,7 @@ import {
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@e6tools/client-runtime/connection";
+import { approvalFeedbackAgentName } from "@e6tools/client-runtime/approval-feedback";
 import {
   wasBootstrapThreadDeleted,
   wasBootstrapThreadNotCreated,
@@ -3780,6 +3781,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   // Only providers that can stop one subagent offer Stop at all.
   const supportsSubagentStop = conversationProviderStatus?.supportsSubagentStop === true;
+  const approvalFeedbackAgent = approvalFeedbackAgentName(conversationProviderStatus);
   const stopSubagentShortcutLabel = shortcutLabelForCommand(keybindings, "thread.stopSubagent");
   const inspectorSubagentStop = useMemo<InspectorSubagentStop | null>(
     () =>
@@ -9108,7 +9110,7 @@ export default function ChatView(props: ChatViewProps) {
   restoreQueuedMessagesRef.current = restoreQueuedMessagesToComposer;
 
   const onRespondToApproval = useCallback(
-    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
+    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision, feedback?: string) => {
       if (!activeThreadId) return;
 
       setRespondingRequestIds((existing) =>
@@ -9120,6 +9122,7 @@ export default function ChatView(props: ChatViewProps) {
           threadId: activeThreadId,
           requestId,
           decision,
+          ...(feedback !== undefined ? { feedback } : {}),
         },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
@@ -10812,6 +10815,7 @@ export default function ChatView(props: ChatViewProps) {
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}
+                            approvalFeedbackAgentName={approvalFeedbackAgent}
                             onSelectActivePendingUserInputOption={
                               onSelectActivePendingUserInputOption
                             }
