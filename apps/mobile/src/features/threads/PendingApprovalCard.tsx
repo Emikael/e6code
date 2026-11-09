@@ -1,3 +1,4 @@
+import { HoldToAllowButton } from "./HoldToAllowButton";
 import { RequestActionButton } from "./RequestActionButton";
 import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
 import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
@@ -32,9 +33,6 @@ const DEFAULT_APPROVAL_OPTIONS: ReadonlyArray<ProviderApprovalOption> = [
   { decision: "acceptForSession", label: "Allow session" },
   { decision: "decline", label: "Decline" },
 ];
-
-/** Matches the web hold: a destructive command is allowed by a 1s long press. */
-const HOLD_TO_ALLOW_MS = 1000;
 
 export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const destructive = classifyDestructiveApproval(props.approval);
@@ -116,14 +114,11 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
         {options.flatMap((option) => {
           if (option.decision === "accept" && destructive !== null) {
             return [
-              <RequestActionButton
+              <HoldToAllowButton
                 key={option.decision}
-                label="Hold to allow"
-                tone="danger"
+                reason={destructive.reason}
                 disabled={responding}
-                accessibilityHint={`${destructive.reason}. Press and hold for one second to allow.`}
-                delayLongPress={HOLD_TO_ALLOW_MS}
-                onLongPress={() => void props.onRespond(props.approval.requestId, "accept")}
+                onConfirm={() => void props.onRespond(props.approval.requestId, "accept")}
               />,
             ];
           }
