@@ -75,9 +75,9 @@ const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 const STATUS_TEXT_CLASS = {
   approval: "text-warning-foreground",
   question: "text-warning-foreground",
-  working: "text-adaptive-sky-700-300",
+  working: "text-info-foreground",
   idle: "text-foreground-muted",
-  done: "text-adaptive-emerald-700-300",
+  done: "text-success-foreground",
   failed: "text-danger-foreground",
   stopped: "text-foreground-muted",
 } as const satisfies Record<SubagentStatusTone, string>;
@@ -85,10 +85,10 @@ const STATUS_TEXT_CLASS = {
 const STATUS_DOT_CLASS = {
   approval: "bg-warning-foreground",
   question: "bg-warning-foreground",
-  working: "bg-adaptive-sky-600-400",
+  working: "bg-info-foreground",
   idle: "bg-foreground-muted",
-  done: "bg-adaptive-emerald-600-400",
-  failed: "bg-adaptive-rose-600-400",
+  done: "bg-success-foreground",
+  failed: "bg-danger-foreground",
   stopped: "bg-foreground-muted",
 } as const satisfies Record<SubagentStatusTone, string>;
 

@@ -1097,17 +1097,17 @@ function isWaitingTone(tone: AgentSpawnCardTone): boolean {
 const AGENT_SPAWN_TONE_DOT_CLASS = {
   approval: "bg-warning-foreground",
   question: "bg-warning-foreground",
-  working: "bg-adaptive-sky-600-400",
-  completed: "bg-adaptive-emerald-600-400",
-  failed: "bg-adaptive-rose-600-400",
+  working: "bg-info-foreground",
+  completed: "bg-success-foreground",
+  failed: "bg-danger-foreground",
   stopped: "bg-foreground-muted",
 } as const satisfies Record<AgentSpawnCardTone, string>;
 
 const AGENT_SPAWN_TONE_TEXT_CLASS = {
   approval: "text-warning-foreground",
   question: "text-warning-foreground",
-  working: "text-adaptive-sky-700-300",
-  completed: "text-adaptive-emerald-700-300",
+  working: "text-info-foreground",
+  completed: "text-success-foreground",
   failed: "text-danger-foreground",
   stopped: "text-foreground-muted",
 } as const satisfies Record<AgentSpawnCardTone, string>;
