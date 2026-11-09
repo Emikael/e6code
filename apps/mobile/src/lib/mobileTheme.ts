@@ -137,7 +137,7 @@ const INFO_COLORS: Readonly<Record<MobileThemeAppearance, string>> = {
   dark: "#93c5fd",
 };
 const SUCCESS_COLORS: Readonly<Record<MobileThemeAppearance, string>> = {
-  light: "#0b7a6c",
+  light: "#096b5f",
   dark: "#5eead4",
 };
 
