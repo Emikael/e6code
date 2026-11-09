@@ -9,6 +9,8 @@ import {
 } from "@e6tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
+  collectLimitAccounts,
+  collectLimitPools,
   elapsedShare,
   formatDuration,
   formatResetsIn,
@@ -35,22 +37,27 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { getDriverOption } from "../settings/providerDriverMeta";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
 /** Pace in words and as a glyph; the glyph never stands without its words. */
-export const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> =
-  {
-    ahead: {
-      label: "Ahead of pace: spending faster than the window elapses",
-      icon: TrendingUpIcon,
-    },
-    on: { label: "On pace with the window", icon: GaugeIcon },
-    under: {
-      label: "Under pace: headroom left for the rest of the window",
-      icon: TrendingDownIcon,
-    },
-  };
+export const PACE: Record<
+  LimitPace,
+  { readonly label: string; readonly words: string; readonly icon: typeof GaugeIcon }
+> = {
+  ahead: {
+    label: "Ahead of pace: spending faster than the window elapses",
+    words: "running fast",
+    icon: TrendingUpIcon,
+  },
+  on: { label: "On pace with the window", words: "on pace", icon: GaugeIcon },
+  under: {
+    label: "Under pace: headroom left for the rest of the window",
+    words: "plenty left",
+    icon: TrendingDownIcon,
+  },
+};
 
 /** The series colour the cost chart uses for this driver, so the two views read as one. */
 export function barColor(driver: ServerProvider["driver"]): string {
@@ -340,4 +347,90 @@ export function UsageLimitsSection({
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
   return <UsageLimitsPooled presentations={selected} now={now} />;
+}
+
+/**
+ * Every pooled window as one compact row for the cost and token views: share
+ * left, the soonest reset, and pace in words. The Limits view keeps the
+ * per-account detail; `onShowDetails` switches to it.
+ */
+export function UsagePlanLimits({
+  selectedEnvironmentIds,
+  now,
+  onShowDetails,
+}: {
+  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
+  readonly now: number;
+  readonly onShowDetails: () => void;
+}) {
+  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const selected =
+    selectedEnvironmentIds === null
+      ? presentations
+      : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
+  const pools = collectLimitPools(collectLimitAccounts(selected), now);
+  if (pools.every((pool) => pool.windows.length === 0)) return null;
+
+  return (
+    <section aria-labelledby="usage-plan-limits" className="flex min-w-0 flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="usage-plan-limits" className="text-sm font-medium text-foreground">
+          Plan limits
+        </h2>
+        <Button size="xs" variant="ghost" onClick={onShowDetails}>
+          Details
+        </Button>
+      </div>
+      <ul className="flex flex-col gap-3">
+        {pools.flatMap((pool) => {
+          const provider = getDriverOption(pool.driver)?.label ?? String(pool.driver);
+          const color = barColor(pool.driver);
+          return pool.windows.map((window) => {
+            const nextReset = window.resets[0];
+            const resetsIn =
+              nextReset === undefined
+                ? null
+                : nextReset.at <= now
+                  ? "resets now"
+                  : `resets in ${formatDuration(nextReset.at - now)}`;
+            const pace = window.pace ? PACE[window.pace] : null;
+            const PaceGlyph = pace?.icon;
+            return (
+              <li
+                key={`${pool.driver}:${window.kind}:${window.id}`}
+                className="flex flex-col gap-1"
+              >
+                <span className="flex items-baseline gap-2 text-sm">
+                  <span className="min-w-0 truncate text-foreground">
+                    {provider} · {window.label}
+                  </span>
+                  <span className="ms-auto shrink-0 text-xs font-medium text-foreground tabular-nums">
+                    {window.remainingPercent}% left
+                  </span>
+                </span>
+                <span aria-hidden className="relative h-1.5 rounded-full bg-muted">
+                  {window.remainingPercent > 0 ? (
+                    <span
+                      className="absolute inset-y-0 left-0 rounded-full"
+                      style={{ width: `${window.remainingPercent}%`, backgroundColor: color }}
+                    />
+                  ) : null}
+                </span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+                  {resetsIn}
+                  {resetsIn && pace ? " · " : null}
+                  {pace && PaceGlyph ? (
+                    <>
+                      <PaceGlyph className="size-3.5 shrink-0" aria-hidden />
+                      {pace.words}
+                    </>
+                  ) : null}
+                </span>
+              </li>
+            );
+          });
+        })}
+      </ul>
+    </section>
+  );
 }
