@@ -24,6 +24,10 @@ import {
 } from "@e6tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@e6tools/client-runtime/state/thread-sort";
 import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
+import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@e6tools/client-runtime/state/thread-search";
@@ -153,7 +157,11 @@ import {
   resolveActiveThreadRouteRef,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
-import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
+import {
+  formatRelativeTimeLabel,
+  formatUpcomingTimestamp,
+  parseTimestampDate,
+} from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
@@ -302,6 +310,22 @@ function JumpHintBadge(props: { label: string }) {
   );
 }
 
+interface SidebarRowStatus {
+  label: string;
+  /** Truncatable detail after the label, such as "step 4 of 6". */
+  detail?: string | null;
+  /** Full wording for screen readers and the hover card when the row abbreviates. */
+  fullLabel?: string;
+  icon: "working" | "paused" | "monitoring" | "approval" | "input" | "failed" | "woke" | "done";
+  className: string;
+}
+
+function sidebarRowStatusText(status: SidebarRowStatus): string {
+  return (
+    status.fullLabel ?? joinThreadRowStatus({ label: status.label, detail: status.detail ?? null })
+  );
+}
+
 // Self-ticking so only this span re-renders each second, not the whole row.
 function WorkingDuration(props: { startedAt: string | null }) {
   const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
@@ -337,6 +361,8 @@ function SidebarThreadTooltip({
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
+  statusText,
+  planStep,
 }: {
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
@@ -353,6 +379,10 @@ function SidebarThreadTooltip({
   } | null;
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
+  /** Full row status ("Working · step 4 of 6"), which the row may truncate. */
+  statusText: string | null;
+  /** The running plan step's text, shown under a Working status. */
+  planStep: string | null;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
@@ -369,6 +399,12 @@ function SidebarThreadTooltip({
           {thread.title}
         </div>
         <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">
+          {statusText ? (
+            <div className="min-w-0">
+              <div className="truncate text-foreground/75">{statusText}</div>
+              {planStep ? <div className="truncate">{planStep}</div> : null}
+            </div>
+          ) : null}
           {projectDisplayName ? (
             <div className="flex min-w-0 items-center gap-2">
               {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
@@ -1270,19 +1306,30 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // through its semantic role, so built-in themes recolor it and it holds
   // 4.5:1 on the sidebar; input is the user's next action, so it takes
   // primary (Iris, the stock indigo).
-  const topStatus =
-    status === "working"
+  // Working and paused rows carry the agent state or plan step as detail
+  // ("Working · step 4 of 6", "Paused · resets 14:20"); the detail truncates
+  // in narrow rows and stays whole for screen readers and the hover card.
+  const runningStatus =
+    status === "working" || status === "paused"
+      ? formatRunningThreadStatus({
+          agentState: thread.agentState,
+          planProgress: thread.planProgress,
+          formatResetTime: (resetsAt) => formatUpcomingTimestamp(resetsAt, props.timestampFormat),
+        })
+      : null;
+  const topStatus: SidebarRowStatus | null =
+    status === "working" && runningStatus
       ? {
-          label: "Working",
-          icon: "working" as const,
+          ...runningStatus,
+          icon: "working",
           // No shimmer: a label that animates forever is noise in a sidebar
           // full of them (and repaints every vsync on high-refresh displays).
           className: "text-info-foreground",
         }
-      : status === "paused"
+      : status === "paused" && runningStatus
         ? {
-            label: "Paused",
-            icon: "paused" as const,
+            ...runningStatus,
+            icon: "paused",
             className: "text-warning-foreground",
           }
         : status === "monitoring"
@@ -1295,13 +1342,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             }
           : status === "approval"
             ? {
+                // Short in the row; the full wording matches the rest of the
+                // app for screen readers and the hover card.
                 label: "Approval",
+                fullLabel: "Needs approval",
                 icon: "approval" as const,
                 className: "text-warning-foreground",
               }
             : status === "input"
               ? {
                   label: "Input",
+                  fullLabel: "Needs your answer",
                   icon: "input" as const,
                   className: "text-primary-text",
                 }
@@ -1385,6 +1436,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
+      statusText={topStatus ? sidebarRowStatusText(topStatus) : null}
+      planStep={
+        status === "working" && !thread.agentState ? (thread.planProgress?.step ?? null) : null
+      }
     />
   );
 
@@ -2074,7 +2129,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make
                             screen readers announce every second. */}
-                          <span role="status">{topStatus.label}</span>
+                          <span role="status" className="flex min-w-0 items-center gap-1">
+                            <span aria-hidden={topStatus.fullLabel ? true : undefined}>
+                              {topStatus.label}
+                            </span>
+                            {topStatus.detail ? (
+                              <span className="max-w-28 truncate font-normal text-secondary-label">
+                                · {topStatus.detail}
+                              </span>
+                            ) : null}
+                            {topStatus.fullLabel ? (
+                              <span className="sr-only">{topStatus.fullLabel}</span>
+                            ) : null}
+                          </span>
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
@@ -2323,6 +2390,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           branchMismatch={branchMismatch}
           terminalStatus={terminalStatus}
           terminalProcessCount={runningTerminalIds.length}
+          statusText={null}
+          planStep={null}
         />
       </Tooltip>
     </li>

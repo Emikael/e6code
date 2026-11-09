@@ -6,6 +6,7 @@ import type {
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import type { ResolvedMobileCodeSurface } from "../../lib/appearancePreferences";
+import { MONO_FONT_FAMILY, SANS_FONT_FAMILY } from "../../lib/useFontFamily";
 import { type MobileThemeId, type MobileThemeVariables } from "../../lib/mobileTheme";
 import { getMobileTerminalTheme, type TerminalAppearanceScheme } from "../terminal/terminalTheme";
 import { computeWordAltDiffRanges } from "./reviewWordDiffs";
@@ -84,6 +85,8 @@ export function createNativeReviewDiffStyle(
     fileHeaderPathRightPadding: 118,
     fileHeaderCountColumnWidth: 38,
     fileHeaderCountGap: 5,
+    codeFontFamily: MONO_FONT_FAMILY,
+    uiFontFamily: SANS_FONT_FAMILY,
     codeFontSize: codeSurface.fontSize,
     codeFontWeight: "regular",
     lineNumberFontSize: codeSurface.lineNumberFontSize,
