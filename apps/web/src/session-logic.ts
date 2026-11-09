@@ -25,7 +25,6 @@ import {
   mainAgentDiffStat,
   type WorkLogDiffStat,
 } from "@e6tools/client-runtime/work-log/diff-stat";
-export type { WorkLogDiffStat } from "@e6tools/client-runtime/work-log/diff-stat";
 import {
   TASK_LIST_TOOL_NAMES,
   taskListLabel,

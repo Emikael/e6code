@@ -299,6 +299,10 @@
       "types": "./src/work-log/diffStat.ts",
       "default": "./src/work-log/diffStat.ts"
     },
+    "./work-log/step-meta": {
+      "types": "./src/work-log/stepMeta.ts",
+      "default": "./src/work-log/stepMeta.ts"
+    },
     "./work-log/turn-usage": {
       "types": "./src/work-log/turnUsage.ts",
       "default": "./src/work-log/turnUsage.ts"
