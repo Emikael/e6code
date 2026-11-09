@@ -5455,7 +5455,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             : iconConfig.className,
   );
   const headingClass = showWarningIndicator
-    ? "font-medium text-warning"
+    ? "font-medium text-warning-foreground"
     : showDestructiveRowStyle
       ? "font-medium text-destructive"
       : workLogEntryIsToolLike(workEntry)
