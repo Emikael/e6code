@@ -61,6 +61,7 @@ import {
   pullRequestDiffStatKey,
   pullRequestEntryKey,
   pullRequestEntryViewer,
+  pullRequestListSyncedAt,
   rankPullRequestMatches,
   sortPullRequestGroups,
   pullRequestEnvironmentSetKey,
@@ -168,6 +169,7 @@ import { cn } from "~/lib/utils";
 import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
 function getShortcutContext() {
@@ -1358,6 +1360,19 @@ function PullRequestsRouteView() {
   // does, so this settles on the next render.
   if (lensCounts !== heldCounts) setHeldLensCounts({ scope: lensCountScope, counts: lensCounts });
   const selectLens = (next: PullRequestLens) => updateListScope(pullRequestLensScope(next));
+  // "3 projects · synced 1m ago": what the list covers and how fresh it is, each part only where
+  // it is known. The relative time is redrawn with the list's own once-a-minute refresh.
+  const syncedAt = useMemo(() => pullRequestListSyncedAt(listData?.entries ?? []), [listData]);
+  const projectCount = scopedProject === undefined ? projects.length : 1;
+  const subtitle =
+    [
+      projectsKnown && projectCount > 0
+        ? `${projectCount} ${projectCount === 1 ? "project" : "projects"}`
+        : null,
+      syncedAt === null ? null : `synced ${formatRelativeTimeLabel(syncedAt)}`,
+    ]
+      .filter((part) => part !== null)
+      .join(" · ") || null;
   const facets = useMemo(
     () =>
       collectPullRequestListFacets(
@@ -2080,6 +2095,7 @@ function PullRequestsRouteView() {
         )
       ) : null,
     rightPanelOpen: rightPanelState.isOpen,
+    subtitle,
     listBody,
     scrollRef,
   };
@@ -2460,6 +2476,7 @@ function PullRequestsColumn({
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
+  subtitle,
   listBody,
   scrollRef,
 }: {
@@ -2482,6 +2499,8 @@ function PullRequestsColumn({
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
+  /** What the list covers and when it was read, beside the title. */
+  subtitle: string | null;
   listBody: ReactNode;
   scrollRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -2607,8 +2626,13 @@ function PullRequestsColumn({
           </WorkspaceBreadcrumb>
         ) : (
           <WorkspaceBreadcrumb ariaLabel="Pull requests breadcrumb">
-            <WorkspaceBreadcrumbItem current>
-              <h1 className="truncate">Pull Requests</h1>
+            <WorkspaceBreadcrumbItem current className="min-w-0 gap-2">
+              <h1 className="shrink-0">Pull Requests</h1>
+              {subtitle ? (
+                <span className="truncate text-xs font-normal text-muted-foreground">
+                  {subtitle}
+                </span>
+              ) : null}
             </WorkspaceBreadcrumbItem>
           </WorkspaceBreadcrumb>
         )}

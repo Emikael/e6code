@@ -1166,3 +1166,20 @@ export function withDiffStat<
   const stat = statsByRow.get(pullRequestDiffStatKey(entry));
   return stat === undefined ? entry : { ...entry, ...stat };
 }
+
+/**
+ * When the rows on screen were read from their hosts, as the oldest read among them: a server
+ * cache keeps the time its read started, so a page mixing fresh and cached repositories is only
+ * as current as its stalest. An ISO instant, for the relative-time formatter; null where no row
+ * says, which is every server from before rows carried it.
+ */
+export function pullRequestListSyncedAt(
+  entries: ReadonlyArray<Pick<PullRequestListEntry, "observedAt">>,
+): string | null {
+  let oldest: number | null = null;
+  for (const { observedAt } of entries) {
+    if (observedAt === undefined || !Number.isFinite(observedAt) || observedAt <= 0) continue;
+    oldest = oldest === null ? observedAt : Math.min(oldest, observedAt);
+  }
+  return oldest === null ? null : new Date(oldest).toISOString();
+}
