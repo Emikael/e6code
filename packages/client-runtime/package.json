@@ -263,6 +263,10 @@
       "types": "./src/work-log/commandLabel.ts",
       "default": "./src/work-log/commandLabel.ts"
     },
+    "./work-log/context-window": {
+      "types": "./src/work-log/contextWindow.ts",
+      "default": "./src/work-log/contextWindow.ts"
+    },
     "./work-log/task-list": {
       "types": "./src/work-log/taskList.ts",
       "default": "./src/work-log/taskList.ts"

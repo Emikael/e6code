@@ -440,7 +440,10 @@ import {
   hasDismissedResumeCompaction,
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
-import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "../lib/contextWindow";
+import {
+  deriveLatestContextWindowSnapshot,
+  formatContextWindowTokens,
+} from "@e6tools/client-runtime/work-log/context-window";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
@@ -10139,6 +10142,7 @@ export default function ChatView(props: ChatViewProps) {
         threadModelLabel={inspectorThreadModelLabel}
         workspace={inspectorWorkspace}
         subagentStop={inspectorSubagentStop}
+        contextWindow={activeContextWindow}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
