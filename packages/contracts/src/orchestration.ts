@@ -1006,10 +1006,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   agentState: ForwardCompatibleOptional(ThreadAgentState),
   /**
    * Usage summed over the thread's turns; omitted when no turn reported any,
-   * so threads without usage pay nothing on the wire. Optional so old
-   * servers/clients interop.
+   * so threads without usage pay nothing on the wire. A `costSource` from a
+   * newer server decodes as no total instead of failing the shell.
    */
-  usageTotal: Schema.optional(ThreadUsageTotal),
+  usageTotal: ForwardCompatibleOptional(ThreadUsageTotal),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 

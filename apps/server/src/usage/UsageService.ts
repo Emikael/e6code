@@ -206,6 +206,10 @@ export const make = Effect.gen(function* () {
   let rates: RateTable = new Map();
   let ratesFetchedAtMs: number | null = null;
   let ratesStatus: UsagePricing["status"] = "unavailable";
+  // When the last fetch failed. Background lookups stay off the network and
+  // the disk until RATES_REFRESH_FLOOR_MS has passed, so an offline or
+  // firewalled host does not retry on every turn and provider refresh.
+  let ratesFailedAtMs: number | null = null;
   // One fetch at a time. A burst of refreshes from several clients waits on
   // the first fetch and then sees a table young enough to skip its own.
   const ratesLock = yield* Semaphore.make(1);
@@ -255,18 +259,18 @@ export const make = Effect.gen(function* () {
       Effect.timeout(10_000),
       Effect.catchCause(() => Effect.succeed(null)),
     );
-    if (fetched === null) {
+    const parsed = fetched === null ? null : parseRateTable(fetched);
+    if (parsed === null || parsed.size === 0) {
       // The refresh failed; whatever we are serving is now past its TTL and
       // must not keep claiming to be fresh.
+      ratesFailedAtMs = now;
       if (rates.size > 0) ratesStatus = "cached";
       return;
     }
 
-    const parsed = parseRateTable(fetched);
-    if (parsed.size === 0) return;
-
     rates = parsed;
     ratesFetchedAtMs = now;
+    ratesFailedAtMs = null;
     ratesStatus = "fresh";
     yield* PubSub.publish(ratesReplaced, undefined);
 
@@ -286,15 +290,18 @@ export const make = Effect.gen(function* () {
   let refreshingInBackground = false;
 
   /**
-   * Adopts the on-disk snapshot and refreshes a stale table in the background,
-   * so callers never wait on the network.
+   * Adopts the on-disk snapshot and fetches in the background, so callers
+   * never wait on the network. A missing table is always fetched; a stale one
+   * only when `refreshStale` is set, so the provider registry's boot-time tier
+   * stamping uses the on-disk snapshot instead of reaching for the network.
    */
-  const useLoadedRates = Effect.gen(function* () {
-    yield* loadRatesSnapshot;
+  const useLoadedRates = Effect.fnUntraced(function* (refreshStale: boolean) {
     const now = yield* Clock.currentTimeMillis;
+    if (ratesFailedAtMs !== null && now - ratesFailedAtMs < RATES_REFRESH_FLOOR_MS) return;
+    yield* loadRatesSnapshot;
     if (
       !refreshingInBackground &&
-      (ratesFetchedAtMs === null || now - ratesFetchedAtMs >= RATES_TTL_MS)
+      (ratesFetchedAtMs === null || (refreshStale && now - ratesFetchedAtMs >= RATES_TTL_MS))
     ) {
       refreshingInBackground = true;
       yield* ensureRates(false).pipe(
@@ -305,7 +312,7 @@ export const make = Effect.gen(function* () {
   });
 
   const modelPriceTiers: UsageService["Service"]["modelPriceTiers"] = Effect.gen(function* () {
-    yield* useLoadedRates;
+    yield* useLoadedRates(false);
     const settings = yield* settingsService.getSettings.pipe(Effect.option);
     const table = rates;
     const overrides = Option.isSome(settings)
@@ -344,7 +351,7 @@ export const make = Effect.gen(function* () {
   const estimateCostUsd: UsageService["Service"]["estimateCostUsd"] = Effect.fn(
     "UsageService.estimateCostUsd",
   )(function* (model, totals) {
-    yield* useLoadedRates;
+    yield* useLoadedRates(true);
     const settings = yield* settingsService.getSettings.pipe(Effect.option);
     if (Option.isNone(settings)) return null;
     const priced = priceUsage(

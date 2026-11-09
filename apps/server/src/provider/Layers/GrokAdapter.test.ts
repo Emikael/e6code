@@ -751,6 +751,82 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
     }),
   );
 
+  it.effect("ends the trailing-output window as soon as the turn is interrupted", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-xai-trailing-window-interrupt");
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({ E6_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG: "1" }),
+      );
+      // A window no test run outlasts: only the interrupt can close it.
+      const adapter = yield* makeTestAdapter(wrapperPath, {
+        trailingXAiOutput: { quietMs: 600_000, maxMs: 600_000 },
+      });
+      // The last chunk follows prompt_complete, so the turn is now settling.
+      const lastChunk = yield* Deferred.make<void>();
+      const turnCompleted =
+        yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "turn.completed" }>>();
+      let content = "";
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) => {
+        if (event.type === "turn.completed") return Deferred.succeed(turnCompleted, event);
+        if (event.type !== "content.delta") return Effect.void;
+        content += event.payload.delta;
+        return content === "hello from mock" ? Deferred.succeed(lastChunk, undefined) : Effect.void;
+      }).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { instanceId: ProviderInstanceId.make("grok"), model: "grok-build" },
+      });
+      const sendTurnFiber = yield* adapter
+        .sendTurn({ threadId, input: "interrupt while settling", attachments: [] })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(lastChunk);
+
+      yield* adapter
+        .interruptTurn(threadId)
+        .pipe(Effect.timeout("5 seconds"), TestClock.withLive, Effect.orDie);
+      yield* Fiber.join(sendTurnFiber).pipe(
+        Effect.timeout("5 seconds"),
+        TestClock.withLive,
+        Effect.orDie,
+      );
+      const completed = yield* Deferred.await(turnCompleted);
+      assert.equal(completed.payload.state, "cancelled");
+
+      yield* Fiber.interrupt(runtimeEventsFiber);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("does not hold a turn answered by session/prompt for trailing output", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-prompt-response-no-trailing-window");
+      const wrapperPath = yield* Effect.promise(() => makeMockGrokWrapper({}));
+      // Were this turn to wait for trailing output, it would wait this long.
+      const adapter = yield* makeTestAdapter(wrapperPath, {
+        trailingXAiOutput: { quietMs: 600_000, maxMs: 600_000 },
+      });
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { instanceId: ProviderInstanceId.make("grok"), model: "grok-build" },
+      });
+      yield* adapter
+        .sendTurn({ threadId, input: "answered by its response", attachments: [] })
+        .pipe(Effect.timeout("5 seconds"), TestClock.withLive, Effect.orDie);
+      const snapshot = yield* adapter.readThread(threadId);
+      assert.equal(snapshot.turns.length, 1);
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("does not time out a Grok turn before ACP emits progress", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("grok-watchdog-silent-turn");
