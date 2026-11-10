@@ -1085,6 +1085,25 @@ export const make = Effect.gen(function* () {
     function* (input: { readonly cwd: string; readonly host: string }) {
       const unavailable = () =>
         new GitHubViewerLoginUnavailableError({ command: "gh", cwd: input.cwd });
+      // A missing CLI, a signed-out CLI and a rate limit each name their own fix, so they keep
+      // their tags; anything else is just "no login". Rebuilt without the cause either way: the
+      // process output of a credential lookup never travels in an error.
+      const classified = (error: GitHubCli.GitHubCliError) => {
+        const context = { command: "gh" as const, cwd: input.cwd, cause: null };
+        switch (error._tag) {
+          case "GitHubCliUnavailableError":
+            return new GitHubCli.GitHubCliUnavailableError(context);
+          case "GitHubCliAuthenticationError":
+            return new GitHubCli.GitHubCliAuthenticationError(context);
+          case "GitHubCliRateLimitError":
+            return new GitHubCli.GitHubCliRateLimitError({
+              ...context,
+              ...(error.retryAt === undefined ? {} : { retryAt: error.retryAt }),
+            });
+          default:
+            return unavailable();
+        }
+      };
       const host = input.host.toLowerCase();
       const pinned = yield* GitHubCli.PinnedGitHubCredential;
       if (pinned !== null && pinned.host !== host) return yield* unavailable();
@@ -1098,7 +1117,7 @@ export const make = Effect.gen(function* () {
                 args: ["auth", "token", "--hostname", host],
                 env: { GH_DEBUG: "" },
               })
-              .pipe(Effect.mapError(unavailable))).stdout.trim();
+              .pipe(Effect.mapError(classified))).stdout.trim();
       if (!token) return yield* unavailable();
       const key = `${host}:${NodeCrypto.createHash("sha256").update(token).digest("hex")}`;
       const credential = { host, token: Redacted.make(token), credentialFingerprint: key };
@@ -1132,7 +1151,7 @@ export const make = Effect.gen(function* () {
                     GH_DEBUG: "",
                   },
                 })
-                .pipe(Effect.mapError(unavailable));
+                .pipe(Effect.mapError(classified));
               const identity = yield* decodeRoutingIdentity(response.stdout).pipe(
                 Effect.mapError(unavailable),
               );

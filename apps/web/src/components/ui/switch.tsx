@@ -9,7 +9,7 @@ import { cn } from "~/lib/utils";
  * targets disagree (the macOS mixed-state convention). It is presentational:
  * the caller still decides what a click sets, usually on for everyone.
  *
- * A checked thumb takes `primary-foreground`: a light `primary` (Volt) would
+ * A checked thumb takes `primary-foreground`: a theme's light `primary` would
  * otherwise leave a near-white thumb on a near-white track.
  */
 function Switch({
@@ -30,7 +30,9 @@ function Switch({
       data-size={size}
       data-slot="switch"
       data-mixed={mixed ? "" : undefined}
-      aria-checked={mixed ? "mixed" : undefined}
+      // Only override for mixed: an explicit undefined would replace the
+      // aria-checked Base UI sets, so screen readers never hear on or off.
+      {...(mixed ? { "aria-checked": "mixed" as const } : {})}
       {...props}
     >
       <SwitchPrimitive.Thumb

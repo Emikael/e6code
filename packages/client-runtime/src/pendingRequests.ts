@@ -16,6 +16,8 @@ export interface PendingApproval {
   readonly detail?: string;
   readonly appName?: string;
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
+  /** The subagent that asked: its task id. Absent for the main agent. */
+  readonly agentId?: string;
 }
 
 export interface PendingUserInput {
@@ -24,6 +26,78 @@ export interface PendingUserInput {
   readonly questions: ReadonlyArray<UserInputQuestion>;
   /** Async questions can be dismissed without a reply; native callbacks cannot. */
   readonly dismissible: boolean;
+  /** The subagent that asked: its task id. Absent for the main agent. */
+  readonly agentId?: string;
+}
+
+/**
+ * What a named subagent is asking for, after its title: "Share link API
+ * wants to run a command". Shared so every approval surface says the same.
+ */
+export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+  command: "wants to run a command",
+  "file-read": "wants to read a file",
+  "file-change": "wants to change files",
+  "mcp-elicitation": "wants app access",
+  permission: "wants an app permission",
+};
+
+/** What a subagent is blocked on: the oldest pending request that names it. */
+export type SubagentUserRequest =
+  | {
+      readonly kind: "approval";
+      readonly requestKind: ProviderRequestKind;
+      readonly detail?: string;
+    }
+  | { readonly kind: "question"; readonly question: string };
+
+/**
+ * The pending requests that name a subagent, keyed by its task id. When one
+ * subagent has several, the oldest wins: it is the one the composer shows.
+ */
+export function subagentUserRequests(requests: {
+  readonly approvals: ReadonlyArray<PendingApproval>;
+  readonly userInputs: ReadonlyArray<PendingUserInput>;
+}): ReadonlyMap<string, SubagentUserRequest> {
+  const byAgent = new Map<string, { createdAt: string; request: SubagentUserRequest }>();
+  const offer = (agentId: string | undefined, createdAt: string, request: SubagentUserRequest) => {
+    if (!agentId) return;
+    const current = byAgent.get(agentId);
+    if (!current || createdAt < current.createdAt) byAgent.set(agentId, { createdAt, request });
+  };
+  for (const approval of requests.approvals) {
+    offer(approval.agentId, approval.createdAt, {
+      kind: "approval",
+      requestKind: approval.requestKind,
+      ...(approval.detail ? { detail: approval.detail } : {}),
+    });
+  }
+  for (const input of requests.userInputs) {
+    const question = input.questions[0]?.question.trim();
+    offer(input.agentId, input.createdAt, { kind: "question", question: question || "Question" });
+  }
+  return new Map([...byAgent].map(([agentId, entry]) => [agentId, entry.request]));
+}
+
+/** Verb before a short request detail on a subagent row: "wants to run `vp test`". */
+const SUBAGENT_REQUEST_VERB: Partial<Record<ProviderRequestKind, string>> = {
+  command: "wants to run",
+  "file-read": "wants to read",
+  "file-change": "wants to change",
+};
+
+/**
+ * A blocked subagent's activity line. `code` is the command or path when the
+ * request carried one, for rendering in monospace after `text`.
+ */
+export function describeSubagentUserRequest(request: SubagentUserRequest): {
+  readonly text: string;
+  readonly code: string | null;
+} {
+  if (request.kind === "question") return { text: `asks: ${request.question}`, code: null };
+  const verb = SUBAGENT_REQUEST_VERB[request.requestKind];
+  if (request.detail && verb) return { text: verb, code: request.detail };
+  return { text: SUBAGENT_APPROVAL_PHRASE[request.requestKind], code: request.detail ?? null };
 }
 
 const isRequestId = Schema.is(ApprovalRequestId);
@@ -159,6 +233,9 @@ export function derivePendingRequests(activities: ReadonlyArray<OrchestrationThr
           ? { appName: payload.appName }
           : {}),
         ...(options.length > 0 ? { options } : {}),
+        ...(typeof payload.agentId === "string" && payload.agentId
+          ? { agentId: payload.agentId }
+          : {}),
       });
     } else if (activity.kind === "user-input.requested") {
       if (closedUserInputs.has(requestId)) continue;
@@ -169,6 +246,9 @@ export function derivePendingRequests(activities: ReadonlyArray<OrchestrationThr
         createdAt: activity.createdAt,
         questions,
         dismissible: payload.responseMode === "message",
+        ...(typeof payload.agentId === "string" && payload.agentId
+          ? { agentId: payload.agentId }
+          : {}),
       });
     } else if (
       activity.kind === "approval.resolved" ||

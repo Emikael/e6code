@@ -1,7 +1,12 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { isMonospaceFamily, queryInstalledFontFamilies } from "../../appearanceFonts";
+import {
+  isMonospaceFamily,
+  queryInstalledFontFamilies,
+  SYSTEM_CODE_FONT_FAMILY,
+  SYSTEM_SANS_FONT_FAMILY,
+} from "../../appearanceFonts";
 import {
   Combobox,
   ComboboxEmpty,
@@ -144,17 +149,22 @@ export function FontFamilyPicker({
     return requireMonospace ? enumeration.families.filter(isMonospaceFamily) : enumeration.families;
   }, [enumeration, requireMonospace]);
 
+  // The platform's own face, for anyone who prefers it to the bundled default.
+  const systemValue = requireMonospace ? SYSTEM_CODE_FONT_FAMILY : SYSTEM_SANS_FONT_FAMILY;
+  const familyLabel = (family: string) => (family === systemValue ? "System" : family);
+
   const items = useMemo(() => {
     const trimmedQuery = query.trim().toLowerCase();
     const result: string[] = [];
     if (trimmedQuery.length === 0) result.push(DEFAULT_FONT_VALUE);
+    if (trimmedQuery.length === 0 || "system".includes(trimmedQuery)) result.push(systemValue);
     result.push(
       ...families.filter(
         (family) => trimmedQuery.length === 0 || family.toLowerCase().includes(trimmedQuery),
       ),
     );
     return result;
-  }, [query, families]);
+  }, [query, families, systemValue]);
 
   const selectedValue = selectedFamily.length === 0 ? DEFAULT_FONT_VALUE : selectedFamily;
 
@@ -166,11 +176,12 @@ export function FontFamilyPicker({
   const renderItem = (item: string, index: number) => {
     const isDefault = item === DEFAULT_FONT_VALUE;
     const family = isDefault ? defaultFamily : item;
+    const label = isDefault ? defaultFamily : familyLabel(item);
     return (
       <ComboboxItem hideIndicator index={index} key={item} value={item}>
         <div className="flex w-full min-w-0 items-center justify-between gap-2">
           <span className="min-w-0 truncate" style={{ fontFamily: family }}>
-            {family}
+            {label}
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
             {isDefault ? (
@@ -206,7 +217,7 @@ export function FontFamilyPicker({
     >
       <ComboboxTrigger aria-label={ariaLabel} className={selectTriggerVariants({ size: "sm" })}>
         <span className="min-w-0 truncate">
-          {selectedFamily.length === 0 ? defaultFamily : selectedFamily}
+          {selectedFamily.length === 0 ? defaultFamily : familyLabel(selectedFamily)}
         </span>
         <ChevronDownIcon className="-me-1 size-3 opacity-50" />
       </ComboboxTrigger>

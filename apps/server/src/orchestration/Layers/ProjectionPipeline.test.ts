@@ -42,6 +42,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQu
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import * as ThreadAgentState from "../ThreadAgentState.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
@@ -4358,6 +4359,7 @@ const engineLayer = it.layer(
     Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),
+    Layer.provide(ThreadAgentState.layer),
     Layer.provideMerge(OrchestrationProjectionPipelineLive),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
@@ -4408,6 +4410,73 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         WHERE projector = 'projection.projects'
       `;
       assert.deepEqual(projectorRows, [{ lastAppliedSequence: 1 }]);
+    }),
+  );
+
+  it.effect("records the worktree's setup script hash on the thread shell", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const projectId = ProjectId.make("project-setup-hash");
+      const threadId = ThreadId.make("thread-setup-hash");
+      const modelSelection = {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      };
+      const readHash = snapshotQuery
+        .getThreadShellById(threadId)
+        .pipe(Effect.map((shell) => Option.getOrThrow(shell).setupScriptHash));
+      const updateMeta = (
+        id: string,
+        fields: { readonly worktreePath?: string | null; readonly setupScriptHash?: string | null },
+      ) =>
+        engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make(`cmd-setup-hash-${id}`),
+          threadId,
+          ...fields,
+        });
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-setup-hash-project"),
+        projectId,
+        title: "Setup Hash Project",
+        workspaceRoot: "/tmp/project-setup-hash",
+        defaultModelSelection: modelSelection,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-setup-hash-thread"),
+        threadId,
+        projectId,
+        title: "Setup hash",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+      assert.equal(yield* readHash, null);
+
+      yield* updateMeta("worktree", { worktreePath: "/tmp/worktrees/one" });
+      yield* updateMeta("record", { setupScriptHash: "aaaa1111" });
+      assert.equal(yield* readHash, "aaaa1111");
+
+      // Unrelated metadata and re-stating the same worktree keep the record.
+      yield* updateMeta("same-worktree", { worktreePath: "/tmp/worktrees/one" });
+      assert.equal(yield* readHash, "aaaa1111");
+
+      // A re-run records the new script.
+      yield* updateMeta("rerun", { setupScriptHash: "bbbb2222" });
+      assert.equal(yield* readHash, "bbbb2222");
+
+      // Moving to another checkout drops it: that worktree was not set up here.
+      yield* updateMeta("move", { worktreePath: "/tmp/worktrees/two" });
+      assert.equal(yield* readHash, null);
     }),
   );
 

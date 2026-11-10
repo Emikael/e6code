@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { WorktreeSetupSheet } from "./worktree-setup-sheet";
-import { ShimmeringWorkContent } from "./thread-work-log";
+import { LiveWorkContent } from "./thread-work-log";
 
 export interface WorktreeSetupCardProps {
   snapshot: WorktreeSetupSnapshot;
@@ -162,12 +162,7 @@ function HeaderLabel({
   failed?: boolean;
 }) {
   return active ? (
-    <ShimmeringWorkContent
-      icon="clock"
-      iconSubtleColor="transparent"
-      label={label}
-      showIcon={false}
-    />
+    <LiveWorkContent icon="clock" iconSubtleColor="transparent" label={label} showIcon={false} />
   ) : (
     <Text
       numberOfLines={1}
@@ -322,7 +317,7 @@ function StageRow({
         )}
       </View>
       {stage.status === "running" && animate ? (
-        <ShimmeringWorkContent
+        <LiveWorkContent
           icon="clock"
           iconSubtleColor="transparent"
           label={label}
@@ -377,8 +372,8 @@ function OutputTail({ lines, failed }: { lines: ReadonlyArray<string>; failed: b
           numberOfLines={1}
           className={
             failed
-              ? "text-2xs leading-5 text-danger-foreground ios:font-[family-name:Menlo] android:font-mono"
-              : "text-2xs leading-5 text-foreground-secondary ios:font-[family-name:Menlo] android:font-mono"
+              ? "text-2xs leading-5 text-danger-foreground font-mono"
+              : "text-2xs leading-5 text-foreground-secondary font-mono"
           }
         >
           {lines[lines.length - OUTPUT_TAIL_SLOTS.length + slot] || "\u00a0"}

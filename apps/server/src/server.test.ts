@@ -4,6 +4,7 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeCrypto from "node:crypto";
 import { HostProcessEnvironment, HostProcessPlatform } from "@e6tools/shared/hostProcess";
+import { projectScriptHash } from "@e6tools/shared/projectScripts";
 
 import {
   type DeviceServiceState,
@@ -1011,6 +1012,7 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
           getUserInputActivity: () => Effect.die("unused"),
+          getApprovalRequestTurnId: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getShellSnapshot: () =>
@@ -11981,6 +11983,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
       const stageStatus = (snapshot: WorktreeSetupSnapshot, id: WorktreeSetupStageId) =>
         snapshot.stages.find((stage) => stage.id === id)?.status;
+      const recordedSetupHashes = () =>
+        dispatchedCommands.flatMap((command) =>
+          command.type === "thread.meta.update" && command.setupScriptHash !== undefined
+            ? [command.setupScriptHash]
+            : [],
+        );
 
       if (async) {
         // The turn is dispatched while the script is still running.
@@ -11991,11 +11999,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.equal(started.phase, "running");
         assert.equal(stageStatus(started, "setup-script"), "running");
         yield* Fiber.join(dispatchFiber);
+        // Nothing is recorded until the script has finished.
+        assert.deepEqual(recordedSetupHashes(), []);
 
         yield* Deferred.succeed(scriptExit, undefined);
         const settled = yield* snapshotWhere((snapshot) => snapshot.phase !== "running");
         assert.equal(settled.phase, "done");
         assert.equal(stageStatus(settled, "setup-script"), "done");
+        assert.deepEqual(recordedSetupHashes(), [projectScriptHash({ command: "npm install" })]);
         return;
       }
 
@@ -12023,6 +12034,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.propertyVal(result.failure, "message", "Worktree setup cancelled.");
         assert.propertyVal(result.failure, "bootstrapThreadDisposition", "deleted");
         assert.isFalse(turnStarted());
+        assert.deepEqual(recordedSetupHashes(), []);
         return;
       }
 
@@ -12040,6 +12052,118 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(settled.phase, "done");
       assert.equal(stageStatus(settled, "setup-script"), "done");
       assert.equal(stageStatus(settled, "agent"), "done");
+    }).pipe(Effect.provide(serverHttpLayer)),
+  );
+
+  it.effect.each([
+    { caseName: "a clean re-run records the setup script on the thread", exitCode: 0 },
+    { caseName: "a failed re-run leaves the worktree unrecorded", exitCode: 1 },
+    { caseName: "an interrupted re-run leaves the worktree unrecorded", exitCode: null },
+  ])("worktree setup re-run: $caseName", ({ exitCode }) =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const recorded = yield* Deferred.make<void>();
+      const scriptExit = yield* Deferred.make<void>();
+      const completionRead = yield* Deferred.make<void>();
+      const threadId = ThreadId.make("thread-setup-rerun");
+      const runForThread = vi.fn(
+        (
+          _: Parameters<
+            ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"]
+          >[0],
+        ) =>
+          Effect.succeed({
+            status: "started" as const,
+            scriptId: "setup",
+            scriptName: "Setup",
+            scriptCommand: "pnpm install",
+            terminalId: "setup-setup",
+            cwd: "/tmp/rerun-worktree",
+            async: true,
+            completion: Deferred.await(scriptExit).pipe(
+              Effect.as({ exitCode, durationMs: 1 }),
+              Effect.ensuring(Deferred.succeed(completionRead, undefined)),
+            ),
+          }),
+      );
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.gen(function* () {
+                dispatchedCommands.push(command);
+                if (command.type === "thread.meta.update")
+                  yield* Deferred.succeed(recorded, undefined);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+          projectionSnapshotQuery: {
+            getThreadShellById: (id) =>
+              Effect.succeed(
+                Option.some(
+                  makeDefaultOrchestrationThreadShell({
+                    id,
+                    worktreePath: "/tmp/rerun-worktree",
+                  }),
+                ),
+              ),
+          },
+          projectSetupScriptRunner: { runForThread },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.worktreeSetupRerun]({ threadId })),
+      );
+      assert.equal(result.terminalId, "setup-setup");
+      assert.deepEqual(
+        runForThread.mock.calls.map(([input]) => [input.threadId, input.worktreePath]),
+        [[threadId, "/tmp/rerun-worktree"]],
+      );
+      // Starting the script is not enough: the worktree is only up to date
+      // once the script exits cleanly.
+      assert.deepEqual(dispatchedCommands, []);
+
+      yield* Deferred.succeed(scriptExit, undefined);
+      if (exitCode !== 0) {
+        // The server has read the exit code; let its fiber finish the step after.
+        yield* Deferred.await(completionRead);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        assert.deepEqual(dispatchedCommands, []);
+        return;
+      }
+      yield* Deferred.await(recorded);
+      const [command] = dispatchedCommands;
+      assertTrue(command?.type === "thread.meta.update");
+      assert.equal(command.threadId, threadId);
+      assert.equal(command.setupScriptHash, projectScriptHash({ command: "pnpm install" }));
+    }).pipe(Effect.provide(serverHttpLayer)),
+  );
+
+  it.effect("worktree setup re-run does nothing for a thread without a worktree", () =>
+    Effect.gen(function* () {
+      const runForThread = vi.fn(() => Effect.succeed({ status: "no-script" as const }));
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getThreadShellById: (id) =>
+              Effect.succeed(Option.some(makeDefaultOrchestrationThreadShell({ id }))),
+          },
+          projectSetupScriptRunner: { runForThread },
+        },
+      });
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.worktreeSetupRerun]({ threadId: ThreadId.make("thread-local") }),
+        ),
+      );
+      assert.equal(result.terminalId, null);
+      assert.equal(runForThread.mock.calls.length, 0);
     }).pipe(Effect.provide(serverHttpLayer)),
   );
 

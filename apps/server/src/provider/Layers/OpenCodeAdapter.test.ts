@@ -22,6 +22,7 @@ import {
   OpenCodeSettings,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ProviderRuntimeEvent,
   ThreadId,
 } from "@e6tools/contracts";
 import { createModelSelection } from "@e6tools/shared/model";
@@ -98,7 +99,7 @@ const runtimeMock = {
     subscribedEvents: [] as Array<unknown | Promise<unknown>>,
     eventSubscribeObserved: null as (() => void) | null,
     eventStreamError: null as ((cause: unknown) => void) | null,
-    permissionReplyCalls: [] as Array<{ requestID: string; reply: string }>,
+    permissionReplyCalls: [] as Array<{ requestID: string; reply: string; message?: string }>,
     permissionReplyImplementation: null as ((signal?: AbortSignal) => Promise<void>) | null,
     permissionReplySignals: [] as AbortSignal[],
     questionReplyCalls: [] as Array<{
@@ -119,6 +120,7 @@ const runtimeMock = {
     transientErrorSessionIds: new Set<string>(),
     sessionDirectoryById: new Map<string, string>(),
     sessionParentById: new Map<string, string>(),
+    sessionOutcomeById: new Map<string, "succeeded" | "failed" | "interrupted">(),
     pendingPermissions: [] as Array<PermissionRequest>,
     pendingQuestions: [] as Array<FormDetail>,
     permissionListCalls: 0,
@@ -182,6 +184,7 @@ const runtimeMock = {
     this.state.transientErrorSessionIds.clear();
     this.state.sessionDirectoryById.clear();
     this.state.sessionParentById.clear();
+    this.state.sessionOutcomeById.clear();
     this.state.pendingPermissions = [];
     this.state.pendingQuestions = [];
     this.state.permissionListCalls = 0;
@@ -286,6 +289,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
           }
           const directory = runtimeMock.state.sessionDirectoryById.get(sessionID);
           const parentID = runtimeMock.state.sessionParentById.get(sessionID);
+          const outcome = runtimeMock.state.sessionOutcomeById.get(sessionID);
           return {
             id: sessionID,
             ...(runtimeMock.state.revertMessageID &&
@@ -294,6 +298,7 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
               : {}),
             location: { directory: directory ?? process.cwd() },
             ...(parentID ? { parentID } : {}),
+            ...(outcome ? { outcome } : {}),
           };
         },
         update: async ({ sessionID, permissions }: { sessionID: string; permissions: unknown }) => {
@@ -552,10 +557,18 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
             : runtimeMock.state.pendingPermissions;
         },
         reply: async (
-          { requestID, decision }: { requestID: string; decision: string },
+          {
+            requestID,
+            decision,
+            message,
+          }: { requestID: string; decision: string; message?: string },
           options?: { signal?: AbortSignal },
         ) => {
-          runtimeMock.state.permissionReplyCalls.push({ requestID, reply: decision });
+          runtimeMock.state.permissionReplyCalls.push({
+            requestID,
+            reply: decision,
+            ...(message !== undefined ? { message } : {}),
+          });
           if (options?.signal) runtimeMock.state.permissionReplySignals.push(options.signal);
           if (runtimeMock.state.permissionReplyImplementation) {
             await runtimeMock.state.permissionReplyImplementation(options?.signal);
@@ -1785,6 +1798,83 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
+  it.effect("names OpenCode retries and compaction as agent states", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-agent-states");
+      const busy = promiseWithResolvers<unknown>();
+      const retry = promiseWithResolvers<unknown>();
+      const compaction = promiseWithResolvers<unknown>();
+      runtimeMock.state.subscribedEvents = [busy.promise, retry.promise, compaction.promise];
+
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.threadId === threadId),
+        Stream.takeUntil(
+          (event) =>
+            event.type === "session.state.changed" &&
+            event.payload.agentState?.kind === "compacting",
+        ),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Work through a flaky provider",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "opencode/kimi-k3",
+        ),
+      });
+      const sessionID = "http://127.0.0.1:9999/session";
+      busy.resolve({
+        id: "evt-agent-state-busy",
+        type: "session.execution.started",
+        created: 0,
+        data: { sessionID },
+      });
+      retry.resolve({
+        id: "evt-agent-state-retry",
+        type: "session.retry.scheduled",
+        created: 0,
+        data: {
+          sessionID,
+          assistantMessageID: "msg-retry",
+          attempt: 3,
+          at: 0,
+          error: { type: "api", message: "Overloaded" },
+        },
+      });
+      compaction.resolve({
+        id: "evt-agent-state-compaction",
+        type: "session.compaction.started",
+        created: 0,
+        data: { sessionID, reason: "auto", recent: "" },
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      // The retry is named by the working indicator, not a warning row.
+      NodeAssert.equal(
+        events.some((event) => event.type === "runtime.warning"),
+        false,
+      );
+      const states = events.flatMap((event) =>
+        event.type === "session.state.changed" && event.payload.agentState !== undefined
+          ? [event.payload.agentState]
+          : [],
+      );
+      NodeAssert.deepStrictEqual(states, [
+        { kind: "retrying", attempt: 3 },
+        { kind: "compacting" },
+      ]);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("marks subagents when a child is proven related by ancestry lookup", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
@@ -2081,14 +2171,15 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
   );
 
   it.effect.each([
-    { permission: "external_directory", decision: "accept", reply: "once" },
-    { permission: "doom_loop", decision: "acceptForSession", reply: "always" },
-    { permission: "todowrite", decision: "decline", reply: "reject" },
-    { permission: "webfetch", decision: "cancel", reply: "reject" },
-    { permission: "custom_tool", decision: "accept", reply: "once" },
+    { permission: "external_directory", decision: "accept", reply: "once", feedback: undefined },
+    { permission: "doom_loop", decision: "acceptForSession", reply: "always", feedback: undefined },
+    { permission: "todowrite", decision: "decline", reply: "reject", feedback: undefined },
+    { permission: "bash", decision: "decline", reply: "reject", feedback: "Use the test DB" },
+    { permission: "webfetch", decision: "cancel", reply: "reject", feedback: undefined },
+    { permission: "custom_tool", decision: "accept", reply: "once", feedback: undefined },
   ] as const)(
     "shows $permission approval and resolves its $decision reply without SSE",
-    ({ permission, decision, reply }) =>
+    ({ permission, decision, reply, feedback }) =>
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId(`thread-permission-${permission}`);
@@ -2130,12 +2221,31 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           Stream.runHead,
           Effect.forkChild,
         );
-        yield* adapter.respondToRequest(threadId, ApprovalRequestId.make(request.id), decision);
+        yield* adapter.respondToRequest(
+          threadId,
+          ApprovalRequestId.make(request.id),
+          decision,
+          feedback,
+        );
         const resolved = Option.getOrThrow(yield* Fiber.join(resolvedFiber));
         NodeAssert.equal(resolved.requestId, request.id);
         yield* adapter.respondToRequest(threadId, ApprovalRequestId.make(request.id), decision);
+        // Instructions sent after the reply can no longer reach OpenCode, so they
+        // fail as stale instead of reading as delivered.
+        const lateInstructions = yield* Effect.flip(
+          adapter.respondToRequest(
+            threadId,
+            ApprovalRequestId.make(request.id),
+            "decline",
+            "Too late",
+          ),
+        );
+        NodeAssert.equal(
+          lateInstructions._tag === "ProviderAdapterRequestError" ? lateInstructions.detail : "",
+          `Unknown pending permission request: ${request.id}`,
+        );
         NodeAssert.deepEqual(runtimeMock.state.permissionReplyCalls, [
-          { requestID: request.id, reply },
+          { requestID: request.id, reply, ...(feedback ? { message: feedback } : {}) },
         ]);
         yield* adapter.stopSession(threadId);
       }),
@@ -2436,6 +2546,531 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       const resolved = yield* Fiber.join(resolvedEventFiber).pipe(Effect.timeout("1 second"));
       NodeAssert.equal(Option.getOrUndefined(resolved)?.type, "request.resolved");
 
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("opens a question while the turn that asked it is still running", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-live-form");
+      const asked = promiseWithResolvers<unknown>();
+      runtimeMock.state.subscribedEvents = [asked.promise];
+      // Only the live event may open it, not a pending-request recovery pass.
+      runtimeMock.state.questionListImplementation = async () => [];
+
+      const requestedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) => event.threadId === threadId && event.type === "user-input.requested",
+        ),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId,
+        input: "Ask me first",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "opencode/kimi-k3",
+        ),
+      });
+      asked.resolve({
+        id: "evt-live-form",
+        type: "form.created",
+        created: 0,
+        data: { form: formRequest("form_live", "http://127.0.0.1:9999/session") },
+      });
+
+      const requested = Option.getOrThrow(
+        yield* Fiber.join(requestedFiber).pipe(Effect.timeout("1 second")),
+      );
+      NodeAssert.equal(requested.requestId, "form_live");
+      NodeAssert.equal(requested.turnId, turn.turnId);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("surfaces subagent child sessions as tasks and attributes their requests", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-child-tasks");
+      const rootId = "http://127.0.0.1:9999/session";
+      runtimeMock.state.sessionStatus = "busy";
+      const busy = promiseWithResolvers<unknown>();
+      const delegated = promiseWithResolvers<unknown>();
+      const childToolStarted = {
+        id: "evt-child-tool",
+        type: "session.tool.input.started",
+        created: 3,
+        durable: { aggregateID: "ses_child", seq: 3, version: 1 },
+        data: {
+          sessionID: "ses_child",
+          assistantMessageID: "msg_child",
+          id: "call_1",
+          name: "grep",
+        },
+      };
+      runtimeMock.state.subscribedEvents = [
+        busy.promise,
+        delegated.promise,
+        {
+          id: "evt-child-busy",
+          type: "session.execution.started",
+          created: 2,
+          durable: { aggregateID: "ses_child", seq: 2, version: 1 },
+          data: { sessionID: "ses_child" },
+        },
+        childToolStarted,
+        // A replay of an event already seen must not count the tool twice.
+        childToolStarted,
+        {
+          id: "evt-child-permission",
+          type: "permission.asked",
+          created: 4,
+          data: permissionRequest("per_child_task", "ses_child"),
+        },
+        {
+          id: "evt-child-form",
+          type: "form.created",
+          created: 4,
+          data: { form: formRequest("form_child_task", "ses_child") },
+        },
+        {
+          id: "evt-grandchild-created",
+          type: "session.created",
+          created: 5,
+          durable: { aggregateID: "ses_grandchild", seq: 1, version: 1 },
+          data: {
+            sessionID: "ses_grandchild",
+            projectID: "project",
+            location: { directory: process.cwd() },
+            parentID: "ses_child",
+            slug: "grandchild",
+            title: "Child session - 2026-11-06T12:00:00.000Z",
+            agent: "general",
+            version: "2",
+          },
+        },
+        {
+          id: "evt-grandchild-idle",
+          type: "session.execution.succeeded",
+          created: 6,
+          durable: { aggregateID: "ses_grandchild", seq: 2, version: 1 },
+          data: { sessionID: "ses_grandchild" },
+        },
+        {
+          id: "evt-child-step",
+          type: "session.step.ended",
+          created: 7,
+          durable: { aggregateID: "ses_child", seq: 4, version: 1 },
+          data: {
+            sessionID: "ses_child",
+            assistantMessageID: "msg_child",
+            finish: "stop",
+            cost: 0,
+            tokens: { input: 100, output: 20, reasoning: 5, cache: { read: 10, write: 0 } },
+          },
+        },
+        {
+          id: "evt-child-text",
+          type: "session.text.ended",
+          created: 8,
+          durable: { aggregateID: "ses_child", seq: 5, version: 1 },
+          data: {
+            sessionID: "ses_child",
+            assistantMessageID: "msg_child",
+            ordinal: 0,
+            text: " The loader lives in src/config.ts. ",
+          },
+        },
+        {
+          id: "evt-child-idle",
+          type: "session.execution.succeeded",
+          created: 9,
+          durable: { aggregateID: "ses_child", seq: 6, version: 1 },
+          data: { sessionID: "ses_child" },
+        },
+        {
+          id: "evt-root-idle",
+          type: "session.execution.succeeded",
+          created: 10,
+          data: { sessionID: rootId },
+        },
+      ];
+
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            (event.type.startsWith("task.") ||
+              event.type === "request.opened" ||
+              event.type === "user-input.requested" ||
+              event.type === "turn.completed"),
+        ),
+        Stream.take(8),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      const sendFiber = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "Find the config loader",
+          modelSelection: createModelSelection(
+            ProviderInstanceId.make("opencode"),
+            "opencode/kimi-k3",
+          ),
+        })
+        .pipe(Effect.forkChild);
+      busy.resolve({
+        id: "evt-root-busy",
+        type: "session.execution.started",
+        created: 1,
+        data: { sessionID: rootId },
+      });
+      yield* Fiber.join(sendFiber);
+      runtimeMock.state.sessionStatus = "idle";
+      delegated.resolve({
+        id: "evt-child-created",
+        type: "session.created",
+        created: 1_700_000_000_000,
+        durable: { aggregateID: "ses_child", seq: 1, version: 1 },
+        data: {
+          sessionID: "ses_child",
+          projectID: "project",
+          location: { directory: process.cwd() },
+          parentID: rootId,
+          slug: "child",
+          title: "Find the config loader (@explore subagent)",
+          agent: "explore",
+          model: { id: "kimi-k3", providerID: "opencode", variant: "high" },
+          version: "2",
+        },
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      const childLinkage = {
+        taskType: "subagent",
+        title: "Find the config loader (@explore subagent)",
+        role: "explore",
+        model: "opencode/kimi-k3",
+        effort: "high",
+      };
+      NodeAssert.deepEqual(
+        events.map((event) =>
+          event.type.startsWith("task.")
+            ? [event.type, event.payload]
+            : // Requests carry only the owner here; their shape has its own tests.
+              [event.type, "agentId" in event.payload ? event.payload.agentId : undefined],
+        ),
+        [
+          [
+            "task.started",
+            {
+              taskId: "ses_child",
+              description: "Find the config loader (@explore subagent)",
+              ...childLinkage,
+            },
+          ],
+          [
+            "task.progress",
+            {
+              taskId: "ses_child",
+              description: "Find the config loader (@explore subagent)",
+              lastToolName: "grep",
+              typedUsage: {
+                totalTokens: 0,
+                inputTokens: 0,
+                cachedInputTokens: 0,
+                outputTokens: 0,
+                reasoningOutputTokens: 0,
+                toolUses: 1,
+              },
+              ...childLinkage,
+            },
+          ],
+          ["request.opened", "ses_child"],
+          ["user-input.requested", "ses_child"],
+          [
+            "task.started",
+            {
+              taskId: "ses_grandchild",
+              description: "general subagent",
+              taskType: "subagent",
+              title: "general subagent",
+              role: "general",
+              agentId: "ses_child",
+            },
+          ],
+          [
+            "task.completed",
+            {
+              taskId: "ses_grandchild",
+              status: "completed",
+              taskType: "subagent",
+              title: "general subagent",
+              role: "general",
+              agentId: "ses_child",
+            },
+          ],
+          [
+            "task.completed",
+            {
+              taskId: "ses_child",
+              status: "completed",
+              summary: "The loader lives in src/config.ts.",
+              typedUsage: {
+                totalTokens: 135,
+                inputTokens: 110,
+                cachedInputTokens: 10,
+                outputTokens: 25,
+                reasoningOutputTokens: 5,
+                toolUses: 1,
+              },
+              ...childLinkage,
+            },
+          ],
+          ["turn.completed", undefined],
+        ],
+      );
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  const childCreated = (sessionID: string, agent: string) => ({
+    id: `evt-created-${sessionID}`,
+    type: "session.created",
+    created: 0,
+    durable: { aggregateID: sessionID, seq: 1, version: 1 },
+    data: {
+      sessionID,
+      projectID: "project",
+      location: { directory: process.cwd() },
+      parentID: "http://127.0.0.1:9999/session",
+      slug: sessionID,
+      agent,
+      version: "2",
+    },
+  });
+
+  // Runs one turn that delegates to `children`; the parent goes idle while
+  // they are still open. Returns once turn.completed is out.
+  const runTurnLeavingChildrenOpen = (
+    threadId: ThreadId,
+    children: ReadonlyArray<unknown>,
+    after: ReadonlyArray<unknown | Promise<unknown>>,
+    expectedEvents: number,
+  ) =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      runtimeMock.state.sessionStatus = "busy";
+      const busy = promiseWithResolvers<unknown>();
+      const delegated = promiseWithResolvers<unknown>();
+      const turnCompleted = promiseWithResolvers<void>();
+      runtimeMock.state.subscribedEvents = [
+        busy.promise,
+        delegated.promise,
+        ...children.slice(1),
+        {
+          id: `evt-root-idle-${threadId}`,
+          type: "session.execution.succeeded",
+          created: 0,
+          data: { sessionID: "http://127.0.0.1:9999/session" },
+        },
+        ...after,
+      ];
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            (event.type.startsWith("task.") || event.type === "turn.completed"),
+        ),
+        Stream.tap((event) =>
+          Effect.sync(() => {
+            if (event.type === "turn.completed") turnCompleted.resolve(undefined);
+          }),
+        ),
+        Stream.take(expectedEvents),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const sendFiber = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "Delegate",
+          modelSelection: createModelSelection(
+            ProviderInstanceId.make("opencode"),
+            "opencode/kimi-k3",
+          ),
+        })
+        .pipe(Effect.forkChild);
+      busy.resolve({
+        id: `evt-root-busy-${threadId}`,
+        type: "session.execution.started",
+        created: 0,
+        data: { sessionID: "http://127.0.0.1:9999/session" },
+      });
+      yield* Fiber.join(sendFiber);
+      runtimeMock.state.sessionStatus = "idle";
+      delegated.resolve(children[0]);
+      yield* Effect.promise(() => turnCompleted.promise);
+      return eventsFiber;
+    });
+
+  const completedStatuses = (events: ReadonlyArray<ProviderRuntimeEvent>) =>
+    events
+      .flatMap((event) =>
+        event.type === "task.completed"
+          ? [[event.payload.taskId, event.payload.status, event.payload.summary] as const]
+          : [],
+      )
+      .toSorted(([left], [right]) => left.localeCompare(right));
+
+  it.effect("reports a subagent's own outcome when it ends after its parent turn", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-child-fails-late");
+      const childFailed = promiseWithResolvers<unknown>();
+      const eventsFiber = yield* runTurnLeavingChildrenOpen(
+        threadId,
+        [childCreated("ses_late", "explore")],
+        [childFailed.promise],
+        3,
+      );
+      childFailed.resolve({
+        id: "evt-late-child-failed",
+        type: "session.execution.failed",
+        created: 0,
+        durable: { aggregateID: "ses_late", seq: 2, version: 1 },
+        data: { sessionID: "ses_late", error: { message: "Rate limited" } },
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      NodeAssert.deepEqual(
+        events.map((event) => event.type),
+        ["task.started", "turn.completed", "task.completed"],
+      );
+      NodeAssert.deepEqual(completedStatuses(events), [["ses_late", "failed", "Rate limited"]]);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect(
+    "closes subagents left open by their parent with their recorded outcome, else as stopped",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const threadId = asThreadId("thread-child-settle");
+        runtimeMock.state.sessionOutcomeById.set("ses_recorded", "failed");
+        const eventsFiber = yield* runTurnLeavingChildrenOpen(
+          threadId,
+          [childCreated("ses_recorded", "explore"), childCreated("ses_silent", "general")],
+          [],
+          5,
+        );
+        // The silent child never reports: only the grace period closes it.
+        // Its outcome lookup settles on the microtask queue before the grace
+        // sleep starts, so keep advancing until the sleep has seen the clock.
+        for (let attempt = 0; attempt < 200 && !eventsFiber.pollUnsafe(); attempt += 1) {
+          yield* advanceTestClock(30_000);
+          yield* Effect.promise(() => Promise.resolve());
+        }
+
+        const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+        NodeAssert.deepEqual(completedStatuses(events), [
+          ["ses_recorded", "failed", undefined],
+          ["ses_silent", "stopped", undefined],
+        ]);
+        yield* adapter.stopSession(threadId);
+      }),
+  );
+
+  it.effect("stops a running subagent task when its parent turn is interrupted", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-child-task-interrupt");
+      const delegated = promiseWithResolvers<unknown>();
+      const taskStarted = promiseWithResolvers<void>();
+      runtimeMock.state.subscribedEvents = [delegated.promise];
+
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            (event.type.startsWith("task.") || event.type === "turn.aborted"),
+        ),
+        Stream.tap((event) =>
+          Effect.sync(() => {
+            if (event.type === "task.started") taskStarted.resolve(undefined);
+          }),
+        ),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId,
+        input: "Delegate and wait",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "opencode/kimi-k3",
+        ),
+      });
+      delegated.resolve({
+        id: "evt-child-created-interrupt",
+        type: "session.created",
+        created: 0,
+        durable: { aggregateID: "ses_child_interrupt", seq: 1, version: 1 },
+        data: {
+          sessionID: "ses_child_interrupt",
+          projectID: "project",
+          location: { directory: process.cwd() },
+          parentID: "http://127.0.0.1:9999/session",
+          slug: "child",
+          agent: "explore",
+          version: "2",
+        },
+      });
+      yield* Effect.promise(() => taskStarted.promise);
+      // OpenCode aborts descendants on Stop and records the outcome.
+      runtimeMock.state.sessionOutcomeById.set("ses_child_interrupt", "interrupted");
+      yield* adapter.interruptTurn(threadId, turn.turnId);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      NodeAssert.deepEqual(
+        // Settling reads the child's outcome off the event pump, so its row
+        // may land on either side of turn.aborted.
+        events
+          .map((event) => [
+            event.type,
+            event.type === "task.completed" ? event.payload.status : undefined,
+          ])
+          .toSorted(([left], [right]) => String(left).localeCompare(String(right))),
+        [
+          ["task.completed", "stopped"],
+          ["task.started", undefined],
+          ["turn.aborted", undefined],
+        ],
+      );
       yield* adapter.stopSession(threadId);
     }),
   );
@@ -4678,7 +5313,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       );
       const completed = events.find((event) => event.type === "turn.completed");
       NodeAssert.equal(completed?.turnId, turn.turnId);
-      if (completed?.type === "turn.completed")
+      if (completed?.type === "turn.completed") {
         NodeAssert.deepEqual(completed.payload.tokenUsage, {
           usageStatus: "complete",
           usageScope: "main_agent",
@@ -4689,6 +5324,9 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           reasoningTokens: 2,
           hasSubagents: false,
         });
+        // A zero step cost means OpenCode could not price the model; ingestion estimates.
+        NodeAssert.equal(completed.payload.turnCostUsd, undefined);
+      }
     }),
   );
 
@@ -4783,7 +5421,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           sessionID,
           assistantMessageID: "first-message",
           finish: "stop",
-          cost: 0,
+          cost: 0.5,
           tokens: { input: 100, output: 50, reasoning: 10, cache: { read: 9, write: 8 } },
         },
       } satisfies OpenCodeEvent);
@@ -4796,7 +5434,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           sessionID,
           assistantMessageID: "second-message",
           finish: "stop",
-          cost: 0,
+          cost: 0.0125,
           tokens: { input: 10, output: 5, reasoning: 2, cache: { read: 3, write: 1 } },
         },
       } satisfies OpenCodeEvent);
@@ -4827,6 +5465,8 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           reasoningTokens: 2,
           hasSubagents: false,
         });
+        // The replayed step's cost belongs to the first turn, as its tokens do.
+        NodeAssert.equal(secondCompleted.payload.turnCostUsd, 0.0125);
       }
     }),
   );

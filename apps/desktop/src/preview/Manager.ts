@@ -179,18 +179,20 @@ const DEFAULT_ANNOTATION_THEME: DesktopPreviewAnnotationTheme = {
   foreground: "oklch(0.269 0 0)",
   popover: "white",
   popoverForeground: "oklch(0.269 0 0)",
-  primary: "#c4ee3a",
-  primaryForeground: "#1b1c18",
-  primaryText: "#4b6b00",
+  primary: "#5b4ae0",
+  primaryForeground: "#ffffff",
+  primaryText: "#4a3ad0",
   muted: "rgb(0 0 0 / 4%)",
   mutedForeground: "oklch(0.556 0 0)",
   accent: "rgb(0 0 0 / 4%)",
   accentForeground: "oklch(0.269 0 0)",
   border: "rgb(0 0 0 / 8%)",
   input: "rgb(0 0 0 / 10%)",
-  ring: "#4b6b00",
-  fontSans: "system-ui, sans-serif",
-  fontMono: "ui-monospace, monospace",
+  ring: "#5b4ae0",
+  fontSans:
+    '"Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  fontMono:
+    '"Geist Mono Variable", "Geist Mono", "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
 };
 
 const buildPreviewPictureInPictureDataUrl = (): string => {

@@ -9,7 +9,9 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
+import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
+import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
 import {
   buildHandoffDocument,
   buildHandoffTargets,
@@ -17,7 +19,11 @@ import {
   maxUsedPercent,
   shouldOfferHandoff,
 } from "@e6tools/client-runtime/state/thread-handoff";
-import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import {
+  derivePendingRequests,
+  SUBAGENT_APPROVAL_PHRASE,
+  subagentUserRequests,
+} from "@e6tools/client-runtime/pending-requests";
 import {
   questionAttachmentDraftId,
   questionAttachmentDraftPrefix,
@@ -55,6 +61,8 @@ import {
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@e6tools/client-runtime/connection";
+import { approvalFeedbackAgentName } from "@e6tools/client-runtime/approval-feedback";
+import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import {
   wasBootstrapThreadDeleted,
   wasBootstrapThreadNotCreated,
@@ -80,9 +88,11 @@ import {
   resolvePromptInjectedEffort,
 } from "@e6tools/shared/model";
 import {
+  isWorktreeSetupStale,
   projectScriptCwd,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 import { sourceControlRepositorySelector } from "@e6tools/shared/sourceControl";
@@ -139,6 +149,7 @@ import {
   createMessageAttachmentPreviewProjector,
   derivePhase,
   deriveTimelineEntriesWithState,
+  deriveActivePlanState,
   deriveActiveWorkStartedAt,
   findLatestProposedPlan,
   deriveWorkLogEntries,
@@ -228,7 +239,14 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
-import { AgentsPanel } from "./AgentsPanel";
+import {
+  InspectorOverview,
+  type InspectorPlanLimits,
+  type InspectorSubagentStop,
+  type InspectorWorkspace,
+} from "./InspectorOverview";
+import { useSubagentStop } from "~/hooks/useSubagentStop";
+import { useSubagentSelectionStore } from "../subagentSelectionStore";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -236,8 +254,11 @@ import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import {
+  canStopSubagent,
   deriveAgentPanelModel,
+  findSubagent,
   foldSubagentActivities,
+  formatSubagentModelLabel,
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -321,8 +342,10 @@ import {
   markPromotedDraftThreadByRef,
   restoreFailedBackgroundDraftThread,
   useComposerDraftStore,
+  useEffectiveComposerModelState,
   DraftId,
 } from "../composerDraftStore";
+import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import {
   formatTerminalContextLabel,
   type TerminalContextDraft,
@@ -383,6 +406,8 @@ import {
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
+import { DraftHeroFooter } from "./chat/DraftHeroFooter";
+import { selectUnpushedCommits } from "./chat/DraftHeroFooter.logic";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -421,7 +446,11 @@ import {
   hasDismissedResumeCompaction,
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
-import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "../lib/contextWindow";
+import {
+  deriveLatestContextWindowSnapshot,
+  formatContextWindowTokens,
+} from "@e6tools/client-runtime/work-log/context-window";
+import { deriveTurnUsageByTurnId } from "@e6tools/client-runtime/work-log/turn-usage";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
@@ -2039,8 +2068,14 @@ export default function ChatView(props: ChatViewProps) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "uncommitted");
     }
   }, [activeThreadRef, diffOpen]);
+  // A docked panel follows the last open/close choice on threads the user has not touched, so
+  // Run details shows by default; a narrow-window sheet opens only when asked.
   const rightPanelState = useRightPanelStore((state) =>
-    selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+    selectThreadRightPanelState(
+      state.byThreadKey,
+      activeThreadRef,
+      !prefersRightPanelSheet && state.restingOpen,
+    ),
   );
   const shouldUseRightPanelSheet = prefersRightPanelSheet && rightPanelState.maximized !== true;
   const activeRightPanelSurface = useRightPanelStore((state) =>
@@ -2184,6 +2219,17 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectScripts = useMemo(
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
+  );
+  const draftHeroSetupProject = useMemo(
+    () =>
+      activeProject
+        ? {
+            environmentId: activeProject.environmentId,
+            id: activeProject.id,
+            scripts: activeProjectScripts,
+          }
+        : null,
+    [activeProject, activeProjectScripts],
   );
   // A project added by cloning exists before its files do. The draft stays
   // editable throughout; only sending waits for the clone, and a failed
@@ -2746,12 +2792,7 @@ export default function ChatView(props: ChatViewProps) {
           variant: "default",
           // Prioritize live connection progress among the notices.
           priority: "urgent",
-          icon: (
-            <span
-              className="size-1.5 animate-status-pulse rounded-full bg-foreground"
-              aria-hidden="true"
-            />
-          ),
+          icon: <span className="size-1.5 rounded-full bg-foreground" aria-hidden="true" />,
           title: `${unavailableConnection.phase === "connecting" ? "Connecting" : "Reconnecting"} to ${activeEnvironmentUnavailableState.label}`,
           description: "Finishing an update",
           actions: disconnectAction,
@@ -2945,22 +2986,36 @@ export default function ChatView(props: ChatViewProps) {
     () => deriveLatestContextWindowSnapshot(threadActivities),
     [threadActivities],
   );
+  const activeLatestTurnId = activeThread?.latestTurn?.turnId;
+  const activePlan = useMemo(
+    () => deriveActivePlanState(threadActivities, activeLatestTurnId),
+    [activeLatestTurnId, threadActivities],
+  );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const turnUsageByTurnId = useMemo(
+    () => deriveTurnUsageByTurnId(threadActivities),
+    [threadActivities],
+  );
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).
   // sessionLive derives interruption for agents orphaned by session death.
   const agentSessionLive = phase !== "disconnected";
+  const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
+    () => derivePendingRequests(threadActivities),
+    [threadActivities],
+  );
   const agentPanelModel = useMemo(
     () =>
       deriveAgentPanelModel({
         agents: foldSubagentActivities(threadActivities, { sessionLive: agentSessionLive }),
+        // A subagent a pending request names reads "Needs approval" or "Needs your answer".
+        waitingOn: subagentUserRequests({
+          approvals: pendingApprovals,
+          userInputs: pendingUserInputs,
+        }),
       }),
-    [agentSessionLive, threadActivities],
-  );
-  const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
-    () => derivePendingRequests(threadActivities),
-    [threadActivities],
+    [agentSessionLive, pendingApprovals, pendingUserInputs, threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingRequestKey = JSON.stringify([
@@ -3116,6 +3171,18 @@ export default function ChatView(props: ChatViewProps) {
     hasComposerAttachments: composerHasAttachments,
   });
   const activePendingApproval = pendingApprovals[0] ?? null;
+  const activeApprovalDestructive = useMemo(
+    () => (activePendingApproval ? classifyDestructiveApproval(activePendingApproval) : null),
+    [activePendingApproval],
+  );
+  const activePendingApprovalAgentId = activePendingApproval?.agentId;
+  const activePendingApprovalAgentTitle = activePendingApprovalAgentId
+    ? (findSubagent(agentPanelModel, activePendingApprovalAgentId)?.title ?? null)
+    : null;
+  const activePendingUserInputAgentId = activePendingUserInput?.agentId;
+  const activePendingUserInputAgentTitle = activePendingUserInputAgentId
+    ? (findSubagent(agentPanelModel, activePendingUserInputAgentId)?.title ?? null)
+    : null;
   // The open /usage-limits panel for this thread, model and turn. Only the open
   // moment is stored: the rows read live provider data, so a redeemed reset
   // credit or refreshed probe shows through. Anything that spends quota closes
@@ -3148,6 +3215,19 @@ export default function ChatView(props: ChatViewProps) {
     setUsageLimitsPanel(null);
   }
   const usageLimitSources = serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES;
+  // The Overview's plan-limit card reads the same accounts as /usage-limits and
+  // judges them against its own minute clock, so this only rebuilds on new data.
+  const selectedProviderDisplayName = selectedProviderEntry?.displayName ?? null;
+  const inspectorPlanLimits = useMemo((): InspectorPlanLimits | null => {
+    if (activeProviderInstanceId === null || selectedProviderDisplayName === null) return null;
+    const report = collectProviderUsageLimits(
+      activeProviderInstanceId,
+      providerStatuses,
+      usageLimitSources,
+      Date.now(),
+    );
+    return report ? { report, providerLabel: selectedProviderDisplayName } : null;
+  }, [activeProviderInstanceId, providerStatuses, selectedProviderDisplayName, usageLimitSources]);
   const usageLimitsReport = useMemo(
     () =>
       usageLimitsPanel !== null &&
@@ -3624,6 +3704,9 @@ export default function ChatView(props: ChatViewProps) {
   const cancelWorktreeSetup = useAtomCommand(vcsEnvironment.cancelWorktreeSetup, {
     reportFailure: false,
   });
+  const rerunWorktreeSetup = useAtomCommand(vcsEnvironment.rerunWorktreeSetup, {
+    reportFailure: false,
+  });
   const onCancelWorktreeSetup = useCallback(() => {
     if (!worktreeSetup || worktreeSetup.phase !== "running") return;
     void cancelWorktreeSetup({
@@ -3662,6 +3745,24 @@ export default function ChatView(props: ChatViewProps) {
     captureDraftHeroComposerRect,
   ] = useDraftHeroLayoutTransition(isDraftHeroState);
 
+  // The new-thread hero names the model the composer will send to, so read
+  // the same effective selection the composer's picker shows.
+  const { selectedModel: draftHeroModelSlug } = useEffectiveComposerModelState({
+    threadRef: composerDraftTarget,
+    providers: providerStatuses,
+    selectedProvider,
+    selectedInstanceId: activeProviderInstanceId,
+    threadModelSelection: activeThread?.modelSelection,
+    projectModelSelection: activeProjectDefaultModelSelection,
+    settings,
+  });
+  const draftHeroModel = selectedProviderEntry?.snapshot?.models.find(
+    (model) => model.slug === draftHeroModelSlug,
+  );
+  const draftHeroAgentLabel = draftHeroModel
+    ? getTriggerDisplayModelName(draftHeroModel)
+    : (selectedProviderEntry?.displayName ?? null);
+
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.workspaceRoot },
@@ -3685,6 +3786,48 @@ export default function ChatView(props: ChatViewProps) {
   });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const subagentStopControl = useSubagentStop({
+    environmentId: activeThreadEnvironmentId,
+    threadId: activeThread?.id ?? null,
+    threadKey: activeThreadKey,
+    activities: threadActivities,
+    model: agentPanelModel,
+  });
+  // Only providers that can stop one subagent offer Stop at all.
+  const supportsSubagentStop = conversationProviderStatus?.supportsSubagentStop === true;
+  const approvalFeedbackAgent = approvalFeedbackAgentName(conversationProviderStatus);
+  const stopSubagentShortcutLabel = shortcutLabelForCommand(keybindings, "thread.stopSubagent");
+  const inspectorSubagentStop = useMemo<InspectorSubagentStop | null>(
+    () =>
+      supportsSubagentStop
+        ? {
+            canStop: (agent) => canStopSubagent(agentPanelModel, agent, true),
+            isPending: subagentStopControl.isPending,
+            stop: subagentStopControl.stop,
+            shortcutLabel: stopSubagentShortcutLabel,
+          }
+        : null,
+    [agentPanelModel, stopSubagentShortcutLabel, subagentStopControl, supportsSubagentStop],
+  );
+  // thread.stopSubagent acts on the subagent selected in visible Run details.
+  const stopSelectedSubagentRef = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    stopSelectedSubagentRef.current = () => {
+      if (!inspectorSubagentStop || !activeThreadKey) return false;
+      if (!rightPanelOpen || activeRightPanelSurface !== null) return false;
+      const selectedId = useSubagentSelectionStore.getState().selectedByThreadKey[activeThreadKey];
+      const agent = selectedId ? findSubagent(agentPanelModel, selectedId) : null;
+      if (!agent || !inspectorSubagentStop.canStop(agent)) return false;
+      inspectorSubagentStop.stop(agent.id);
+      return true;
+    };
+  }, [
+    activeRightPanelSurface,
+    activeThreadKey,
+    agentPanelModel,
+    inspectorSubagentStop,
+    rightPanelOpen,
+  ]);
   const manualCompactionProviderAvailable = useMemo(
     () =>
       hasAvailableCompactionProvider({
@@ -4035,6 +4178,42 @@ export default function ChatView(props: ChatViewProps) {
   }, [interruptThreadTurn]);
   const canInterruptRunningThread =
     buildRunningThreadTurnInterruptInput(activeThread, phase) !== null;
+  // Offers the same stops to the command palette that thread.stop and
+  // thread.stopSubagent answer here.
+  const publishThreadStopCommands = useThreadStopCommandsStore((state) => state.publish);
+  const withdrawThreadStopCommands = useThreadStopCommandsStore((state) => state.withdraw);
+  useEffect(() => {
+    if (!activeThreadKey) return;
+    const subagents = inspectorSubagentStop
+      ? [
+          ...agentPanelModel.directAgents,
+          ...agentPanelModel.workflows.map((group) => group.workflow),
+        ]
+          .filter(
+            (agent) =>
+              inspectorSubagentStop.canStop(agent) && !inspectorSubagentStop.isPending(agent.id),
+          )
+          .map((agent) => ({
+            id: agent.id,
+            title: agent.title,
+            stop: () => inspectorSubagentStop.stop(agent.id),
+          }))
+      : [];
+    publishThreadStopCommands({
+      owner: activeThreadKey,
+      stopTurn: canInterruptRunningThread ? () => void onInterrupt() : null,
+      subagents,
+    });
+    return () => withdrawThreadStopCommands(activeThreadKey);
+  }, [
+    activeThreadKey,
+    agentPanelModel,
+    canInterruptRunningThread,
+    inspectorSubagentStop,
+    onInterrupt,
+    publishThreadStopCommands,
+    withdrawThreadStopCommands,
+  ]);
 
   const focusComposer = useCallback(() => {
     composerRef.current?.focusAtEnd();
@@ -4258,6 +4437,32 @@ export default function ChatView(props: ChatViewProps) {
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
 
+      // The setup script in the thread's own worktree runs on the server, which
+      // watches its exit code and records it on the thread when it succeeds.
+      // Servers without that method fall through to a plain terminal run.
+      if (
+        isServerThread &&
+        activeThreadRef &&
+        activeThread.worktreePath !== null &&
+        options?.cwd === undefined &&
+        options?.worktreePath === undefined &&
+        options?.env === undefined &&
+        setupProjectScript(activeProjectScripts)?.id === script.id
+      ) {
+        const rerun = await rerunWorktreeSetup({
+          environmentId,
+          input: { threadId: activeThreadId },
+        });
+        if (rerun._tag === "Success" && rerun.value.terminalId !== null) {
+          storeEnsureTerminal(activeThreadRef, rerun.value.terminalId, {
+            open: true,
+            active: true,
+          });
+          setTerminalFocusRequestId((value) => value + 1);
+          return;
+        }
+      }
+
       setTerminalUiLaunchContext({
         threadId: activeThreadId,
         cwd: targetCwd,
@@ -4333,9 +4538,13 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeProject,
+      activeProjectScripts,
       activeThread,
       activeThreadId,
       activeThreadRef,
+      isServerThread,
+      rerunWorktreeSetup,
+      storeEnsureTerminal,
       gitCwd,
       setTerminalOpen,
       setThreadError,
@@ -4601,10 +4810,19 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
-  const addAgentsSurface = useCallback(() => {
-    if (!activeThreadRef) return;
-    useRightPanelStore.getState().open(activeThreadRef, "agents");
-  }, [activeThreadRef]);
+  const showRunDetails = useCallback(
+    (agentId?: unknown) => {
+      if (!activeThreadRef) return;
+      // Launcher clicks pass a DOM event; only a subagent row passes its id.
+      if (typeof agentId === "string") {
+        useSubagentSelectionStore
+          .getState()
+          .select(scopedThreadKey(activeThreadRef), agentId, { reveal: true });
+      }
+      useRightPanelStore.getState().showRunDetails(activeThreadRef);
+    },
+    [activeThreadRef],
+  );
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
@@ -4902,9 +5120,9 @@ export default function ChatView(props: ChatViewProps) {
           .open(activeThreadRef, { kind: "device", ...activeRightPanelSurface.target });
       }
       useRightPanelStore.getState().setMaximized(activeThreadRef, false);
-      useRightPanelStore.getState().close(activeThreadRef);
+      useRightPanelStore.getState().close(activeThreadRef, { remember: !prefersRightPanelSheet });
     }
-  }, [activeRightPanelSurface, activeThreadRef]);
+  }, [activeRightPanelSurface, activeThreadRef, prefersRightPanelSheet]);
   const togglePreviewPanel = useCallback(() => {
     if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
     if (previewPanelOpen) {
@@ -5062,7 +5280,8 @@ export default function ChatView(props: ChatViewProps) {
       closePreviewPanel();
       return;
     }
-    useRightPanelStore.getState().toggleVisibility(activeThreadRef);
+    // Not toggleVisibility: the sheet reads open state differently from the store's default.
+    useRightPanelStore.getState().show(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel || !activeThreadRef) return;
@@ -6300,7 +6519,10 @@ export default function ChatView(props: ChatViewProps) {
       id: `background-liveness:${activeThread.id}`,
       icon: (
         <span
-          className={cn("size-1.5 rounded-full bg-foreground", working && "animate-status-pulse")}
+          className={cn(
+            "size-1.5 rounded-full",
+            working ? "bg-primary ring-2 ring-primary-surface" : "bg-foreground",
+          )}
           aria-hidden="true"
         />
       ),
@@ -7112,6 +7334,16 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "composer.cycleEffort") {
+        // Models without effort steps leave the keys to the page.
+        if (!composerRef.current?.canCycleEffort()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        // Holding the keys steps once, like the other composer shortcuts.
+        if (!event.repeat) composerRef.current.cycleEffort();
+        return;
+      }
+
       if (command === "composer.branch") {
         event.preventDefault();
         event.stopPropagation();
@@ -7134,6 +7366,14 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) queuedMessageActionsRef.current.steer(message.id);
+        return;
+      }
+
+      if (command === "thread.stopSubagent") {
+        // A repeat finds the stop already pending and does nothing.
+        if (!stopSelectedSubagentRef.current()) return;
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
@@ -8924,7 +9164,7 @@ export default function ChatView(props: ChatViewProps) {
   restoreQueuedMessagesRef.current = restoreQueuedMessagesToComposer;
 
   const onRespondToApproval = useCallback(
-    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
+    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision, feedback?: string) => {
       if (!activeThreadId) return;
 
       setRespondingRequestIds((existing) =>
@@ -8936,6 +9176,7 @@ export default function ChatView(props: ChatViewProps) {
           threadId: activeThreadId,
           requestId,
           decision,
+          ...(feedback !== undefined ? { feedback } : {}),
         },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
@@ -9739,6 +9980,52 @@ export default function ChatView(props: ChatViewProps) {
   const onRevertTimelineTurn = useCallback((targetTurnCount: number, messageId: MessageId) => {
     void onRevertToTurnCountRef.current(targetTurnCount, messageId);
   }, []);
+  // runProjectScript closes over activeThread, which changes on every streamed
+  // delta; Run details calls through a ref so its workspace keeps one identity.
+  const runProjectScriptRef = useRef(runProjectScript);
+  runProjectScriptRef.current = runProjectScript;
+  const onInspectorRunProjectScript = useCallback((script: ProjectScript) => {
+    void runProjectScriptRef.current(script);
+  }, []);
+  // Run details memoises on workspace identity, so build it from primitives
+  // and stable callbacks only. Kept above the no-active-thread early return.
+  const inspectorEnvironmentId = activeThread?.environmentId ?? null;
+  const inspectorThreadId = activeThread?.id ?? null;
+  const inspectorWorktreeSetupScript = activeThread?.worktreePath
+    ? setupProjectScript(activeProjectScripts)
+    : null;
+  const inspectorWorktreeSetupChanged =
+    inspectorWorktreeSetupScript !== null &&
+    activeThreadShell !== null &&
+    isWorktreeSetupStale(activeThreadShell, activeProjectScripts);
+  const inspectorCanOpenDiff = isServerThread && isGitRepo;
+  const inspectorWorkspace = useMemo(
+    (): InspectorWorkspace | null =>
+      inspectorEnvironmentId !== null && inspectorThreadId !== null
+        ? {
+            environmentId: inspectorEnvironmentId,
+            threadId: inspectorThreadId,
+            gitCwd,
+            worktreeSetup: inspectorWorktreeSetupScript
+              ? { script: inspectorWorktreeSetupScript, changed: inspectorWorktreeSetupChanged }
+              : null,
+            onRunProjectScript: onInspectorRunProjectScript,
+            onOpenDiff: inspectorCanOpenDiff ? addDiffSurface : null,
+            onOpenTurnDiff: inspectorCanOpenDiff ? onOpenTurnDiff : null,
+          }
+        : null,
+    [
+      addDiffSurface,
+      gitCwd,
+      inspectorCanOpenDiff,
+      inspectorEnvironmentId,
+      inspectorThreadId,
+      inspectorWorktreeSetupChanged,
+      inspectorWorktreeSetupScript,
+      onInspectorRunProjectScript,
+      onOpenTurnDiff,
+    ],
+  );
 
   // Files dropped on a sidebar row land here once the dropped-on thread is
   // actually open, then take the exact same path as a workspace drop:
@@ -9800,10 +10087,10 @@ export default function ChatView(props: ChatViewProps) {
       rightPanelAvailable={activeProject !== null}
       rightPanelOpen={rightPanelOpen}
       rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
-      // Suppressed while the Agents surface is visible: the roster itself is
+      // Suppressed while Run details is visible: the subagent list itself is
       // on screen, so the toggle badge would be pointing at nothing.
       liveAgentCount={
-        rightPanelOpen && activeRightPanelSurface?.kind === "agents" ? 0 : agentPanelModel.liveCount
+        rightPanelOpen && activeRightPanelSurface === null ? 0 : agentPanelModel.liveCount
       }
       onToggleTerminal={toggleTerminalVisibility}
       onToggleRightPanel={toggleRightPanel}
@@ -9934,11 +10221,17 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
-    ) : renderedRightPanelSurface?.kind === "agents" ? (
-      <AgentsPanel
+    ) : renderedRightPanelSurface === null ? (
+      <InspectorOverview
         model={agentPanelModel}
-        environmentId={activeThreadRef?.environmentId ?? null}
-        threadId={activeThreadRef?.threadId ?? null}
+        threadKey={activeThreadRef ? scopedThreadKey(activeThreadRef) : null}
+        providerKind={selectedProvider ?? null}
+        workspace={inspectorWorkspace}
+        subagentStop={inspectorSubagentStop}
+        plan={activePlan}
+        contextWindow={activeContextWindow}
+        usageTotal={activeThreadShell?.usageTotal ?? null}
+        planLimits={inspectorPlanLimits}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
@@ -10060,7 +10353,7 @@ export default function ChatView(props: ChatViewProps) {
           data-chat-header
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
-          className="relative bg-background"
+          className="relative border-b border-border bg-background"
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span
@@ -10151,13 +10444,25 @@ export default function ChatView(props: ChatViewProps) {
                   ? {
                       onCiteAssistantText: citeAssistantText,
                       agentPanelModel,
-                      onOpenAgents: addAgentsSurface,
+                      onOpenAgents: showRunDetails,
+                      subagentProviderKind: selectedProvider ?? null,
+                      pendingAttention:
+                        pendingApprovals.length > 0
+                          ? "approval"
+                          : pendingUserInputs.length > 0
+                            ? "input"
+                            : null,
                       onUseArtifactTemplate: useArtifactTemplate,
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
+                agentState={
+                  !paintOnlyDisplayedTimeline && isWorking
+                    ? (activeThreadShell?.agentState ?? null)
+                    : null
+                }
                 activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
                 worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
                 onCancelWorktreeSetup={onCancelWorktreeSetup}
@@ -10172,6 +10477,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? EMPTY_HELD_TURN_DIFF_SUMMARIES
                     : activeThread.checkpoints
                 }
+                {...(!paintOnlyDisplayedTimeline ? { turnUsageByTurnId } : {})}
                 activeThreadEnvironmentId={
                   displayedThreadRef?.environmentId ?? activeThread.environmentId
                 }
@@ -10257,22 +10563,29 @@ export default function ChatView(props: ChatViewProps) {
                       (activePendingApproval ||
                         pendingUserInputs.length > 0 ||
                         (showPlanFollowUpPrompt && activeProposedPlan)) ? (
-                        <div className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs">
+                        <div
+                          className="machined-card flex flex-wrap items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-xs"
+                          data-approval-shortcut-scope=""
+                        >
                           <div className="flex min-w-0 flex-1 items-center gap-2">
                             <span
                               aria-hidden="true"
                               className={cn(
                                 "size-2 shrink-0 rounded-full",
                                 activePendingApproval
-                                  ? "animate-status-pulse bg-warning shadow-[0_0_8px_var(--warning)]"
+                                  ? "bg-warning shadow-[0_0_8px_var(--warning)]"
                                   : "bg-info shadow-[0_0_8px_var(--info)]",
                               )}
                             />
                             <span className="font-medium text-foreground">
                               {activePendingApproval
-                                ? "Approval required at turn frontier"
+                                ? activePendingApprovalAgentTitle
+                                  ? `${activePendingApprovalAgentTitle} ${SUBAGENT_APPROVAL_PHRASE[activePendingApproval.requestKind]}`
+                                  : "Approval required at turn frontier"
                                 : pendingUserInputs.length > 0
-                                  ? "Agent waiting for your response"
+                                  ? activePendingUserInputAgentTitle
+                                    ? `${activePendingUserInputAgentTitle} needs your answer`
+                                    : "Agent waiting for your response"
                                   : "Plan ready to implement"}
                             </span>
                             {activePendingApproval?.detail ? (
@@ -10299,21 +10612,56 @@ export default function ChatView(props: ChatViewProps) {
                                 >
                                   Decline
                                 </Button>
-                                <Button
-                                  size="xs"
-                                  variant="default"
-                                  disabled={respondingRequestIds.includes(
-                                    activePendingApproval.requestId,
-                                  )}
-                                  onClick={() =>
-                                    void onRespondToApproval(
+                                {approvalFeedbackAgent !== null ? (
+                                  // The instructions live in the composer's field, so this
+                                  // card and the composer never hold two different drafts.
+                                  <Button
+                                    size="xs"
+                                    variant="outline"
+                                    disabled={respondingRequestIds.includes(
                                       activePendingApproval.requestId,
-                                      "accept",
-                                    )
-                                  }
-                                >
-                                  Approve
-                                </Button>
+                                    )}
+                                    aria-description={`Type what ${approvalFeedbackAgent} should do instead in the composer, then send it with the decline.`}
+                                    onClick={() => focusComposer()}
+                                  >
+                                    <span className="max-w-48 truncate">{`Decline and tell ${approvalFeedbackAgent}`}</span>
+                                  </Button>
+                                ) : null}
+                                {activeApprovalDestructive ? (
+                                  <HoldToAllowButton
+                                    // A new request remounts it, so an open confirm dialog never
+                                    // approves a request it was not opened for.
+                                    key={activePendingApproval.requestId}
+                                    reason={activeApprovalDestructive.reason}
+                                    disabled={respondingRequestIds.includes(
+                                      activePendingApproval.requestId,
+                                    )}
+                                    // The composer's hold button owns the shortcut.
+                                    shortcutEnabled={false}
+                                    onConfirm={() =>
+                                      void onRespondToApproval(
+                                        activePendingApproval.requestId,
+                                        "accept",
+                                      )
+                                    }
+                                  />
+                                ) : (
+                                  <Button
+                                    size="xs"
+                                    variant="default"
+                                    disabled={respondingRequestIds.includes(
+                                      activePendingApproval.requestId,
+                                    )}
+                                    onClick={() =>
+                                      void onRespondToApproval(
+                                        activePendingApproval.requestId,
+                                        "accept",
+                                      )
+                                    }
+                                  >
+                                    Approve
+                                  </Button>
+                                )}
                               </>
                             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
                               <>
@@ -10376,13 +10724,10 @@ export default function ChatView(props: ChatViewProps) {
                     {activePendingApproval ? (
                       <span
                         aria-hidden="true"
-                        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-warning"
+                        className="size-1.5 shrink-0 rounded-full bg-warning"
                       />
                     ) : pendingUserInputs.length > 0 ? (
-                      <span
-                        aria-hidden="true"
-                        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-info"
-                      />
+                      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-info" />
                     ) : null}
                     <ChevronDownIcon className="size-3.5" />
                     {activePendingApproval
@@ -10431,6 +10776,9 @@ export default function ChatView(props: ChatViewProps) {
                           draftId={draftId}
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
+                          agentLabel={draftHeroAgentLabel}
+                          envMode={envMode}
+                          branch={activeThreadBranch ?? gitStatusQuery.data?.refName ?? null}
                         />
                       </div>
                     </div>
@@ -10500,6 +10848,8 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
+                            activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
+                            activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
                             pendingApprovals={pendingApprovals}
                             pendingUserInputs={pendingUserInputs}
                             activePendingProgress={activePendingProgress}
@@ -10554,6 +10904,7 @@ export default function ChatView(props: ChatViewProps) {
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}
+                            approvalFeedbackAgentName={approvalFeedbackAgent}
                             onSelectActivePendingUserInputOption={
                               onSelectActivePendingUserInputOption
                             }
@@ -10635,6 +10986,18 @@ export default function ChatView(props: ChatViewProps) {
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
                     />
                   </div>
+                  {isDraftHeroState ? (
+                    // Hangs below the centered composer so the hero never shifts it;
+                    // short windows and phones keep just the composer.
+                    <div className="absolute inset-x-0 top-full z-0 hidden pt-2 sm:block [@media(max-height:760px)]:hidden">
+                      <DraftHeroFooter
+                        keybindings={keybindings}
+                        unpushed={selectUnpushedCommits(gitStatusQuery.data)}
+                        setupProject={draftHeroSetupProject}
+                        onOpenSourceControl={showRunDetails}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -10753,7 +11116,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
-          onAddAgents={addAgentsSurface}
+          onShowRunDetails={showRunDetails}
           onAddDevice={addDeviceSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
@@ -10761,9 +11124,8 @@ export default function ChatView(props: ChatViewProps) {
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
-          agentsAvailable
           deviceAvailable={activeThreadRef !== null}
-          liveAgentCount={agentPanelModel.liveCount}
+          changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -10821,7 +11183,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
-            onAddAgents={addAgentsSurface}
+            onShowRunDetails={showRunDetails}
             onAddDevice={addDeviceSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
@@ -10829,9 +11191,8 @@ export default function ChatView(props: ChatViewProps) {
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
-            agentsAvailable
             deviceAvailable={activeThreadRef !== null}
-            liveAgentCount={agentPanelModel.liveCount}
+            changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
           >
             {rightPanelContent}
           </RightPanelTabs>

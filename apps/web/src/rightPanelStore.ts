@@ -6,6 +6,11 @@
  * own its durable resource state. Browser surfaces point at preview tab ids,
  * terminal surfaces point at terminal session ids, file surfaces point at
  * workspace paths, and diff/files remain singleton surfaces.
+ *
+ * A thread's panel rests on Run details: an open panel with no active surface
+ * shows it, so closing or leaving a surface returns there instead of to a
+ * neighbouring tab. The pull-request list's shared panel has no resting view
+ * and keeps the older behaviour of falling back to a neighbour, then hiding.
  */
 import {
   parseScopedThreadKey,
@@ -33,7 +38,6 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
-  "agents",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -89,15 +93,15 @@ export type RightPanelSurface =
       url?: string;
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
-  | { id: "pull-requests"; kind: "pull-requests" }
-  | { id: "agents"; kind: "agents" };
+  | { id: "pull-requests"; kind: "pull-requests" };
 
 const RIGHT_PANEL_STORAGE_KEY = "e6code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
 // v10 keys pull-request surfaces by reference instead of a singleton tab.
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
 // v12 adds the device surface.
-const RIGHT_PANEL_STORAGE_VERSION = 13;
+// v14 drops the "agents" (Overview) surface: Run details is the panel's resting view.
+const RIGHT_PANEL_STORAGE_VERSION = 14;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -111,6 +115,9 @@ export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
  */
 const isPullRequestsPanelKey = (threadKey: string) => threadKey.endsWith(":pull-requests-panel");
 
+/** Whether a panel rests on Run details. Threads do; the pull-request list's shared panel does not. */
+const panelRestsOnRunDetails = (threadKey: string) => !isPullRequestsPanelKey(threadKey);
+
 export interface ThreadRightPanelState {
   isOpen: boolean;
   activeSurfaceId: string | null;
@@ -122,6 +129,11 @@ export interface ThreadRightPanelState {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  /**
+   * The last open/close choice for the whole panel. A thread with no panel record of its own
+   * follows it, so Run details shows on every thread until the user hides the panel.
+   */
+  restingOpen: boolean;
   /** Session-only count of user panel choices per thread. Automatic updates do not advance it. */
   userActionRevisionByThreadKey: Record<string, number>;
   closeRevisionByThreadKey: Record<string, number>;
@@ -173,13 +185,19 @@ interface RightPanelStoreState {
   reconcileBrowserSurfaces: (ref: ScopedThreadRef, tabIds: readonly string[]) => void;
   reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
   show: (ref: ScopedThreadRef) => void;
-  close: (ref: ScopedThreadRef) => void;
+  /**
+   * `remember: false` hides the panel on this thread without changing what untouched threads
+   * show, for a narrow-window sheet that is dismissed far more often than a docked panel.
+   */
+  close: (ref: ScopedThreadRef, options?: { remember?: boolean }) => void;
   setMaximized: (ref: ScopedThreadRef, maximized: boolean) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
     kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
+  /** Leaves any active surface for the resting Run details view, opening the panel. */
+  showRunDetails: (ref: ScopedThreadRef) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -188,6 +206,8 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
   activeSurfaceId: null,
   surfaces: [],
 };
+
+const RESTING_OPEN_THREAD_STATE: ThreadRightPanelState = { ...EMPTY_THREAD_STATE, isOpen: true };
 
 const singletonSurface = (
   kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
@@ -199,8 +219,6 @@ const singletonSurface = (
       return { id: "files", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
-    case "agents":
-      return { id: "agents", kind };
     case "device":
       return { id: "device", kind };
   }
@@ -277,6 +295,54 @@ export function pullRequestSurface(target: {
   };
 }
 
+/**
+ * A thread's panel state. A thread the user never touched has no record and follows
+ * `restingOpen`; the pull-request list's panel has nothing to rest on and starts closed.
+ */
+function resolveThreadRightPanelState(
+  byThreadKey: Record<string, ThreadRightPanelState>,
+  threadKey: string,
+  restingOpen: boolean,
+): ThreadRightPanelState {
+  const record = byThreadKey[threadKey];
+  if (record) return record;
+  return restingOpen && panelRestsOnRunDetails(threadKey)
+    ? RESTING_OPEN_THREAD_STATE
+    : EMPTY_THREAD_STATE;
+}
+
+/**
+ * Drops surfaces from a panel. When the active one goes, a panel that rests on Run details
+ * returns to it and stays open; one without falls back to the nearest survivor and hides
+ * once nothing is left.
+ */
+export function removeRightPanelSurfaces(
+  current: ThreadRightPanelState,
+  removedIds: ReadonlySet<string>,
+  options: { restsOnRunDetails: boolean },
+): ThreadRightPanelState {
+  const surfaces = current.surfaces.filter((surface) => !removedIds.has(surface.id));
+  if (surfaces.length === current.surfaces.length) return current;
+  const activeRemoved = current.activeSurfaceId !== null && removedIds.has(current.activeSurfaceId);
+  if (options.restsOnRunDetails) {
+    return {
+      ...current,
+      surfaces,
+      activeSurfaceId: activeRemoved ? null : current.activeSurfaceId,
+    };
+  }
+  const activeIndex = current.surfaces.findIndex(
+    (surface) => surface.id === current.activeSurfaceId,
+  );
+  const fallback = surfaces[Math.min(Math.max(activeIndex, 0), surfaces.length - 1)] ?? null;
+  return {
+    ...current,
+    isOpen: surfaces.length > 0 && current.isOpen,
+    surfaces,
+    activeSurfaceId: activeRemoved ? (fallback?.id ?? null) : current.activeSurfaceId,
+  };
+}
+
 const upsertSurface = (
   current: ThreadRightPanelState,
   surface: RightPanelSurface,
@@ -291,12 +357,14 @@ const upsertSurface = (
 });
 
 const updateThread = (
-  byThreadKey: Record<string, ThreadRightPanelState>,
+  state: Pick<RightPanelStoreState, "byThreadKey" | "restingOpen">,
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Record<string, ThreadRightPanelState> => {
-  const current = byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+  const { byThreadKey } = state;
+  const current = resolveThreadRightPanelState(byThreadKey, threadKey, state.restingOpen);
   const next = updater(current);
+  // A closed, empty panel needs no record: an untouched thread reads the same.
   if (
     !next.isOpen &&
     next.activeSurfaceId === null &&
@@ -319,7 +387,7 @@ const automaticUpdate = (
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Partial<RightPanelStoreState> => ({
-  byThreadKey: updateThread(state.byThreadKey, threadKey, updater),
+  byThreadKey: updateThread(state, threadKey, updater),
 });
 
 const userAction = (
@@ -328,7 +396,7 @@ const userAction = (
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
   closesView = false,
 ): Partial<RightPanelStoreState> => ({
-  byThreadKey: updateThread(state.byThreadKey, threadKey, (current) => {
+  byThreadKey: updateThread(state, threadKey, (current) => {
     const next = updater(current);
     const removed = current.surfaces.filter(
       (surface) =>
@@ -367,6 +435,13 @@ const closeAction = (
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Partial<RightPanelStoreState> => userAction(state, threadKey, updater, true);
 
+/** A whole-panel choice on a thread becomes what untouched threads show. */
+const rememberResting = (
+  ref: ScopedThreadRef,
+  restingOpen: boolean,
+): Partial<RightPanelStoreState> =>
+  panelRestsOnRunDetails(scopedThreadKey(ref)) ? { restingOpen } : {};
+
 function normalizeRevealLine(line: number | undefined): number | null {
   if (line === undefined || !Number.isFinite(line)) return null;
   return Math.max(1, Math.trunc(line));
@@ -390,9 +465,11 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 threadState && typeof threadState === "object" ? threadState : null;
               const surfaces = Array.isArray(validThreadState?.surfaces)
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
-                    // Dropped surface kind: plans now render inline in the
-                    // transcript (v9).
-                    if ((surface as { kind?: string }).kind === "plan") return [];
+                    // Dropped surface kinds: plans now render inline in the
+                    // transcript (v9), and Overview became the resting Run
+                    // details view (v14).
+                    const droppedKind = (surface as { kind?: string }).kind;
+                    if (droppedKind === "plan" || droppedKind === "agents") return [];
                     if (surface.kind === "file") {
                       const revealLine =
                         typeof surface.revealLine === "number" &&
@@ -468,18 +545,13 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 : rawActiveSurfaceId === "pull-request"
                   ? (surfaces.find((surface) => surface.kind === "pull-request")?.id ?? null)
                   : null;
-              // A migration that dropped every surface (e.g. plan-only panels
-              // in v9) must not reopen an empty panel.
+              // An open thread panel with no active surface rests on Run
+              // details, so a dropped surface (plan, Overview) leaves it there.
               const isOpen =
-                surfaces.length > 0 &&
-                (typeof validThreadState?.isOpen === "boolean"
+                typeof validThreadState?.isOpen === "boolean"
                   ? validThreadState.isOpen
-                  : persistedActiveSurfaceId !== null);
-              // An open panel needs an active surface: if migration dropped
-              // the persisted one (e.g. plan was active), fall back to the
-              // first survivor instead of rendering an open empty panel.
-              const activeSurfaceId =
-                persistedActiveSurfaceId ?? (isOpen ? (surfaces[0]?.id ?? null) : null);
+                  : persistedActiveSurfaceId !== null;
+              const activeSurfaceId = persistedActiveSurfaceId;
               return [
                 threadKey,
                 {
@@ -507,6 +579,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      restingOpen: true,
       userActionRevisionByThreadKey: {},
       closeRevisionByThreadKey: {},
       getUserActionRevision: (ref) =>
@@ -696,18 +769,9 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             if (!surface || surface.kind !== "terminal") return current;
             const terminalIds = surface.terminalIds.filter((id) => id !== terminalId);
             if (terminalIds.length === 0) {
-              const index = current.surfaces.findIndex((entry) => entry.id === surfaceId);
-              const surfaces = current.surfaces.filter((entry) => entry.id !== surfaceId);
-              const fallback = surfaces[Math.min(index, surfaces.length - 1)] ?? null;
-              return {
-                ...current,
-                isOpen: surfaces.length > 0 && current.isOpen,
-                surfaces,
-                activeSurfaceId:
-                  current.activeSurfaceId === surfaceId
-                    ? (fallback?.id ?? null)
-                    : current.activeSurfaceId,
-              };
+              return removeRightPanelSurfaces(current, new Set([surfaceId]), {
+                restsOnRunDetails: panelRestsOnRunDetails(scopedThreadKey(ref)),
+              });
             }
             return {
               ...current,
@@ -736,24 +800,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       closeSurface: (ref, surfaceId) =>
         set((state) =>
-          closeAction(state, scopedThreadKey(ref), (current) => {
-            const index = current.surfaces.findIndex((surface) => surface.id === surfaceId);
-            if (index < 0) return current;
-            const surfaces = current.surfaces.filter((surface) => surface.id !== surfaceId);
-            const next = {
-              ...current,
-              isOpen: surfaces.length > 0 && current.isOpen,
-              surfaces,
-            };
-            if (current.activeSurfaceId !== surfaceId) {
-              return next;
-            }
-            const fallback = surfaces[Math.min(index, surfaces.length - 1)] ?? null;
-            return {
-              ...next,
-              activeSurfaceId: fallback?.id ?? null,
-            };
-          }),
+          closeAction(state, scopedThreadKey(ref), (current) =>
+            removeRightPanelSurfaces(current, new Set([surfaceId]), {
+              restsOnRunDetails: panelRestsOnRunDetails(scopedThreadKey(ref)),
+            }),
+          ),
         ),
       closeOtherSurfaces: (ref, surfaceId) =>
         set((state) =>
@@ -789,7 +840,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           closeAction(state, scopedThreadKey(ref), (current) =>
             current.surfaces.length === 0
               ? current
-              : { ...current, isOpen: false, surfaces: [], activeSurfaceId: null },
+              : {
+                  ...current,
+                  // A thread keeps showing Run details; the pull-request list's panel hides.
+                  isOpen: panelRestsOnRunDetails(scopedThreadKey(ref)) && current.isOpen,
+                  surfaces: [],
+                  activeSurfaceId: null,
+                },
           ),
         ),
       // Reordering is not a choice about what the panel shows, so it leaves the
@@ -825,6 +882,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             const activeStillExists = surfaces.some(
               (surface) => surface.id === current.activeSurfaceId,
             );
+            if (panelRestsOnRunDetails(scopedThreadKey(ref))) {
+              return {
+                ...current,
+                surfaces,
+                activeSurfaceId: activeStillExists ? current.activeSurfaceId : null,
+              };
+            }
             const fallbackBrowser = surfaces.find((surface) => surface.kind === "preview");
             // A closed session tab was the last surface: hide the panel rather than leave it on
             // the empty picker, as a user close would. A dropped `browser:new` placeholder does not count.
@@ -854,6 +918,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             const activeStillExists = surfaces.some(
               (surface) => surface.id === current.activeSurfaceId,
             );
+            if (panelRestsOnRunDetails(scopedThreadKey(ref))) {
+              return {
+                ...current,
+                surfaces,
+                activeSurfaceId: activeStillExists ? current.activeSurfaceId : null,
+              };
+            }
             return {
               ...current,
               isOpen: surfaces.length > 0 ? current.isOpen : false,
@@ -864,18 +935,19 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             };
           }),
         ),
+      // Always writes a record: a narrow-window sheet ignores `restingOpen` and reads only it.
       show: (ref) =>
-        set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) =>
-            current.isOpen ? current : { ...current, isOpen: true },
-          ),
-        ),
-      close: (ref) =>
-        set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) =>
+        set((state) => ({
+          ...userAction(state, scopedThreadKey(ref), (current) => ({ ...current, isOpen: true })),
+          ...rememberResting(ref, true),
+        })),
+      close: (ref, options) =>
+        set((state) => ({
+          ...userAction(state, scopedThreadKey(ref), (current) =>
             current.isOpen ? { ...current, isOpen: false } : current,
           ),
-        ),
+          ...(options?.remember === false ? {} : rememberResting(ref, false)),
+        })),
       // Layout only: it changes no surface, so proactive panels still apply.
       setMaximized: (ref, maximized) =>
         set((state) =>
@@ -886,12 +958,18 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           }),
         ),
       toggleVisibility: (ref) =>
-        set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => ({
-            ...current,
-            isOpen: !current.isOpen,
-          })),
-        ),
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const isOpen = !resolveThreadRightPanelState(
+            state.byThreadKey,
+            threadKey,
+            state.restingOpen,
+          ).isOpen;
+          return {
+            ...userAction(state, threadKey, (current) => ({ ...current, isOpen })),
+            ...rememberResting(ref, isOpen),
+          };
+        }),
       toggle: (ref, kind) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
@@ -899,7 +977,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               (surface) => surface.id === current.activeSurfaceId,
             );
             if (current.isOpen && active?.kind === kind) {
-              return { ...current, isOpen: false };
+              // Toggling the shown surface off leaves it for Run details on a thread.
+              return panelRestsOnRunDetails(scopedThreadKey(ref))
+                ? { ...current, activeSurfaceId: null }
+                : { ...current, isOpen: false };
             }
             if (kind === "preview") {
               const existing = current.surfaces.find((surface) => surface.kind === "preview");
@@ -907,6 +988,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             }
             return upsertSurface(current, singletonSurface(kind));
           }),
+        ),
+      showRunDetails: (ref) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            current.isOpen && current.activeSurfaceId === null
+              ? current
+              : { ...current, isOpen: true, activeSurfaceId: null },
+          ),
         ),
       removeThread: (ref) =>
         set((state) => {
@@ -933,6 +1022,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       partialize: (state) => ({
+        restingOpen: state.restingOpen,
         byThreadKey: Object.fromEntries(
           Object.entries(state.byThreadKey).filter(
             ([threadKey]) => !isPullRequestsPanelKey(threadKey),
@@ -970,12 +1060,17 @@ useRightPanelStore.subscribe((next, previous) => {
   }
 });
 
+/**
+ * Pass the store's `restingOpen` for a docked panel. Leave it out to read only what the thread
+ * recorded, as a narrow-window sheet does so it never covers the chat unasked.
+ */
 export function selectThreadRightPanelState(
   byThreadKey: Record<string, ThreadRightPanelState>,
   ref: ScopedThreadRef | null | undefined,
+  restingOpen = false,
 ): ThreadRightPanelState {
   if (!ref) return EMPTY_THREAD_STATE;
-  return byThreadKey[scopedThreadKey(ref)] ?? EMPTY_THREAD_STATE;
+  return resolveThreadRightPanelState(byThreadKey, scopedThreadKey(ref), restingOpen);
 }
 
 export function selectActiveRightPanel(

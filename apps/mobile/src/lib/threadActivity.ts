@@ -5,16 +5,23 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@e6tools/contracts";
+import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
+  TURN_USAGE_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+  isToolLifecycleItemType,
+} from "@e6tools/contracts";
+import { appendTurnUsage, formatTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
   OrchestrationThreadActivity,
   ToolLifecycleItemType,
   TurnId,
+  TurnUsageActivityPayload,
   UserInputQuestion,
 } from "@e6tools/contracts";
-import { formatDuration } from "@e6tools/shared/orchestrationTiming";
+import { formatDuration, formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -35,6 +42,21 @@ import {
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@e6tools/client-runtime/work-log/command-label";
+import {
+  mergeWorkStepStartedAt,
+  resolveWorkRowStats,
+} from "@e6tools/client-runtime/work-log/step-meta";
+import {
+  mainAgentDiffStat,
+  type WorkLogDiffStat,
+} from "@e6tools/client-runtime/work-log/diff-stat";
+import {
+  isTaskListToolActivity,
+  taskListLabel,
+  taskListStepsFromPayload,
+  taskListText,
+  type TaskListStep,
+} from "@e6tools/client-runtime/work-log/task-list";
 import {
   mcpToolCallParts,
   toolCallLines,
@@ -69,6 +91,7 @@ export interface ThreadFeedActivity {
     | "alert"
     | "browser"
     | "check"
+    | "checklist"
     | "command"
     | "computer"
     | "edit"
@@ -86,6 +109,30 @@ export interface ThreadFeedActivity {
   readonly workEntry: WorkLogEntry;
   readonly groupedToolDetail?: boolean;
   readonly live?: boolean;
+  /** The step the thinking timeline rings: the running call of a live, opened work group. */
+  readonly runningStep?: boolean;
+}
+
+/**
+ * Where a row sits on an opened work group's thinking-timeline rail. The feed
+ * lists a group's tool rows and thoughts as separate rows, so each row draws
+ * its own piece of the rail and the first and last stop at their dots.
+ */
+export type ThreadTimelineStep = "only" | "first" | "middle" | "last";
+
+/**
+ * The rail piece one row of a timeline group draws. The group's step says
+ * whether the rail enters above it and leaves below it; inside the group only
+ * its first row can start the rail and only its last row can end it.
+ */
+export function timelineRowStep(
+  groupStep: ThreadTimelineStep,
+  index: number,
+  count: number,
+): ThreadTimelineStep {
+  const startsHere = index === 0 && (groupStep === "first" || groupStep === "only");
+  const endsHere = index === count - 1 && (groupStep === "last" || groupStep === "only");
+  return startsHere ? (endsHere ? "only" : "first") : endsHere ? "last" : "middle";
 }
 
 export interface WorkLogEntry {
@@ -99,6 +146,16 @@ export interface WorkLogEntry {
   command?: string;
   rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
+  /** Lines a main-agent file change added and removed, when the provider counted its files. */
+  diffStat?: WorkLogDiffStat;
+  /**
+   * When the step began: its tool.started row, else its first lifecycle row
+   * once a later one merged in. `createdAt` stays the first rendered row's
+   * time so the row keeps its place in the feed.
+   */
+  startedAt?: string;
+  /** When the latest lifecycle row merged into this one landed. */
+  updatedAt?: string;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
@@ -126,6 +183,8 @@ export interface WorkLogEntry {
     }>;
   };
   toolData?: unknown;
+  /** The steps of an agent's task list (a plan update), shown when the row opens. */
+  taskList?: ReadonlyArray<TaskListStep>;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -158,6 +217,8 @@ type RawThreadFeedEntry =
 export type ThreadFeedEntry =
   | (Extract<RawThreadFeedEntry, { type: "message" }> & {
       readonly reasoningMessages?: OrchestrationThread["messages"];
+      /** Set on a thought inside an opened work group that also ran tools. */
+      readonly timelineStep?: ThreadTimelineStep;
     })
   | {
       readonly type: "activity-group";
@@ -165,6 +226,8 @@ export type ThreadFeedEntry =
       readonly createdAt: string;
       readonly turnId: TurnId | null;
       readonly activities: ReadonlyArray<ThreadFeedActivity>;
+      /** Set on the rows of an opened work group. */
+      readonly timelineStep?: ThreadTimelineStep;
     }
   | {
       readonly type: "work-toggle";
@@ -225,6 +288,8 @@ export interface AgentSpawnSummary {
   readonly status: string;
   readonly tone: "working" | "completed" | "failed" | "stopped";
   readonly members: ReadonlyArray<{
+    /** Task id, matching PendingApproval.agentId when this member asks. */
+    readonly id: string;
     readonly title: string;
     readonly status: string;
     readonly tone: "working" | "completed" | "failed" | "stopped";
@@ -431,7 +496,15 @@ function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
   const ordered = Arr.sort(activities, activityOrder);
+  // Like web: Claude's todo tools also emit a plan update, whose Tasks row already shows the change.
+  const planUpdateTurnIds = new Set(
+    ordered.flatMap((activity) =>
+      activity.kind === "turn.plan.updated" && activity.turnId ? [activity.turnId] : [],
+    ),
+  );
   const entries: DerivedWorkLogEntry[] = [];
+  // Like web: tool.started rows never render, but their timestamp is when the step began.
+  const toolStartedAtById = new Map<string, string>();
   for (const activity of foldUserInputActivities(ordered)) {
     // The setup card owns its snapshot, including failed and cancelled outcomes.
     if (
@@ -439,7 +512,16 @@ function deriveWorkLogEntries(
       (activity.tone !== "error" || activity.kind === "worktree-setup")
     )
       continue;
-    if (activity.kind === "tool.started") continue;
+    if (activity.kind === "tool.started") {
+      const payload = asRecord(activity.payload);
+      const toolCallId =
+        asTrimmedString(payload?.toolCallId) ??
+        asTrimmedString(asRecord(payload?.data)?.toolCallId);
+      if (toolCallId && !toolStartedAtById.has(toolCallId)) {
+        toolStartedAtById.set(toolCallId, activity.createdAt);
+      }
+      continue;
+    }
     // Like web: an agent's task.started row anchors its batch. It has a fixed
     // id and timestamp, unlike progress ticks, whose stable per-task id is
     // rewritten with a new createdAt on every update (and would otherwise
@@ -448,11 +530,22 @@ function deriveWorkLogEntries(
     if (activity.kind === "task.updated" && !isTerminalTaskUpdate(activity)) continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    // Folded into the turn's "Worked for ..." row instead.
+    if (activity.kind === TURN_USAGE_ACTIVITY_KIND) continue;
+    if (activity.kind === "turn.plan.updated") {
+      const taskListEntry = taskListWorkLogEntry(activity);
+      if (taskListEntry) entries.push(taskListEntry);
+      continue;
+    }
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
-    entries.push(toDerivedWorkLogEntry(activity));
+    if (isTaskListToolActivity(activity, planUpdateTurnIds)) continue;
+    const entry = toDerivedWorkLogEntry(activity);
+    const startedAt = entry.toolCallId ? toolStartedAtById.get(entry.toolCallId) : undefined;
+    if (startedAt !== undefined && startedAt !== entry.createdAt) entry.startedAt = startedAt;
+    entries.push(entry);
   }
   return collapseDerivedWorkLogEntries(entries);
 }
@@ -466,6 +559,21 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
     activity.kind === "runtime.warning" &&
     activity.summary.endsWith("(no displayable text content)")
   );
+}
+
+/** Each plan update is a quiet `Tasks 2/5 · step` row where the agent wrote it; it opens to every step. */
+function taskListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry | null {
+  const steps = taskListStepsFromPayload(activity.payload);
+  if (!steps || steps.length === 0) return null;
+  return {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    turnId: activity.turnId,
+    label: taskListLabel(steps),
+    tone: "info",
+    sourceActivityKind: activity.kind,
+    taskList: steps,
+  };
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -592,6 +700,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
+  }
+  const diffStat = mainAgentDiffStat(payload, changedFiles);
+  if (diffStat) {
+    entry.diffStat = diffStat;
   }
   if (title) {
     entry.toolTitle = title;
@@ -889,11 +1001,17 @@ function mergeDerivedWorkLogEntries(
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolData = next.toolData ?? previous.toolData;
+  const diffStat = next.diffStat ?? previous.diffStat;
+  const startedAt = mergeWorkStepStartedAt(previous, next);
+  const updatedAt = next.updatedAt ?? next.createdAt;
   return {
     ...previous,
     ...next,
+    ...(diffStat ? { diffStat } : {}),
     id: previous.id,
     createdAt: previous.createdAt,
+    ...(startedAt ? { startedAt } : {}),
+    ...(updatedAt !== previous.createdAt ? { updatedAt } : {}),
     ...(detail ? { detail } : {}),
     ...(viewedImagePath ? { viewedImagePath } : {}),
     ...(command ? { command } : {}),
@@ -967,6 +1085,7 @@ function workEntryStatus(entry: WorkLogEntry): ThreadFeedActivity["status"] {
 
 function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
   if (entry.agentSpawn) return "agent";
+  if (entry.taskList) return "checklist";
   if (
     entry.questionAnswer ||
     entry.sourceActivityKind === "user-input.requested" ||
@@ -1004,6 +1123,7 @@ function buildWorkEntryExpandedParts(entry: WorkLogEntry): WorkEntryExpandedPart
     const result = agentSpawnExpandedBody(entry.agentSpawn);
     return result ? { call: null, result } : null;
   }
+  if (entry.taskList) return { call: null, result: taskListText(entry.taskList) };
   const visibleLabel = workEntryRowLabel(entry, true).trim();
   const seen: string[] = [];
   const keep = (value: string | null | undefined) => {
@@ -1036,6 +1156,7 @@ function buildWorkEntryExpandedParts(entry: WorkLogEntry): WorkEntryExpandedPart
 
 function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
   if (entry.agentSpawn) return agentSpawnExpandedBody(entry.agentSpawn);
+  if (entry.taskList) return taskListText(entry.taskList);
   const blocks: string[] = [];
   const visibleLabel = workEntryRowLabel(entry, true).trim();
   const appendBlock = (value: string | null | undefined) => {
@@ -1065,6 +1186,7 @@ function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
 function workEntryCanExpand(entry: WorkLogEntry): boolean {
   if (entry.questionAnswer) return true;
   if (entry.agentSpawn) return agentSpawnMembers(entry.agentSpawn).length > 0;
+  if (entry.taskList) return entry.taskList.length > 0;
   if (entry.itemType === "mcp_tool_call" && entry.toolData !== undefined) return true;
   if (entry.changedFiles?.some((path) => path.trim().length > 0)) return true;
   return Boolean((entry.rawCommand ?? entry.command)?.trim() || entry.detail?.trim());
@@ -1080,9 +1202,52 @@ function stripShellWrapper(value: string): string {
   return (match?.[1] ?? trimmed).trim();
 }
 
+/**
+ * Where a work row shows its duration and line changes, by the same rules as
+ * web: the timeline meta when the timeline is on, the inline count when it is
+ * off, never both. Mobile keeps `createdAt` at the first row, so the step ends
+ * at `updatedAt`.
+ */
+export function workEntryRowStats(entry: WorkLogEntry, timeline: boolean) {
+  return resolveWorkRowStats(
+    {
+      createdAt: entry.updatedAt ?? entry.createdAt,
+      startedAt: entry.startedAt,
+      toolLifecycleStatus: entry.toolLifecycleStatus,
+      diffStat: entry.diffStat,
+    },
+    timeline,
+  );
+}
+
+const THOUGHT_PREVIEW_MAX_LENGTH = 240;
+
+/**
+ * A collapsed thought's one-line preview on the timeline, like web's: the
+ * first non-empty thought as plain text, with markdown syntax dropped.
+ */
+export function thoughtPreviewText(
+  messages: ReadonlyArray<{ readonly text: string }>,
+): string | null {
+  const text = messages.find((message) => message.text.trim().length > 0)?.text;
+  if (text === undefined) return null;
+  const plain = text
+    .slice(0, THOUGHT_PREVIEW_MAX_LENGTH * 4)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/[*_~`]+/g, "");
+  const preview = collapseWhitespace(plain).slice(0, THOUGHT_PREVIEW_MAX_LENGTH);
+  return preview.length > 0 ? preview : null;
+}
+
 /** Expanded rows retain detail formatting; commands stay in the separate body. */
 export function workEntryRowLabel(entry: WorkLogEntry, expanded = false): string {
   if (entry.agentSpawn) return agentSpawnLabel(entry.agentSpawn);
+  // The steps are the expanded body; the label stays the summary either way.
+  if (entry.taskList) return entry.label;
+  // "Declined · <instructions>"; the full instructions are the expanded detail.
+  if (entry.sourceActivityKind === APPROVAL_FEEDBACK_ACTIVITY_KIND) return entry.label;
   const presentation = resolveWorkEntryToolPresentation(entry);
   if (presentation) return presentation.displayName;
   if (expanded && entry.command?.trim()) return "Command";
@@ -1149,7 +1314,10 @@ export function agentSpawnLabel(spawn: NonNullable<WorkLogEntry["agentSpawn"]>):
 
 /** Workflow coordinators sit in their own batch but are not a member. */
 function agentSpawnMembers(spawn: NonNullable<WorkLogEntry["agentSpawn"]>) {
-  return spawn.agents.filter((_, index) => spawn.agentTaskIds[index] !== spawn.workflowId);
+  return spawn.agents.flatMap((agent, index) => {
+    const id = spawn.agentTaskIds[index];
+    return id === undefined || id === spawn.workflowId ? [] : [{ ...agent, id }];
+  });
 }
 
 function agentSpawnTone(status: WorkLogToolLifecycleStatus | undefined): AgentSpawnSummary["tone"] {
@@ -1180,6 +1348,7 @@ export function agentSpawnSummary(
   const members = agentSpawnMembers(spawn).map((agent) => {
     const tone = agentSpawnTone(agent.status);
     return {
+      id: agent.id,
       title: agent.title,
       status: tone === "working" ? "working" : (agent.status ?? tone),
       tone,
@@ -1233,6 +1402,7 @@ function agentSpawnExpandedBody(spawn: NonNullable<WorkLogEntry["agentSpawn"]>):
 
 function workEntryHeading(workEntry: WorkLogEntry): string {
   if (workEntry.agentSpawn) return agentSpawnLabel(workEntry.agentSpawn);
+  if (workEntry.taskList) return workEntry.label;
   const presentation = resolveWorkEntryToolPresentation(workEntry);
   if (presentation) return presentation.displayName;
   if (!workEntry.toolTitle) {
@@ -1689,6 +1859,7 @@ interface ThreadFeedTurnFold {
 function deriveThreadFeedTurnFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestTurn: ThreadFeedLatestTurn | null,
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined,
 ): ReadonlyMap<string, ThreadFeedTurnFold> {
   const firstAssistantMessageIdByTurn = new Map<TurnId, string>();
   const terminalAssistantMessageIdByTurn = new Map<TurnId, string>();
@@ -1810,13 +1981,16 @@ function deriveThreadFeedTurnFolds(
           );
     const duration = elapsedMs === null ? null : formatDuration(elapsedMs);
     const interrupted = latestTurnMatches && latestTurn.state === "interrupted";
-    const label = interrupted
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = appendTurnUsage(
+      interrupted
+        ? duration
+          ? `You stopped after ${duration}`
+          : "You stopped this response"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked",
+      turnUsageByTurnId?.get(turnId),
+    );
 
     foldsByAnchorId.set(firstHiddenEntry.id, {
       turnId,
@@ -1828,12 +2002,45 @@ function deriveThreadFeedTurnFolds(
   return foldsByAnchorId;
 }
 
+/**
+ * Usage for settled turns whose presented feed has no "Worked for ..." row,
+ * keyed by the turn's final assistant message, which shows it in its meta.
+ * A turn with a fold row carries usage there instead, so it never shows twice.
+ */
+export function deriveAssistantUsageLabels(
+  presentedFeed: ReadonlyArray<ThreadFeedEntry>,
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined,
+): ReadonlyMap<string, string> {
+  const labels = new Map<string, string>();
+  if (!turnUsageByTurnId || turnUsageByTurnId.size === 0) return labels;
+  const foldedTurnIds = new Set<TurnId>();
+  const terminalMessageIdByTurn = new Map<TurnId, string>();
+  for (const entry of presentedFeed) {
+    if (entry.type === "turn-fold") {
+      foldedTurnIds.add(entry.turnId);
+    } else if (
+      entry.type === "message" &&
+      entry.message.role === "assistant" &&
+      entry.message.turnId
+    ) {
+      terminalMessageIdByTurn.set(entry.message.turnId, entry.message.id);
+    }
+  }
+  for (const [turnId, messageId] of terminalMessageIdByTurn) {
+    if (foldedTurnIds.has(turnId)) continue;
+    const label = formatTurnUsage(turnUsageByTurnId.get(turnId));
+    if (label) labels.set(messageId, label);
+  }
+  return labels;
+}
+
 export function deriveThreadFeedPresentation(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestTurn: ThreadFeedLatestTurn | null,
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1845,7 +2052,7 @@ export function deriveThreadFeedPresentation(
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
   );
-  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
+  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn, turnUsageByTurnId);
   const unsettledTurnId = deriveUnsettledTurnId(latestTurn);
   const isWorking = activeWorkStartedAt !== null;
   const collapsedEntryIds = new Set<string>();
@@ -2026,7 +2233,10 @@ function appendMixedActivityRun(
   }
   const toolSummary = toolRows.find((entry) => entry.type === "work-toggle");
   const thinking = live && (last.type === "message" || !toolSummary?.shimmer);
-  const thoughtCount = run.filter((entry) => entry.type === "message").length;
+  const thoughts = history.flatMap((entry) =>
+    entry.type === "message" ? (entry.reasoningMessages ?? [entry.message]) : [],
+  );
+  const thoughtCount = thoughts.length;
   result.push({
     type: "work-toggle",
     id: live ? LIVE_ACTIVITY_ROW_ID : `work-toggle:${groupId}`,
@@ -2035,9 +2245,7 @@ function appendMixedActivityRun(
     groupId,
     hiddenCount: activities.length + thoughtCount,
     expanded,
-    summary: thinking
-      ? "Thinking"
-      : (toolSummary?.summary ?? `Thought${thoughtCount > 1 ? ` (×${thoughtCount})` : ""}`),
+    summary: thinking ? "Thinking" : (toolSummary?.summary ?? formatThoughtLabel(thoughts)),
     summaryKind: toolSummary?.summaryKind ?? "other",
     ...(thinking || !toolSummary
       ? { summaryToolIcon: "brain" as const }
@@ -2050,8 +2258,64 @@ function appendMixedActivityRun(
     live,
     shimmer: live,
   });
-  if (expanded) result.push(...history);
+  if (expanded) {
+    // Like web: reasoning alone has no steps to put on a rail.
+    if (activities.length > 0) {
+      result.push(...timelineHistory(history, live, unsettledTurnId));
+    } else {
+      result.push(...history);
+    }
+  }
   activityRunsCache.set(first, { source: run, state, rows: result.slice(outputStart) });
+}
+
+/**
+ * Marks an opened run's rows with their place on the timeline rail. In a live
+ * run the trailing group's running call is the ringed step, as on web, where a
+ * thought after it means the agent moved on.
+ */
+function timelineHistory(
+  allHistory: ReadonlyArray<ThreadFeedEntry>,
+  live: boolean,
+  unsettledTurnId: TurnId | null,
+): ThreadFeedEntry[] {
+  // A group whose calls are all hidden renders nothing, so it must not take a
+  // step: its neighbour's rail would run on to a dot that never draws.
+  const history = allHistory.filter(
+    (entry) => entry.type !== "activity-group" || entry.activities.length > 0,
+  );
+  const trailing = history.at(-1);
+  const runningId =
+    live && trailing?.type === "activity-group"
+      ? trailing.activities.findLast(
+          (activity) =>
+            activity.lifecycleStatus === "inProgress" && activity.turnId === unsettledTurnId,
+        )?.id
+      : undefined;
+  return history.map((entry, index) => {
+    const timelineStep: ThreadTimelineStep =
+      history.length === 1
+        ? "only"
+        : index === 0
+          ? "first"
+          : index === history.length - 1
+            ? "last"
+            : "middle";
+    if (entry.type === "activity-group") {
+      return {
+        ...entry,
+        timelineStep,
+        ...(runningId !== undefined && entry === trailing
+          ? {
+              activities: entry.activities.map((activity) =>
+                activity.id === runningId ? { ...activity, runningStep: true } : activity,
+              ),
+            }
+          : {}),
+      };
+    }
+    return entry.type === "message" ? { ...entry, timelineStep } : entry;
+  });
 }
 
 function groupConsecutiveReasoningMessages(
@@ -2333,15 +2597,15 @@ function appendToolGroupRows(
     id: `work-details:${groupId}`,
     createdAt: activities[0]!.createdAt,
     turnId: activities[0]!.turnId,
-    activities: activities.map((activity) => ({
-      ...activity,
-      groupedToolDetail: true,
-      live:
+    activities: activities.map((activity) => {
+      const running =
         isWorking &&
         activity.id === latestActivity.id &&
         activity.lifecycleStatus === "inProgress" &&
-        activity.turnId === unsettledTurnId,
-    })),
+        activity.turnId === unsettledTurnId;
+      return { ...activity, groupedToolDetail: true, live: running, runningStep: running };
+    }),
+    timelineStep: "only",
   });
 }
 

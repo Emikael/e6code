@@ -73,7 +73,7 @@ export function ThreadSearchMatchExcerpt(props: {
               ? props.sidebar
                 ? "text-drawer-foreground-muted"
                 : "text-foreground-secondary"
-              : "text-adaptive-emerald-600-400",
+              : "text-success-foreground",
         )}
       >
         {isUser ? "You:" : "Agent:"}{" "}

@@ -4,6 +4,7 @@ import {
   BUILT_IN_THEMES,
   E6_CHAT_THEME,
   E6_CODE_LIGHT_THEME_COLORS,
+  E6_CODE_DARK_MOBILE_PANE_COLORS,
   E6_CODE_DARK_THEME_COLORS,
   MOBILE_THEME_IDS,
   getThemeColorsForAppearance,
@@ -79,10 +80,12 @@ describe("mobile themes", () => {
   it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
       const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+      // Default dark keeps mobile's darker pane under the chat (see
+      // E6_CODE_DARK_MOBILE_PANE_COLORS); every other role is the web's.
       const colors = theme
         ? getThemeColorsForAppearance(theme, appearance)!
         : appearance === "dark"
-          ? E6_CODE_DARK_THEME_COLORS
+          ? { ...E6_CODE_DARK_THEME_COLORS, ...E6_CODE_DARK_MOBILE_PANE_COLORS }
           : E6_CODE_LIGHT_THEME_COLORS;
       const variables =
         themeId === DEFAULT_MOBILE_THEME_ID
@@ -139,6 +142,15 @@ describe("mobile themes", () => {
         ["--color-user-bubble-foreground", "--color-user-bubble"],
         ["--color-warning-foreground", "--color-warning"],
         ["--color-danger-foreground", "--color-danger"],
+        ["--color-merged-foreground", "--color-merged"],
+        ["--color-merged-foreground", "--color-screen"],
+        ["--color-merged-foreground", "--color-card"],
+        ["--color-merged-foreground", "--color-drawer"],
+        ["--color-merged-foreground", "--color-thread-selected"],
+        ["--color-diff-addition-foreground", "--color-screen"],
+        ["--color-diff-addition-foreground", "--color-card"],
+        ["--color-diff-deletion-foreground", "--color-screen"],
+        ["--color-diff-deletion-foreground", "--color-card"],
         ["--color-md-body", "--color-screen"],
         ["--color-md-strong", "--color-screen"],
         ["--color-md-link", "--color-screen"],
@@ -225,9 +237,9 @@ describe("mobile themes", () => {
 
   it("uses the same preview roles and standard artwork as desktop", () => {
     expect(getMobileThemePreviewColors(DEFAULT_MOBILE_THEME_ID, "light")).toEqual({
-      canvas: "#f6f6f2",
-      accent: "#e7e8e0",
-      messageAction: "#c4ee3a",
+      canvas: "#ffffff",
+      accent: "#eef0f4",
+      messageAction: "#5b4ae0",
     });
     const desktopOcean = BUILT_IN_THEMES.find((theme) => theme.id === "ocean")!;
     expect(getMobileThemePreviewColors("ocean", "light")).toEqual({

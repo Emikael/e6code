@@ -1134,6 +1134,10 @@ export function makeCursorAdapter(
           // superseded prompt resolving (usually cancelled) while another is
           // in flight or pending must leave the merged turn running.
           if (ctx.promptsInFlight === 1) {
+            // Usage is not supported: Cursor is not known to send ACP's
+            // unstable prompt `usage` or `usage_update`, so the turn carries
+            // no tokenUsage or turnCostUsd and records no usage row. Map them
+            // here if Cursor starts sending them.
             yield* offerRuntimeEvent({
               type: "turn.completed",
               ...(yield* makeEventStamp()),

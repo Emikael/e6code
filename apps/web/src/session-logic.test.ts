@@ -8,6 +8,7 @@ import {
 } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { resolveWorkEntryToolPresentation } from "@e6tools/client-runtime/work-log/presentation";
+import { workEntryDisplayLabel } from "./components/chat/MessagesTimeline.logic";
 
 import {
   createMessageAttachmentPreviewProjector,
@@ -477,6 +478,117 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("carries a main-agent file change's line counts, never a subagent's", () => {
+    const edit = (agentId?: string) =>
+      makeActivity({
+        kind: "tool.completed",
+        turnId: "turn-1",
+        payload: {
+          itemType: "file_change",
+          status: "completed",
+          data: { input: { file_path: "/repo/src/a.ts" } },
+          changedFiles: [{ path: "/repo/src/a.ts", additions: 48, deletions: 12 }],
+          ...(agentId ? { agentId } : {}),
+        },
+      });
+    expect(deriveWorkLogEntries([edit()])[0]?.diffStat).toEqual({
+      additions: 48,
+      deletions: 12,
+    });
+    expect(deriveWorkLogEntries([edit("task-1")])[0]?.diffStat).toBeUndefined();
+  });
+
+  it("shows a declined approval with the instructions the provider received", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "approval-feedback:approval-1",
+        kind: "approval.declined-with-instructions",
+        tone: "approval",
+        summary: "Declined · Only delete build/cache",
+        payload: { requestId: "approval-1", feedback: "Only delete build/cache" },
+      }),
+    ]);
+    expect(entries.map((entry) => workEntryDisplayLabel(entry, undefined))).toEqual([
+      "Declined · Only delete build/cache",
+    ]);
+
+    // Long instructions keep the short label; the full text is the expanded detail.
+    const full = `Only delete build/cache\nKeep ${"the fixtures ".repeat(20).trim()}`;
+    const [long] = deriveWorkLogEntries([
+      makeActivity({
+        kind: "approval.declined-with-instructions",
+        tone: "approval",
+        summary: "Declined · Only delete build/cache",
+        payload: { requestId: "approval-2", feedback: full, detail: full },
+      }),
+    ]);
+    expect(workEntryDisplayLabel(long!, undefined)).toBe("Declined · Only delete build/cache");
+    expect(long!.detail).toBe(full);
+  });
+
+  it("keeps when a step started and the line counts its file change reported", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        kind: "tool.started",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        sequence: 0,
+        payload: { itemType: "file_change", toolCallId: "edit-1", title: "Edit" },
+      }),
+      makeActivity({
+        id: "edit-updated",
+        kind: "tool.updated",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        sequence: 1,
+        payload: {
+          itemType: "file_change",
+          toolCallId: "edit-1",
+          title: "Edit",
+          status: "inProgress",
+        },
+      }),
+      makeActivity({
+        kind: "tool.completed",
+        createdAt: "2026-02-23T00:00:02.200Z",
+        turnId: "turn-1",
+        sequence: 2,
+        payload: {
+          itemType: "file_change",
+          toolCallId: "edit-1",
+          title: "Edit",
+          status: "completed",
+          changedFiles: [
+            { path: "src/a.ts", additions: 40, deletions: 2 },
+            { path: "src/b.ts", additions: 8, deletions: 10 },
+          ],
+        },
+      }),
+    ]);
+    expect(entry).toMatchObject({
+      startedAt: "2026-02-23T00:00:01.000Z",
+      createdAt: "2026-02-23T00:00:02.200Z",
+      toolLifecycleStatus: "completed",
+      diffStat: { additions: 48, deletions: 12 },
+    });
+  });
+
+  it("leaves the diff stat out when a file has no line counts", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        kind: "tool.completed",
+        payload: {
+          itemType: "file_change",
+          toolCallId: "edit-2",
+          status: "completed",
+          changedFiles: [{ path: "src/a.ts", additions: 1, deletions: 0 }, { path: "src/b.ts" }],
+        },
+      }),
+    ]);
+    expect(entry?.diffStat).toBeUndefined();
+    expect(entry?.startedAt).toBeUndefined();
+  });
+
   it("shows each plan update as a Tasks row and keeps the latest task progress", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),
@@ -2045,6 +2157,21 @@ describe("deriveWorkLogEntries context window handling", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.label).toBe("Ran command");
+  });
+
+  it("excludes turn usage records, which belong to the turn's fold row", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "usage-1",
+        turnId: "turn-1",
+        kind: "turn.usage",
+        summary: "Turn usage",
+        tone: "info",
+        payload: { totalTokens: 10, partial: false },
+      }),
+    ]);
+
+    expect(entries).toEqual([]);
   });
 
   it("keeps context compaction activities as normal work log entries", () => {

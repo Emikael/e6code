@@ -227,7 +227,7 @@ const ENVIRONMENT_MENU_ACTIONS = [
 
 // Layout primitives that mirror clerk-ios ClerkKitUI's profile rows so a custom
 // page reads as one of Clerk's own screens. System font on purpose: Clerk's
-// native views do not use the app's DM Sans.
+// native views do not use the app's Geist.
 
 function ClerkSectionHeader(props: { readonly children: string }) {
   return (

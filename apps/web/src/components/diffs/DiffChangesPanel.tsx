@@ -20,7 +20,7 @@ import { useGitStackedAction } from "~/state/sourceControlActions";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 
-import { DiffStatLabel, hasNonZeroStat } from "../chat/DiffStatLabel";
+import { DiffStat, hasNonZeroStat } from "../DiffStat";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -40,13 +40,13 @@ interface DiffChangesPanelProps {
 }
 
 const KIND_TONE: Record<VcsFileChangeKind, string> = {
-  modified: "text-warning",
-  added: "text-success",
-  untracked: "text-success",
+  modified: "text-warning-foreground",
+  added: "text-success-foreground",
+  untracked: "text-success-foreground",
   deleted: "text-destructive-foreground",
   renamed: "text-info",
   copied: "text-info",
-  "type-changed": "text-warning",
+  "type-changed": "text-warning-foreground",
   conflicted: "text-error",
 };
 
@@ -409,7 +409,7 @@ function ChangeSection(props: {
         <div className="ml-auto flex items-center">{props.actions}</div>
       </div>
       {props.entries.length === 0 ? (
-        <p className="px-3 pb-2 text-[11px] text-muted-foreground/80">{props.emptyHint}</p>
+        <p className="px-3 pb-2 text-[11px] text-muted-foreground">{props.emptyHint}</p>
       ) : (
         props.entries.map((entry) => (
           <ChangeRow
@@ -458,7 +458,7 @@ const ChangeRow = memo(function ChangeRow(props: {
       >
         <span className="min-w-0 shrink truncate text-foreground">{name}</span>
         {directory ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
             {directory}
           </span>
         ) : (
@@ -470,10 +470,9 @@ const ChangeRow = memo(function ChangeRow(props: {
       </div>
       {entry.stat &&
       hasNonZeroStat({ additions: entry.stat.insertions, deletions: entry.stat.deletions }) ? (
-        <DiffStatLabel
+        <DiffStat
           additions={entry.stat.insertions}
           deletions={entry.stat.deletions}
-          layout="inline"
           className="text-[10px] group-focus-within/row:hidden group-hover/row:hidden pointer-coarse:hidden"
         />
       ) : null}

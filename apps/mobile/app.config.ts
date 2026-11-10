@@ -114,10 +114,16 @@ const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
   : variant.iosBundleIdentifier;
 
-const dmSansFonts = {
-  regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
-  medium: "@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf",
-  bold: "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf",
+const geistFonts = {
+  regular: "@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf",
+  medium: "@expo-google-fonts/geist/500Medium/Geist_500Medium.ttf",
+  semibold: "@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf",
+  bold: "@expo-google-fonts/geist/700Bold/Geist_700Bold.ttf",
+} as const;
+
+const geistMonoFonts = {
+  regular: "@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf",
+  bold: "@expo-google-fonts/geist-mono/700Bold/GeistMono_700Bold.ttf",
 } as const;
 
 const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
@@ -301,21 +307,40 @@ const config: ExpoConfig = {
       "expo-font",
       {
         ios: {
-          fonts: [dmSansFonts.regular, dmSansFonts.medium, dmSansFonts.bold],
+          fonts: [
+            geistFonts.regular,
+            geistFonts.medium,
+            geistFonts.semibold,
+            geistFonts.bold,
+            geistMonoFonts.regular,
+            geistMonoFonts.bold,
+          ],
         },
         android: {
           fonts: [
             {
-              fontFamily: "DMSans-Regular",
-              fontDefinitions: [{ path: dmSansFonts.regular, weight: 400 }],
+              fontFamily: "Geist-Regular",
+              fontDefinitions: [{ path: geistFonts.regular, weight: 400 }],
             },
             {
-              fontFamily: "DMSans-Medium",
-              fontDefinitions: [{ path: dmSansFonts.medium, weight: 500 }],
+              fontFamily: "Geist-Medium",
+              fontDefinitions: [{ path: geistFonts.medium, weight: 500 }],
             },
             {
-              fontFamily: "DMSans-Bold",
-              fontDefinitions: [{ path: dmSansFonts.bold, weight: 700 }],
+              fontFamily: "Geist-SemiBold",
+              fontDefinitions: [{ path: geistFonts.semibold, weight: 600 }],
+            },
+            {
+              fontFamily: "Geist-Bold",
+              fontDefinitions: [{ path: geistFonts.bold, weight: 700 }],
+            },
+            {
+              // Code surfaces set this family and toggle bold with fontWeight.
+              fontFamily: "GeistMono-Regular",
+              fontDefinitions: [
+                { path: geistMonoFonts.regular, weight: 400 },
+                { path: geistMonoFonts.bold, weight: 700 },
+              ],
             },
           ],
         },

@@ -104,7 +104,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --glass-opacity: 80%;
   --glass-saturation: 1.14;
   --desktop-window-right-resize-inset: 0px;
-  --workspace-topbar-height: 52px;
+  --workspace-topbar-height: 56px;
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
@@ -123,7 +123,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 }
 
 .wco {
-  --workspace-topbar-height: env(titlebar-area-height, 52px);
+  --workspace-topbar-height: env(titlebar-area-height, 56px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
   --workspace-controls-right: calc(
@@ -138,18 +138,19 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
    the variables and Settings -> Appearance can override them at runtime. The
    default stacks are mirrored in `appearanceFonts.ts`. */
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-sans:
+    "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono:
-    ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    "Geist Mono Variable", ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 @theme inline {
   --color-zinc-25: oklch(99.2% 0 0);
-  --animate-skeleton: skeleton 2.4s infinite;
-  /* Duty-cycled indicator animations: long holds with stepped ramps, so the
-     compositor updates discrete frames instead of every vsync. */
-  --animate-status-pulse: status-pulse 2s infinite;
-  --animate-status-ping: status-ping 2s infinite;
+  /* Both run once and settle. Status dots stay static: a looping animation
+     repaints every frame for as long as the state lasts. */
+  --animate-skeleton: skeleton 2.4s;
+  --animate-status-ping: status-ping 2s both;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -160,6 +161,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --color-update-foreground: var(--update-foreground);
   --color-update: var(--update);
   --color-update-surface: var(--update-surface);
+  --color-merged-foreground: var(--merged-foreground);
+  --color-merged: var(--merged);
+  --color-merged-surface: var(--merged-surface);
   --color-success-foreground: var(--success-foreground);
   --color-success: var(--success);
   --color-diff-addition: var(--diff-addition);
@@ -219,9 +223,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --radius-3xl: calc(var(--radius) + 12px);
   @keyframes skeleton {
     /* The single loading-bar breath used by every skeleton: one opacity pulse
-       per container, stepped so however many bars sit under it, the compositor
-       draws a handful of discrete frames per cycle rather than one per vsync —
-       which on a 120Hz display is the difference between ~14 and ~288 updates. */
+       per container that ends at rest, stepped so however many bars sit under
+       it, the compositor draws a handful of discrete frames rather than one
+       per vsync. */
     0%,
     42% {
       opacity: 1;
@@ -236,25 +240,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
       opacity: 1;
     }
   }
-  @keyframes status-pulse {
-    0%,
-    40% {
-      opacity: 1;
-      animation-timing-function: steps(6);
-    }
-    50%,
-    90% {
-      opacity: 0.5;
-      animation-timing-function: steps(6);
-    }
-    100% {
-      opacity: 1;
-    }
-  }
   @keyframes status-ping {
-    /* Burst first (immediate feedback for click ripples), then hold
-       invisible for the rest of the cycle. Mirrors animate-ping's
-       75%-scale start. */
+    /* One click ripple: burst first for immediate feedback, then hold
+       invisible. Mirrors animate-ping's 75%-scale start. */
     0% {
       opacity: 0.9;
       scale: 0.75;
@@ -469,115 +457,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   }
 }
 
-@keyframes live-tool-shine {
-  from {
-    background-position:
-      -4.5rem 0,
-      0 0;
-  }
-  to {
-    background-position:
-      calc(100% + 4.5rem) 0,
-      0 0;
-  }
-}
-
-@utility live-tool-shine {
-  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
-    color: transparent;
-    background-image:
-      linear-gradient(to right, transparent, var(--contrast-foreground), transparent),
-      linear-gradient(var(--contrast-secondary-label), var(--contrast-secondary-label));
-    background-size:
-      4.5rem 100%,
-      100% 100%;
-    background-repeat: no-repeat;
-    background-clip: text;
-    animation: live-tool-shine 2.2s steps(30) infinite;
-    animation-play-state: var(--visible-animation-state, paused);
-  }
-}
-
 @utility visible-animate-spin {
   animation: var(--animate-spin);
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
-}
-
-@keyframes live-activity-focus {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-
-@keyframes live-activity-focus-counter {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-100%);
-  }
-}
-
-@utility live-activity-focus {
-  --live-activity-focus-width: 4.5rem;
-
-  right: auto;
-  left: calc(-1 * var(--live-activity-focus-width));
-  width: calc(100% + var(--live-activity-focus-width) + var(--live-activity-focus-width));
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    rgb(0 0 0 / 12%) 0.675rem,
-    rgb(0 0 0 / 55%) 1.575rem,
-    black 2.25rem,
-    rgb(0 0 0 / 55%) 2.925rem,
-    rgb(0 0 0 / 12%) 3.825rem,
-    transparent var(--live-activity-focus-width),
-    transparent 100%
-  );
-  -webkit-mask-repeat: no-repeat;
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    rgb(0 0 0 / 12%) 0.675rem,
-    rgb(0 0 0 / 55%) 1.575rem,
-    black 2.25rem,
-    rgb(0 0 0 / 55%) 2.925rem,
-    rgb(0 0 0 / 12%) 3.825rem,
-    transparent var(--live-activity-focus-width),
-    transparent 100%
-  );
-  mask-repeat: no-repeat;
-  animation: live-activity-focus 2.2s linear infinite;
-  animation-play-state: var(--visible-animation-state, paused);
-  will-change: var(--visible-animation-will-change, auto);
-
-  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
-    animation: none;
-    opacity: 0;
-    will-change: auto;
-  }
-}
-
-@utility live-activity-focus-counter {
-  width: 100%;
-  animation: live-activity-focus-counter 2.2s linear infinite;
-  animation-play-state: var(--visible-animation-state, paused);
-  will-change: var(--visible-animation-will-change, auto);
-
-  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
-    animation: none;
-    will-change: auto;
-  }
-}
-
-@utility live-activity-focus-aligned {
-  width: calc(100% - var(--live-activity-focus-width) - var(--live-activity-focus-width));
-  margin-left: var(--live-activity-focus-width);
 }
 
 @property --assistant-citation-highlight-opacity {
@@ -662,7 +545,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   }
   body {
     @apply text-foreground relative;
-    /* primary-text, not primary: a light accent such as Volt vanishes as a
+    /* primary-text, not primary: a light theme accent vanishes as a
        1px caret or a translucent selection wash on light grounds. */
     caret-color: var(--primary-text);
   }
@@ -1030,7 +913,20 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 :root {
   color-scheme: light;
   --radius: 0.5rem;
-  --background: #f6f6f2;
+  /* Porcelain: white content over cool slate-tinted chrome. */
+  --background: #ffffff;
+  /* Floating panels: the sidebar and the content are separate panels on a
+     slate-tinted window ground, a panel gap apart. */
+  --app-window-background: #eef0f4;
+  --panel-gap: 0.5rem;
+  --radius-panel: 14px;
+  --floating-controls-top: 0px;
+  --floating-controls-left: 0px;
+
+  @media (width >= 48rem) {
+    --floating-controls-top: calc(var(--panel-gap) + 1px);
+    --floating-controls-left: calc(var(--panel-gap) + 1px);
+  }
   --app-chrome-background: var(--background);
   --toolbar-background: var(--app-chrome-background);
   --toolbar-foreground: var(--foreground);
@@ -1038,65 +934,74 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --toolbar-control: var(--popover);
   --toolbar-control-foreground: var(--foreground);
   --toolbar-control-hover: var(--accent);
-  --surface-well: #e6e6df;
-  --surface-raised: #fbfbf8;
+  --surface-well: #eceef2;
+  --surface-raised: #f8f9fb;
   --surface-floating: var(--popover);
   --bezel-highlight: rgb(255 255 255 / 72%);
   --bezel-border: color-mix(in srgb, var(--foreground) 8%, transparent);
-  --command-deck-shadow: 0 16px 36px -14px rgb(27 28 24 / 12%), 0 2px 6px -1px rgb(27 28 24 / 5%);
-  --foreground: #1b1c18;
+  --command-deck-shadow: 0 16px 36px -14px rgb(20 22 27 / 16%), 0 2px 6px -1px rgb(20 22 27 / 5%);
+  --foreground: #14161b;
   --card: #ffffff;
   --card-foreground: var(--foreground);
   --popover: #ffffff;
   --popover-foreground: var(--foreground);
-  --primary: #c4ee3a;
-  --primary-foreground: #1b1c18;
-  /* Volt is a light fill: it carries ink text, a darker edge on light grounds,
-     a readable text variant, and a translucent wash for selections. */
-  --primary-hover: #b6e021;
-  --primary-edge: #6f920a;
-  --primary-text: #4b6b00;
-  --primary-surface: rgb(196 238 58 / 16%);
-  --secondary: #e9eae2;
-  --secondary-foreground: #2a2b26;
-  --muted: #efefe9;
-  --muted-foreground: #5d5f56;
-  --placeholder: #6f7168;
+  /* Iris is the one accent: the next action and a working agent. It carries
+     white ink on Porcelain, a darker edge and text variant, and a translucent
+     wash for selections and the Working pill. The Accent setting swaps the
+     family through the --stock-primary* variables (stockAccent.ts); the
+     literals are Iris. */
+  --primary: var(--stock-primary, #5b4ae0);
+  --primary-foreground: var(--stock-primary-foreground, #ffffff);
+  --primary-hover: var(--stock-primary-hover, #4c3bd1);
+  --primary-edge: var(--stock-primary-edge, #4a3ad0);
+  --primary-text: var(--stock-primary-text, #4a3ad0);
+  --primary-surface: color-mix(in srgb, var(--primary) 8%, transparent);
+  --secondary: #eceef2;
+  --secondary-foreground: #2a2d35;
+  --muted: #f1f3f6;
+  --muted-foreground: #5a606d;
+  --placeholder: #6b7180;
   --secondary-label: var(--muted-foreground);
   --icon-muted: var(--muted-foreground);
-  --message-surface: #e9eae2;
+  --message-surface: #eceef2;
   --message-foreground: var(--foreground);
   --message-action: var(--primary);
   --message-action-foreground: var(--primary-foreground);
   --message-action-hover: var(--primary-hover);
-  --accent: #e7e8e0;
+  --accent: #eef0f4;
   --accent-foreground: var(--foreground);
-  --error: #d92d20;
+  --error: #dc2626;
   --error-foreground: #b42318;
   --tool-error-icon: var(--error);
   --error-surface: color-mix(in srgb, var(--error) 8%, transparent);
   --destructive: var(--error);
-  --border: #dfdfd7;
-  --input: #cfd0c6;
-  --ring: #4b6b00;
+  --border: #e3e5ea;
+  --input: #cdd1d9;
+  --ring: var(--primary);
   --destructive-foreground: var(--error-foreground);
-  --info: #2970ff;
-  --info-foreground: #1849a9;
-  --success: #0e9384;
-  --success-foreground: #107569;
-  --warning: #b86e00;
-  --warning-foreground: #93570a;
+  --info: #2563eb;
+  --info-foreground: #1d4ed8;
+  --success: #0f9f8c;
+  --success-foreground: #096b5f;
+  --warning: #d97706;
+  --warning-foreground: #92400e;
   --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
   --update: var(--info);
   --update-foreground: var(--info-foreground);
   --update-surface: color-mix(in srgb, var(--update) 12%, transparent);
+  /* Merged pull requests pair with the accent (STOCK_ACCENT_PALETTES in
+     themePalettes.ts) so they never share the primary's hue; the literals
+     are Iris's fuchsia. */
+  --merged: var(--stock-merged, #c026d3);
+  --merged-foreground: var(--stock-merged-foreground, #a21caf);
+  --merged-surface: color-mix(in srgb, var(--merged) 8%, transparent);
   /* Keep every sidebar primitive on the same light surface hierarchy, including
      portaled mobile sheets and settings navigation outside the app sidebar. */
-  --sidebar: #eeeee8;
+  --sidebar: #f8f9fb;
   --sidebar-foreground: var(--foreground);
-  --sidebar-muted-foreground: #5a5c53;
-  --sidebar-control-surface: #e5e6de;
-  --sidebar-row-hover: #e5e6de;
+  --sidebar-muted-foreground: #5a606d;
+  --sidebar-control-surface: #eceef2;
+  --sidebar-row-hover: #eceef2;
   --sidebar-row-active: #ffffff;
   --sidebar-row-selected: #ffffff;
   --sidebar-border: var(--border);
@@ -1105,102 +1010,107 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --code-foreground: var(--foreground);
   --terminal-background: var(--background);
   --terminal-foreground: var(--foreground);
-  --terminal-cursor: #1b1c18;
-  --terminal-selection-background: rgb(75 107 0 / 20%);
+  --terminal-cursor: #14161b;
+  --terminal-selection-background: var(--stock-terminal-selection, rgb(91 74 224 / 18%));
 
   @variant dark {
     color-scheme: dark;
-    /* Graphite: warm near-black canvas with surfaces stepping lighter as they
-       rise. Borders and hover states provide separation without milky fills. */
-    --background: #0e0f0d;
-    --surface-well: #090a08;
-    --surface-raised: #1b1c19;
-    --surface-floating: #20211e;
+    /* Slate: cool blue-grey surfaces. The sidebar sits one step darker than
+       the thread, cards and overlays step lighter, and borders and hover
+       states provide separation without milky fills. */
+    --background: #1a1d23;
+    --app-window-background: #0c0d10;
+    --surface-well: #0f1114;
+    --surface-raised: #13151a;
+    --surface-floating: #22252c;
     --bezel-highlight: rgb(255 255 255 / 5%);
     --bezel-border: color-mix(in srgb, var(--color-white) 7.5%, transparent);
-    --command-deck-shadow: 0 22px 44px -16px rgb(0 0 0 / 68%), 0 4px 12px -2px rgb(0 0 0 / 42%);
-    --foreground: #ecede5;
-    --card: #171815;
+    --command-deck-shadow: 0 22px 44px -16px rgb(0 0 0 / 70%), 0 4px 12px -2px rgb(0 0 0 / 42%);
+    --foreground: #eceef3;
+    --card: #22252c;
     --card-foreground: var(--foreground);
-    --popover: #20211e;
+    --popover: #22252c;
     --popover-foreground: var(--foreground);
-    --primary: #c4ee3a;
-    --primary-foreground: #141510;
-    --primary-hover: #d2f566;
-    --primary-edge: #c4ee3a;
-    --primary-text: #c4ee3a;
-    --primary-surface: rgb(196 238 58 / 12%);
-    --ring: #c4ee3a;
-    --placeholder: #85877d;
-    --info: #528bff;
-    --success: #2ed3b7;
-    --warning: #fdb022;
+    --primary: var(--stock-primary-dark, #9b8cff);
+    --primary-foreground: var(--stock-primary-foreground-dark, #14102e);
+    --primary-hover: var(--stock-primary-hover-dark, #ada0ff);
+    --primary-edge: var(--stock-primary-edge-dark, #9b8cff);
+    --primary-text: var(--stock-primary-text-dark, #b9afff);
+    --primary-surface: color-mix(in srgb, var(--primary) 12%, transparent);
+    --ring: var(--primary);
+    --placeholder: #8c92a0;
+    --info: #60a5fa;
+    --success: #2dd4bf;
+    --warning: #fbbf24;
     --secondary: --alpha(var(--color-white) / 3%);
-    --secondary-foreground: #e1e2da;
+    --secondary-foreground: #dfe2e8;
     --muted: --alpha(var(--color-white) / 3%);
-    --muted-foreground: #9d9f95;
+    --muted-foreground: #9da3b0;
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--foreground);
-    /* A user turn sits above the composer tone, level with the selected sidebar row. */
-    --message-surface: #1f201c;
-    --error: #f97066;
-    --error-foreground: #fda29b;
+    /* A user turn sits on the composer tone, level with floating surfaces. */
+    --message-surface: #22252c;
+    --error: #f87171;
+    --error-foreground: #fca5a5;
     --tool-error-icon: #fca5a5;
     --error-surface: color-mix(in srgb, var(--error) 16%, transparent);
-    --border: rgb(255 255 255 / 9%);
-    --input: rgb(255 255 255 / 14%);
-    --info-foreground: #84adff;
-    --success-foreground: #5fe9d0;
-    --warning-foreground: #fec84b;
+    --border: rgb(255 255 255 / 7%);
+    --input: rgb(255 255 255 / 13%);
+    --info-foreground: #93c5fd;
+    --success-foreground: #5eead4;
+    --warning-foreground: #fcd34d;
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
-    --update-foreground: #84adff;
+    --update-foreground: #93c5fd;
     --update-surface: color-mix(in srgb, var(--update) 18%, transparent);
-    --sidebar: #040504;
+    --merged: var(--stock-merged-dark, #e879f9);
+    --merged-foreground: var(--stock-merged-foreground-dark, #f39be6);
+    --merged-surface: color-mix(in srgb, var(--merged) 16%, transparent);
+    --sidebar: #13151a;
     --sidebar-control-surface: var(--muted);
     --sidebar-row-hover: var(--accent);
     --sidebar-row-active: var(--accent);
     --sidebar-row-selected: var(--muted);
     --sidebar-stage-fade: var(--sidebar);
-    --terminal-cursor: #c4ee3a;
-    --terminal-selection-background: rgb(196 238 58 / 22%);
+    --terminal-cursor: var(--stock-terminal-cursor-dark, #9b8cff);
+    --terminal-selection-background: var(--stock-terminal-selection-dark, rgb(155 140 255 / 22%));
   }
 }
 
 /* Keep both sidebar implementations (default and legacy) on the same quiet
-   paper hierarchy: a chrome-toned rail, a tinted hover, and white
+   porcelain hierarchy: a slate-tinted rail, a tinted hover, and white
    selected/raised surfaces. */
 [data-app-sidebar] {
-  --background: #f6f6f2;
-  --foreground: #1b1c18;
+  --background: #ffffff;
+  --foreground: #14161b;
   --card: #ffffff;
-  --card-foreground: #1b1c18;
-  --accent: #e7e8e0;
-  --accent-foreground: #1b1c18;
-  --muted: #efefe9;
-  --muted-foreground: #5d5f56;
-  --border: #dfdfd7;
-  --input: #cfd0c6;
-  --sidebar: #eeeee8;
-  --sidebar-foreground: #1b1c18;
-  --sidebar-muted-foreground: #5a5c53;
-  --sidebar-control-surface: #e5e6de;
-  --sidebar-row-hover: #e5e6de;
+  --card-foreground: #14161b;
+  --accent: #eef0f4;
+  --accent-foreground: #14161b;
+  --muted: #f1f3f6;
+  --muted-foreground: #5a606d;
+  --border: #e3e5ea;
+  --input: #cdd1d9;
+  --sidebar: #f8f9fb;
+  --sidebar-foreground: #14161b;
+  --sidebar-muted-foreground: #5a606d;
+  --sidebar-control-surface: #eceef2;
+  --sidebar-row-hover: #eceef2;
   --sidebar-row-active: #ffffff;
   --sidebar-row-selected: #ffffff;
-  --sidebar-border: #dfdfd7;
+  --sidebar-border: #e3e5ea;
   --sidebar-stage-fade: var(--sidebar);
 
   @variant dark {
-    --background: #0e0f0d;
-    --foreground: #ecede5;
-    --card: #040504;
+    --background: #1a1d23;
+    --foreground: #eceef3;
+    --card: #13151a;
     --card-foreground: var(--foreground);
-    --accent: #20211e;
-    --accent-foreground: #f4f5ee;
-    --muted: #171815;
-    --muted-foreground: #9d9f95;
-    --border: rgb(255 255 255 / 9%);
-    --input: rgb(255 255 255 / 18%);
+    --accent: #22252c;
+    --accent-foreground: #f1f2f6;
+    --muted: #1a1d23;
+    --muted-foreground: #9da3b0;
+    --border: rgb(255 255 255 / 7%);
+    --input: rgb(255 255 255 / 16%);
     --sidebar: var(--card);
     --sidebar-foreground: var(--foreground);
     --sidebar-muted-foreground: var(--muted-foreground);
@@ -1210,8 +1120,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --sidebar-row-selected: color-mix(in srgb, var(--contrast-foreground) 7%, transparent);
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
-    /* Row metadata sits a step below read titles (75% white). */
-    --secondary-label: #8f9188;
+    /* Row metadata sits a step below read titles. */
+    --secondary-label: #8f95a2;
   }
 }
 
@@ -1227,13 +1137,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
    semantic surface tokens here. Keep this block after the sidebar-version
    compatibility overrides so both navigation implementations receive the
    same palette. Success, info, provider, and channel identity colors remain
-   independent; error, warning, and update roles are themeable below. */
+   independent; error, warning, update, and merged roles are themeable below. */
 
 /* The non-empty marker adds enough specificity to outrank the generated root
    dark variant without reintroducing raw `.dark` selectors. */
 html[data-theme-id]:not([data-theme-id=""]) {
   --background: var(--app-theme-canvas);
   --app-chrome-background: var(--app-theme-chrome);
+  /* Themes have no window-ground role: sit the panels on a shade of their own
+     sidebar so the panel edges still read. */
+  --app-window-background: color-mix(in srgb, var(--app-theme-sidebar), black 6%);
   --toolbar-background: var(--app-theme-toolbar);
   --toolbar-foreground: var(--app-theme-toolbar-foreground);
   --toolbar-border: var(--app-theme-toolbar-border);
@@ -1287,6 +1200,9 @@ html[data-theme-id]:not([data-theme-id=""]) {
   --update: var(--app-theme-update);
   --update-foreground: var(--app-theme-update-foreground);
   --update-surface: var(--app-theme-update-surface);
+  --merged: var(--app-theme-merged);
+  --merged-foreground: var(--app-theme-merged-foreground);
+  --merged-surface: var(--app-theme-merged-surface);
   --border: var(--app-theme-border);
   --input: var(--app-theme-input);
   --ring: var(--app-theme-focus);
@@ -2115,7 +2031,7 @@ code {
 
 /* Chat timeline and composer column width, set from the Chat width setting. */
 :root {
-  --chat-max-width: 48rem;
+  --chat-max-width: 42.5rem;
 }
 
 :root[data-chat-width="wide"] {
@@ -2129,8 +2045,9 @@ code {
 :root[data-diff-color-scheme="blue-orange"] {
   --diff-addition: light-dark(var(--color-blue-600), var(--color-blue-400));
   --diff-deletion: light-dark(var(--color-orange-600), var(--color-orange-400));
-  --diff-addition-foreground: var(--diff-addition);
-  --diff-deletion-foreground: var(--diff-deletion);
+  /* Text needs 4.5:1 on Porcelain; orange-600 is only 3.56:1 on white. */
+  --diff-addition-foreground: light-dark(var(--color-blue-700), var(--color-blue-400));
+  --diff-deletion-foreground: light-dark(var(--color-orange-700), var(--color-orange-400));
   --diffs-addition-color-override: var(--diff-addition);
   --diffs-deletion-color-override: var(--diff-deletion);
   --trees-status-added-override: var(--diff-addition);

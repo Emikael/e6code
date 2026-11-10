@@ -12,6 +12,7 @@ import {
   ClientSurface,
   CommandId,
   EventId,
+  ForwardCompatibleOptional,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -152,6 +153,22 @@ export const ProviderApprovalDecision = Schema.Literals([
   "cancel",
 ]);
 export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
+/** Upper bound on instructions sent with a declined approval. */
+export const PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS = 8_000;
+/**
+ * Instructions the user sends with a declined approval, telling the agent what
+ * to do instead. Persisted events decode it without the length cap so a later
+ * cap change cannot strand stored history.
+ */
+/**
+ * Activity recording a decline whose instructions went to the provider with
+ * the refusal; its summary reads "Declined · <instructions>". Providers that
+ * get the instructions as a user message do not record one.
+ */
+export const APPROVAL_FEEDBACK_ACTIVITY_KIND = "approval.declined-with-instructions";
+export const ProviderApprovalFeedback = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS),
+);
 export const ProviderApprovalOption = Schema.Struct({
   decision: ProviderApprovalDecision,
   label: TrimmedNonEmptyString,
@@ -882,6 +899,39 @@ export const OrchestrationProjectShell = Schema.Struct({
 });
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
+/**
+ * What a running agent is doing when it is not plain thinking: compacting its
+ * context, retrying a failed request, or paused until a usage limit resets.
+ * Adapters report it on `session.state.changed`; the server keeps it in memory
+ * and clears it on the next real progress or when the turn ends.
+ */
+export const ThreadAgentState = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("compacting") }),
+  Schema.Struct({
+    kind: Schema.Literal("retrying"),
+    attempt: Schema.optional(PositiveInt),
+    maxAttempts: Schema.optional(PositiveInt),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("rate-limited"),
+    resetsAt: Schema.optional(IsoDateTime),
+  }),
+]);
+export type ThreadAgentState = typeof ThreadAgentState.Type;
+
+/**
+ * What a thread's turns have cost so far, summed server-side from every stored
+ * `turn.usage` activity (clients hold only a recent window of activities).
+ * `costUsd` is absent when no turn reported or estimated a cost; `costSource`
+ * is `estimated` when any part of the sum is an estimate or a turn had no cost.
+ */
+export const ThreadUsageTotal = Schema.Struct({
+  totalTokens: NonNegativeInt,
+  costUsd: Schema.optional(Schema.Number),
+  costSource: Schema.optional(Schema.Literals(["reported", "estimated"])),
+});
+export type ThreadUsageTotal = typeof ThreadUsageTotal.Type;
+
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -913,6 +963,14 @@ export const OrchestrationThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /**
+   * Fingerprint (`projectScriptHash`) of the setup script command this
+   * thread's worktree last ran. Clients compare it with the project's current
+   * setup script to say the worktree is out of date. Null when the worktree
+   * was never set up by E6 Code or the thread has no worktree. Optional so
+   * old servers/clients interop.
+   */
+  setupScriptHash: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   session: Schema.NullOr(OrchestrationSession),
@@ -940,6 +998,18 @@ export const OrchestrationThreadShell = Schema.Struct({
       }),
     ),
   ),
+  /**
+   * Live agent state while a turn runs (see ThreadAgentState). Omitted when
+   * the agent is simply working, so idle threads pay nothing on the wire. A
+   * kind from a newer server decodes as absent instead of failing the shell.
+   */
+  agentState: ForwardCompatibleOptional(ThreadAgentState),
+  /**
+   * Usage summed over the thread's turns; omitted when no turn reported any,
+   * so threads without usage pay nothing on the wire. A `costSource` from a
+   * newer server decodes as no total instead of failing the shell.
+   */
+  usageTotal: ForwardCompatibleOptional(ThreadUsageTotal),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
@@ -1240,6 +1310,8 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Records the setup script the worktree just ran; see OrchestrationThreadShell. */
+  setupScriptHash: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
 }).check(
   Schema.makeFilter(
@@ -1358,12 +1430,25 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// Stops one running subagent without ending the turn. subagentId is the id
+// clients know the subagent by (its task id). Providers that cannot stop a
+// single subagent advertise it through ServerProvider.supportsSubagentStop.
+const ThreadSubagentStopCommand = Schema.Struct({
+  type: Schema.Literal("thread.subagent.stop"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  subagentId: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
 const ThreadApprovalRespondCommand = Schema.Struct({
   type: Schema.Literal("thread.approval.respond"),
   commandId: CommandId,
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   decision: ProviderApprovalDecision,
+  /** Only meaningful with "decline"; the decider drops it for other decisions. */
+  feedback: Schema.optional(ProviderApprovalFeedback),
   createdAt: IsoDateTime,
 });
 
@@ -1439,6 +1524,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
+  ThreadSubagentStopCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadUserInputDismissCommand,
@@ -1472,6 +1558,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
+  ThreadSubagentStopCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadUserInputDismissCommand,
@@ -1715,6 +1802,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-start-requested",
   "thread.turn-completed",
   "thread.turn-interrupt-requested",
+  "thread.subagent-stop-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.checkpoint-revert-requested",
@@ -1861,6 +1949,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  setupScriptHash: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // No longer produced; kept so persisted events from before
   // thread.pull-request-linked still decode and replay into the link table.
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -1937,10 +2026,17 @@ export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadSubagentStopRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  subagentId: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
 export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   decision: ProviderApprovalDecision,
+  feedback: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
 });
 
@@ -2165,6 +2261,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-interrupt-requested"),
     payload: ThreadTurnInterruptRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.subagent-stop-requested"),
+    payload: ThreadSubagentStopRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

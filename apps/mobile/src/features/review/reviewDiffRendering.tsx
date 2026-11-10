@@ -1,16 +1,13 @@
-import { Platform, Text as NativeText, View } from "react-native";
+import { Text as NativeText, View } from "react-native";
 
 import { cn } from "../../lib/cn";
 import { MOBILE_CODE_SURFACE } from "../../lib/typography";
+import { MONO_FONT_FAMILY } from "../../lib/useFontFamily";
 
 import type { ReviewRenderableLineRow } from "./reviewModel";
 import type { ReviewHighlightedToken } from "./shikiReviewHighlighter";
 
-export const REVIEW_MONO_FONT_FAMILY = Platform.select({
-  ios: "ui-monospace",
-  android: "monospace",
-  default: "monospace",
-});
+export const REVIEW_MONO_FONT_FAMILY = MONO_FONT_FAMILY;
 
 export const REVIEW_DIFF_LINE_HEIGHT = MOBILE_CODE_SURFACE.rowHeight;
 
@@ -20,20 +17,20 @@ export function renderVisibleWhitespace(value: string): string {
 }
 
 export function changeTone(change: ReviewRenderableLineRow["change"]): string {
-  if (change === "add") return "bg-emerald-500/10";
-  if (change === "delete") return "bg-rose-500/10";
+  if (change === "add") return "bg-diff-addition/10";
+  if (change === "delete") return "bg-diff-deletion/10";
   return "bg-card";
 }
 
 export function changeBarTone(change: ReviewRenderableLineRow["change"]): string {
-  if (change === "add") return "bg-emerald-400";
-  if (change === "delete") return "bg-rose-400";
+  if (change === "add") return "bg-diff-addition";
+  if (change === "delete") return "bg-diff-deletion";
   return "bg-border/50";
 }
 
-function diffHighlightColor(change: ReviewRenderableLineRow["change"]): string | undefined {
-  if (change === "add") return "rgba(16, 185, 129, 0.24)";
-  if (change === "delete") return "rgba(244, 63, 94, 0.24)";
+function diffHighlightTone(change: ReviewRenderableLineRow["change"]): string | undefined {
+  if (change === "add") return "bg-diff-addition/25";
+  if (change === "delete") return "bg-diff-deletion/25";
   return undefined;
 }
 
@@ -48,7 +45,7 @@ export function ReviewChangeBar(props: {
         <View>
           {Array.from({ length: Math.ceil(height / 2) }, (_, index) => (
             <View key={index}>
-              <View className="h-px w-[5px] bg-rose-400" />
+              <View className="h-px w-[5px] bg-diff-deletion" />
               <View className="h-px" />
             </View>
           ))}
@@ -122,15 +119,14 @@ export function DiffTokenText(props: {
             <NativeText
               key={`${start}:${token.content.length}:${token.color ?? ""}:${token.fontStyle ?? ""}`}
               selectable
+              className={
+                token.diffHighlight && props.change ? diffHighlightTone(props.change) : undefined
+              }
               style={{
                 color: token.color ?? undefined,
                 fontFamily: REVIEW_MONO_FONT_FAMILY,
                 fontWeight,
                 fontStyle,
-                backgroundColor:
-                  token.diffHighlight && props.change
-                    ? diffHighlightColor(props.change)
-                    : undefined,
                 borderRadius: token.diffHighlight ? 4 : undefined,
               }}
             >

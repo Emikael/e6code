@@ -25,6 +25,22 @@ describe("generate mobile Uniwind themes", () => {
     ).toEqual([]);
   });
 
+  it("owns the widget and Android colour resources that cannot import the palette", () => {
+    const outputs = getGeneratedUniwindThemeOutputs().map(([filename]) =>
+      NodePath.relative(NodePath.resolve(import.meta.dirname, ".."), filename),
+    );
+    expect(outputs).toEqual(
+      expect.arrayContaining([
+        "src/widgets/AgentActivity.tsx",
+        "src/widgets/SubscriptionUsage.tsx",
+        "modules/e6-agent-notifications/android/src/main/res/values/agent_activity_colors.xml",
+        "modules/e6-agent-notifications/android/src/main/res/values-night/agent_activity_colors.xml",
+        "modules/e6-subscription-widget/android/src/main/res/values/colors.xml",
+        "modules/e6-subscription-widget/android/src/main/res/values-night/colors.xml",
+      ]),
+    );
+  });
+
   it("registers every custom palette for both appearances", () => {
     expect(customThemeNames).toEqual([
       "e6-chat-light",
@@ -50,10 +66,10 @@ describe("generate mobile Uniwind themes", () => {
 
     expect(variables.light).toEqual(readDefaultMobileThemeVariables("light"));
     expect(variables.dark).toEqual(readDefaultMobileThemeVariables("dark"));
-    expect(variables.light["--color-screen"]).toBe("#f6f6f2");
-    expect(variables.light["--color-drawer"]).toBe("#eeeee8");
-    expect(variables.dark["--color-screen"]).toBe("#0e0f0d");
-    expect(variables.dark["--color-drawer"]).toBe("#040504");
+    expect(variables.light["--color-screen"]).toBe("#ffffff");
+    expect(variables.light["--color-drawer"]).toBe("#f8f9fb");
+    expect(variables.dark["--color-screen"]).toBe("#1a1d23");
+    expect(variables.dark["--color-drawer"]).toBe("#0c0d10");
     expect(Object.keys(variables.light)).toEqual(Object.keys(variables.dark));
   });
 
@@ -81,11 +97,11 @@ describe("generate mobile Uniwind themes", () => {
         ),
         name,
       ).toEqual({
-        "--color-clerk-page": isDark ? "#0e0f0d" : "#f6f6f2",
-        "--color-clerk-foreground": isDark ? "#ecede5" : "#1b1c18",
-        "--color-clerk-foreground-muted": isDark ? "#9d9f95" : "#5d5f56",
-        "--color-clerk-border": isDark ? "#242523" : "#dfdfd7",
-        "--color-clerk-danger": isDark ? "#fda29b" : "#b42318",
+        "--color-clerk-page": isDark ? "#1a1d23" : "#ffffff",
+        "--color-clerk-foreground": isDark ? "#eceef3" : "#14161b",
+        "--color-clerk-foreground-muted": isDark ? "#9da3b0" : "#5a606d",
+        "--color-clerk-border": isDark ? "#2a2d33" : "#e3e5ea",
+        "--color-clerk-danger": isDark ? "#fca5a5" : "#b42318",
       });
     }
   });

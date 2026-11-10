@@ -27,6 +27,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
+  type ThreadUsageTotal,
   ModelSelection,
   ProjectId,
   ThreadLinkedPullRequest,
@@ -55,6 +56,7 @@ import {
 } from "../../persistence/Errors.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
+import { ThreadAgentStateService } from "../ThreadAgentState.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -101,6 +103,41 @@ const THREAD_DETAIL_ACTIVITY_PAYLOAD_BATCH_SIZE = 25;
 // SQLite trim defaults to spaces. Match the whitespace removed by String.trim.
 const MESSAGE_TRIM_WHITESPACE =
   "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
+// One thread's `turn.usage` rows, folded by the activity repository into
+// `projection_thread_usage_totals` whenever a usage activity is upserted.
+const ThreadUsageTotalDbRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  turnCount: Schema.Number,
+  totalTokens: Schema.NullOr(Schema.Number),
+  costUsd: Schema.NullOr(Schema.Number),
+  costedTurnCount: Schema.Number,
+  estimatedTurnCount: Schema.Number,
+});
+type ThreadUsageTotalDbRow = typeof ThreadUsageTotalDbRowSchema.Type;
+
+/**
+ * A thread's usage total for its shell, or undefined when no turn reported
+ * tokens. The cost reads as estimated when any turn's cost was an estimate or
+ * missing, since the sum then understates or approximates the real spend.
+ */
+function mapThreadUsageTotal(row: ThreadUsageTotalDbRow | undefined): ThreadUsageTotal | undefined {
+  if (row === undefined || row.turnCount === 0) return undefined;
+  const totalTokens = Math.round(row.totalTokens ?? 0);
+  if (!Number.isFinite(totalTokens) || totalTokens <= 0) return undefined;
+  const costUsd = row.costUsd;
+  if (costUsd === null || !Number.isFinite(costUsd) || costUsd <= 0) return { totalTokens };
+  const exact = row.estimatedTurnCount === 0 && row.costedTurnCount === row.turnCount;
+  return { totalTokens, costUsd, costSource: exact ? "reported" : "estimated" };
+}
+
+/** The shell's `usageTotal` field, omitted for threads without usage. */
+function usageTotalField(
+  row: ThreadUsageTotalDbRow | undefined,
+): Pick<OrchestrationThreadShell, "usageTotal"> {
+  const usageTotal = mapThreadUsageTotal(row);
+  return usageTotal ? { usageTotal } : {};
+}
+
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
@@ -499,6 +536,17 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
+  const threadAgentState = yield* ThreadAgentStateService;
+  // Only a running session can be compacting, retrying or paused, so a missed
+  // clear can never outlive its turn. Omitted when absent to keep shells small.
+  const agentStateField = (
+    threadId: string,
+    session: { readonly status: string } | null,
+  ): Pick<OrchestrationThreadShell, "agentState"> => {
+    const agentState =
+      session?.status === "running" ? threadAgentState.getThreadAgentState(threadId) : null;
+    return agentState === null ? {} : { agentState };
+  };
   const sql = yield* SqlClient.SqlClient;
   // Sums the latest turn's checkpoint in SQL so shell reads never decode
   // per-file JSON; mapLatestTurn turns these into diffStat.
@@ -601,6 +649,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          setup_script_hash AS "setupScriptHash",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -642,6 +691,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          setup_script_hash AS "setupScriptHash",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -715,6 +765,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          setup_script_hash AS "setupScriptHash",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -834,6 +885,43 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE threads.deleted_at IS NULL
           AND threads.archived_at IS NOT NULL
         ORDER BY links.thread_id ASC, links.linked_at ASC, links.number ASC
+      `,
+  });
+
+  const listThreadUsageTotalRows = SqlSchema.findAll({
+    Request: Schema.Struct({ archived: Schema.Boolean }),
+    Result: ThreadUsageTotalDbRowSchema,
+    execute: ({ archived }) =>
+      sql`
+        SELECT
+          usage.thread_id AS "threadId",
+          usage.turn_count AS "turnCount",
+          usage.total_tokens AS "totalTokens",
+          usage.cost_usd AS "costUsd",
+          usage.costed_turn_count AS "costedTurnCount",
+          usage.estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals usage
+        INNER JOIN projection_threads threads
+          ON threads.thread_id = usage.thread_id
+        WHERE threads.deleted_at IS NULL
+          AND (threads.archived_at IS NOT NULL) = ${archived ? 1 : 0}
+      `,
+  });
+
+  const getThreadUsageTotalRow = SqlSchema.findOneOption({
+    Request: ThreadIdLookupInput,
+    Result: ThreadUsageTotalDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          turn_count AS "turnCount",
+          total_tokens AS "totalTokens",
+          cost_usd AS "costUsd",
+          costed_turn_count AS "costedTurnCount",
+          estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals
+        WHERE thread_id = ${threadId}
       `,
   });
 
@@ -1283,6 +1371,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          setup_script_hash AS "setupScriptHash",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -1502,6 +1591,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         toPersistenceSqlOrDecodeError(
           "ProjectionSnapshotQuery.getUserInputActivity:query",
           "ProjectionSnapshotQuery.getUserInputActivity:decodeRow",
+        ),
+      ),
+    );
+
+  const getApprovalRequestTurnIdRow = SqlSchema.findOneOption({
+    Request: Schema.Struct({ threadId: ThreadId, requestId: ApprovalRequestId }),
+    Result: Schema.Struct({ turnId: Schema.NullOr(TurnId) }),
+    execute: ({ threadId, requestId }) => sql`
+      SELECT turn_id AS "turnId"
+      FROM projection_pending_approvals
+      WHERE thread_id = ${threadId} AND request_id = ${requestId}
+    `,
+  });
+
+  const getApprovalRequestTurnId: ProjectionSnapshotQueryShape["getApprovalRequestTurnId"] = (
+    input,
+  ) =>
+    getApprovalRequestTurnIdRow(input).pipe(
+      Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.turnId))),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getApprovalRequestTurnId:query",
+          "ProjectionSnapshotQuery.getApprovalRequestTurnId:decodeRow",
         ),
       ),
     );
@@ -2661,11 +2773,27 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          listThreadUsageTotalRows({ archived: false }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getShellSnapshot:listThreadUsageTotals:query",
+                "ProjectionSnapshotQuery.getShellSnapshot:listThreadUsageTotals:decodeRows",
+              ),
+            ),
+          ),
         ]),
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, threadRows, sessionRows, pullRequestRows, latestTurnRows, stateRows]) =>
+          ([
+            projectRows,
+            threadRows,
+            sessionRows,
+            pullRequestRows,
+            latestTurnRows,
+            stateRows,
+            usageTotalRows,
+          ]) =>
             Effect.gen(function* () {
               let updatedAt: string | null = null;
               for (const row of projectRows) {
@@ -2699,6 +2827,9 @@ pending_approval_requests AS (
                 sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
               );
               const pullRequestsByThread = groupPullRequestRowsByThread(pullRequestRows);
+              const usageTotalByThread = new Map(
+                usageTotalRows.map((row) => [row.threadId, row] as const),
+              );
 
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
@@ -2738,6 +2869,7 @@ pending_approval_requests AS (
                         pinnedAt: row.pinnedAt,
                         pinOrderKey: row.pinOrderKey ?? null,
                         activeOrderKey: row.activeOrderKey ?? null,
+                        ...(row.setupScriptHash ? { setupScriptHash: row.setupScriptHash } : {}),
                         titleRegeneration: mapTitleRegeneration(row),
                         titleState: row.titleState,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -2749,6 +2881,8 @@ pending_approval_requests AS (
                           row.threadId,
                         ),
                         planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
+                        ...agentStateField(row.threadId, sessionByThread.get(row.threadId) ?? null),
+                        ...usageTotalField(usageTotalByThread.get(row.threadId)),
                       } satisfies OrchestrationThreadShell)
                     : Result.failVoid,
                 ),
@@ -2824,11 +2958,27 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          listThreadUsageTotalRows({ archived: true }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getArchivedShellSnapshot:listThreadUsageTotals:query",
+                "ProjectionSnapshotQuery.getArchivedShellSnapshot:listThreadUsageTotals:decodeRows",
+              ),
+            ),
+          ),
         ]),
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, threadRows, sessionRows, pullRequestRows, latestTurnRows, stateRows]) =>
+          ([
+            projectRows,
+            threadRows,
+            sessionRows,
+            pullRequestRows,
+            latestTurnRows,
+            stateRows,
+            usageTotalRows,
+          ]) =>
             Effect.gen(function* () {
               let updatedAt: string | null = null;
               for (const row of projectRows) {
@@ -2854,6 +3004,9 @@ pending_approval_requests AS (
               }
 
               const pullRequestsByThread = groupPullRequestRowsByThread(pullRequestRows);
+              const usageTotalByThread = new Map(
+                usageTotalRows.map((row) => [row.threadId, row] as const),
+              );
               const activeProjectIds = new Set(threadRows.map((row) => row.projectId));
               const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(
                 projectRows.filter((row) => activeProjectIds.has(row.projectId)),
@@ -2901,6 +3054,7 @@ pending_approval_requests AS (
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   activeOrderKey: row.activeOrderKey ?? null,
+                  ...(row.setupScriptHash ? { setupScriptHash: row.setupScriptHash } : {}),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -2912,6 +3066,8 @@ pending_approval_requests AS (
                     row.threadId,
                   ),
                   planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
+                  ...agentStateField(row.threadId, sessionByThread.get(row.threadId) ?? null),
+                  ...usageTotalField(usageTotalByThread.get(row.threadId)),
                 })),
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               };
@@ -3188,45 +3344,55 @@ pending_approval_requests AS (
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
     Effect.gen(function* () {
-      const [threadRow, latestTurnRow, sessionRow, pullRequestRows] = yield* Effect.all([
-        getActiveThreadRowById({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
+      const [threadRow, latestTurnRow, sessionRow, pullRequestRows, usageTotalRow] =
+        yield* Effect.all([
+          getActiveThreadRowById({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
+              ),
             ),
           ),
-        ),
-        getLatestTurnRowByThread({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
+          getLatestTurnRowByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
+              ),
             ),
           ),
-        ),
-        getThreadSessionRowByThread({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
+          getThreadSessionRowByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
+              ),
             ),
           ),
-        ),
-        listThreadPullRequestRowsByThread({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:listPullRequests:query",
-              "ProjectionSnapshotQuery.getThreadShellById:listPullRequests:decodeRows",
+          listThreadPullRequestRowsByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:listPullRequests:query",
+                "ProjectionSnapshotQuery.getThreadShellById:listPullRequests:decodeRows",
+              ),
             ),
           ),
-        ),
-      ]);
+          getThreadUsageTotalRow({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getUsageTotal:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getUsageTotal:decodeRow",
+              ),
+            ),
+          ),
+        ]);
 
       if (Option.isNone(threadRow)) {
         return Option.none<OrchestrationThreadShell>();
       }
 
+      const session = Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null;
       return Option.some({
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
@@ -3257,9 +3423,12 @@ pending_approval_requests AS (
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
+        ...(threadRow.value.setupScriptHash
+          ? { setupScriptHash: threadRow.value.setupScriptHash }
+          : {}),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
-        session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
+        session,
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
@@ -3268,6 +3437,8 @@ pending_approval_requests AS (
           threadRow.value.threadId,
         ),
         planProgress: threadPlanProgress.getThreadPlanProgress(threadRow.value.threadId),
+        ...agentStateField(threadRow.value.threadId, session),
+        ...usageTotalField(Option.getOrUndefined(usageTotalRow)),
       } satisfies OrchestrationThreadShell);
     });
 
@@ -3761,6 +3932,7 @@ pending_approval_requests AS (
   return {
     getCommandReadModel,
     getUserInputActivity,
+    getApprovalRequestTurnId,
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,

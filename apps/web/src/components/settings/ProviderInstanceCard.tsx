@@ -659,7 +659,7 @@ export function ProviderInstanceCard({
                 )
               ) : null}
             </span>
-            <span className="mt-0.5 flex items-start gap-1.5 text-[13px] leading-[1.45] text-muted-foreground/80">
+            <span className="mt-0.5 flex items-start gap-1.5 text-[13px] leading-[1.45] text-muted-foreground">
               {statusDotNode ? (
                 <span className="flex h-[1.45em] shrink-0 items-center">{statusDotNode}</span>
               ) : null}
@@ -729,7 +729,7 @@ export function ProviderInstanceCard({
                     className={cn(
                       "text-xs leading-snug",
                       versionAdvisory.emphasis === "strong"
-                        ? "text-warning"
+                        ? "text-warning-foreground"
                         : "text-muted-foreground",
                     )}
                   >

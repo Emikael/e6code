@@ -1,8 +1,8 @@
 ---
 import { getImage, Image } from "astro:assets";
 import appIcon from "../assets/icon.webp";
-import desktopScreenshot from "../assets/app-desktop.webp";
-import dmSansLatinUrl from "../assets/fonts/dm-sans-latin.woff2?url";
+import desktopScreenshot from "../assets/app-thread-dark.webp";
+import geistLatinUrl from "../assets/fonts/geist-latin.woff2?url";
 import "../styles/fonts.css";
 import { ANDROID_PLAY_STORE_URL, GITHUB_REPOSITORY_URL, IOS_APP_STORE_URL } from "../lib/site";
 
@@ -48,14 +48,14 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     <meta property="og:image" content={socialImageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="The E6 Code desktop app with a thread open." />
+    <meta property="og:image:alt" content="An E6 Code thread with four subagents and the run details panel." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={socialImageUrl} />
     <link
       rel="preload"
-      href={dmSansLatinUrl}
+      href={geistLatinUrl}
       as="font"
       type="font/woff2"
       crossorigin="anonymous"
@@ -85,9 +85,9 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
             <span class="nav-brand-name">E6 Code</span>
           </a>
           <div class="nav-right">
-            <a class="nav-link nav-link--section" href="/#agents">Agents</a>
-            <a class="nav-link nav-link--section" href="/#routing">Routing</a>
+            <a class="nav-link nav-link--section" href="/#features">Features</a>
             <a class="nav-link nav-link--section" href="/#remote">Remote</a>
+            <a class="nav-link nav-link--section" href="/#open">Open source</a>
             <a class="nav-link" href="/download">Download</a>
             <a
               class="nav-stars"
@@ -152,27 +152,71 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 </html>
 
 <style is:global>
+  /* Slate & Iris, the app's palette (apps/web/src/index.css). Slate is the
+     default; Porcelain follows a light system appearance. Names stay as the
+     marketing pages already use them. */
   :root {
-    --bg: #09090b;
-    --bg-elev: #0c0c0e;
-    --bg-card: #111113;
-    --fg: #fafafa;
-    --fg-muted: #a1a1aa;
-    --fg-dim: #71717a;
-    --fg-faint: #52525b;
+    --bg: #0c0d10;
+    --bg-elev: #13151a;
+    --bg-card: #1a1d23;
+    --surface-well: #0f1114;
+    --fg: #eceef3;
+    --fg-muted: #9da3b0;
+    --fg-dim: #9da3b0;
+    --fg-faint: #8c92a0;
     --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.14);
-    /* Amber signal: the one color that means "live". Everything else is chrome. */
-    --accent: oklch(0.82 0.15 72);
-    --accent-dim: oklch(0.82 0.15 72 / 0.14);
-    --chrome: linear-gradient(180deg, #ffffff 0%, #d4d4d8 45%, #71717a 100%);
-    --ok: oklch(0.72 0.16 150);
-    --warn: oklch(0.76 0.15 75);
-    --font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --border-strong: rgba(255, 255, 255, 0.13);
+    /* Iris: the next action. --accent is Iris as text. */
+    --primary: #9b8cff;
+    --primary-hover: #ada0ff;
+    --primary-fg: #14102e;
+    --accent: #b9afff;
+    --accent-dim: rgba(155, 140, 255, 0.12);
+    --chrome: linear-gradient(180deg, #eceef3 0%, #9da3b0 100%);
+    --ok: #5eead4;
+    --ok-dot: #2dd4bf;
+    --warn: #fcd34d;
+    --warn-dot: #fbbf24;
+    --warn-dim: rgba(251, 191, 36, 0.12);
+    --diff-add: #5eead4;
+    --diff-del: #fca5a5;
+    --shadow-shot: 0 40px 80px -40px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --radius: 12px;
     --radius-sm: 8px;
     --radius-lg: 16px;
+    color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #eef0f4;
+      --bg-elev: #f8f9fb;
+      --bg-card: #ffffff;
+      --surface-well: #eceef2;
+      --fg: #14161b;
+      --fg-muted: #5a606d;
+      --fg-dim: #5a606d;
+      --fg-faint: #6b7180;
+      --border: rgba(20, 22, 27, 0.08);
+      --border-strong: rgba(20, 22, 27, 0.14);
+      --primary: #5b4ae0;
+      --primary-hover: #4c3bd1;
+      --primary-fg: #ffffff;
+      --accent: #4a3ad0;
+      --accent-dim: rgba(91, 74, 224, 0.08);
+      --chrome: linear-gradient(180deg, #14161b 0%, #5a606d 100%);
+      --ok: #0b7a6c;
+      --ok-dot: #0f9f8c;
+      --warn: #92400e;
+      --warn-dot: #d97706;
+      --warn-dim: rgba(245, 158, 11, 0.11);
+      --diff-add: #0b6b5f;
+      --diff-del: #a1170d;
+      --shadow-shot: 0 40px 80px -40px rgba(20, 22, 27, 0.35), 0 2px 6px rgba(20, 22, 27, 0.06);
+      color-scheme: light;
+    }
   }
 
   * {
@@ -182,7 +226,6 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
   }
 
   html {
-    color-scheme: dark;
     scroll-behavior: smooth;
   }
 
@@ -190,24 +233,11 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
-    font-feature-settings: "ss01", "ss02";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
     overflow-x: hidden;
     line-height: 1.5;
-  }
-
-  body::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-repeat: repeat;
-    background-size: 256px 256px;
-    z-index: 9999;
   }
 
   a {
@@ -231,9 +261,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
   .eyebrow {
     font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-size: 12px;
     color: var(--fg-dim);
     font-weight: 500;
   }
@@ -260,36 +288,27 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     font-size: 14px;
     padding: 10px 18px;
     border-radius: 8px;
-    transition: transform 0.18s ease, background 0.18s ease,
-      border-color 0.18s ease, color 0.18s ease;
+    transition: background 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out;
     white-space: nowrap;
   }
 
   .btn-primary {
-    background: var(--fg);
-    color: #09090b;
-    font-weight: 600;
+    background: var(--primary);
+    color: var(--primary-fg);
   }
 
   .btn-primary:hover {
-    transform: translateY(-1px);
-    background: #fff;
-  }
-
-  .btn-primary:active {
-    transform: translateY(0);
+    background: var(--primary-hover);
   }
 
   .btn-ghost {
-    color: var(--fg-muted);
-    border: 1px solid var(--border);
-    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
   }
 
   .btn-ghost:hover {
-    color: var(--fg);
-    border-color: var(--border-strong);
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--bg-elev);
   }
 
   .btn-lg {
@@ -302,13 +321,13 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     position: relative;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+    background: var(--bg-card);
     overflow: hidden;
   }
 
   :focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
     border-radius: 4px;
   }
 
@@ -378,10 +397,6 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     transition: color 0.2s ease;
   }
 
-  .nav-brand:hover {
-    color: #fff;
-  }
-
   .nav-brand-name {
     font-size: 16px;
     font-weight: 650;
@@ -412,12 +427,12 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    height: 36px;
-    padding: 0 14px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--fg-muted);
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--fg);
     font-size: 13px;
     letter-spacing: -0.01em;
     white-space: nowrap;
@@ -425,9 +440,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
   }
 
   .nav-stars:hover {
-    color: var(--fg);
-    border-color: var(--border-strong);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--bg-elev);
   }
 
   .nav-stars svg {

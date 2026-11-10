@@ -5,6 +5,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import { primaryServerEnvironmentThemesAtom } from "../state/server";
 import {
+  completeThemeColors,
   createVividThemeColors,
   getDefaultThemeColors,
   getEnvironmentThemes,
@@ -32,7 +33,7 @@ function publishedThemeColors(
     appearance === theme.appearance && theme.canvas !== undefined && theme.accent !== undefined
       ? createVividThemeColors(appearance, theme.canvas, theme.accent)
       : getDefaultThemeColors(appearance);
-  return { ...base, ...lenientThemeColorOverrides(colors ?? {}) };
+  return completeThemeColors(base, lenientThemeColorOverrides(colors ?? {}));
 }
 
 /**

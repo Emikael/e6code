@@ -210,6 +210,7 @@ function makeFakeCodexAdapter(
       _threadId: ThreadId,
       _requestId: string,
       _decision: ProviderApprovalDecision,
+      _feedback?: string,
     ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
@@ -272,12 +273,18 @@ function makeFakeCodexAdapter(
     }),
   );
 
+  const stopSubagent = vi.fn(
+    (_threadId: ThreadId, _subagentId: string): Effect.Effect<void, ProviderAdapterError> =>
+      Effect.void,
+  );
+
   const adapter: ProviderAdapterShape<ProviderAdapterError> = {
     provider,
     capabilities: {
       sessionModelSwitch: "in-session",
       ...(supportsConversationRollback !== undefined ? { supportsConversationRollback } : {}),
       ...(provider === CODEX_DRIVER ? { promptlessTurnContinuation: true } : {}),
+      ...(provider === CLAUDE_AGENT_DRIVER ? { approvalFeedback: "native" as const } : {}),
     },
     startSession,
     sendTurn,
@@ -296,7 +303,7 @@ function makeFakeCodexAdapter(
     hasSession,
     readThread,
     rollbackThread,
-    ...(provider === CODEX_DRIVER ? { uploadFeedback } : {}),
+    ...(provider === CODEX_DRIVER ? { uploadFeedback, stopSubagent } : {}),
     stopAll,
     runtimeEventSequence: runtimeEventStream.runtimeEventSequence,
     subscribeRuntimeEvents: runtimeEventStream.subscribeRuntimeEvents.pipe(
@@ -339,6 +346,7 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     uploadFeedback,
+    stopSubagent,
     stopAll,
   };
 }
@@ -1699,7 +1707,23 @@ routing.layer("ProviderServiceLive routing", (it) => {
         decision: "accept",
       });
       assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-        [session.threadId, asRequestId("req-1"), "accept"],
+        [session.threadId, asRequestId("req-1"), "accept", undefined],
+      ]);
+
+      // Codex has no denial reason on the wire: the decline goes through bare
+      // and the caller learns it must deliver the instructions itself.
+      const declined = yield* provider.respondToRequest({
+        threadId: session.threadId,
+        requestId: asRequestId("req-2"),
+        decision: "decline",
+        feedback: "Use pnpm instead",
+      });
+      assert.deepEqual(declined, { feedbackDelivered: false });
+      assert.deepEqual(routing.codex.respondToRequest.mock.calls[1], [
+        session.threadId,
+        asRequestId("req-2"),
+        "decline",
+        undefined,
       ]);
 
       yield* provider.respondToUserInput({
@@ -2103,6 +2127,46 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.deepStrictEqual(routing.codex.uploadFeedback.mock.calls, [
         [{ threadId, reason: "The agent stopped early." }],
       ]);
+    }),
+  );
+
+  it.effect("routes a subagent stop to an adapter that supports it", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-stop-subagent-codex");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      routing.codex.stopSubagent.mockClear();
+
+      yield* provider.stopSubagent({ threadId, subagentId: "child-thread-1" });
+
+      assert.deepStrictEqual(routing.codex.stopSubagent.mock.calls, [[threadId, "child-thread-1"]]);
+      assert.strictEqual(routing.codex.interruptTurn.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("rejects a subagent stop for providers that cannot stop one subagent", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-stop-subagent-unsupported");
+      yield* provider.startSession(threadId, {
+        provider: CLAUDE_AGENT_DRIVER,
+        providerInstanceId: claudeAgentInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      const error = yield* provider
+        .stopSubagent({ threadId, subagentId: "task-1" })
+        .pipe(Effect.flip);
+
+      assert.instanceOf(error, ProviderValidationError);
+      assert.include(error.issue, "cannot stop a single subagent");
+      assert.strictEqual(routing.claude.interruptTurn.mock.calls.length, 0);
     }),
   );
 
@@ -3597,6 +3661,20 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         requestId: asRequestId("req-metrics-1"),
         decision: "accept",
       });
+      // Claude carries the instructions natively; they only travel with a decline.
+      const declined = yield* provider.respondToRequest({
+        threadId: session.threadId,
+        requestId: asRequestId("req-metrics-3"),
+        decision: "decline",
+        feedback: "Edit the test instead",
+      });
+      assert.deepEqual(declined, { feedbackDelivered: true });
+      assert.deepEqual(fanout.claude.respondToRequest.mock.calls.at(-1), [
+        session.threadId,
+        asRequestId("req-metrics-3"),
+        "decline",
+        "Edit the test instead",
+      ]);
       yield* provider.respondToUserInput({
         threadId: session.threadId,
         requestId: asRequestId("req-metrics-2"),
@@ -5122,6 +5200,7 @@ describe("agent browser access", () => {
         getTurnStartMessage: () => Effect.die("unused"),
         getImportedAgentSessionSources: () => Effect.die("unused"),
         getUserInputActivity: () => Effect.die("unused"),
+        getApprovalRequestTurnId: () => Effect.die("unused"),
         listActivitiesByKind: () => Effect.die("unused"),
         getCommandReadModel: () => Effect.die("unused"),
         getSnapshot: () => Effect.die("unused"),

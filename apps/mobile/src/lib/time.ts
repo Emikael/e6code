@@ -1,3 +1,5 @@
+import { makeTimestampFormatters } from "@e6tools/shared/timestampFormat";
+
 export function relativeTime(input: string): string {
   const timestamp = Date.parse(input);
   if (Number.isNaN(timestamp)) {
@@ -18,3 +20,10 @@ export function relativeTime(input: string): string {
   const deltaDays = Math.floor(deltaHours / 24);
   return `${deltaDays}d`;
 }
+
+/**
+ * Upcoming instants worded like web's: `2:20 PM`, `tomorrow at 2:20 PM`,
+ * `8/13 2:20 PM`. Mobile has no 12/24-hour setting, so callers pass "locale"
+ * and the device locale decides.
+ */
+export const { formatUpcomingTimestamp } = makeTimestampFormatters(undefined);

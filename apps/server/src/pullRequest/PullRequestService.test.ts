@@ -1784,8 +1784,10 @@ it.effect("stops new reads after a rate limit while leaving manual actions avail
       ],
     });
 
-    const first = yield* service.list({ state: "open", involvement: "all" });
-    const paused = yield* service.list({ state: "open", involvement: "authored" });
+    // With the only repository unreadable there is no list to show, so both reads fail with the
+    // rate limit rather than answering "nothing to review".
+    const first = yield* Effect.flip(service.list({ state: "open", involvement: "all" }));
+    const paused = yield* Effect.flip(service.list({ state: "open", involvement: "authored" }));
     yield* service.runAction({
       projectId: "p1" as ProjectId,
       repository: "acme/web",
@@ -1795,8 +1797,106 @@ it.effect("stops new reads after a rate limit while leaving manual actions avail
 
     assert.strictEqual(listCalls, 1);
     assert.strictEqual(actionCalls, 1);
-    assert.lengthOf(first.errors, 1);
-    assert.lengthOf(paused.errors, 1);
+    assert.strictEqual(first._tag, "PullRequestOperationError");
+    assert.strictEqual(paused._tag, "PullRequestOperationError");
+  }),
+);
+
+it.effect("fails a listing in which no repository could be read, naming why", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+        project({ id: "p2", title: "api", workspaceRoot: "/api", repository: "acme/api" }),
+      ],
+      providers: [fakeProvider("github", { listChangeRequests: () => Effect.fail(requestFailed) })],
+    });
+
+    const error = yield* Effect.flip(service.list({ state: "open" }));
+
+    // An empty answer here would read as "nothing needs you" while nothing was asked at all.
+    assert.strictEqual(error._tag, "PullRequestOperationError");
+    assert.include(error.message, "Couldn't read any repository. HTTP 404");
+  }),
+);
+
+it.effect("says a signed-out host is signed out when its listing refuses every repository", () =>
+  Effect.gen(function* () {
+    const signedOut = new PullRequestProviderError({
+      provider: "github",
+      operation: "listChangeRequests",
+      reason: "unauthenticated",
+      detail: "GitHub CLI is not authenticated.",
+    });
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+      ],
+      providers: [fakeProvider("github", { listChangeRequests: () => Effect.fail(signedOut) })],
+    });
+
+    const error = yield* Effect.flip(service.list({ state: "open" }));
+
+    assert.strictEqual(error._tag, "PullRequestUnavailableError");
+    assert.include(error.message, "gh auth login");
+  }),
+);
+
+it.effect("keeps the readable repositories and names why the others were left out", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+        project({ id: "p2", title: "api", workspaceRoot: "/api", repository: "acme/api" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          listChangeRequests: (input) =>
+            input.repository === "acme/web"
+              ? Effect.succeed({ items: [], truncated: false, continues: true })
+              : Effect.fail(unusable("github", "unauthenticated")),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open" });
+
+    // One repository answered with nothing, which is a real answer: the list stands, and the
+    // repository that could not be asked says what would let it be.
+    assert.lengthOf(result.entries, 0);
+    assert.deepStrictEqual(
+      result.errors.map((error) => error.projectId),
+      ["p2"],
+    );
+    assert.include(result.errors[0]!.message, "acme/api could not be read.");
+    assert.include(result.errors[0]!.message, "gh auth login");
+  }),
+);
+
+it.effect("does not ask a signed-out host about each repository after one search refuses", () =>
+  Effect.gen(function* () {
+    let separateReads = 0;
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+        project({ id: "p2", title: "api", workspaceRoot: "/api", repository: "acme/api" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          listChangeRequestsAcross: () => Effect.fail(unusable("github", "unauthenticated")),
+          listChangeRequests: () =>
+            Effect.sync(() => {
+              separateReads += 1;
+              return { items: [], truncated: false, continues: true };
+            }),
+        }),
+      ],
+    });
+
+    const error = yield* Effect.flip(service.list({ state: "open" }));
+
+    assert.strictEqual(separateReads, 0);
+    assert.strictEqual(error._tag, "PullRequestUnavailableError");
   }),
 );
 

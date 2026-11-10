@@ -50,10 +50,12 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
+  CircleStopIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
+  GaugeIcon,
   LinkIcon,
   MessageSquareIcon,
   MonitorIcon,
@@ -165,6 +167,7 @@ import {
   buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildThreadStopActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -223,6 +226,8 @@ import {
 import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
+import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
+import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -764,6 +769,7 @@ function OpenCommandPaletteDialog(props: {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
+  const composerHandleRef = useComposerHandleContext();
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
     openIntent?.kind === "search" ? openIntent : null,
@@ -811,9 +817,12 @@ function OpenCommandPaletteDialog(props: {
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const referenceRightPanelOpen = useRightPanelStore(
-    (state) => selectThreadRightPanelState(state.byThreadKey, referenceThreadRef).isOpen,
+    (state) =>
+      selectThreadRightPanelState(state.byThreadKey, referenceThreadRef, state.restingOpen).isOpen,
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
+  const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
+  const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1861,6 +1870,32 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (pullRequestMergeCommand !== null) {
+    // Opens the panel's own merge confirmation; nothing merges from here directly.
+    actionItems.push({
+      kind: "action",
+      value: "action:merge-pull-request",
+      searchTerms: ["merge", "pull request", "pr", "ship"],
+      title: `Merge pull request #${pullRequestMergeCommand.number}`,
+      description: pullRequestMergeCommand.title,
+      icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "pullRequest.merge",
+      run: async () => {
+        pullRequestMergeCommand.run();
+      },
+    });
+  }
+
+  if (threadStopCommands !== null) {
+    actionItems.push(
+      ...buildThreadStopActionItems({
+        commands: threadStopCommands,
+        icon: <CircleStopIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <CircleStopIcon className={ADDON_ICON_CLASS} />,
+      }),
+    );
+  }
+
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
@@ -1929,6 +1964,20 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "view.reopenClosed",
       run: async () => {
         runAfterCommandPaletteCloses(requestReopenClosedView);
+      },
+    });
+  }
+
+  if (composerHandleRef?.current?.canCycleEffort()) {
+    actionItems.push({
+      kind: "action",
+      value: "action:cycle-effort",
+      searchTerms: ["effort", "reasoning", "thinking", "fast", "balanced", "deep", "cycle"],
+      title: "Cycle effort (Fast / Balanced / Deep)",
+      icon: <GaugeIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "composer.cycleEffort",
+      run: async () => {
+        composerHandleRef.current?.cycleEffort();
       },
     });
   }

@@ -327,6 +327,10 @@ export function createVcsEnvironmentAtoms<R, E>(
       label: "environment-data:vcs:cancel-worktree-setup",
       tag: WS_METHODS.worktreeSetupCancel,
     }),
+    rerunWorktreeSetup: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:rerun-worktree-setup",
+      tag: WS_METHODS.worktreeSetupRerun,
+    }),
     removeWorktree: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:remove-worktree",
       tag: WS_METHODS.vcsRemoveWorktree,

@@ -307,7 +307,7 @@ function Sidebar({
           {...props}
         >
           <div
-            className="flex h-full w-full flex-col bg-sidebar surface-grain group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
+            className="flex h-full w-full flex-col bg-sidebar surface-grain group-data-[variant=floating]:rounded-(--radius-panel) group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
             data-sidebar="sidebar"
             data-slot="sidebar-inner"
           >
@@ -536,6 +536,10 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
       className={cn(
         "relative flex min-w-0 w-full flex-1 flex-col bg-background surface-grain",
         "md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm/5",
+        // Floating panels: the content is its own panel on the window ground,
+        // a panel gap from the floating sidebar and the window edges. The
+        // height override beats the full-viewport heights pages set on it.
+        "md:peer-data-[variant=floating]:m-(--panel-gap) md:peer-data-[variant=floating]:ms-0 md:peer-data-[variant=floating]:peer-data-[state=collapsed]:ms-(--panel-gap) md:peer-data-[variant=floating]:h-[calc(100dvh-2*var(--panel-gap))]! md:peer-data-[variant=floating]:overflow-hidden md:peer-data-[variant=floating]:rounded-(--radius-panel) md:peer-data-[variant=floating]:border md:peer-data-[variant=floating]:border-border md:peer-data-[variant=floating]:shadow-sm/5",
         className,
       )}
       data-slot="sidebar-inset"

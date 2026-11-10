@@ -17,7 +17,9 @@
  * folding (completion can create an agent; a late start only fills
  * metadata).
  */
-import type { OrchestrationThreadActivity } from "@e6tools/contracts";
+import type { OrchestrationThreadActivity, TurnId } from "@e6tools/contracts";
+import { formatTokens } from "@e6tools/shared/usageFormat";
+import type { SubagentUserRequest } from "../pendingRequests.ts";
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -56,6 +58,25 @@ export interface SubagentRunHandles {
   readonly sessionUrl?: string;
 }
 
+/** One file a subagent changed, summed over every edit it made to that file. */
+export interface SubagentChangedFile {
+  /** As the provider reported it, usually absolute; clients relativize for display. */
+  readonly path: string;
+  /** Null when any edit to the file came without line counts. */
+  readonly additions: number | null;
+  readonly deletions: number | null;
+  /** Turn of the latest edit, whose diff shows this file; null outside a turn. */
+  readonly turnId: TurnId | null;
+}
+
+export interface SubagentChangedFiles {
+  /** In order of first change. */
+  readonly files: ReadonlyArray<SubagentChangedFile>;
+  /** Totals, null unless every file's counts are known. */
+  readonly additions: number | null;
+  readonly deletions: number | null;
+}
+
 export interface RuntimeSubagent {
   readonly id: string;
   readonly kind: "subagent" | "subagent_batch" | "workflow" | "workflow_agent";
@@ -80,6 +101,16 @@ export interface RuntimeSubagent {
   readonly phases: ReadonlyArray<SubagentWorkflowPhase>;
   readonly runHandles: SubagentRunHandles | null;
   readonly recentActivity: ReadonlyArray<SubagentActivityEntry>;
+  /**
+   * A pending approval or question names this subagent: it is blocked on the
+   * user. Set by deriveAgentPanelModel from the thread's pending requests.
+   */
+  readonly waitingOn?: SubagentUserRequest;
+  /**
+   * Files this subagent's completed edits changed, across all its runs.
+   * Absent when it changed none or its provider does not attribute edits.
+   */
+  readonly changedFiles?: SubagentChangedFiles;
   /** First retained observation, used as the roster's stable display order. */
   readonly firstSeenAt: string;
   readonly startedAt: string | null;
@@ -449,6 +480,61 @@ function asRuntimeStatus(value: unknown): RuntimeSubagentStatus | undefined {
     : undefined;
 }
 
+interface MutableChangedFile {
+  path: string;
+  additions: number | null;
+  deletions: number | null;
+  turnId: TurnId | null;
+}
+
+/**
+ * Adds one completed file change (tool.completed with agentId and
+ * changedFiles) to its subagent's per-path tally. Repeated edits to a path sum.
+ */
+function recordChangedFiles(
+  byAgent: Map<string, Map<string, MutableChangedFile>>,
+  activity: OrchestrationThreadActivity,
+  payload: Record<string, unknown>,
+): void {
+  const agentId = asString(payload.agentId);
+  if (!agentId || !Array.isArray(payload.changedFiles)) return;
+  if (payload.status !== undefined && payload.status !== "completed") return;
+  let files = byAgent.get(agentId);
+  for (const entry of payload.changedFiles) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const path = asString(record.path);
+    if (!path) continue;
+    const additions = asCount(record.additions) ?? null;
+    const deletions = asCount(record.deletions) ?? null;
+    if (!files) {
+      files = new Map();
+      byAgent.set(agentId, files);
+    }
+    const existing = files.get(path);
+    if (!existing) {
+      files.set(path, { path, additions, deletions, turnId: activity.turnId });
+      continue;
+    }
+    existing.additions =
+      existing.additions === null || additions === null ? null : existing.additions + additions;
+    existing.deletions =
+      existing.deletions === null || deletions === null ? null : existing.deletions + deletions;
+    existing.turnId = activity.turnId ?? existing.turnId;
+  }
+}
+
+function toChangedFiles(files: Map<string, MutableChangedFile>): SubagentChangedFiles {
+  const list = Array.from(files.values(), (file) => ({ ...file }));
+  let additions: number | null = 0;
+  let deletions: number | null = 0;
+  for (const file of list) {
+    additions = additions === null || file.additions === null ? null : additions + file.additions;
+    deletions = deletions === null || file.deletions === null ? null : deletions + file.deletions;
+  }
+  return { files: list, additions, deletions };
+}
+
 /**
  * Folds a thread's persisted activities into subagent state. Tolerant by
  * construction: malformed rows are skipped individually; unknown kinds are
@@ -465,6 +551,9 @@ export function foldSubagentActivities(
   options?: { readonly sessionLive?: boolean },
 ): ReadonlyArray<RuntimeSubagent> {
   const agents = new Map<string, MutableAgent>();
+  // Kept apart from the roster: an edit can land before its agent's start row,
+  // and tool rows must never create an agent.
+  const changedFilesByAgent = new Map<string, Map<string, MutableChangedFile>>();
 
   for (const activity of activities) {
     if (typeof activity.payload !== "object" || activity.payload === null) {
@@ -613,6 +702,9 @@ export function foldSubagentActivities(
         agent.updatedAt = at;
         break;
       }
+      case "tool.completed":
+        recordChangedFiles(changedFilesByAgent, activity, payload);
+        break;
       case "tool.progress": {
         // Agent-owned heartbeat: "what it's doing right now".
         const taskId = asString(payload.taskId);
@@ -677,7 +769,10 @@ export function foldSubagentActivities(
       .slice(0, ROSTER_LIMIT);
   }
 
-  return roster.map((agent) => ({ ...agent }));
+  return roster.map((agent) => {
+    const files = changedFilesByAgent.get(agent.id);
+    return files ? { ...agent, changedFiles: toChangedFiles(files) } : { ...agent };
+  });
 }
 
 export interface AgentPanelWorkflowGroup {
@@ -732,14 +827,27 @@ export function emptyAgentPanelModel(): AgentPanelModel {
 export function deriveAgentPanelModel({
   agents,
   v2Projection,
+  waitingOn,
 }: {
   readonly agents: ReadonlyArray<RuntimeSubagent>;
   readonly v2Projection?: ReadonlyArray<RuntimeSubagent> | null;
+  /** Pending requests by the subagent that made them (subagentUserRequests). */
+  readonly waitingOn?: ReadonlyMap<string, SubagentUserRequest>;
 }): AgentPanelModel {
-  const source = v2Projection ?? agents;
-  if (source.length === 0) {
+  const unmarked = v2Projection ?? agents;
+  if (unmarked.length === 0) {
     return EMPTY_PANEL_MODEL;
   }
+  // Only a live subagent can be blocked; a settled one keeps its outcome.
+  const source =
+    waitingOn && waitingOn.size > 0
+      ? unmarked.map((agent) => {
+          const request = waitingOn.get(agent.id);
+          return request && isActiveSubagentStatus(agent.status)
+            ? { ...agent, waitingOn: request }
+            : agent;
+        })
+      : unmarked;
 
   const workflows = source
     .filter((agent) => agent.kind === "workflow")
@@ -880,13 +988,288 @@ export function formatSubagentModelLabel(
   return effort ? `${compact} · ${effort}` : compact;
 }
 
+/** Files a subagent's file list shows before "Show N more", on every client. */
+export const SUBAGENT_FILES_PREVIEW_LIMIT = 8;
+
+/** "1 file", "6 files": the lead of a subagent's changed-files line. */
+export function formatSubagentFileCount(count: number): string {
+  return `${count} ${count === 1 ? "file" : "files"}`;
+}
+
 export function formatSubagentTokenCount(totalTokens: number): string {
-  if (totalTokens < 1000) {
-    return `${totalTokens}`;
+  return formatTokens(totalTokens);
+}
+
+/**
+ * The words a subagent row can say. Pending, running and waiting all read as
+ * Working: a queued or stalled subagent is still the fleet doing its job, and
+ * the detail belongs on the activity line, not in a separate state. The one
+ * exception is a subagent blocked on the user, which subagentTone reports.
+ */
+export type SubagentStatusTone =
+  | "approval"
+  | "question"
+  | "working"
+  | "idle"
+  | "done"
+  | "failed"
+  | "stopped";
+
+function subagentStatusTone(status: RuntimeSubagentStatus): SubagentStatusTone {
+  switch (status) {
+    case "pending":
+    case "running":
+    case "waiting":
+      return "working";
+    case "idle":
+      return "idle";
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
   }
-  if (totalTokens < 1_000_000) {
-    const value = totalTokens / 1000;
-    return `${value >= 100 ? Math.round(value) : value.toFixed(1)}k`;
+}
+
+/**
+ * A row's word: a live subagent that a pending request names reads "Needs
+ * approval" or "Needs your answer", because it is blocked on the user;
+ * otherwise its status decides.
+ */
+export function subagentTone(
+  agent: Pick<RuntimeSubagent, "status" | "waitingOn">,
+): SubagentStatusTone {
+  const tone = subagentStatusTone(agent.status);
+  if (tone !== "working" || !agent.waitingOn) return tone;
+  return agent.waitingOn.kind === "approval" ? "approval" : "question";
+}
+
+/** Tones where the subagent waits on the user. */
+export function isSubagentWaitingTone(tone: SubagentStatusTone): boolean {
+  return tone === "approval" || tone === "question";
+}
+
+export const SUBAGENT_STATUS_LABEL: Readonly<Record<SubagentStatusTone, string>> = {
+  approval: "Needs approval",
+  question: "Needs your answer",
+  working: "Working",
+  idle: "Idle",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+
+/** Count phrase for summary lines: "1 needs approval", "2 need your answer", "3 working". */
+function summaryCount(tone: SubagentStatusTone, count: number): string {
+  const needs = count === 1 ? "needs" : "need";
+  if (tone === "approval") return `${count} ${needs} approval`;
+  if (tone === "question") return `${count} ${needs} your answer`;
+  return `${count} ${tone}`;
+}
+
+/**
+ * Whether the user can stop this one subagent while the turn runs on: the
+ * provider must support it (ServerProvider.supportsSubagentStop) and the
+ * subagent must still be live. A workflow's members stop with their workflow,
+ * so only the coordinator offers Stop.
+ */
+export function canStopSubagent(
+  model: AgentPanelModel,
+  agent: Pick<RuntimeSubagent, "status" | "parentAgentId">,
+  providerSupportsStop: boolean,
+): boolean {
+  if (!providerSupportsStop || !isActiveSubagentStatus(agent.status)) return false;
+  const parentId = agent.parentAgentId;
+  return parentId === null || !model.workflows.some((group) => group.workflow.id === parentId);
+}
+
+/**
+ * What went wrong with one stop request, matched by the command id the client
+ * sent; null while the server has recorded no failure for it.
+ */
+export function findSubagentStopFailure(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  requestId: string,
+): string | null {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind !== "provider.subagent.stop.failed") continue;
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as Record<string, unknown>)
+        : {};
+    if (payload.requestId !== requestId) continue;
+    return asString(payload.detail) ?? activity.summary;
   }
-  return `${(totalTokens / 1_000_000).toFixed(1)}M`;
+  return null;
+}
+
+/** The subagent with this id anywhere in the model, workflow members included. */
+export function findSubagent(model: AgentPanelModel, agentId: string): RuntimeSubagent | null {
+  for (const agent of model.directAgents) if (agent.id === agentId) return agent;
+  for (const group of model.workflows) {
+    if (group.workflow.id === agentId) return group.workflow;
+    for (const agent of group.unphasedMembers) if (agent.id === agentId) return agent;
+    for (const phase of group.phases) {
+      for (const agent of phase.members) if (agent.id === agentId) return agent;
+    }
+  }
+  return null;
+}
+
+const SUMMARY_TONE_ORDER: ReadonlyArray<SubagentStatusTone> = [
+  "approval",
+  "question",
+  "working",
+  "failed",
+  "stopped",
+  "idle",
+  "done",
+];
+
+export interface SubagentStatusSummary {
+  /** "1 needs approval · 3 working · 1 done"; empty when there are no agents. */
+  readonly text: string;
+  /** The tone that should color the summary: blocked or live work first, then problems. */
+  readonly tone: SubagentStatusTone | null;
+  readonly counts: Readonly<Record<SubagentStatusTone, number>>;
+}
+
+/** Spawn-card header line: counts per status word, live and failing first. */
+export function summarizeSubagentStatuses(
+  agents: ReadonlyArray<Pick<RuntimeSubagent, "status" | "waitingOn">>,
+): SubagentStatusSummary {
+  const counts: Record<SubagentStatusTone, number> = {
+    approval: 0,
+    question: 0,
+    working: 0,
+    idle: 0,
+    done: 0,
+    failed: 0,
+    stopped: 0,
+  };
+  for (const agent of agents) {
+    counts[subagentTone(agent)] += 1;
+  }
+  const present = SUMMARY_TONE_ORDER.filter((tone) => counts[tone] > 0);
+  return {
+    text: present.map((tone) => summaryCount(tone, counts[tone])).join(" · "),
+    tone: present[0] ?? null,
+    counts,
+  };
+}
+
+export interface SpawnBatchStatusPart {
+  readonly text: string;
+  readonly tone: SubagentStatusTone | null;
+}
+
+export interface SpawnBatchStatus {
+  readonly text: string;
+  /** The same line as segments, each carrying its own status color. */
+  readonly parts: ReadonlyArray<SpawnBatchStatusPart>;
+  readonly tone: SubagentStatusTone | null;
+  /** The batch still has work in flight (a live coordinator counts). */
+  readonly live: boolean;
+}
+
+/**
+ * Header line for a spawn card. Member counts carry the detail, but a
+ * workflow coordinator's own outcome leads when it disagrees with them: a
+ * crashed run whose members finished is "Workflow failed · 3 done", and a
+ * coordinator between launches is "Working · 3 done". Members missing from
+ * the roster are counted as unavailable instead of silently dropped.
+ */
+export function describeSpawnBatchStatus(input: {
+  readonly agents: ReadonlyArray<Pick<RuntimeSubagent, "status" | "waitingOn">>;
+  readonly agentCount: number;
+  readonly coordinatorStatus?: RuntimeSubagentStatus | undefined;
+}): SpawnBatchStatus {
+  const summary = summarizeSubagentStatuses(input.agents);
+  const coordinator =
+    input.coordinatorStatus === undefined ? null : subagentStatusTone(input.coordinatorStatus);
+  const inFlight = summary.counts.working + summary.counts.approval + summary.counts.question;
+  const live =
+    input.coordinatorStatus !== undefined
+      ? !isTerminalSubagentStatus(input.coordinatorStatus)
+      : inFlight > 0;
+  const lead =
+    coordinator === "failed"
+      ? { text: "Workflow failed", tone: "failed" as const }
+      : coordinator === "stopped"
+        ? { text: "Workflow stopped", tone: "stopped" as const }
+        : live && inFlight === 0
+          ? { text: "Working", tone: "working" as const }
+          : null;
+  const missing = Math.max(0, input.agentCount - input.agents.length);
+  const counted = SUMMARY_TONE_ORDER.filter((tone) => summary.counts[tone] > 0).map((tone) => ({
+    text: summaryCount(tone, summary.counts[tone]),
+    tone,
+  }));
+  const parts: SpawnBatchStatusPart[] = [
+    ...(lead ? [lead] : []),
+    ...counted,
+    ...(!live && missing > 0 ? [{ text: `${missing} unavailable`, tone: null }] : []),
+  ];
+  if (parts.length === 0) {
+    parts.push(
+      live ? { text: "Working", tone: "working" } : { text: "Status unavailable", tone: null },
+    );
+  }
+  return {
+    text: parts.map((part) => part.text).join(" · "),
+    parts,
+    tone: lead?.tone ?? summary.tone ?? (live ? "working" : null),
+    live,
+  };
+}
+
+/**
+ * Activity line for a subagent row. Live rows lead with what is happening
+ * now; settled rows lead with the outcome, errors first because they explain
+ * a failed row at a glance.
+ */
+export function subagentActivityText(
+  agent: Pick<RuntimeSubagent, "status" | "progress" | "lastToolName" | "result" | "error">,
+): string | null {
+  const tool = agent.lastToolName ? `▸ ${agent.lastToolName}` : null;
+  const text = isActiveSubagentStatus(agent.status)
+    ? (agent.progress ?? tool ?? agent.result ?? agent.error)
+    : (agent.error ?? agent.result ?? agent.progress ?? tool);
+  return text?.split("\n").find((line) => line.trim().length > 0) ?? null;
+}
+
+/** True while a subagent's elapsed time should keep counting. */
+export function subagentElapsedIsLive(status: RuntimeSubagentStatus): boolean {
+  return status === "running" || status === "waiting";
+}
+
+/**
+ * Elapsed time of the current activation; null before it has started. A
+ * settled or idle agent without a terminal timestamp stops at its last update,
+ * so a resting agent never appears to keep counting.
+ */
+export function subagentElapsedMs(
+  agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt" | "updatedAt">,
+  nowMs: number,
+): number | null {
+  if (!agent.startedAt) return null;
+  const start = Date.parse(agent.startedAt);
+  const end = subagentElapsedIsLive(agent.status)
+    ? nowMs
+    : Date.parse(agent.completedAt ?? agent.updatedAt);
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return Math.max(0, end - start);
+}
+
+/** "19s", "1m 05s", "2h 03m". */
+export function formatSubagentElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 0) return `${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours === 0) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
 }

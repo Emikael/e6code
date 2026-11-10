@@ -3,11 +3,30 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   enumerateHourStarts,
+  formatCompactCount,
   formatDateTimeShort,
   formatHourShort,
   formatRelativeHourShort,
   makeWindow,
 } from "./usageFormat.ts";
+
+describe("formatCompactCount", () => {
+  it("names counts with uppercase units at three significant figures", () => {
+    expect(formatCompactCount(900)).toBe("900");
+    expect(formatCompactCount(1_200)).toBe("1.2K");
+    expect(formatCompactCount(48_600)).toBe("48.6K");
+    expect(formatCompactCount(410_000)).toBe("410K");
+    expect(formatCompactCount(1_000_000)).toBe("1M");
+    expect(formatCompactCount(41_200_000)).toBe("41.2M");
+    expect(formatCompactCount(19_900_000_000)).toBe("19.9B");
+    expect(formatCompactCount(-1_250)).toBe("-1.25K");
+  });
+
+  it("moves to the next unit when rounding reaches a thousand", () => {
+    expect(formatCompactCount(999_999)).toBe("1M");
+    expect(formatCompactCount(999_600_000)).toBe("1B");
+  });
+});
 
 describe("hourly usage formatting", () => {
   it("keeps requested zones separate when formatting repeated calls", () => {

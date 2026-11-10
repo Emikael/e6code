@@ -61,7 +61,8 @@ export interface ProjectionThreadActivityRepositoryShape {
   /**
    * Insert or replace a projected thread activity row.
    *
-   * Upserts by `activityId` and JSON-encodes payload.
+   * Upserts by `activityId` and JSON-encodes payload. A `turn.usage` row also
+   * refreshes the thread's folded usage total.
    */
   readonly upsert: (
     row: ProjectionThreadActivity,
@@ -94,7 +95,7 @@ export interface ProjectionThreadActivityRepositoryShape {
   ) => Effect.Effect<Option.Option<ProjectionThreadActivity>, ProjectionRepositoryError>;
 
   /**
-   * Delete projected thread activity rows by thread.
+   * Delete projected thread activity rows, and the thread's usage total, by thread.
    */
   readonly deleteByThreadId: (
     input: DeleteProjectionThreadActivitiesInput,

@@ -65,13 +65,35 @@ export function AgentActivity(
   const monochrome =
     environment.widgetRenderingMode === "accented" || environment.widgetRenderingMode === "vibrant";
 
-  // Status tints mirror the web sidebar's pills
-  // (apps/web/src/components/Sidebar.logic.ts resolveThreadStatusPill): amber
-  // for approval, indigo for input, sky for working, emerald for completed.
+  // Status tints are the stock E6 Code palette's semantic text roles, as on
+  // the web sidebar's status line (apps/web/src/components/Sidebar.logic.ts
+  // resolveSidebarRowStatus): warning for approval, update for input, the
+  // Iris primary text for working, success for completed, error for failed.
+  // Each sits beside a glyph and words. This function cannot import, so the
+  // generator writes the palette in below and its --check keeps it current.
   // On iPhone the LA sits on a dark material, but macOS (iPhone Mirroring /
-  // Mac notification center) renders it on a light one — so pick the web
-  // palette's light (-600) or dark (-300) variant off the color scheme.
-  const isLightScheme = environment.colorScheme === "light";
+  // Mac notification center) renders it on a light one — so pick the light or
+  // dark palette off the color scheme.
+  // <generated widget-status-colors>
+  // Written by scripts/generate-uniwind-themes.mts from the stock palette.
+  const statusColors = {
+    light: {
+      primary: "#4a3ad0",
+      warning: "#92400e",
+      update: "#1d4ed8",
+      success: "#096b5f",
+      error: "#b42318",
+    },
+    dark: {
+      primary: "#b9afff",
+      warning: "#fcd34d",
+      update: "#93c5fd",
+      success: "#5eead4",
+      error: "#fca5a5",
+    },
+  } as const;
+  // </generated widget-status-colors>
+  const tints = statusColors[environment.colorScheme === "light" ? "light" : "dark"];
   const phaseTint = (phase: AgentActivityPhase | undefined): Foreground => {
     if (environment.isLuminanceReduced) {
       return secondaryForeground;
@@ -81,17 +103,17 @@ export function AgentActivity(
     }
     switch (phase) {
       case "waiting_for_approval":
-        return isLightScheme ? "#d97706" : "#fcd34d"; // amber-600 / amber-300
+        return tints.warning;
       case "waiting_for_input":
-        return isLightScheme ? "#4f46e5" : "#a5b4fc"; // indigo-600 / indigo-300
+        return tints.update;
       case "failed":
-        return isLightScheme ? "#dc2626" : "#fca5a5"; // red-600 / red-300
+        return tints.error;
       case "completed":
-        return isLightScheme ? "#059669" : "#6ee7b7"; // emerald-600 / emerald-300
+        return tints.success;
       case "starting":
       case "running":
       default:
-        return isLightScheme ? "#0284c7" : "#7dd3fc"; // sky-600 / sky-300
+        return tints.primary;
     }
   };
 

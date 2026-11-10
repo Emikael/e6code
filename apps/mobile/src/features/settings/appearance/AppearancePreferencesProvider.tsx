@@ -14,6 +14,7 @@ import { AppState, Appearance, Platform, useColorScheme } from "react-native";
 
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
+import { DEFAULT_STOCK_ACCENT, type StockAccent } from "@e6tools/contracts/settings";
 
 import { ScopedTheme, ScopedVariables, Uniwind } from "uniwind";
 
@@ -27,6 +28,7 @@ import type { Preferences } from "../../../persistence/mobile-preferences";
 import { isSystemColorsAvailable, readSystemColorPalettes } from "../../../lib/materialYouPalette";
 import { materialYouPaletteToMobileThemeVariables } from "../../../lib/materialYouTheme";
 import { getMobileThemeRuntimeVariables } from "../../../lib/mobileThemeVariables";
+import { getStockAccentVariableOverrides } from "../../../lib/mobileStockAccent";
 import type { MobileThemeVariables } from "../../../lib/mobileTheme";
 import {
   createMobileThemePairPatch,
@@ -51,6 +53,8 @@ interface AppearancePreferencesContextValue {
   readonly themeIds: MobileThemeIds;
   readonly themeMode: MobileThemeMode;
   readonly themeAppearance: MobileThemeAppearance;
+  /** Primary-family accent; only the stock E6 Code palette reads it. */
+  readonly stockAccent: StockAccent;
   readonly systemColorsAvailable: boolean;
   readonly systemColorsActive: boolean;
   readonly themeVariables: MobileThemeVariables;
@@ -65,12 +69,14 @@ interface AppearancePreferencesContextValue {
   ) => void;
   readonly setThemeIdForBothAppearances: (value: MobileThemeId) => void;
   readonly setThemeMode: (value: MobileThemeMode) => void;
+  readonly setStockAccent: (value: StockAccent) => void;
   readonly setBaseFontSize: (value: number) => void;
   /** Pass null to clear the override and follow the base font size. */
   readonly setTerminalFontSize: (value: number | null) => void;
   /** Pass null to clear the override and follow the base font size. */
   readonly setCodeFontSize: (value: number | null) => void;
   readonly setCodeWordBreak: (value: boolean) => void;
+  readonly setShowThinkingTimeline: (value: boolean) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -94,6 +100,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [resolvedThemeIds.dark, resolvedThemeIds.light],
   );
   const themeId = themeIds[themeAppearance];
+  const stockAccent = storedPreferences?.stockAccent ?? DEFAULT_STOCK_ACCENT;
   const systemColorsActive = themeId === "material-you" && isSystemColorsAvailable;
   const [systemColorPalettes, setSystemColorPalettes] = useState(readSystemColorPalettes);
   useEffect(() => {
@@ -116,22 +123,36 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   const themeVariablesByAppearance = useMemo(() => {
     const resolve = (appearance: MobileThemeAppearance) => {
       const base = getMobileThemeRuntimeVariables(themeIds[appearance], appearance, Platform.OS);
-      return themeIds[appearance] === "material-you" && systemColorPalettes
-        ? materialYouPaletteToMobileThemeVariables(
-            systemColorPalettes[appearance],
-            appearance,
-            base,
-          )
-        : base;
+      if (themeIds[appearance] === "material-you" && systemColorPalettes) {
+        return materialYouPaletteToMobileThemeVariables(
+          systemColorPalettes[appearance],
+          appearance,
+          base,
+        );
+      }
+      // The registered Uniwind themes carry Iris; ScopedVariables below lays
+      // the chosen accent over them at runtime.
+      return {
+        ...base,
+        ...getStockAccentVariableOverrides(themeIds[appearance], stockAccent, appearance),
+      };
     };
     return { light: resolve("light"), dark: resolve("dark") };
-  }, [themeIds, systemColorPalettes]);
+  }, [themeIds, systemColorPalettes, stockAccent]);
   const themeVariables = themeVariablesByAppearance[themeAppearance];
   const activeThemeName = getMobileUniwindThemeName(themeId, themeAppearance);
-  const { baseFontSize, codeFontSize, codeWordBreak, terminalFontSize } = preferences;
+  const { baseFontSize, codeFontSize, codeWordBreak, showThinkingTimeline, terminalFontSize } =
+    preferences;
   const appearance = useMemo(
-    () => resolveAppearance({ baseFontSize, codeFontSize, codeWordBreak, terminalFontSize }),
-    [baseFontSize, codeFontSize, codeWordBreak, terminalFontSize],
+    () =>
+      resolveAppearance({
+        baseFontSize,
+        codeFontSize,
+        codeWordBreak,
+        showThinkingTimeline,
+        terminalFontSize,
+      }),
+    [baseFontSize, codeFontSize, codeWordBreak, showThinkingTimeline, terminalFontSize],
   );
   // Preference patches are optimistic. Keep controls interactive while a save is
   // in flight so rapid theme choices can supersede one another immediately.
@@ -242,6 +263,15 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [runtimeState, syncThemeRuntime, updateThemePreferences],
   );
 
+  const setStockAccent = useCallback(
+    (value: StockAccent) => {
+      // Like a theme choice, the accent repaints the root ScopedVariables, so
+      // keep the optimistic update urgent.
+      updateThemePreferences({ stockAccent: value });
+    },
+    [updateThemePreferences],
+  );
+
   const setBaseFontSize = useCallback(
     (value: number) => {
       const current = appliedRuntimeStateRef.current ?? runtimeState;
@@ -272,6 +302,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [updatePreferences],
   );
 
+  const setShowThinkingTimeline = useCallback(
+    (value: boolean) => {
+      updatePreferences({ showThinkingTimeline: value });
+    },
+    [updatePreferences],
+  );
+
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
       appearance,
@@ -279,6 +316,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeIds,
       themeMode,
       themeAppearance,
+      stockAccent,
       systemColorsAvailable: isSystemColorsAvailable,
       systemColorsActive,
       themeVariables,
@@ -288,10 +326,12 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeIdForAppearance,
       setThemeIdForBothAppearances,
       setThemeMode,
+      setStockAccent,
       setBaseFontSize,
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      setShowThinkingTimeline,
     }),
     [
       appearance,
@@ -299,6 +339,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeIds,
       themeMode,
       themeAppearance,
+      stockAccent,
       systemColorsActive,
       themeVariables,
       themeVariablesByAppearance,
@@ -307,10 +348,12 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeIdForAppearance,
       setThemeIdForBothAppearances,
       setThemeMode,
+      setStockAccent,
       setBaseFontSize,
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      setShowThinkingTimeline,
     ],
   );
 

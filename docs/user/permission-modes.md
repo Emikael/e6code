@@ -20,6 +20,17 @@ and modes you choose in a draft keep their permissions.
 Approve or reject requests in the conversation to let the agent continue. Permission modes do
 not prevent the agent from asking questions about the task.
 
+To reject a request and redirect the agent, type what it should do instead while the request is
+waiting, then choose **Decline and tell** the agent. Claude and OpenCode receive your
+instructions with the rejection. Other providers receive them as your next message.
+
+Commands that are hard to undo, such as deleting your home folder, force-pushing to `main`, or
+`git reset --hard`, show what they would do and need **Hold to allow**: press and hold the button,
+or hold <kbd>⌘</kbd> <kbd>Enter</kbd> (<kbd>Ctrl</kbd> <kbd>Enter</kbd> on Windows and Linux) in the
+message box, for one second. On mobile, long-press the button. With a screen reader, voice control,
+or switch access, activate the button (on mobile, its **Allow** action) and confirm instead. These
+commands cannot be allowed for the whole session.
+
 ## Provider differences
 
 Providers enforce permissions differently. Some read-only actions can proceed in **Supervised**.

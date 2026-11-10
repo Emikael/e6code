@@ -30,6 +30,8 @@ import { parseCliArgs } from "@e6tools/shared/cliArgs";
 import { collectComposerInlineTokens } from "@e6tools/shared/composerInlineTokens";
 import { isWorkspaceImagePreviewPath } from "@e6tools/shared/filePreview";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
+import { agentStateTransition } from "../agentStateTransition.ts";
+import { retryingAgentState } from "../agentState.ts";
 import {
   ApprovalRequestId,
   classifyTaskAgentKind,
@@ -119,6 +121,7 @@ import {
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
+import { claudeChangedFiles } from "../subagentChangedFiles.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
@@ -299,6 +302,18 @@ interface PendingApproval {
   readonly detail?: string;
   readonly suggestions?: ReadonlyArray<PermissionUpdate>;
   readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
+  /** Set with a decline before `decision` resolves; becomes the deny message. */
+  feedback?: string;
+}
+
+/** The deny message Claude reads when the user refused a tool call. */
+function claudeDeniedToolMessage(
+  decision: ProviderApprovalDecision,
+  feedback: string | undefined,
+): string {
+  if (decision === "cancel") return "User cancelled tool execution.";
+  if (feedback === undefined) return "User declined tool execution.";
+  return `User declined tool execution and said what to do instead:\n${feedback}`;
 }
 
 /**
@@ -446,16 +461,30 @@ interface ClaudeSessionContext {
    * even when nothing changed for most members.
    */
   readonly workflowMemberFingerprints: Map<string, string>;
+  /**
+   * A workflow member's current attempt agent id -> its stable slot task id
+   * (`<coordinatorTaskId>:wf:<index>`). canUseTool reports the attempt id;
+   * clients know the member by its slot.
+   */
+  readonly workflowSlotByAgentId: Map<string, string>;
   /** Task ids that have started and not yet reached a terminal state. */
   readonly liveTaskIds: Set<string>;
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastKnownTotalProcessedTokens: number | undefined;
+  /** The session's running `total_cost_usd` as of the last result. */
+  lastReportedTotalCostUsd: number | undefined;
+  /** The session's running `modelUsage` totals as of the last result. */
+  lastReportedModelUsageTotals: ClaudeUsageTotals | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
   /** Limits already announced for the running turn, keyed `window:resetsAt`. */
   announcedUsageLimits: { turnId: string; keys: Set<string> } | undefined;
+  /** The limit the working indicator currently reports the turn paused on. */
+  pausedUsageLimit: { turnId: string; key: string } | undefined;
+  /** Between `status: compacting` and the status that follows it. */
+  compacting: boolean;
   stopped: boolean;
 }
 
@@ -463,6 +492,8 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setModel: (model?: string) => Promise<void>;
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
+  /** SDK stop_task; a task_notification with status "stopped" follows. */
+  readonly stopTask: (taskId: string) => Promise<void>;
   readonly close: () => void;
 }
 
@@ -665,6 +696,16 @@ function describeClaudeUsageLimit(
   }limit resets${wait ? ` in ${wait}` : ""}.`;
 }
 
+/** The reset as an ISO time for the working indicator, within the same bounds as the row. */
+function claudeUsageLimitResetsAt(info: SDKRateLimitInfo, nowMs: number): string | undefined {
+  if (info.resetsAt === undefined || !Number.isFinite(nowMs)) return undefined;
+  const resetsAtMs = info.resetsAt * 1000;
+  const waitMs = resetsAtMs - nowMs;
+  return waitMs > 0 && waitMs <= CLAUDE_USAGE_LIMIT_MAX_WAIT_MS
+    ? DateTime.formatIso(DateTime.makeUnsafe(resetsAtMs))
+    : undefined;
+}
+
 function formatClaudeUsageLimitWait(waitMs: number): string {
   const totalMinutes = Math.ceil(waitMs / 60_000);
   const hours = Math.floor(totalMinutes / 60);
@@ -816,11 +857,155 @@ function normalizeClaudeActiveTokenUsage(
   });
 }
 
+/** Token counts summed across every model in a Claude `modelUsage` record. */
+interface ClaudeUsageTotals {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly cacheCreationTokens: number;
+  /** Absent when no model reported thinking tokens. */
+  readonly reasoningTokens: number | undefined;
+}
+
+/**
+ * Sums `modelUsage`, the SDK's running per-model totals for the query session.
+ * Unlike the result's `usage` (main agent loop only), it covers subagents and
+ * internal calls, the same calls `total_cost_usd` covers. Input here is
+ * uncached input only, as in the API. Entries without token counts are skipped.
+ */
+function claudeModelUsageTotals(modelUsage: unknown): ClaudeUsageTotals | undefined {
+  if (typeof modelUsage !== "object" || modelUsage === null || Array.isArray(modelUsage)) {
+    return undefined;
+  }
+  let totals: ClaudeUsageTotals | undefined;
+  for (const value of Object.values(modelUsage)) {
+    if (typeof value !== "object" || value === null) continue;
+    const entry = value as Record<string, unknown>;
+    const inputTokens = finiteNonNegativeInteger(entry.inputTokens);
+    const outputTokens = finiteNonNegativeInteger(entry.outputTokens);
+    if (inputTokens === undefined || outputTokens === undefined) continue;
+    const reasoningTokens = finiteNonNegativeInteger(entry.thinkingTokens);
+    totals = {
+      inputTokens: (totals?.inputTokens ?? 0) + inputTokens,
+      outputTokens: (totals?.outputTokens ?? 0) + outputTokens,
+      cachedInputTokens:
+        (totals?.cachedInputTokens ?? 0) +
+        (finiteNonNegativeInteger(entry.cacheReadInputTokens) ?? 0),
+      cacheCreationTokens:
+        (totals?.cacheCreationTokens ?? 0) +
+        (finiteNonNegativeInteger(entry.cacheCreationInputTokens) ?? 0),
+      reasoningTokens:
+        reasoningTokens === undefined && totals?.reasoningTokens === undefined
+          ? undefined
+          : (totals?.reasoningTokens ?? 0) + (reasoningTokens ?? 0),
+    };
+  }
+  return totals;
+}
+
+/**
+ * Whether Claude's running session totals went backwards since the last
+ * result, which happens when a mid-session /clear resets them. Cost and
+ * `modelUsage` share that lifecycle, so a drop in either resets both.
+ */
+function claudeSessionTotalsReset(input: {
+  readonly previousTotalCostUsd: number | undefined;
+  readonly totalCostUsd: number | undefined;
+  readonly previousTotals: ClaudeUsageTotals | undefined;
+  readonly totals: ClaudeUsageTotals | undefined;
+}): boolean {
+  const { previousTotalCostUsd, totalCostUsd, previousTotals, totals } = input;
+  if (
+    previousTotalCostUsd !== undefined &&
+    totalCostUsd !== undefined &&
+    Number.isFinite(totalCostUsd) &&
+    totalCostUsd < previousTotalCostUsd
+  ) {
+    return true;
+  }
+  return (
+    previousTotals !== undefined &&
+    totals !== undefined &&
+    (totals.inputTokens < previousTotals.inputTokens ||
+      totals.outputTokens < previousTotals.outputTokens ||
+      totals.cachedInputTokens < previousTotals.cachedInputTokens ||
+      totals.cacheCreationTokens < previousTotals.cacheCreationTokens)
+  );
+}
+
+/**
+ * One turn's share of Claude's `modelUsage` totals: the difference from the
+ * last result, or the whole total on the first result or after a reset.
+ */
+function claudeTurnModelUsage(
+  previousTotals: ClaudeUsageTotals | undefined,
+  totals: ClaudeUsageTotals | undefined,
+  totalsReset: boolean,
+): ClaudeUsageTotals | undefined {
+  if (!totals) return undefined;
+  const base = totalsReset ? undefined : previousTotals;
+  if (!base) return totals;
+  return {
+    inputTokens: totals.inputTokens - base.inputTokens,
+    outputTokens: totals.outputTokens - base.outputTokens,
+    cachedInputTokens: totals.cachedInputTokens - base.cachedInputTokens,
+    cacheCreationTokens: totals.cacheCreationTokens - base.cacheCreationTokens,
+    reasoningTokens:
+      totals.reasoningTokens === undefined
+        ? undefined
+        : Math.max(0, totals.reasoningTokens - (base.reasoningTokens ?? 0)),
+  };
+}
+
+/**
+ * One turn's share of Claude's `total_cost_usd`, which is a running total for
+ * the query session. After a reset (a mid-session /clear) the new total is
+ * this turn's cost. Zeroed totals from crashed results report nothing.
+ */
+function claudeTurnCostUsd(
+  previousTotalCostUsd: number | undefined,
+  totalCostUsd: number | undefined,
+  totalsReset: boolean,
+): number | undefined {
+  if (totalCostUsd === undefined || !Number.isFinite(totalCostUsd) || totalCostUsd <= 0) {
+    return undefined;
+  }
+  if (previousTotalCostUsd === undefined || totalsReset || totalCostUsd < previousTotalCostUsd) {
+    return totalCostUsd;
+  }
+  const turnCostUsd = totalCostUsd - previousTotalCostUsd;
+  return turnCostUsd > 0 ? turnCostUsd : undefined;
+}
+
+/**
+ * The turn's token usage. Prefers the turn's share of `modelUsage`, which
+ * covers subagents like the reported cost does; falls back to the result's
+ * main-agent `usage` when `modelUsage` carries no token counts for the turn.
+ */
 function normalizeClaudeTurnTokenUsage(
   result: SDKResultMessage | undefined,
   hasSubagents: boolean,
   terminalStatus: ProviderRuntimeTurnStatus,
+  turnModelUsage: ClaudeUsageTotals | undefined,
 ): TurnTokenUsage {
+  if (turnModelUsage && turnModelUsage.inputTokens + turnModelUsage.outputTokens > 0) {
+    const { outputTokens, cachedInputTokens, cacheCreationTokens, reasoningTokens } =
+      turnModelUsage;
+    return {
+      usageStatus:
+        terminalStatus === "completed" && result?.subtype === "success" ? "complete" : "partial",
+      usageScope: "all_agents",
+      inputTokens: turnModelUsage.inputTokens + cachedInputTokens + cacheCreationTokens,
+      outputTokens,
+      cachedInputTokens,
+      cacheCreationTokens,
+      ...(reasoningTokens !== undefined
+        ? { reasoningTokens: Math.min(outputTokens, reasoningTokens) }
+        : {}),
+      hasSubagents,
+    };
+  }
+
   const usage = result?.usage as Record<string, unknown> | undefined;
   if (!usage) {
     return {
@@ -1388,6 +1573,8 @@ const WORKFLOW_AGENT_CAP = 100;
 interface ClaudeWorkflowAgentEntry {
   readonly index: number;
   readonly state: string;
+  /** The current attempt's agent id; canUseTool names the member by it. */
+  readonly agentId: string | undefined;
   readonly label: string | undefined;
   readonly phaseIndex: number | undefined;
   readonly phaseTitle: string | undefined;
@@ -1443,6 +1630,7 @@ function parseWorkflowProgress(value: unknown): ClaudeWorkflowProgress | undefin
     agentsByIndex.set(index, {
       index,
       state,
+      agentId: trimmedString(record.agentId),
       label: trimmedString(record.label),
       phaseIndex: nonNegativeInt(record.phaseIndex),
       phaseTitle: trimmedString(record.phaseTitle),
@@ -2131,7 +2319,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    runtimeEventQueue.publish(event);
+    Effect.suspend(() => {
+      // Anything that moves the working indicator off the pause (progress,
+      // another agent state, a clear) ends the pause it showed, so the same
+      // limit blocking again later in the turn is reported again.
+      const agentStateChange = agentStateTransition(event);
+      if (agentStateChange !== null && agentStateChange.state?.kind !== "rate-limited") {
+        const context = sessions.get(event.threadId);
+        if (context) context.pausedUsageLimit = undefined;
+      }
+      return runtimeEventQueue.publish(event);
+    });
 
   const logNativeSdkMessage = Effect.fnUntraced(function* (
     context: ClaudeSessionContext,
@@ -2825,6 +3023,35 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       rawPayload: result ?? { status },
     });
 
+    // Only a result carries Claude's running cost and modelUsage totals. A
+    // turn that ends without one (a synthetic turn auto-closed by the next
+    // send) has nothing to settle, so its spend lands in the next result's
+    // delta. Interrupts and stream ends close the query, and a resumed query
+    // starts its totals fresh, so nothing carries over from those.
+    const modelUsageTotals = claudeModelUsageTotals(result?.modelUsage);
+    const totalsReset = claudeSessionTotalsReset({
+      previousTotalCostUsd: context.lastReportedTotalCostUsd,
+      totalCostUsd: result?.total_cost_usd,
+      previousTotals: context.lastReportedModelUsageTotals,
+      totals: modelUsageTotals,
+    });
+    const turnCostUsd = claudeTurnCostUsd(
+      context.lastReportedTotalCostUsd,
+      result?.total_cost_usd,
+      totalsReset,
+    );
+    const turnModelUsage = claudeTurnModelUsage(
+      context.lastReportedModelUsageTotals,
+      modelUsageTotals,
+      totalsReset,
+    );
+    if (typeof result?.total_cost_usd === "number" && Number.isFinite(result.total_cost_usd)) {
+      context.lastReportedTotalCostUsd = result.total_cost_usd;
+    }
+    if (modelUsageTotals) {
+      context.lastReportedModelUsageTotals = modelUsageTotals;
+    }
+
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "turn.completed",
@@ -2841,8 +3068,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(typeof result?.total_cost_usd === "number"
           ? { totalCostUsd: result.total_cost_usd }
           : {}),
+        ...(turnCostUsd !== undefined ? { turnCostUsd } : {}),
         ...(errorMessage ? { errorMessage } : {}),
-        tokenUsage: normalizeClaudeTurnTokenUsage(result, turnState.hasSubagents, status),
+        tokenUsage: normalizeClaudeTurnTokenUsage(
+          result,
+          turnState.hasSubagents,
+          status,
+          turnModelUsage,
+        ),
       },
       providerRefs: nativeProviderRefs(context),
     });
@@ -3257,6 +3490,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
       }
 
+      // Every completed edit carries its files and line counts: subagent rows
+      // feed the per-subagent file list, and every row shows its own diff stat.
+      const changedFiles =
+        tool.itemType === "file_change" && itemStatus === "completed"
+          ? claudeChangedFiles(tool.toolName, tool.input, toolUseResult)
+          : undefined;
       const completedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "item.completed",
@@ -3273,6 +3512,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ...(tool.detail ? { detail: tool.detail } : {}),
           ...(tool.agentId ? { agentId: tool.agentId } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
+          ...(changedFiles ? { changedFiles } : {}),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, {
@@ -3532,6 +3772,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     const coordinatorId = message.task_id;
     for (const entry of progress.agents) {
       const memberTaskId = `${coordinatorId}:wf:${entry.index}`;
+      if (entry.agentId) context.workflowSlotByAgentId.set(entry.agentId, memberTaskId);
       const status = workflowAgentStatus(entry);
       // Material-transition filter: the wire repeats every member each tick.
       // Emit only when something the client renders actually changed, so a
@@ -3636,17 +3877,29 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           },
         });
         return;
-      case "status":
+      case "status": {
+        // Compaction is the status the working indicator names. Only the
+        // status that follows it ends it: "requesting" also fires between
+        // API retries and must not clear a retry the indicator is showing.
+        const compacting = message.status === "compacting";
+        const agentState = compacting
+          ? { kind: "compacting" as const }
+          : context.compacting
+            ? null
+            : undefined;
+        context.compacting = compacting;
         yield* offerRuntimeEvent({
           ...base,
           type: "session.state.changed",
           payload: {
-            state: message.status === "compacting" ? "waiting" : "running",
+            state: compacting ? "waiting" : "running",
             reason: `status:${message.status ?? "active"}`,
             detail: message,
+            ...(agentState !== undefined ? { agentState } : {}),
           },
         });
         return;
+      }
       case "compact_boundary": {
         if (context.turnState) {
           context.turnState.latestAssistantUsage = undefined;
@@ -3908,14 +4161,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       case "api_retry":
         // Transport-level retry heartbeat. Surfacing each attempt as a
         // warning row spammed the work log (10 rows during a 502 storm);
-        // the terminal result/error path reports the actual failure. Keep
-        // the session visibly alive instead.
+        // the terminal result/error path reports the actual failure. The
+        // working indicator names the retry instead; the next streamed
+        // output clears it.
         yield* offerRuntimeEvent({
           ...base,
           type: "session.state.changed",
           payload: {
             state: "running",
             reason: `api_retry:${message.attempt}/${message.max_retries}`,
+            agentState: retryingAgentState(message.attempt, message.max_retries),
           },
         });
         return;
@@ -4146,6 +4401,39 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             names,
           );
           yield* emitRuntimeWarning(context, notice, rateLimitInfo);
+        }
+      }
+      // The working indicator names the pause while a window blocks the turn,
+      // once per limit identity while it shows (a parked window re-fires with
+      // the same key), and ends it when a recovery leaves no window blocking.
+      // Unlike the warning row, the pause re-arms once anything clears it.
+      if (context.turnState !== undefined) {
+        const turnId = context.turnState.turnId;
+        const paused =
+          context.pausedUsageLimit?.turnId === turnId ? context.pausedUsageLimit : undefined;
+        if (blocked && paused?.key !== limitKey) {
+          context.pausedUsageLimit = { turnId, key: limitKey };
+          const resetsAt = claudeUsageLimitResetsAt(rateLimitInfo, Date.parse(stamp.createdAt));
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "session.state.changed",
+            payload: {
+              state: "waiting",
+              reason: `rate_limit:${limitType}`,
+              agentState: { kind: "rate-limited", ...(resetsAt ? { resetsAt } : {}) },
+            },
+          });
+        } else if (
+          !blocked &&
+          paused !== undefined &&
+          context.turnState.rejectedRateLimitTypes.size === 0
+        ) {
+          context.pausedUsageLimit = undefined;
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "session.state.changed",
+            payload: { state: "running", reason: `rate_limit:${limitType}`, agentState: null },
+          });
         }
       }
       return;
@@ -4452,9 +4740,22 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const pendingTaskModels = new Map<string, string>();
       const workflowMemberFingerprints = new Map<string, string>();
+      const workflowSlotByAgentId = new Map<string, string>();
       const liveTaskIds = new Set<string>();
 
       const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
+
+      /**
+       * The SDK passes the asking sub-agent's id: its task_id in task.* events,
+       * or for a workflow member the current attempt's id, known by its slot.
+       */
+      const requestAgentIdField = (
+        context: ClaudeSessionContext,
+        sdkAgentId: string | undefined,
+      ): { agentId?: string } => {
+        const agentId = sdkAgentId?.trim();
+        return agentId ? { agentId: context.workflowSlotByAgentId.get(agentId) ?? agentId } : {};
+      };
 
       /**
        * Handle AskUserQuestion tool calls by emitting a `user-input.requested`
@@ -4466,6 +4767,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         callbackOptions: {
           readonly signal: AbortSignal;
           readonly toolUseID?: string;
+          readonly agentID?: string;
         },
       ) {
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
@@ -4523,7 +4825,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               }
             : {}),
           requestId: asRuntimeRequestId(requestId),
-          payload: { questions },
+          payload: { questions, ...requestAgentIdField(context, callbackOptions.agentID) },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,
           }),
@@ -4748,6 +5050,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               input: toolInput,
               ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
             },
+            ...requestAgentIdField(context, callbackOptions.agentID),
           },
           providerRefs: nativeProviderRefs(context, {
             providerItemId: callbackOptions.toolUseID,
@@ -4826,10 +5129,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
         return {
           behavior: "deny",
-          message:
-            decision === "cancel"
-              ? "User cancelled tool execution."
-              : "User declined tool execution.",
+          message: claudeDeniedToolMessage(decision, pendingApproval.feedback),
         } satisfies PermissionResult;
       });
 
@@ -5059,14 +5359,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         taskAgents,
         pendingTaskModels,
         workflowMemberFingerprints,
+        workflowSlotByAgentId,
         liveTaskIds,
         turnState: undefined,
         lastKnownContextWindow: initialContextWindow,
         lastKnownTokenUsage: undefined,
         lastKnownTotalProcessedTokens: undefined,
+        lastReportedTotalCostUsd: undefined,
+        lastReportedModelUsageTotals: undefined,
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
         announcedUsageLimits: undefined,
+        pausedUsageLimit: undefined,
+        compacting: false,
         stopped: false,
       };
       yield* Ref.set(contextRef, context);
@@ -5313,6 +5618,36 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
   );
 
+  /**
+   * Stops one running task through the SDK's stop_task, leaving the turn and
+   * every other task running. The "stopped" task_notification that follows
+   * settles the subagent. A workflow member is known by its slot id, and the
+   * SDK only stops whole tasks, so members stop with their workflow.
+   */
+  const stopSubagent: NonNullable<ClaudeAdapterShape["stopSubagent"]> = Effect.fn("stopSubagent")(
+    function* (threadId, subagentId) {
+      const context = yield* requireSession(threadId);
+      if (subagentId.includes(":wf:")) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "stopSubagent",
+          issue: "Claude stops a workflow as a whole; stop the workflow to stop its members.",
+        });
+      }
+      if (!context.liveTaskIds.has(subagentId)) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "stopSubagent",
+          issue: `Subagent '${subagentId}' is not running.`,
+        });
+      }
+      yield* Effect.tryPromise({
+        try: () => context.query.stopTask(subagentId),
+        catch: (cause) => toRequestError(threadId, "task/stop", cause),
+      });
+    },
+  );
+
   const readThread: ClaudeAdapterShape["readThread"] = Effect.fn("readThread")(
     function* (threadId) {
       const context = yield* requireSession(threadId);
@@ -5503,7 +5838,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   );
 
   const respondToRequest: ClaudeAdapterShape["respondToRequest"] = Effect.fn("respondToRequest")(
-    function* (threadId, requestId, decision) {
+    function* (threadId, requestId, decision, feedback) {
       const context = yield* requireSession(threadId);
       const pending = context.pendingApprovals.get(requestId);
       if (!pending) {
@@ -5515,6 +5850,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
 
       context.pendingApprovals.delete(requestId);
+      if (decision === "decline" && feedback !== undefined) pending.feedback = feedback;
       yield* Deferred.succeed(pending.decision, decision);
     },
   );
@@ -5586,11 +5922,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      approvalFeedback: "native",
     },
     compaction: { type: "slash-command", command: "/compact" },
     startSession,
     sendTurn,
     interruptTurn,
+    stopSubagent,
     readThread,
     rollbackThread,
     respondToRequest,

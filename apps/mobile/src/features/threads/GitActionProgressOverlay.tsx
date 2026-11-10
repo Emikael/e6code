@@ -161,8 +161,13 @@ function OverlayIcon(props: { readonly phase: GitActionProgress["phase"] }) {
       return <ActivityIndicator size="small" colorClassName={"accent-icon"} />;
     case "success":
       return (
-        <View className="h-6 w-6 items-center justify-center rounded-full bg-green-500">
-          <SymbolView name="checkmark" size={12} tintColor="white" type="monochrome" />
+        <View className="h-6 w-6 items-center justify-center rounded-full bg-success">
+          <SymbolView
+            name="checkmark"
+            size={12}
+            tintColorClassName="accent-success-foreground"
+            type="monochrome"
+          />
         </View>
       );
     case "error":

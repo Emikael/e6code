@@ -6,8 +6,9 @@ import type {
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import type { ResolvedMobileCodeSurface } from "../../lib/appearancePreferences";
-import { type MobileThemeId, type MobileThemeVariables } from "../../lib/mobileTheme";
-import { getMobileTerminalTheme, type TerminalAppearanceScheme } from "../terminal/terminalTheme";
+import { MONO_FONT_FAMILY, SANS_FONT_FAMILY } from "../../lib/useFontFamily";
+import { themeColorWithAlpha, type MobileThemeVariables } from "../../lib/mobileTheme";
+import type { TerminalAppearanceScheme } from "../terminal/terminalTheme";
 import { computeWordAltDiffRanges } from "./reviewWordDiffs";
 import {
   getReviewFilePreviewState,
@@ -84,6 +85,8 @@ export function createNativeReviewDiffStyle(
     fileHeaderPathRightPadding: 118,
     fileHeaderCountColumnWidth: 38,
     fileHeaderCountGap: 5,
+    codeFontFamily: MONO_FONT_FAMILY,
+    uiFontFamily: SANS_FONT_FAMILY,
     codeFontSize: codeSurface.fontSize,
     codeFontWeight: "regular",
     lineNumberFontSize: codeSurface.lineNumberFontSize,
@@ -168,13 +171,14 @@ function buildReviewCommentsCacheKey(comments: ReadonlyArray<ReviewInlineComment
   );
 }
 
+// Row tints mix the diff role into the code surface: lighter on light
+// grounds, stronger on dark ones.
+const NATIVE_REVIEW_DIFF_ROW_ALPHA = { light: 0.12, dark: 0.2 } as const;
+
 export function createNativeReviewDiffTheme(
   scheme: TerminalAppearanceScheme,
-  themeId: MobileThemeId,
   appTheme: MobileThemeVariables,
 ): NativeReviewDiffTheme {
-  const terminalTheme = getMobileTerminalTheme(themeId, scheme);
-  const [, terminalRed] = terminalTheme.palette;
   // Swift expects #RRGGBB/#RRGGBBAA while Android expects #RRGGBB/#AARRGGBB.
   // Flatten translucent app tokens onto the code surface so both native
   // implementations receive the one unambiguous shared format.
@@ -184,27 +188,11 @@ export function createNativeReviewDiffTheme(
   );
   const background = opaqueNativeHexColor(appTheme["--color-md-code-bg"], screen);
   const nativeColor = (color: string) => opaqueNativeHexColor(color, background);
-
-  if (scheme === "dark") {
-    return {
-      // Code surfaces share the desktop palette rather than the sheet behind them.
-      background,
-      text: nativeColor(appTheme["--color-md-code-text"]),
-      mutedText: nativeColor(appTheme["--color-foreground-muted"]),
-      headerBackground: background,
-      border: nativeColor(appTheme["--color-border"]),
-      hunkBackground: nativeColor(appTheme["--color-subtle-strong"]),
-      hunkText: nativeColor(appTheme["--color-foreground"]),
-      addBackground: "#0d2f28",
-      deleteBackground: "#391415",
-      addBar: "#00cab1",
-      deleteBar: terminalRed ?? "#ff2e3f",
-      addText: "#5ECC71",
-      deleteText: "#FF6762",
-    };
-  }
+  const rowTint = (color: string) =>
+    nativeColor(themeColorWithAlpha(color, NATIVE_REVIEW_DIFF_ROW_ALPHA[scheme]));
 
   return {
+    // Code surfaces share the desktop palette rather than the sheet behind them.
     background,
     text: nativeColor(appTheme["--color-md-code-text"]),
     mutedText: nativeColor(appTheme["--color-foreground-muted"]),
@@ -212,12 +200,12 @@ export function createNativeReviewDiffTheme(
     border: nativeColor(appTheme["--color-border"]),
     hunkBackground: nativeColor(appTheme["--color-subtle-strong"]),
     hunkText: nativeColor(appTheme["--color-foreground"]),
-    addBackground: "#e5f8f5",
-    deleteBackground: "#ffe6e7",
-    addBar: "#00cab1",
-    deleteBar: terminalRed ?? "#ff2e3f",
-    addText: "#199F43",
-    deleteText: "#D52C36",
+    addBackground: rowTint(appTheme["--color-diff-addition"]),
+    deleteBackground: rowTint(appTheme["--color-diff-deletion"]),
+    addBar: nativeColor(appTheme["--color-diff-addition"]),
+    deleteBar: nativeColor(appTheme["--color-diff-deletion"]),
+    addText: nativeColor(appTheme["--color-diff-addition-foreground"]),
+    deleteText: nativeColor(appTheme["--color-diff-deletion-foreground"]),
   };
 }
 

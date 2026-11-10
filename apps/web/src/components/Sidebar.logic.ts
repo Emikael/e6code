@@ -5,6 +5,11 @@ import {
   isAtomCommandInterrupted,
   type AtomCommandResult,
 } from "@e6tools/client-runtime/state/runtime";
+import {
+  formatRunningThreadStatus,
+  isPausedForUsageLimit,
+} from "@e6tools/client-runtime/state/agent-state";
+import { isLoopbackHost } from "@e6tools/shared/preview";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@e6tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@e6tools/contracts/settings";
@@ -513,20 +518,23 @@ export interface ThreadStatusPill {
     | "Monitoring"
     | "Connecting"
     | "Completed"
-    | "Pending Approval"
-    | "Awaiting Input"
+    | "Needs approval"
+    | "Needs your answer"
+    | "Paused"
     | "Plan Ready";
   colorClass: string;
+  /** Static fill. Live work adds a ring instead of animating. */
   dotClass: string;
-  pulse: boolean;
 }
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
 // then active work, then the actionable plan prompt, then passive
-// monitoring. A Monitoring sibling must never hide a Plan Ready thread.
+// monitoring. A Monitoring sibling must never hide a Plan Ready thread. A
+// usage-limit pause outranks Working so a stalled sibling is not hidden.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 6,
-  "Awaiting Input": 5,
+  "Needs approval": 7,
+  "Needs your answer": 6,
+  Paused: 5,
   Working: 4,
   Connecting: 4,
   "Plan Ready": 3,
@@ -543,6 +551,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
   | "backgroundLiveness"
+  | "agentState"
 > & {
   lastVisitedAt?: string | undefined;
 };
@@ -771,6 +780,7 @@ export function isContextMenuPointerDown(input: {
 export function resolveThreadRowClassName(input: {
   isActive: boolean;
   isSelected: boolean;
+  isUnread?: boolean;
 }): string {
   const baseClassName =
     "h-8 w-full translate-x-0 cursor-pointer justify-start rounded-md px-2 text-left text-sm select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
@@ -796,9 +806,14 @@ export function resolveThreadRowClassName(input: {
     );
   }
 
+  // Read rows sit on the plain muted role (no alpha, so titles keep 4.5:1);
+  // unread rows are told apart by weight and full foreground.
   return cn(
     baseClassName,
-    "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+    input.isUnread
+      ? "font-semibold text-sidebar-foreground"
+      : "font-normal text-sidebar-muted-foreground",
+    "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
   );
 }
 
@@ -812,6 +827,7 @@ export function resolveThreadRowClassName(input: {
 export type SidebarThreadStatus =
   | "approval"
   | "input"
+  | "paused"
   | "working"
   | "monitoring"
   | "failed"
@@ -825,16 +841,41 @@ export function shouldRecedeSidebarThread(input: {
   isSelected: boolean;
 }): boolean {
   if (input.isActive || input.isSelected || input.status === "input") return false;
-  if (input.status === "working" || input.status === "monitoring") return true;
+  // A usage-limit pause waits on the clock, not the user, so it recedes too.
+  if (input.status === "working" || input.status === "monitoring" || input.status === "paused")
+    return true;
   if (input.status === "ready" || input.status === "approval") {
     return !input.isUnread && !input.isWoke;
   }
   return false;
 }
 
+/**
+ * How strongly a sidebar row draws its title. Unread is carried by weight
+ * (plus the row's accessible name), never by fading read titles: read titles
+ * sit on the plain muted role so they keep 4.5:1 contrast.
+ */
+export type SidebarThreadTitleTone = "unread" | "emphasis" | "read";
+
+export function resolveSidebarThreadTitleTone(input: {
+  variant: "card" | "slim";
+  recedes: boolean;
+  status: SidebarThreadStatus;
+  isUnread: boolean;
+  isWoke: boolean;
+  isActive: boolean;
+}): SidebarThreadTitleTone {
+  // Receded background work stays quiet even with an unseen earlier completion.
+  if (input.recedes) return "read";
+  if (input.isUnread) return "unread";
+  if (input.isActive || input.isWoke || input.status === "input") return "emphasis";
+  // Remaining cards (failed, or selected) keep a strong title; slim rows are history.
+  return input.variant === "card" ? "emphasis" : "read";
+}
+
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness"
+  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "agentState"
 >;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
@@ -843,6 +884,9 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   }
   if (thread.hasPendingUserInput) {
     return "input";
+  }
+  if (isPausedForUsageLimit(thread)) {
+    return "paused";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
@@ -861,6 +905,131 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
     return "monitoring";
   }
   return "ready";
+}
+
+/**
+ * The status line under a sidebar thread title. `label` is the leading word
+ * the row keeps whole, `detail` may truncate, and `fullLabel` replaces both
+ * for screen readers and the hover card when the row abbreviates. The marker
+ * always sits beside words, so no status is told by colour alone.
+ */
+export interface SidebarRowStatus {
+  readonly kind:
+    | "working"
+    | "retrying"
+    | "paused"
+    | "monitoring"
+    | "approval"
+    | "input"
+    | "failed"
+    | "woke"
+    | "done";
+  readonly label: string;
+  readonly detail: string | null;
+  readonly fullLabel?: string;
+  /** `live` is the primary dot with a wash, `ring` a hollow warning dot. */
+  readonly marker: "live" | "dot" | "ring" | "check" | "icon";
+  /** Semantic role for the words; the marker takes the matching fill. */
+  readonly tone: "live" | "warning" | "muted" | "success" | "input" | "failed";
+}
+
+/**
+ * Row status in the thread list's wording: "Working · step 4 of 6",
+ * "Needs approval", "Retrying · attempt 2 of 10", "Done · 3h",
+ * "Waiting for usage limit · resets 14:20". A resting thread reads Done after
+ * a completed turn (or an unseen completion); otherwise it has no status and
+ * the row shows its age instead.
+ */
+export function resolveSidebarRowStatus(input: {
+  readonly status: SidebarThreadStatus;
+  readonly agentState: SidebarThreadSummary["agentState"];
+  readonly planProgress: SidebarThreadSummary["planProgress"];
+  readonly formatResetTime: (resetsAt: string) => string;
+  readonly isWoke: boolean;
+  readonly isUnread: boolean;
+  readonly latestTurnCompleted: boolean;
+  /** Compact age for the Done detail, such as "3h". */
+  readonly timeLabel: string;
+}): SidebarRowStatus | null {
+  switch (input.status) {
+    case "working":
+    case "paused": {
+      const running = formatRunningThreadStatus({
+        agentState: input.agentState,
+        planProgress: input.planProgress,
+        formatResetTime: input.formatResetTime,
+      });
+      if (input.status === "paused") {
+        return { kind: "paused", ...running, marker: "dot", tone: "warning" };
+      }
+      if (input.agentState?.kind === "retrying") {
+        return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
+      }
+      return { kind: "working", ...running, marker: "live", tone: "live" };
+    }
+    case "monitoring":
+      return {
+        kind: "monitoring",
+        label: "Monitoring",
+        detail: null,
+        marker: "icon",
+        tone: "muted",
+      };
+    case "approval":
+      return {
+        kind: "approval",
+        label: "Needs approval",
+        detail: null,
+        marker: "dot",
+        tone: "warning",
+      };
+    case "input":
+      return {
+        kind: "input",
+        label: "Needs your answer",
+        detail: null,
+        marker: "icon",
+        tone: "input",
+      };
+    case "failed":
+      return { kind: "failed", label: "Failed", detail: null, marker: "icon", tone: "failed" };
+    case "ready":
+      break;
+  }
+  if (input.isWoke) {
+    return { kind: "woke", label: "Woke", detail: null, marker: "icon", tone: "warning" };
+  }
+  if (input.isUnread || input.latestTurnCompleted) {
+    return {
+      kind: "done",
+      label: "Done",
+      detail: input.timeLabel === "" ? null : input.timeLabel,
+      marker: "check",
+      tone: "success",
+    };
+  }
+  return null;
+}
+
+/**
+ * How the sidebar header names the reach of the environment it serves:
+ * `local` for the primary server on a loopback address (the desktop app, a
+ * local dev or `npx` server), `remote` for anything reached over a network
+ * (LAN, Tailscale, tunnel, relay, SSH).
+ */
+export function resolveSidebarEnvironmentReach(input: {
+  readonly targetKind: string;
+  readonly httpBaseUrl: string | null;
+}): "local" | "remote" {
+  if (input.targetKind !== "PrimaryConnectionTarget" || input.httpBaseUrl === null) {
+    return "remote";
+  }
+  try {
+    const hostname = new URL(input.httpBaseUrl).hostname.replace(/^\[(.*)\]$/, "$1");
+    return isLoopbackHost(hostname) ? "local" : "remote";
+  } catch {
+    return "remote";
+  }
 }
 
 /** First VALID timestamp wins: `a ?? b` falls through on null, but a present-
@@ -1007,6 +1176,13 @@ export function formatWorkingDurationLabel(elapsedMs: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+const LIVE_STATUS_DOT_CLASS = "bg-primary ring-2 ring-primary-surface";
+
+/** Legacy sidebar pill. Colors go through semantic roles so themes recolor
+    them, matching the newer sidebar's status hues: warning for approval and
+    pauses, primary for input and plan ready, primary with a static ring for
+    a live agent, info for connecting, muted for monitoring, success for an
+    unseen completion. */
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
@@ -1014,37 +1190,41 @@ export function resolveThreadStatusPill(input: {
 
   if (thread.hasPendingApprovals) {
     return {
-      label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
-      pulse: false,
+      label: "Needs approval",
+      colorClass: "text-warning-foreground",
+      dotClass: "bg-warning",
     };
   }
 
   if (thread.hasPendingUserInput) {
     return {
-      label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
-      pulse: false,
+      label: "Needs your answer",
+      colorClass: "text-primary-text",
+      dotClass: "bg-primary",
+    };
+  }
+
+  if (isPausedForUsageLimit(thread)) {
+    return {
+      label: "Paused",
+      colorClass: "text-warning-foreground",
+      dotClass: "bg-warning",
     };
   }
 
   if (thread.session?.status === "running") {
     return {
       label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
+      colorClass: "text-primary-text",
+      dotClass: LIVE_STATUS_DOT_CLASS,
     };
   }
 
   if (thread.session?.status === "starting") {
     return {
       label: "Connecting",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
+      colorClass: "text-info-foreground",
+      dotClass: "bg-info",
     };
   }
 
@@ -1058,9 +1238,8 @@ export function resolveThreadStatusPill(input: {
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
-      pulse: false,
+      colorClass: "text-primary-text",
+      dotClass: "bg-primary",
     };
   }
 
@@ -1071,27 +1250,24 @@ export function resolveThreadStatusPill(input: {
   if (thread.backgroundLiveness === "working") {
     return {
       label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
+      colorClass: "text-primary-text",
+      dotClass: LIVE_STATUS_DOT_CLASS,
     };
   }
 
   if (thread.backgroundLiveness === "monitoring") {
     return {
       label: "Monitoring",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: false,
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
     };
   }
 
   if (hasUnseenCompletion(thread)) {
     return {
       label: "Completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
-      pulse: false,
+      colorClass: "text-success-foreground",
+      dotClass: "bg-success",
     };
   }
 

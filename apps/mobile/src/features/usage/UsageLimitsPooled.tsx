@@ -7,6 +7,8 @@ import {
   collectLimitPools,
   formatDuration,
   formatResetsIn,
+  LIMIT_PACE_WORDS,
+  limitPaceReading,
   remainingPercent,
   type LimitAccount,
   type LimitPoolWindow,
@@ -23,9 +25,9 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
 import { useProviderColors } from "./usageProviders";
+import { formatUpcomingTimestamp } from "../../lib/time";
 
 const DRIVER_LABEL: Partial<Record<string, string>> = { codex: "Codex", claudeAgent: "Claude" };
-const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
 function accountName(account: LimitAccount) {
   if (account.displayName) return account.displayName;
@@ -78,6 +80,7 @@ function PoolWindowCard({
 }) {
   const navigation = useNavigation();
   const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
+  const pace = limitPaceReading(pool.pace, pool.remainingPercent);
   const openAccount = (account: LimitAccount) =>
     navigation.navigate("SettingsSheet", {
       screen: "SettingsContent",
@@ -104,8 +107,8 @@ function PoolWindowCard({
             <Text className="text-sm text-foreground-muted">left</Text>
           </View>
         </View>
-        {pool.pace ? (
-          <Text className="text-xs text-foreground-tertiary">{PACE_LABEL[pool.pace]}</Text>
+        {pace ? (
+          <Text className="text-xs text-foreground-tertiary">{LIMIT_PACE_WORDS[pace]}</Text>
         ) : null}
       </View>
       {nextRefill ? (
@@ -339,11 +342,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
               </Text>
               {window.resetsAt ? (
                 <Text selectable className="text-sm text-foreground-muted">
-                  Resets{" "}
-                  {new Date(window.resetsAt).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
+                  Resets {formatUpcomingTimestamp(window.resetsAt, "locale")}
                 </Text>
               ) : null}
               {reset && reset.restoresPercent > 0 ? (

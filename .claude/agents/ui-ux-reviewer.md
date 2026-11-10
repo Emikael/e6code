@@ -15,8 +15,8 @@ Review for:
 
 - **Color roles.** Colors come from the semantic roles in
   `apps/web/src/index.css` and `packages/shared/src/themePalettes.ts`. Flag raw
-  Tailwind palette colors, `text-primary` used as text (Volt is unreadable as
-  text on light grounds: `text-primary-text` exists), white text on `primary`
+  Tailwind palette colors, `text-primary` used as text (a theme's raw accent
+  can be unreadable as text: `text-primary-text` exists), white text on `primary`
   fills, and roles that built-in themes (`html[data-theme-id]`) do not define.
 - **Contrast.** Compute WCAG ratios from the actual values in both light and
   dark: 4.5:1 for text, 3:1 for icons, borders, focus rings and control states

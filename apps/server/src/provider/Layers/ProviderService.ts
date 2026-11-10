@@ -2003,6 +2003,28 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const stopSubagent: ProviderServiceMethod<"stopSubagent"> = Effect.fn("stopSubagent")(
+    function* (input) {
+      const routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.stopSubagent",
+        allowRecovery: false,
+      });
+      yield* Effect.annotateCurrentSpan({
+        "provider.operation": "stop-subagent",
+        "provider.kind": routed.adapter.provider,
+        "provider.thread_id": input.threadId,
+      });
+      if (!routed.adapter.stopSubagent) {
+        return yield* toValidationError(
+          "ProviderService.stopSubagent",
+          `Provider '${routed.adapter.provider}' cannot stop a single subagent.`,
+        );
+      }
+      yield* routed.adapter.stopSubagent(routed.threadId, input.subagentId);
+    },
+  );
+
   const respondToRequest: ProviderServiceMethod<"respondToRequest"> = Effect.fn("respondToRequest")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -2024,11 +2046,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.thread_id": input.threadId,
           "provider.request_id": input.requestId,
         });
-        yield* routed.adapter.respondToRequest(routed.threadId, input.requestId, input.decision);
+        const feedback =
+          input.decision === "decline" && routed.adapter.capabilities.approvalFeedback === "native"
+            ? input.feedback
+            : undefined;
+        yield* routed.adapter.respondToRequest(
+          routed.threadId,
+          input.requestId,
+          input.decision,
+          feedback,
+        );
         yield* analytics.record("provider.request.responded", {
           provider: routed.adapter.provider,
           decision: input.decision,
         });
+        return { feedbackDelivered: feedback !== undefined };
       }).pipe(
         withMetrics({
           counter: providerTurnsTotal,
@@ -2471,6 +2503,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     sendTurn,
     compactThread,
     interruptTurn,
+    stopSubagent,
     respondToRequest,
     respondToUserInput,
     stopSession,

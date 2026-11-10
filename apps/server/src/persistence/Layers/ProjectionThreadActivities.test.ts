@@ -97,4 +97,78 @@ layer("ProjectionThreadActivityRepository", (it) => {
       );
     }),
   );
+
+  it.effect("keeps the thread usage total in step with turn.usage upserts", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadActivityRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-usage-totals");
+      const upsertUsage = (turn: number, payload: unknown) =>
+        repository.upsert({
+          activityId: EventId.make(`usage-${turn}`),
+          threadId,
+          turnId: null,
+          tone: "info",
+          kind: "turn.usage",
+          summary: "Usage",
+          payload,
+          sequence: turn,
+          createdAt: "2026-03-01T00:00:00.000Z",
+        });
+      const readTotal = sql<{
+        readonly turnCount: number;
+        readonly totalTokens: number | null;
+        readonly costUsd: number | null;
+        readonly costedTurnCount: number;
+        readonly estimatedTurnCount: number;
+      }>`
+        SELECT
+          turn_count AS "turnCount",
+          total_tokens AS "totalTokens",
+          cost_usd AS "costUsd",
+          costed_turn_count AS "costedTurnCount",
+          estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals
+        WHERE thread_id = ${threadId}
+      `;
+
+      yield* upsertUsage(1, { totalTokens: 100, costUsd: 0.5, costSource: "reported" });
+      // Other kinds do not touch the total.
+      yield* repository.upsert({
+        activityId: EventId.make("usage-tool"),
+        threadId,
+        turnId: null,
+        tone: "tool",
+        kind: "tool.completed",
+        summary: "Tool",
+        payload: { totalTokens: 9999 },
+        sequence: 2,
+        createdAt: "2026-03-01T00:00:00.000Z",
+      });
+      assert.deepEqual(yield* readTotal, [
+        { turnCount: 1, totalTokens: 100, costUsd: 0.5, costedTurnCount: 1, estimatedTurnCount: 0 },
+      ]);
+
+      // A new turn adds to the total.
+      yield* upsertUsage(3, { totalTokens: 50, costUsd: 0.25, costSource: "estimated" });
+      assert.deepEqual(yield* readTotal, [
+        {
+          turnCount: 2,
+          totalTokens: 150,
+          costUsd: 0.75,
+          costedTurnCount: 2,
+          estimatedTurnCount: 1,
+        },
+      ]);
+
+      // Re-upserting a turn replaces its contribution instead of adding it again.
+      yield* upsertUsage(3, { totalTokens: 70 });
+      assert.deepEqual(yield* readTotal, [
+        { turnCount: 2, totalTokens: 170, costUsd: 0.5, costedTurnCount: 1, estimatedTurnCount: 0 },
+      ]);
+
+      yield* repository.deleteByThreadId({ threadId });
+      assert.deepEqual(yield* readTotal, []);
+    }),
+  );
 });

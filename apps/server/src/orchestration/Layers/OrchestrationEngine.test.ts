@@ -47,6 +47,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import * as ThreadAgentState from "../ThreadAgentState.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   OrchestrationProjectionPipeline,
@@ -79,6 +80,7 @@ function makeOrchestrationLayer(
   ).pipe(
     Layer.provideMerge(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),
+    Layer.provide(ThreadAgentState.layer),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
     Layer.provide(
@@ -420,6 +422,7 @@ describe("OrchestrationEngine", () => {
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
           getUserInputActivity: () => Effect.die("unused"),
+          getApprovalRequestTurnId: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),
           getSnapshot: () =>
@@ -1514,6 +1517,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(ThreadBackgroundLiveness.layer),
         Layer.provide(ThreadPlanProgress.layer),
+        Layer.provide(ThreadAgentState.layer),
         Layer.provide(OrchestrationProjectionPipelineLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, flakyStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
@@ -1622,6 +1626,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(ThreadBackgroundLiveness.layer),
         Layer.provide(ThreadPlanProgress.layer),
+        Layer.provide(ThreadAgentState.layer),
         Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
@@ -1771,6 +1776,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(ThreadBackgroundLiveness.layer),
         Layer.provide(ThreadPlanProgress.layer),
+        Layer.provide(ThreadAgentState.layer),
         Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
         Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),

@@ -18,6 +18,8 @@ interface PendingUserInputPanelProps {
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
   onDismiss: (requestId: ApprovalRequestId) => void;
+  /** Title of the subagent that asked the active question; null for the main agent. */
+  agentTitle?: string | null;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -28,6 +30,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   onToggleOption,
   onAdvance,
   onDismiss,
+  agentTitle = null,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
@@ -43,6 +46,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
       onDismiss={onDismiss}
+      agentTitle={agentTitle}
     />
   );
 });
@@ -55,6 +59,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   onToggleOption,
   onAdvance,
   onDismiss,
+  agentTitle,
 }: {
   prompt: PendingUserInput;
   isResponding: boolean;
@@ -63,6 +68,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
   onDismiss: (requestId: ApprovalRequestId) => void;
+  agentTitle: string | null;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
@@ -187,6 +193,14 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       >
         <ComposerBanner.Icon />
         <ComposerBanner.Content>
+          {agentTitle ? (
+            // A subagent is blocked on this answer: name it, as approvals do.
+            // Only the title truncates, so the verb survives a long name.
+            <span className="flex min-w-0 max-w-[55%] shrink items-baseline gap-1 font-medium text-warning-foreground">
+              <span className="min-w-0 truncate">{agentTitle}</span>
+              <span className="shrink-0">needs your answer</span>
+            </span>
+          ) : null}
           <span className="shrink-0 font-medium text-muted-foreground">
             {activeQuestion.header}
           </span>

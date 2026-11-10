@@ -15,6 +15,10 @@
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"
     },
+    "./minute-clock": {
+      "types": "./src/minuteClock.ts",
+      "default": "./src/minuteClock.ts"
+    },
     "./load-balancing": {
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"
@@ -26,6 +30,14 @@
     "./pending-requests": {
       "types": "./src/pendingRequests.ts",
       "default": "./src/pendingRequests.ts"
+    },
+    "./approval-feedback": {
+      "types": "./src/approvalFeedback.ts",
+      "default": "./src/approvalFeedback.ts"
+    },
+    "./destructive-commands": {
+      "types": "./src/destructiveCommands.ts",
+      "default": "./src/destructiveCommands.ts"
     },
     "./connection": {
       "types": "./src/connection/index.ts",
@@ -54,6 +66,10 @@
     "./media-source": {
       "types": "./src/mediaSource.ts",
       "default": "./src/mediaSource.ts"
+    },
+    "./model-meta": {
+      "types": "./src/modelMeta.ts",
+      "default": "./src/modelMeta.ts"
     },
     "./media-actions": {
       "types": "./src/mediaActions.ts",
@@ -114,6 +130,10 @@
     "./state/attachments": {
       "types": "./src/state/attachments.ts",
       "default": "./src/state/attachments.ts"
+    },
+    "./effort-segments": {
+      "types": "./src/effortSegments.ts",
+      "default": "./src/effortSegments.ts"
     },
     "./text-paste": {
       "types": "./src/textPaste.ts",
@@ -186,6 +206,10 @@
     "./state/runtime": {
       "types": "./src/state/runtime.ts",
       "default": "./src/state/runtime.ts"
+    },
+    "./state/agent-state": {
+      "types": "./src/state/agentState.ts",
+      "default": "./src/state/agentState.ts"
     },
     "./state/usage": {
       "types": "./src/state/usage.ts",
@@ -263,9 +287,29 @@
       "types": "./src/work-log/commandLabel.ts",
       "default": "./src/work-log/commandLabel.ts"
     },
+    "./work-log/context-window": {
+      "types": "./src/work-log/contextWindow.ts",
+      "default": "./src/work-log/contextWindow.ts"
+    },
+    "./work-log/task-list": {
+      "types": "./src/work-log/taskList.ts",
+      "default": "./src/work-log/taskList.ts"
+    },
     "./work-log/scroll-anchor": {
       "types": "./src/work-log/scrollAnchor.ts",
       "default": "./src/work-log/scrollAnchor.ts"
+    },
+    "./work-log/diff-stat": {
+      "types": "./src/work-log/diffStat.ts",
+      "default": "./src/work-log/diffStat.ts"
+    },
+    "./work-log/step-meta": {
+      "types": "./src/work-log/stepMeta.ts",
+      "default": "./src/work-log/stepMeta.ts"
+    },
+    "./work-log/turn-usage": {
+      "types": "./src/work-log/turnUsage.ts",
+      "default": "./src/work-log/turnUsage.ts"
     },
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",

@@ -176,18 +176,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "color-scheme",
     title: "Color scheme",
     to: "/settings/appearance",
-    searchTerms: ["appearance light dark system mode"],
-    // The scheme tiles sit at the top of the Appearance section.
+    searchTerms: ["appearance theme light dark system mode match porcelain slate"],
+    // The Match system / Porcelain / Slate cards are the Theme section.
     targetId: "appearance",
   },
   {
     id: "theme",
     title: "Themes",
     to: "/settings/appearance",
-    searchTerms: ["appearance colors palette custom import"],
-    // Theme cards live directly under the scheme tiles; the section is the
-    // stable scroll destination for both.
-    targetId: "appearance",
+    searchTerms: ["appearance more themes colors palette custom import create add"],
+  },
+  {
+    id: "stock-accent",
+    title: "Accent",
+    to: "/settings/appearance",
+    searchTerms: ["color primary iris cobalt rose graphite swatch"],
   },
   {
     // Prefixed because the slider control already owns the `appearance-contrast` id.
@@ -214,6 +217,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Effort display",
     to: "/settings/appearance",
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
+  },
+  {
+    id: "thinking-timeline",
+    title: "Show the thinking timeline",
+    to: "/settings/appearance",
+    searchTerms: ["work log steps rail tool calls duration diff reasoning thought activity"],
   },
   {
     id: "chat-width",

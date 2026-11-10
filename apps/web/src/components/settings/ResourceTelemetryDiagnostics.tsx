@@ -196,10 +196,8 @@ function SourceStatusBadge({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]",
         tone === "neutral" && "border-border/70 bg-muted/45 text-muted-foreground",
-        tone === "default" &&
-          "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        tone === "warning" &&
-          "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        tone === "default" && "border-success/25 bg-success/10 text-success-foreground",
+        tone === "warning" && "border-warning/30 bg-warning/10 text-warning-foreground",
         tone === "danger" && "border-destructive/30 bg-destructive/10 text-destructive",
       )}
     >
@@ -207,8 +205,8 @@ function SourceStatusBadge({
         className={cn(
           "size-1.5 rounded-full",
           tone === "neutral" && "bg-muted-foreground/55",
-          tone === "default" && "bg-emerald-500",
-          tone === "warning" && "bg-amber-500",
+          tone === "default" && "bg-success",
+          tone === "warning" && "bg-warning",
           tone === "danger" && "bg-destructive",
         )}
       />
@@ -258,7 +256,7 @@ function IconStat({
       <div
         className={cn(
           "mt-2.5 truncate font-mono text-2xl font-semibold tracking-[-0.05em] tabular-nums text-foreground",
-          tone === "warning" && "text-amber-600 dark:text-amber-300",
+          tone === "warning" && "text-warning-foreground",
           tone === "danger" && "text-destructive",
         )}
       >
@@ -997,7 +995,7 @@ export function ResourceTelemetryDiagnostics({
               </p>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground/65">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
+              <span className="size-1.5 rounded-full bg-success" />
               Sampling every {snapshot ? formatSampleInterval(snapshot.sampleIntervalMs) : "..."}
             </div>
           </div>
@@ -1186,7 +1184,7 @@ export function ResourceTelemetryDiagnostics({
                   value={String(snapshot.health.inaccessibleProcessCount)}
                   valueClassName={
                     snapshot.health.inaccessibleProcessCount > 0
-                      ? "text-amber-600 dark:text-amber-300"
+                      ? "text-warning-foreground"
                       : undefined
                   }
                 />

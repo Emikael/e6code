@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  ArrowLeftIcon,
   BlocksIcon,
   BotIcon,
   createLucideIcon,
@@ -24,8 +25,12 @@ import {
   Settings2Icon,
   XIcon,
 } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
+import { cn } from "../../lib/utils";
+import { useEnvironments } from "../../state/environments";
+import { primaryServerProvidersAtom } from "../../state/server";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
@@ -49,6 +54,14 @@ import {
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
+import {
+  groupSettingsNavItems,
+  SETTINGS_DETAIL_PAGES,
+  SETTINGS_OVERLAY_SELECTOR,
+  settingsConnectionsBadge,
+  settingsProvidersBadge,
+} from "./settingsNavGroups";
+import { useSettingsBackLabel, useSettingsBackNavigation } from "./useSettingsBackNavigation";
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -92,11 +105,9 @@ const SETTINGS_SECTION_ICONS: Readonly<
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsPath;
-  icon: ComponentType<{ className?: string }>;
 }> = (Object.keys(SETTINGS_SECTION_LABELS) as SettingsPath[]).map((to) => ({
   to,
   label: SETTINGS_SECTION_LABELS[to],
-  icon: SETTINGS_SECTION_ICONS[to],
 }));
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
@@ -109,10 +120,21 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
-  const navItems = SETTINGS_NAV_ITEMS.filter(
-    (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
+  const showProjectPage = isSettingsOverviewVisible(scopeSearch);
+  const navGroups = useMemo(
+    () =>
+      groupSettingsNavItems(
+        SETTINGS_NAV_ITEMS.filter((item) => item.to !== "/settings/projects" || showProjectPage),
+      ),
+    [showProjectPage],
   );
+  const providers = useAtomValue(primaryServerProvidersAtom);
+  const { environments } = useEnvironments();
+  const providersBadge = useMemo(() => settingsProvidersBadge(providers), [providers]);
+  const connectionsBadge = useMemo(() => settingsConnectionsBadge(environments), [environments]);
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
+  const navigateBack = useSettingsBackNavigation();
+  const backLabel = useSettingsBackLabel();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(0);
@@ -145,7 +167,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           target.isContentEditable ||
           // Keep focus inside open dialogs and popups instead of escaping
           // their focus trap into the sidebar search.
-          target.closest('[role="dialog"], [aria-modal="true"], [data-slot$="popup"]') !== null)
+          target.closest(SETTINGS_OVERLAY_SELECTOR) !== null)
       ) {
         return;
       }
@@ -235,8 +257,26 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     <>
       <SidebarContent className="overflow-x-hidden">
         <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
-          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
-            <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
+          <button
+            type="button"
+            onClick={() => {
+              if (isMobile) setOpenMobile(false);
+              navigateBack();
+            }}
+            aria-keyshortcuts="Escape"
+            className="flex h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 text-left text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowLeftIcon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{backLabel}</span>
+            <Kbd className="h-[18px] rounded-sm border border-sidebar-border bg-transparent px-1.5 font-mono text-[11px] font-normal text-sidebar-muted-foreground">
+              esc
+            </Kbd>
+          </button>
+          <div className="flex h-[34px] items-center gap-2 rounded-[10px] border border-input bg-surface-raised px-2.5 text-sm text-sidebar-muted-foreground focus-within:ring-2 focus-within:ring-ring">
+            <SearchIcon
+              aria-hidden
+              className="size-[15px] shrink-0 text-sidebar-muted-foreground"
+            />
             <Input
               ref={searchInputRef}
               nativeInput
@@ -248,7 +288,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 setActiveResultIndex(0);
               }}
               onKeyDown={handleSearchKeyDown}
-              placeholder="Search"
+              placeholder={`Search ${searchableItems.length} settings`}
               aria-label="Search settings"
               role="combobox"
               aria-autocomplete="list"
@@ -259,7 +299,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   ? `settings-search-result-${results[activeResultIndex].id}`
                   : undefined
               }
-              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
+              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
             />
             {isSearching ? (
               <Button
@@ -303,7 +343,9 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     tabIndex={-1}
                     size="sm"
                     isActive={index === activeResultIndex}
-                    className="h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                    // The highlighted result takes an inset primary-edge bar on top of
+                    // its fill, so keyboard and pointer position read at 3:1 or better.
+                    className="relative h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0.5 data-[active=true]:before:w-0.5 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary-edge"
                     onMouseMove={() => setActiveResultIndex(index)}
                     onClick={() => handleSearchResultClick(item)}
                   >
@@ -312,7 +354,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                       <span className="block truncate text-sm font-medium text-sidebar-foreground">
                         {item.title}
                       </span>
-                      <span className="block truncate text-[11px] text-sidebar-muted-foreground/75">
+                      <span className="block truncate text-[11px] text-sidebar-muted-foreground">
                         {SETTINGS_SECTION_LABELS[item.to]}
                       </span>
                     </span>
@@ -321,26 +363,61 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               ))}
             </SidebarMenu>
           ) : (
-            <SidebarMenu className="ps-px">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isGeneralDetailPage =
-                  item.to === "/settings/general" && pathname === "/settings/open-source-licenses";
-                const isActive =
-                  isGeneralDetailPage || pathname === item.to || pathname.startsWith(`${item.to}/`);
+            <nav aria-label="Settings sections" className="flex flex-col gap-3.5 pt-1">
+              {navGroups.map((group) => {
+                const headingId = `settings-nav-group-${group.label.toLowerCase()}`;
                 return (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => handleSectionClick(item.to)}
+                  <section key={group.label} aria-labelledby={headingId}>
+                    <h2
+                      id={headingId}
+                      className="px-2 pb-1 text-xs font-semibold text-sidebar-muted-foreground"
                     >
-                      <Icon />
-                      <span className="truncate">{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                      {group.label}
+                    </h2>
+                    <SidebarMenu className="gap-px">
+                      {group.items.map((item) => {
+                        const isDetailPage = SETTINGS_DETAIL_PAGES[pathname]?.parent === item.to;
+                        const isActive =
+                          isDetailPage ||
+                          pathname === item.to ||
+                          pathname.startsWith(`${item.to}/`);
+                        const badge =
+                          item.to === "/settings/providers"
+                            ? providersBadge
+                            : item.to === "/settings/connections"
+                              ? connectionsBadge
+                              : null;
+                        return (
+                          <SidebarMenuItem key={item.to}>
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              aria-current={isActive ? "page" : undefined}
+                              onClick={() => handleSectionClick(item.to)}
+                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-primary-edge"
+                            >
+                              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                              {badge ? (
+                                <span
+                                  className={cn(
+                                    "shrink-0 font-mono text-[11px] tabular-nums",
+                                    badge.tone === "warning"
+                                      ? "flex h-5 items-center rounded-sm bg-warning-surface px-1.5 font-medium text-warning-foreground"
+                                      : "text-sidebar-muted-foreground",
+                                  )}
+                                >
+                                  <span aria-hidden="true">{badge.text}</span>
+                                  <span className="sr-only">{badge.label}</span>
+                                </span>
+                              ) : null}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })}
+                    </SidebarMenu>
+                  </section>
                 );
               })}
-            </SidebarMenu>
+            </nav>
           )}
         </SidebarGroup>
       </SidebarContent>

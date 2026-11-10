@@ -2,7 +2,7 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@e6tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload } from "@e6tools/contracts";
+import { TURN_USAGE_ACTIVITY_KIND, UserInputAttachmentAnswerPayload } from "@e6tools/contracts";
 import { foldUserInputActivities } from "@e6tools/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -21,6 +21,17 @@ import {
   type WorkLogToolLifecycleStatus,
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
+import {
+  mainAgentDiffStat,
+  type WorkLogDiffStat,
+} from "@e6tools/client-runtime/work-log/diff-stat";
+import { mergeWorkStepStartedAt } from "@e6tools/client-runtime/work-log/step-meta";
+import {
+  isTaskListToolActivity,
+  taskListLabel,
+  taskListStepsFromPayload,
+  taskListText,
+} from "@e6tools/client-runtime/work-log/task-list";
 import {
   isToolLifecycleItemType,
   type AssetResource,
@@ -67,6 +78,13 @@ export interface WorkLogEntry {
   command?: string;
   rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
+  /**
+   * When the step began, kept from the first lifecycle row once later rows
+   * (which move `createdAt` forward) merge into it. Absent on single-row steps.
+   */
+  startedAt?: string;
+  /** Lines a main-agent file change added and removed, when the provider counted its files. */
+  diffStat?: WorkLogDiffStat;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
@@ -228,30 +246,8 @@ function planStateFromActivity(activity: OrchestrationThreadActivity): ActivePla
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
       : null;
-  const rawPlan = payload?.plan;
-  if (!Array.isArray(rawPlan)) {
-    return null;
-  }
-  const steps: Array<{
-    step: string;
-    status: "pending" | "inProgress" | "completed";
-  }> = [];
-  for (const entry of rawPlan) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    const record = entry as Record<string, unknown>;
-    if (typeof record.step !== "string") {
-      continue;
-    }
-    const status =
-      record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
-    steps.push({
-      step: record.step,
-      status,
-    });
-  }
-  if (steps.length === 0) {
+  const steps = taskListStepsFromPayload(payload);
+  if (!steps || steps.length === 0) {
     return null;
   }
   return {
@@ -474,6 +470,8 @@ export function deriveWorkLogEntries(
     ),
   );
   const entries: DerivedWorkLogEntry[] = [];
+  // tool.started rows never render, but their timestamp is when the step began.
+  const toolStartedAtById = new Map<string, string>();
   for (const activity of foldUserInputActivities(ordered)) {
     if (
       isWorktreeSetupActivity(activity.kind) &&
@@ -481,7 +479,13 @@ export function deriveWorkLogEntries(
     ) {
       continue;
     }
-    if (activity.kind === "tool.started") continue;
+    if (activity.kind === "tool.started") {
+      const toolCallId = extractToolCallId(asRecord(activity.payload));
+      if (toolCallId && !toolStartedAtById.has(toolCallId)) {
+        toolStartedAtById.set(toolCallId, activity.createdAt);
+      }
+      continue;
+    }
     // Agent task.started rows are CTA seeds: they carry the true spawn turn,
     // which is the batch key (completions of background subagents arrive
     // under later synthetic turns and must not start new batches). They
@@ -490,6 +494,8 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    // Folded into the turn's "Worked for ..." row instead.
+    if (activity.kind === TURN_USAGE_ACTIVITY_KIND) continue;
     if (activity.kind === "turn.plan.updated") {
       const todoEntry = todoListWorkLogEntry(activity);
       if (todoEntry) entries.push(todoEntry);
@@ -499,8 +505,13 @@ export function deriveWorkLogEntries(
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
-    if (isPlanToolActivity(activity, planUpdateTurnIds)) continue;
+    if (isTaskListToolActivity(activity, planUpdateTurnIds)) continue;
     const entry = toDerivedWorkLogEntry(activity);
+    if (entry.startedAt === undefined && entry.toolCallId) {
+      // The start is immutable, so stamping the cached entry is idempotent.
+      const startedAt = toolStartedAtById.get(entry.toolCallId);
+      if (startedAt !== undefined && startedAt !== entry.createdAt) entry.startedAt = startedAt;
+    }
     // Native agent launches get their visible row from task.started. Defer
     // their active tool row so another launch cannot duplicate the batch.
     if (
@@ -537,21 +548,6 @@ function isNoContentRuntimeWarning(activity: OrchestrationThreadActivity): boole
   );
 }
 
-const PLAN_TOOL_NAMES = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList"]);
-
-/** A successful todo tool call in a turn whose plan update renders it as a Tasks row. */
-function isPlanToolActivity(
-  activity: OrchestrationThreadActivity,
-  planUpdateTurnIds: ReadonlySet<string>,
-): boolean {
-  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") return false;
-  if (activity.tone === "error" || !activity.turnId || !planUpdateTurnIds.has(activity.turnId)) {
-    return false;
-  }
-  const toolName = asRecord(asRecord(activity.payload)?.data)?.toolName;
-  return typeof toolName === "string" && PLAN_TOOL_NAMES.has(toolName);
-}
-
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
   if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
     return false;
@@ -566,24 +562,18 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
 
 const decodeQuestionAttachmentAnswer = Schema.decodeUnknownOption(UserInputAttachmentAnswerPayload);
 
-const TODO_STEP_MARKS = { completed: "✓", inProgress: "→", pending: "○" } as const;
-
 /** Each todo update is a quiet row where the agent wrote it; it opens to every step. */
 function todoListWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry | null {
   const cachedEntry = derivedWorkLogEntryByActivity.get(activity);
   if (cachedEntry) return cachedEntry;
   const plan = planStateFromActivity(activity);
   if (!plan || plan.steps.length === 0) return null;
-  const done = plan.steps.filter((step) => step.status === "completed").length;
-  const current =
-    plan.steps.find((step) => step.status === "inProgress") ??
-    plan.steps.find((step) => step.status === "pending");
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
     turnId: activity.turnId,
-    label: `Tasks ${done}/${plan.steps.length}${current ? ` · ${current.step}` : ""}`,
-    detail: plan.steps.map((step) => `${TODO_STEP_MARKS[step.status]} ${step.step}`).join("\n"),
+    label: taskListLabel(plan.steps),
+    detail: taskListText(plan.steps),
     tone: "info",
     sourceActivityKind: activity.kind,
   };
@@ -671,6 +661,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
+  }
+  const diffStat = mainAgentDiffStat(payload, changedFiles);
+  if (diffStat) {
+    entry.diffStat = diffStat;
   }
   if (title) {
     entry.toolTitle = title;
@@ -915,6 +909,8 @@ function mergeDerivedWorkLogEntries(
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolData = next.toolData ?? previous.toolData;
+  const diffStat = next.diffStat ?? previous.diffStat;
+  const startedAt = mergeWorkStepStartedAt(previous, next);
   return {
     ...previous,
     ...next,
@@ -933,6 +929,8 @@ function mergeDerivedWorkLogEntries(
     ...(toolCallId ? { toolCallId } : {}),
     ...(toolLifecycleStatus !== undefined ? { toolLifecycleStatus } : {}),
     ...(toolData !== undefined ? { toolData } : {}),
+    ...(diffStat ? { diffStat } : {}),
+    ...(startedAt ? { startedAt } : {}),
   };
 }
 

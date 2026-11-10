@@ -22,6 +22,8 @@ export function getThemeRoleLabel(role: ThemeColorRole): string {
     warningSurface: "Warning background",
     updateForeground: "Update text",
     updateSurface: "Update background",
+    mergedForeground: "Merged text",
+    mergedSurface: "Merged background",
   };
   const label = labels[role];
   if (label) return label;

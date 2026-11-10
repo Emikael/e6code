@@ -1,12 +1,20 @@
-import type { EnvironmentId, ProjectId, PullRequestListEntry } from "@e6tools/contracts";
+import {
+  PullRequestOperationError,
+  PullRequestUnavailableError,
+  type EnvironmentId,
+  type ProjectId,
+  type PullRequestListEntry,
+} from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  describeUnreadablePullRequestProjects,
   filterPullRequestsByInvolvement,
   findScopedProject,
   mergePullRequestLists,
   pullRequestEntryKey,
   pullRequestEnvironmentSetKey,
+  pullRequestListSyncedAt,
   groupPullRequestsByInvolvement,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
@@ -18,6 +26,7 @@ import {
   mergePullRequestDiffStats,
   narrowPullRequestsToFilters,
   partitionPullRequestsWithPriority,
+  pullRequestOperationFailureText,
   readPullRequestListSnapshot,
   writePullRequestListSnapshot,
   rankPullRequestMatches,
@@ -38,6 +47,7 @@ import {
   readPullRequestListPreferences,
   writePullRequestListPreferences,
 } from "./pullRequestListPreferences";
+import { pullRequestLensOf, pullRequestLensScope } from "./pullRequestTriage.logic";
 
 const VIEWERS = { "github.com": "Bilal" } as const;
 const NO_VIEWERS = {} as const;
@@ -1209,6 +1219,60 @@ describe("remembered pull request list controls", () => {
     expect(readPullRequestListPreferences(storage)).toEqual(preferences);
   });
 
+  it("opens a first visit on Needs you", () => {
+    expect(pullRequestLensOf(readPullRequestListPreferences(makeStorage()))).toBe("needs-you");
+  });
+
+  it("moves a scope saved under the old All open default to Needs you, keeping its filters", () => {
+    const storage = makeStorage();
+    // What the page saved before Needs you was the default: no lens on the open list.
+    storage.setItem(
+      "e6.pullRequests.preferences",
+      JSON.stringify({
+        involvement: "all",
+        state: "open",
+        projectId: "project-1",
+        sort: "updated",
+      }),
+    );
+    const preferences = readPullRequestListPreferences(storage);
+    expect(preferences).toEqual({
+      involvement: "all",
+      state: "open",
+      projectId: "project-1",
+      sort: "updated",
+    });
+    expect(pullRequestLensOf(preferences)).toBe("needs-you");
+  });
+
+  it("reads the old explicit Needs you marker as the default it now is", () => {
+    const storage = makeStorage();
+    storage.setItem(
+      "e6.pullRequests.preferences",
+      JSON.stringify({ involvement: "all", state: "open", lens: "needs-you" }),
+    );
+    const preferences = readPullRequestListPreferences(storage);
+    expect(preferences).toEqual({ involvement: "all", state: "open" });
+    expect(pullRequestLensOf(preferences)).toBe("needs-you");
+  });
+
+  it("keeps a tab the reader picked, All open included", () => {
+    for (const lens of ["yours", "open", "merged", "needs-you"] as const) {
+      const storage = makeStorage();
+      writePullRequestListPreferences(
+        pullRequestListPreferences(pullRequestLensScope(lens)),
+        storage,
+      );
+      expect(pullRequestLensOf(readPullRequestListPreferences(storage))).toBe(lens);
+    }
+  });
+
+  it("drops the All open marker off any list but the open one", () => {
+    expect(
+      pullRequestListPreferences({ involvement: "all", state: "merged", lens: "open" }),
+    ).toEqual({ involvement: "all", state: "merged" });
+  });
+
   it("omits the default sort from storage", () => {
     expect(
       pullRequestListPreferences({
@@ -1598,5 +1662,87 @@ describe("the priority groups against a paginated feed", () => {
     expect(
       groups.find((group) => group.key === "others")?.entries.map((row) => row.number),
     ).toEqual([6123]);
+  });
+});
+
+describe("when the list was last read", () => {
+  it("is as fresh as its stalest row", () => {
+    expect(
+      pullRequestListSyncedAt([
+        entry({ number: 1, observedAt: Date.parse("2026-07-02T10:05:00Z") }),
+        entry({ number: 2, observedAt: Date.parse("2026-07-02T10:01:00Z") }),
+        entry({ number: 3 }),
+      ]),
+    ).toBe("2026-07-02T10:01:00.000Z");
+  });
+
+  it("says nothing when no row says when it was read", () => {
+    expect(pullRequestListSyncedAt([entry({ number: 1 })])).toBeNull();
+    expect(pullRequestListSyncedAt([])).toBeNull();
+  });
+});
+
+describe("pullRequestOperationFailureText", () => {
+  it("reads a failed listing in the server's words, without the operation wrapper", () => {
+    const error = new PullRequestOperationError({
+      operation: "list",
+      detail: "Couldn't read any repository. GitHub CLI command failed.",
+    });
+    expect(error.message).toMatch(/^Pull request operation list failed:/);
+    expect(pullRequestOperationFailureText(error)).toBe(
+      "Couldn't read any repository. GitHub CLI command failed.",
+    );
+  });
+
+  it("leaves other failures, such as a signed-out host and its fix, to their own message", () => {
+    const signedOut = new PullRequestUnavailableError({
+      reason: "cli-unauthenticated",
+      provider: "github",
+    });
+    expect(pullRequestOperationFailureText(signedOut)).toBeNull();
+    expect(signedOut.message).toContain("gh auth login");
+    expect(pullRequestOperationFailureText(new Error("boom"))).toBeNull();
+  });
+});
+
+describe("describeUnreadablePullRequestProjects", () => {
+  const unreadable = (projectTitle: string, message: string) => ({
+    projectId: projectTitle as ProjectId,
+    projectTitle,
+    message,
+  });
+
+  it("says nothing when every project was read", () => {
+    expect(describeUnreadablePullRequestProjects([])).toBeNull();
+  });
+
+  it("names the one project it could not read, with the server's reason", () => {
+    expect(
+      describeUnreadablePullRequestProjects([
+        unreadable("api", "acme/api could not be read. Run `gh auth login` and retry."),
+      ]),
+    ).toEqual({
+      summary: "Pull requests from api could not be loaded.",
+      reasons: ["acme/api could not be read. Run `gh auth login` and retry."],
+    });
+  });
+
+  it("counts several projects, says a reason two machines share once, and caps the rest", () => {
+    const description = describeUnreadablePullRequestProjects([
+      unreadable("a", "acme/a could not be read."),
+      unreadable("a", "acme/a could not be read."),
+      unreadable("b", "acme/b could not be read."),
+      unreadable("c", "acme/c could not be read."),
+      unreadable("d", "acme/d could not be read."),
+      unreadable("e", "acme/e could not be read."),
+    ]);
+
+    expect(description?.summary).toBe("Pull requests from 5 projects could not be loaded.");
+    expect(description?.reasons).toEqual([
+      "acme/a could not be read.",
+      "acme/b could not be read.",
+      "acme/c could not be read.",
+      "2 more could not be read.",
+    ]);
   });
 });

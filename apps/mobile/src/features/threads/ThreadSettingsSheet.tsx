@@ -1,3 +1,8 @@
+import {
+  EFFORT_SEGMENT_LABELS,
+  EFFORT_SEGMENTS,
+  effortSegmentName,
+} from "@e6tools/client-runtime/effort-segments";
 import type {
   EnvironmentId,
   ModelSelection,
@@ -36,6 +41,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from "react-native";
@@ -76,7 +82,11 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
 import { ModelRow, ChoiceRow } from "./ThreadSettingsRows";
-import { RUNTIME_MODE_CHOICES, selectableChoices } from "./thread-settings-options";
+import {
+  RUNTIME_MODE_CHOICES,
+  resolveEffortSteps,
+  selectableChoices,
+} from "./thread-settings-options";
 import {
   canCommitPendingModel,
   favoritesFirst,
@@ -227,6 +237,61 @@ function SwitchRow(props: {
         onValueChange={props.onValueChange}
         value={props.value}
       />
+    </View>
+  );
+}
+
+/**
+ * Fast / Balanced / Deep above the effort row, which still opens every level. The checked step is
+ * a raised card thumb with a hairline edge and bold text, so it shows in every theme without
+ * relying on colour, and each step names its real level for screen readers.
+ */
+function EffortStepsRow(props: {
+  readonly steps: NonNullable<ReturnType<typeof resolveEffortSteps>>;
+  readonly onSelect: (value: string) => void;
+}) {
+  const { steps } = props;
+  return (
+    <View className="border-b border-border-subtle bg-card px-4 py-2">
+      <View
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Effort"
+        className="flex-row rounded-full border-continuous bg-subtle p-0.5"
+      >
+        {EFFORT_SEGMENTS.map((segment) => {
+          const checked = steps.selected === segment;
+          return (
+            <Pressable
+              key={segment}
+              accessibilityRole="radio"
+              accessibilityLabel={effortSegmentName(steps.segments, segment)}
+              accessibilityState={{ checked }}
+              onPress={() => {
+                if (checked) return;
+                void Haptics.selectionAsync();
+                props.onSelect(steps.segments.values[segment]);
+              }}
+              style={[
+                Platform.OS === "android" ? { minHeight: 48 } : undefined,
+                checked ? { borderWidth: StyleSheet.hairlineWidth } : undefined,
+              ]}
+              className={cn(
+                "h-9 flex-1 items-center justify-center rounded-full",
+                checked && "border-border bg-card",
+              )}
+            >
+              <Text
+                className={cn(
+                  "text-sm",
+                  checked ? "font-e6-bold text-foreground" : "text-foreground-muted",
+                )}
+              >
+                {EFFORT_SEGMENT_LABELS[segment]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -698,6 +763,7 @@ function ThreadSettingsOptionsItem(props: {
 
   const showRuntime = session.onUpdateRuntimeMode !== undefined;
   const lastDescriptorIndex = session.displayedDescriptors.length - 1;
+  const effortSteps = resolveEffortSteps(session.displayedDescriptors);
 
   return (
     <View style={{ paddingBottom: insets.bottom + bottomToolbarInset + 12 }}>
@@ -724,6 +790,12 @@ function ThreadSettingsOptionsItem(props: {
                     }
                     layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
                   >
+                    {effortSteps?.descriptorId === descriptor.id ? (
+                      <EffortStepsRow
+                        steps={effortSteps}
+                        onSelect={(value) => session.applyOptionChange(descriptor.id, value)}
+                      />
+                    ) : null}
                     <DisclosureRow
                       isLast={isLast}
                       label={descriptor.label}

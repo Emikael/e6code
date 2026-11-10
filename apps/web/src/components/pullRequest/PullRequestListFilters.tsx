@@ -114,7 +114,7 @@ export function PullRequestSearchInput({
         type="search"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
-        placeholder="Search pull requests, or label:bug"
+        placeholder="Search, or label:bug"
         aria-label="Search pull requests"
       />
     </InputGroup>

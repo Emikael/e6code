@@ -45,6 +45,8 @@ const NO_FILE_SCRIPTS: ReadonlyArray<E6ProjectFileScript> = [];
 
 interface ProjectScriptsControlProps {
   presentation?: "toolbar" | "menu";
+  /** Row height in the "menu" presentation: touch rows on phones, compact on desktop. */
+  menuDensity?: "default" | "touch";
   onRequestMenuClose?: () => void;
   scripts: ReadonlyArray<ProjectScript>;
   /** Scripts declared in the project's checked-in e6.json, offered for import. */
@@ -62,6 +64,7 @@ interface ProjectScriptsControlProps {
 
 export default function ProjectScriptsControl({
   presentation = "toolbar",
+  menuDensity = "touch",
   onRequestMenuClose,
   scripts,
   fileScripts = NO_FILE_SCRIPTS,
@@ -151,7 +154,7 @@ export default function ProjectScriptsControl({
         <MenuGroupLabel>From e6.json</MenuGroupLabel>
         {importableScripts.map((fileScript) => (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
             key={`${fileScript.name} ${fileScript.command}`}
             className={dropdownItemClassName}
             onClick={() => void importFileScript(fileScript)}
@@ -176,7 +179,7 @@ export default function ProjectScriptsControl({
         );
         return (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
             key={script.id}
             className={`group ${dropdownItemClassName}`}
             onClick={() => onRunScript(script)}
@@ -221,7 +224,7 @@ export default function ProjectScriptsControl({
       })}
       {importMenuItems}
       <MenuItem
-        density={presentation === "menu" ? "touch" : "default"}
+        density={presentation === "menu" ? menuDensity : "default"}
         className={dropdownItemClassName}
         onClick={openAddDialog}
       >
@@ -237,7 +240,7 @@ export default function ProjectScriptsControl({
         <>
           {primaryScript && (
             <MenuItem
-              density={presentation === "menu" ? "touch" : "default"}
+              density={presentation === "menu" ? menuDensity : "default"}
               onClick={() => onRunScript(primaryScript)}
             >
               <ScriptIcon icon={primaryScript.icon} className="size-4" />
@@ -254,7 +257,7 @@ export default function ProjectScriptsControl({
                 setActionsMenuOpen({ presentation, scripts: open, imports: false })
               }
             >
-              <MenuSubTrigger density="touch">
+              <MenuSubTrigger density={menuDensity}>
                 <ScriptIcon icon="play" className="size-4" />
                 <MenuItemLabel>Project actions</MenuItemLabel>
               </MenuSubTrigger>
@@ -264,7 +267,7 @@ export default function ProjectScriptsControl({
             </MenuSub>
           ) : (
             <MenuItem
-              density={presentation === "menu" ? "touch" : "default"}
+              density={presentation === "menu" ? menuDensity : "default"}
               onClick={openAddDialog}
             >
               <PlusIcon className="size-4" />

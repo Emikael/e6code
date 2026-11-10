@@ -37,10 +37,7 @@ export function useNativeReviewDiffBridge(input: {
     () => new Set(),
   );
 
-  const theme = useMemo(
-    () => createNativeReviewDiffTheme(scheme, themeId, appTheme),
-    [appTheme, scheme, themeId],
-  );
+  const theme = useMemo(() => createNativeReviewDiffTheme(scheme, appTheme), [appTheme, scheme]);
   const rowsJson = useMemo(() => JSON.stringify(data.rows), [data.rows]);
   const collapsedFileIdsJson = useMemo(() => JSON.stringify(collapsedFileIds), [collapsedFileIds]);
   const viewedFileIdsJson = useMemo(() => JSON.stringify(viewedFileIds), [viewedFileIds]);

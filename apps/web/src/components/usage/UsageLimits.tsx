@@ -9,17 +9,29 @@ import {
 } from "@e6tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
+  collectLimitAccounts,
+  collectLimitPools,
   elapsedShare,
   formatDuration,
   formatResetsIn,
-  type LimitPace,
+  LIMIT_PACE_WORDS,
+  LOW_REMAINING_PERCENT,
+  type LimitPaceReading,
+  limitPaceReading,
   paceOf,
   remainingPercent,
 } from "@e6tools/shared/usageLimits";
-import { GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
+import {
+  BatteryLowIcon,
+  GaugeIcon,
+  TrendingDownIcon,
+  TrendingUpIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
+import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -35,14 +47,27 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { getDriverOption } from "../settings/providerDriverMeta";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
-const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> = {
-  ahead: { label: "Ahead of pace: spending faster than the window elapses", icon: TrendingUpIcon },
-  on: { label: "On pace with the window", icon: GaugeIcon },
-  under: { label: "Under pace: headroom left for the rest of the window", icon: TrendingDownIcon },
-};
+/**
+ * Pace as a glyph with a fuller label; the glyph never stands without words. The short words
+ * are the shared `LIMIT_PACE_WORDS`, so web and mobile say the same thing.
+ */
+const PACE: Record<LimitPaceReading, { readonly label: string; readonly icon: typeof GaugeIcon }> =
+  {
+    ahead: {
+      label: "Running fast: spending faster than the window elapses",
+      icon: TrendingUpIcon,
+    },
+    on: { label: "On pace with the window", icon: GaugeIcon },
+    under: {
+      label: "Under pace: headroom left for the rest of the window",
+      icon: TrendingDownIcon,
+    },
+    low: { label: "Running low: little of this window's quota is left", icon: BatteryLowIcon },
+  };
 
 /** The series colour the cost chart uses for this driver, so the two views read as one. */
 export function barColor(driver: ServerProvider["driver"]): string {
@@ -52,7 +77,7 @@ export function barColor(driver: ServerProvider["driver"]): string {
 }
 
 /** Pace as a glyph with the words on hover. */
-export function PaceIcon({ pace }: { readonly pace: LimitPace }) {
+export function PaceIcon({ pace }: { readonly pace: LimitPaceReading }) {
   const Icon = PACE[pace].icon;
   return (
     <Tooltip>
@@ -172,7 +197,7 @@ export function LimitWindows({
       }
     >
       {windows.map((window) => {
-        const pace = paceOf(window, now);
+        const pace = limitPaceReading(paceOf(window, now), remainingPercent(window));
         const resetsIn = formatResetsIn(window, now);
         return (
           <Fragment key={window.id}>
@@ -332,4 +357,100 @@ export function UsageLimitsSection({
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
   return <UsageLimitsPooled presentations={selected} now={now} />;
+}
+
+/**
+ * Every pooled window as one compact row for the cost and token views: share
+ * left, the soonest reset, and pace in words. The Limits view keeps the
+ * per-account detail; `onShowDetails` switches to it.
+ */
+export function UsagePlanLimits({
+  selectedEnvironmentIds,
+  now,
+  onShowDetails,
+}: {
+  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
+  readonly now: number;
+  readonly onShowDetails: () => void;
+}) {
+  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const selected =
+    selectedEnvironmentIds === null
+      ? presentations
+      : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
+  const pools = collectLimitPools(collectLimitAccounts(selected), now);
+  if (pools.every((pool) => pool.windows.length === 0)) return null;
+
+  return (
+    <section
+      aria-labelledby="usage-plan-limits"
+      className="flex min-w-0 flex-col gap-3.5 rounded-xl border border-border bg-surface-raised p-4.5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="usage-plan-limits" className="text-sm font-semibold text-foreground">
+          Plan limits
+        </h2>
+        <Button size="xs" variant="ghost" onClick={onShowDetails}>
+          Details
+        </Button>
+      </div>
+      <ul className="flex flex-col gap-3.5">
+        {pools.flatMap((pool) => {
+          const provider = getDriverOption(pool.driver)?.label ?? String(pool.driver);
+          const color = barColor(pool.driver);
+          return pool.windows.map((window) => {
+            const nextReset = window.resets[0];
+            const resetsIn =
+              nextReset === undefined
+                ? null
+                : nextReset.at <= now
+                  ? "resets now"
+                  : `resets in ${formatDuration(nextReset.at - now)}`;
+            const reading = limitPaceReading(window.pace, window.remainingPercent);
+            const paceWords = reading ? LIMIT_PACE_WORDS[reading] : null;
+            // Low reads as a warning whatever the pace: icon and words, never the tint alone.
+            const low = window.remainingPercent <= LOW_REMAINING_PERCENT;
+            return (
+              <li
+                key={`${pool.driver}:${window.kind}:${window.id}`}
+                className="flex flex-col gap-1.5"
+              >
+                <span className="flex items-baseline gap-2 text-[13px]">
+                  <span className="min-w-0 truncate font-medium text-foreground">
+                    {provider} · {window.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "ms-auto flex shrink-0 items-center gap-1 self-center font-mono text-xs tabular-nums",
+                      low ? "text-warning-foreground" : "text-foreground",
+                    )}
+                  >
+                    {low ? <TriangleAlertIcon className="size-3 shrink-0" aria-hidden /> : null}
+                    {window.remainingPercent}% left
+                    {low ? <span className="sr-only"> (running low)</span> : null}
+                  </span>
+                </span>
+                <span aria-hidden className="relative h-1.5 rounded-full bg-surface-well">
+                  {window.remainingPercent > 0 ? (
+                    <span
+                      className={cn("absolute inset-y-0 left-0 rounded-full", low && "bg-warning")}
+                      style={{
+                        width: `${window.remainingPercent}%`,
+                        backgroundColor: low ? undefined : color,
+                      }}
+                    />
+                  ) : null}
+                </span>
+                {resetsIn || paceWords ? (
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                    {[resetsIn, paceWords].filter(Boolean).join(" · ")}
+                  </span>
+                ) : null}
+              </li>
+            );
+          });
+        })}
+      </ul>
+    </section>
+  );
 }

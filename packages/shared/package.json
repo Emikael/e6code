@@ -319,6 +319,10 @@
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"
     },
+    "./usageShares": {
+      "types": "./src/usageShares.ts",
+      "import": "./src/usageShares.ts"
+    },
     "./usageLimits": {
       "types": "./src/usageLimits.ts",
       "import": "./src/usageLimits.ts"
@@ -346,6 +350,10 @@
     "./htmlText": {
       "types": "./src/htmlText.ts",
       "import": "./src/htmlText.ts"
+    },
+    "./timestampFormat": {
+      "types": "./src/timestampFormat.ts",
+      "import": "./src/timestampFormat.ts"
     },
     "./dateTime": {
       "types": "./src/dateTime.ts",

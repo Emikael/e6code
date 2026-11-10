@@ -152,6 +152,8 @@ private struct ReviewDiffNativeStylePayload: Decodable {
   let fileHeaderPathRightPadding: Double?
   let fileHeaderCountColumnWidth: Double?
   let fileHeaderCountGap: Double?
+  let codeFontFamily: String?
+  let uiFontFamily: String?
   let codeFontSize: Double?
   let codeFontWeight: String?
   let lineNumberFontSize: Double?
@@ -186,6 +188,9 @@ private struct ReviewDiffNativeStyle {
   let fileHeaderPathRightPadding: CGFloat
   let fileHeaderCountColumnWidth: CGFloat
   let fileHeaderCountGap: CGFloat
+  /// Embedded PostScript families from JS; nil keeps the system fonts.
+  let codeFontFamily: String?
+  let uiFontFamily: String?
   let codeFontSize: CGFloat
   let codeFontWeight: UIFont.Weight
   let lineNumberFontSize: CGFloat
@@ -220,6 +225,8 @@ private struct ReviewDiffNativeStyle {
       fileHeaderPathRightPadding: metric(payload?.fileHeaderPathRightPadding, fallback: 128),
       fileHeaderCountColumnWidth: metric(payload?.fileHeaderCountColumnWidth, fallback: 42),
       fileHeaderCountGap: metric(payload?.fileHeaderCountGap, fallback: 6),
+      codeFontFamily: payload?.codeFontFamily,
+      uiFontFamily: payload?.uiFontFamily,
       codeFontSize: metric(payload?.codeFontSize, fallback: 12),
       codeFontWeight: fontWeight(payload?.codeFontWeight, fallback: .bold),
       lineNumberFontSize: metric(payload?.lineNumberFontSize, fallback: 11),
@@ -295,6 +302,8 @@ private struct ReviewDiffNativeStyle {
       fileHeaderPathRightPadding: fileHeaderPathRightPadding,
       fileHeaderCountColumnWidth: fileHeaderCountColumnWidth,
       fileHeaderCountGap: fileHeaderCountGap,
+      codeFontFamily: codeFontFamily,
+      uiFontFamily: uiFontFamily,
       codeFontSize: codeFontSize,
       codeFontWeight: codeFontWeight,
       lineNumberFontSize: lineNumberFontSize,
@@ -313,6 +322,79 @@ private struct ReviewDiffNativeStyle {
       emptyStateFontWeight: emptyStateFontWeight
     )
   }
+}
+
+/// Fonts resolved once per style. Code and gutters use the code family, headers the UI family;
+/// glyph width, line height, and tab stops are measured from these fonts, not assumed.
+/// Syntax token variants are resolved here too so drawing never builds fonts per token.
+/// Character width comes from `code` only: Geist Mono keeps one advance across weights.
+private struct ReviewDiffResolvedFonts {
+  let code: UIFont
+  let codeFaces: ReviewDiffCodeFaces
+  let lineNumber: UIFont
+  let hunk: UIFont
+  let fileHeader: UIFont
+  let fileHeaderMeta: UIFont
+  let fileHeaderSubtext: UIFont
+  let fileHeaderStatus: UIFont
+  let emptyState: UIFont
+
+  init(style: ReviewDiffNativeStyle) {
+    func mono(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+      ReviewDiffFontResolver.font(family: style.codeFontFamily, size: size, weight: weight, monospaced: true)
+    }
+    func ui(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+      ReviewDiffFontResolver.font(family: style.uiFontFamily, size: size, weight: weight, monospaced: false)
+    }
+    let regular = mono(style.codeFontSize, style.codeFontWeight)
+    let boldWeight = style.codeFontWeight.rawValue >= UIFont.Weight.bold.rawValue
+      ? style.codeFontWeight
+      : .bold
+    let bold = mono(style.codeFontSize, boldWeight)
+    code = regular
+    codeFaces = ReviewDiffCodeFaces(
+      regular: regular,
+      bold: bold,
+      italic: Self.italic(regular),
+      boldItalic: Self.italic(bold)
+    )
+    lineNumber = mono(style.lineNumberFontSize, style.lineNumberFontWeight)
+    hunk = mono(style.hunkFontSize, style.hunkFontWeight)
+    fileHeader = ui(style.fileHeaderFontSize, style.fileHeaderFontWeight)
+    fileHeaderMeta = ui(style.fileHeaderMetaFontSize, style.fileHeaderMetaFontWeight)
+    fileHeaderSubtext = ui(style.fileHeaderSubtextFontSize, style.fileHeaderSubtextFontWeight)
+    fileHeaderStatus = ui(style.fileHeaderStatusFontSize, style.fileHeaderStatusFontWeight)
+    emptyState = ui(style.emptyStateFontSize, style.emptyStateFontWeight)
+  }
+
+  /// Uses the family's italic face through the descriptor trait; a family without one
+  /// keeps the upright face rather than a synthesized slant.
+  private static func italic(_ font: UIFont) -> UIFont {
+    let traits = font.fontDescriptor.symbolicTraits.union(.traitItalic)
+    guard let descriptor = font.fontDescriptor.withSymbolicTraits(traits) else {
+      return font
+    }
+    let italic = UIFont(descriptor: descriptor, size: font.pointSize)
+    return italic.fontDescriptor.symbolicTraits.contains(.traitItalic) ? italic : font
+  }
+}
+
+/// Styled token ranges for rows TextKit measures; fixed-pitch ASCII rows need none.
+private func reviewDiffCodeStyleRuns(
+  text: String,
+  tokens: [ReviewDiffNativeToken]?
+) -> [ReviewDiffCodeStyleRun] {
+  guard let tokens, !tokens.isEmpty, !ReviewDiffCodeLayout.isFixedPitch(text) else { return [] }
+  var runs: [ReviewDiffCodeStyleRun] = []
+  var location = 0
+  for token in tokens {
+    let length = token.content.utf16.count
+    if let fontStyle = token.fontStyle, fontStyle != 0, length > 0 {
+      runs.append(ReviewDiffCodeStyleRun(location: location, length: length, fontStyle: fontStyle))
+    }
+    location += length
+  }
+  return runs
 }
 
 public final class E6ReviewDiffView: ExpoView, UIScrollViewDelegate {
@@ -383,6 +465,9 @@ public final class E6ReviewDiffView: ExpoView, UIScrollViewDelegate {
     }
     contentView.onDrawMetrics = { [weak self] metrics in
       self?.emitDebug("draw-metrics", metrics)
+    }
+    contentView.onRowLayoutChange = { [weak self] in
+      self?.updateContentMetrics()
     }
     scrollView.addSubview(contentView)
   }
@@ -948,18 +1033,36 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     didSet {
       codeDecorationVersion += 1
       tokenAttributedStringsByRowId.removeAll()
+      if !isMergingTokens {
+        remeasureIfCodeStylesChanged(rowIds: nativeLayoutRowIds)
+      }
       clampHorizontalOffsets()
       setNeedsDisplayForVisibleBounds()
     }
   }
 
+  /// One mutation, so the observer above runs once per patch rather than once per row.
+  /// Only patched rows that use the TextKit path are checked for new token styles.
   func mergeTokensByRowId(_ tokensPatch: [String: [ReviewDiffNativeToken]]) {
-    tokensPatch.forEach { rowId, tokens in
-      tokensByRowId[rowId] = tokens
-      tokenAttributedStringsByRowId.removeValue(forKey: rowId)
+    isMergingTokens = true
+    tokensByRowId.merge(tokensPatch) { _, patched in patched }
+    isMergingTokens = false
+    guard !nativeLayoutRowIds.isEmpty else { return }
+    remeasureIfCodeStylesChanged(rowIds: tokensPatch.keys.filter(nativeLayoutRowIds.contains))
+  }
+
+  /// TextKit rows are measured with their token faces, so new token styles can change
+  /// wrapped heights. Only those rows are re-measured; the rest reuse their layouts.
+  private func remeasureIfCodeStylesChanged<RowIds: Sequence>(rowIds: RowIds) where RowIds.Element == String {
+    guard codeWrapColumns != nil else { return }
+    let changed = rowIds.contains { rowId in
+      guard let layout = codeLayoutsByRowId[rowId], layout.usesNativeLayout else { return false }
+      return reviewDiffCodeStyleRuns(text: layout.text, tokens: tokensByRowId[rowId]) != layout.styleRuns
     }
+    guard changed else { return }
+    rebuildRowLayout()
     clampHorizontalOffsets()
-    setNeedsDisplayForVisibleBounds()
+    onRowLayoutChange?()
   }
 
   var collapsedFileIds: Set<String> = [] {
@@ -987,6 +1090,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   }
   var style = ReviewDiffNativeStyle.resolve(nil) {
     didSet {
+      fonts = ReviewDiffResolvedFonts(style: style)
       codeDecorationVersion += 1
       tokenAttributedStringsByRowId.removeAll()
       rebuildRowLayout()
@@ -1024,9 +1128,18 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   /// Columns per visual line while word wrap is on; nil while code rows pan horizontally.
   private var codeWrapColumns: Int?
   /// Text geometry survives comment height changes; width, font, and content invalidate it.
-  private var codeLayoutsByRowId: [String: ReviewDiffCodeLayout] = [:]
+  private var codeLayoutsByRowId: [String: ReviewDiffCodeLayout] = [:] {
+    didSet {
+      // Only replaced or cleared wholesale, alongside an O(rows) layout pass.
+      nativeLayoutRowIds = Set(codeLayoutsByRowId.lazy.filter { $0.value.usesNativeLayout }.map(\.key))
+    }
+  }
+  /// Rows whose cached layout went through TextKit; only these depend on token styles.
+  private var nativeLayoutRowIds: Set<String> = []
+  private var isMergingTokens = false
   private var codeLayoutWidth: CGFloat = 0
   private var codeLayoutFont: UIFont?
+  private var fonts = ReviewDiffResolvedFonts(style: ReviewDiffNativeStyle.resolve(nil))
   private var codeDecorationVersion = 0
   private var panStartHorizontalOffset: CGFloat = 0
   private var activePanFileId: String?
@@ -1044,6 +1157,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   var onPressLine: (([String: Any]) -> Void)?
   var onToggleComment: ((String) -> Void)?
   var onDrawMetrics: (([String: Any]) -> Void)?
+  var onRowLayoutChange: (() -> Void)?
 
   private var stickyWidth: CGFloat {
     style.changeBarWidth + style.gutterWidth
@@ -1108,14 +1222,20 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       return
     }
     let cached = codeLayoutWidth == width && codeLayoutFont == font ? codeLayoutsByRowId : [:]
+    let tokens = tokensByRowId
+    let faces = fonts.codeFaces
     queue.async { [weak self] in
       var layouts: [String: ReviewDiffCodeLayout] = [:]
       for row in rows where row.kind == "line" {
         guard let text = row.content else { continue }
-        if let previous = cached[row.id], previous.text == text {
+        let styleRuns = reviewDiffCodeStyleRuns(text: text, tokens: tokens[row.id])
+        if let previous = cached[row.id], previous.text == text, previous.styleRuns == styleRuns {
           layouts[row.id] = previous
         } else {
-          layouts[row.id] = ReviewDiffCodeLayout(text: text, font: font, width: width, characterWidth: characterWidth)
+          layouts[row.id] = ReviewDiffCodeLayout(
+            text: text, font: font, width: width, characterWidth: characterWidth,
+            styleRuns: styleRuns, faces: faces
+          )
         }
       }
       DispatchQueue.main.async { [weak self] in
@@ -1167,11 +1287,13 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
         if wrapColumns != nil, let content = row.content {
           let cached = codeLayoutsByRowId[row.id]
           let layout: ReviewDiffCodeLayout
-          if let cached, cached.text == content {
+          let styleRuns = reviewDiffCodeStyleRuns(text: content, tokens: tokensByRowId[row.id])
+          if let cached, cached.text == content, cached.styleRuns == styleRuns {
             layout = cached
           } else {
             layout = ReviewDiffCodeLayout(
-              text: content, font: font, width: wrapAvailableWidth, characterWidth: characterWidth
+              text: content, font: font, width: wrapAvailableWidth, characterWidth: characterWidth,
+              styleRuns: styleRuns, faces: fonts.codeFaces
             )
           }
           nextCodeLayouts[row.id] = layout
@@ -1202,37 +1324,14 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     contentHeight = offset
   }
 
-  private var codeFont: UIFont {
-    UIFont.monospacedSystemFont(ofSize: style.codeFontSize, weight: style.codeFontWeight)
-  }
-
-  private var lineNumberFont: UIFont {
-    UIFont.monospacedSystemFont(ofSize: style.lineNumberFontSize, weight: style.lineNumberFontWeight)
-  }
-
-  private var hunkFont: UIFont {
-    UIFont.monospacedSystemFont(ofSize: style.hunkFontSize, weight: style.hunkFontWeight)
-  }
-
-  private var fileHeaderFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderFontSize, weight: style.fileHeaderFontWeight)
-  }
-
-  private var fileHeaderMetaFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderMetaFontSize, weight: style.fileHeaderMetaFontWeight)
-  }
-
-  private var fileHeaderSubtextFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderSubtextFontSize, weight: style.fileHeaderSubtextFontWeight)
-  }
-
-  private var fileHeaderStatusFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderStatusFontSize, weight: style.fileHeaderStatusFontWeight)
-  }
-
-  private var emptyStateFont: UIFont {
-    UIFont.systemFont(ofSize: style.emptyStateFontSize, weight: style.emptyStateFontWeight)
-  }
+  private var codeFont: UIFont { fonts.code }
+  private var lineNumberFont: UIFont { fonts.lineNumber }
+  private var hunkFont: UIFont { fonts.hunk }
+  private var fileHeaderFont: UIFont { fonts.fileHeader }
+  private var fileHeaderMetaFont: UIFont { fonts.fileHeaderMeta }
+  private var fileHeaderSubtextFont: UIFont { fonts.fileHeaderSubtext }
+  private var fileHeaderStatusFont: UIFont { fonts.fileHeaderStatus }
+  private var emptyStateFont: UIFont { fonts.emptyState }
 
   private lazy var horizontalPanGesture: UIPanGestureRecognizer = {
     let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleHorizontalPan(_:)))
@@ -2636,16 +2735,16 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
 
     let attributedString = NSMutableAttributedString(string: "")
     for token in tokens where !token.content.isEmpty {
-      attributedString.append(
-        NSAttributedString(
-          string: token.content,
-          attributes: [
-            .font: font,
-            .foregroundColor: tokenColor(for: token.color, fallbackColor: fallbackColor),
-            .ligature: 0,
-          ]
-        )
-      )
+      let fontStyle = token.fontStyle ?? 0
+      var attributes: [NSAttributedString.Key: Any] = [
+        .font: fontStyle == 0 ? font : fonts.codeFaces.font(forTokenStyle: fontStyle),
+        .foregroundColor: tokenColor(for: token.color, fallbackColor: fallbackColor),
+        .ligature: 0,
+      ]
+      if fontStyle & 4 != 0 {
+        attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+      }
+      attributedString.append(NSAttributedString(string: token.content, attributes: attributes))
     }
 
     tokenAttributedStringsByRowId[rowId] = attributedString

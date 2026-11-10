@@ -15,9 +15,11 @@ import type {
   OrchestrationMessageContext,
   ThreadId,
   TurnId,
+  TurnUsageActivityPayload,
 } from "@e6tools/contracts";
 import { renderAssistantCitationsAsText } from "@e6tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@e6tools/shared/composerContextClipboard";
+import { formatThoughtLabel } from "@e6tools/shared/orchestrationTiming";
 import {
   parseComposerContextHref,
   collectComposerContextReferences,
@@ -91,7 +93,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
-import { useFontFamily } from "../../lib/useFontFamily";
+import { MONO_FONT_FAMILY, useFontFamily } from "../../lib/useFontFamily";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -148,9 +150,11 @@ import {
   resolveMarkdownLinkPresentation,
 } from "@e6tools/mobile-markdown-text/links";
 import {
+  deriveAssistantUsageLabels,
   deriveThreadFeedPresentation,
   deriveUnsettledTurnId,
   isContextCompactionActivityGroup,
+  thoughtPreviewText,
   type ThreadFeedEntry,
   type ThreadFeedLatestTurn,
 } from "../../lib/threadActivity";
@@ -254,6 +258,7 @@ export interface ThreadFeedProps {
   readonly threadId: ThreadId;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
+  readonly turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
   readonly contentPresentation: ThreadContentPresentation;
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
@@ -600,12 +605,6 @@ function ThreadMarkdownVideo(props: { readonly source: MediaVideoPreviewSource }
     />
   );
 }
-
-const MARKDOWN_MONO_FONT = Platform.select({
-  ios: "ui-monospace",
-  android: "monospace",
-  default: "monospace",
-});
 
 interface MarkdownStyleSets {
   readonly user: MarkdownStyleSet;
@@ -1024,7 +1023,7 @@ function useMarkdownStyles(
       fontFamilies: {
         regular: regularFontFamily,
         heading: boldFontFamily,
-        mono: MARKDOWN_MONO_FONT,
+        mono: MONO_FONT_FAMILY,
       },
       headingWeight: "700",
       borderRadius: {
@@ -1366,8 +1365,12 @@ function renderFeedEntry(
     readonly workRowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
+    /** Usage for turns without a "Worked for ..." row, by final assistant message id. */
+    readonly assistantUsageLabels: ReadonlyMap<string, string>;
     readonly unsettledTurnId: TurnId | null;
     readonly isWorking: boolean;
+    /** The Thinking timeline appearance setting. */
+    readonly thinkingTimeline: boolean;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey: string) => void;
@@ -1491,9 +1494,12 @@ function renderFeedEntry(
           rowSizing={props.workRowSizing}
           iconSubtleColor={iconSubtleColor}
           expanded={props.expandedReasoningMessageIds.has(entry.id)}
-          label={`Thought${messages.length > 1 ? ` (×${messages.length})` : ""}`}
+          label={formatThoughtLabel(messages)}
           streaming={false}
           onToggle={() => props.onToggleReasoning(entry.id)}
+          {...(props.thinkingTimeline && entry.timelineStep
+            ? { timelineStep: entry.timelineStep, preview: thoughtPreviewText(messages) }
+            : {})}
         >
           <MarkdownImageAvailableWidthContext
             value={props.markdownContentWidth - REASONING_CONTENT_INSET}
@@ -1535,6 +1541,7 @@ function renderFeedEntry(
       props.terminalAssistantMessageIds.has(message.id) &&
       !assistantTurnStillInProgress &&
       !message.streaming;
+    const usageLabel = showAssistantMeta ? props.assistantUsageLabels.get(message.id) : undefined;
 
     if (isUser) {
       const referenceIds = new Set(
@@ -1742,6 +1749,11 @@ function renderFeedEntry(
             <Text className="font-e6-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
+            {usageLabel ? (
+              <Text className="font-e6-medium text-xs tabular-nums text-foreground-secondary">
+                {` · ${usageLabel}`}
+              </Text>
+            ) : null}
           </View>
         ) : null}
       </Animated.View>
@@ -1766,6 +1778,9 @@ function renderFeedEntry(
       onCopyRow={props.onCopyWorkRow}
       onToggleRow={props.onToggleWorkRow}
       renderImage={props.renderViewedImage}
+      {...(props.thinkingTimeline && entry.timelineStep
+        ? { timelineStep: entry.timelineStep }
+        : {})}
     />
   );
 }
@@ -2280,43 +2295,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // One definition of "still live", shared with the fold derivation: two
   // copies of this test are what let a row and the fold beside it disagree.
   const unsettledTurnId = deriveUnsettledTurnId(props.latestTurn ?? null);
-  // LegendList does not invalidate visible rows when only the renderItem closure changes.
-  // Include turn completion so unchanged message rows reveal their footer and spacing
-  // even when the final message update arrives before the turn settles.
-  const listAppearanceData = useMemo(
-    () => ({
-      worktreeSetup: props.worktreeSetup,
-      setupWorkingStartedAt: props.setupWorkingStartedAt,
-      dispatchingMessageId: props.dispatchingMessageId,
-      unsettledTurnId,
-      copiedRowId,
-      expandedWorkRows,
-      expandedReasoningMessageIds,
-      workRowSizing,
-      iconSubtleColor,
-      markdownStyles,
-      reviewCommentColors,
-      themeAppearance,
-      userBubbleColor,
-      viewportWidth,
-    }),
-    [
-      props.worktreeSetup,
-      props.setupWorkingStartedAt,
-      props.dispatchingMessageId,
-      unsettledTurnId,
-      copiedRowId,
-      expandedWorkRows,
-      expandedReasoningMessageIds,
-      workRowSizing,
-      iconSubtleColor,
-      markdownStyles,
-      reviewCommentColors,
-      themeAppearance,
-      userBubbleColor,
-      viewportWidth,
-    ],
-  );
   const reportHeaderMaterialVisibility = useCallback(
     (visible: boolean) => {
       if (headerMaterialVisibleRef.current === visible) {
@@ -2457,6 +2435,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           expandedTurnIds,
           expandedWorkGroupIds,
           props.activeWorkStartedAt,
+          props.turnUsageByTurnId,
         ),
         props.feed,
         props.queuedMessages,
@@ -2468,6 +2447,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.activeWorkStartedAt,
       props.feed,
       props.latestTurn,
+      props.turnUsageByTurnId,
     ],
   );
   const setupAnchorIndex = presentedFeed.findIndex(
@@ -2504,6 +2484,51 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     return new Set(terminalIdsByTurn.values());
   }, [props.feed]);
+  const assistantUsageLabels = useMemo(
+    () => deriveAssistantUsageLabels(presentedFeed, props.turnUsageByTurnId),
+    [presentedFeed, props.turnUsageByTurnId],
+  );
+  // LegendList does not invalidate visible rows when only the renderItem closure changes.
+  // Include turn completion so unchanged message rows reveal their footer and spacing
+  // even when the final message update arrives before the turn settles.
+  const listAppearanceData = useMemo(
+    () => ({
+      worktreeSetup: props.worktreeSetup,
+      setupWorkingStartedAt: props.setupWorkingStartedAt,
+      dispatchingMessageId: props.dispatchingMessageId,
+      unsettledTurnId,
+      assistantUsageLabels,
+      showThinkingTimeline: appearance.showThinkingTimeline,
+      copiedRowId,
+      expandedWorkRows,
+      expandedReasoningMessageIds,
+      workRowSizing,
+      iconSubtleColor,
+      markdownStyles,
+      reviewCommentColors,
+      themeAppearance,
+      userBubbleColor,
+      viewportWidth,
+    }),
+    [
+      props.worktreeSetup,
+      props.setupWorkingStartedAt,
+      props.dispatchingMessageId,
+      unsettledTurnId,
+      assistantUsageLabels,
+      appearance.showThinkingTimeline,
+      copiedRowId,
+      expandedWorkRows,
+      expandedReasoningMessageIds,
+      workRowSizing,
+      iconSubtleColor,
+      markdownStyles,
+      reviewCommentColors,
+      themeAppearance,
+      userBubbleColor,
+      viewportWidth,
+    ],
+  );
   useEffect(() => {
     const previous = previousLatestTurnRef.current;
     previousLatestTurnRef.current = props.latestTurn;
@@ -2760,8 +2785,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             workRowSizing,
             workGroupScrollPositions,
             terminalAssistantMessageIds,
+            assistantUsageLabels,
             unsettledTurnId,
             isWorking: props.activeWorkStartedAt !== null,
+            thinkingTimeline: appearance.showThinkingTimeline,
             onCopyWorkRow,
             onToggleWorkGroup,
             onToggleWorkRow,
@@ -2806,8 +2833,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       workRowSizing,
       workGroupScrollPositions,
       terminalAssistantMessageIds,
+      assistantUsageLabels,
       unsettledTurnId,
       props.activeWorkStartedAt,
+      appearance.showThinkingTimeline,
       iconSubtleColor,
       screenColor,
       userBubbleColor,

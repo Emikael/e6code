@@ -75,6 +75,7 @@ function entry(overrides: Partial<EnvironmentPullRequestEntry>): EnvironmentPull
     environmentId: "env-1" as EnvironmentId,
     projectId: "project-1" as ProjectId,
     provider: "github",
+    host: "github.com",
     repository: "emikael/e6code",
     number: 1,
     title: "Add the pull requests page",
@@ -99,6 +100,7 @@ function row(overrides: Partial<EnvironmentPullRequestEntry>): ReactNode {
   return PullRequestRow.type({
     entry: entry(overrides),
     selected: false,
+    authoredByViewer: false,
     showProjectTitle: false,
     showProvider: false,
     onSelect: () => {},

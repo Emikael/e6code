@@ -1,10 +1,12 @@
 import type { StatusTone } from "../../components/StatusPill";
 import type { OrchestrationLatestTurn, OrchestrationSession } from "@e6tools/contracts";
 import { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
+import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
 
 export type ThreadStatusKind =
   | "pending-approval"
   | "awaiting-input"
+  | "paused"
   | "working"
   | "connecting"
   | "error"
@@ -12,8 +14,6 @@ export type ThreadStatusKind =
 
 export interface ThreadStatusPresentation extends StatusTone {
   readonly kind: ThreadStatusKind;
-  /** Whether the indicator represents in-flight activity. */
-  readonly pulse: boolean;
 }
 
 function isLatestTurnSettled(
@@ -37,20 +37,27 @@ export function resolveThreadStatus(
   if (thread.hasPendingApprovals) {
     return {
       kind: "pending-approval",
-      label: "Needs Approval",
+      label: "Needs approval",
       pillClassName: "bg-warning",
       textClassName: "text-warning-foreground",
-      pulse: false,
     };
   }
 
   if (thread.hasPendingUserInput) {
     return {
       kind: "awaiting-input",
-      label: "Awaiting Input",
-      pillClassName: "bg-adaptive-indigo-500-a12-a16",
-      textClassName: "text-adaptive-indigo-600-300",
-      pulse: false,
+      label: "Needs your answer",
+      pillClassName: "bg-primary/10",
+      textClassName: "text-primary-text",
+    };
+  }
+
+  if (isPausedForUsageLimit(thread)) {
+    return {
+      kind: "paused",
+      label: "Paused",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
     };
   }
 
@@ -58,9 +65,9 @@ export function resolveThreadStatus(
     return {
       kind: "working",
       label: "Working",
-      pillClassName: "bg-adaptive-sky-500-a12-a16",
-      textClassName: "text-adaptive-sky-600-400",
-      pulse: true,
+      // Iris marks a live agent, matching the web sidebar.
+      pillClassName: "bg-primary/10",
+      textClassName: "text-primary-text",
     };
   }
 
@@ -68,9 +75,8 @@ export function resolveThreadStatus(
     return {
       kind: "connecting",
       label: "Connecting",
-      pillClassName: "bg-adaptive-sky-500-a12-a16",
-      textClassName: "text-adaptive-sky-600-400",
-      pulse: true,
+      pillClassName: "bg-info",
+      textClassName: "text-info-foreground",
     };
   }
 
@@ -80,7 +86,6 @@ export function resolveThreadStatus(
       label: "Error",
       pillClassName: "bg-danger",
       textClassName: "text-danger-foreground",
-      pulse: false,
     };
   }
 
@@ -92,9 +97,8 @@ export function resolveThreadStatus(
     return {
       kind: "plan-ready",
       label: "Plan Ready",
-      pillClassName: "bg-adaptive-violet-500-a12-a16",
-      textClassName: "text-adaptive-violet-600-400",
-      pulse: false,
+      pillClassName: "bg-primary/10",
+      textClassName: "text-primary-text",
     };
   }
 

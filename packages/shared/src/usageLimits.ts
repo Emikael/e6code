@@ -459,6 +459,141 @@ export function formatResetsIn(window: ServerProviderUsageWindow, now: number): 
   return resetsAt <= now ? "resets now" : `resets in ${formatDuration(resetsAt - now)}`;
 }
 
+/** What a limit view says about pace: the pace itself, or that the quota is nearly spent. */
+export type LimitPaceReading = LimitPace | "low";
+
+/**
+ * Pace in words for every limit view, web and mobile, so it never rests on an
+ * icon or colour alone and reads the same wherever it shows.
+ */
+export const LIMIT_PACE_WORDS: Record<LimitPaceReading, string> = {
+  ahead: "running fast",
+  on: "on pace",
+  under: "under pace",
+  low: "running low",
+};
+
+/** At or below this share left, a limit summary reads as a warning whatever the pace. */
+export const LOW_REMAINING_PERCENT = 20;
+
+/**
+ * The pace a view shows beside a remaining share. Once little is left, being
+ * on or under pace is no comfort, so it reads as running low; running fast
+ * still says why the quota went.
+ */
+export function limitPaceReading(
+  pace: LimitPace | null,
+  remainingPercent: number,
+): LimitPaceReading | null {
+  if (pace === null || pace === "ahead") return pace;
+  return remainingPercent <= LOW_REMAINING_PERCENT ? "low" : pace;
+}
+
+/** `5-hour limit`, `Weekly limit`; a window without a known shape keeps its own label. */
+function limitWindowName(window: ServerProviderUsageWindow): string {
+  const minutes = window.windowDurationMins;
+  if (window.kind === "session" && minutes !== undefined && minutes > 0 && minutes < 24 * 60) {
+    return minutes % 60 === 0 ? `${minutes / 60}-hour limit` : `${minutes}-minute limit`;
+  }
+  if (window.kind === "weekly") return "Weekly limit";
+  if (window.kind === "monthly") return "Monthly limit";
+  return /\blimit$/i.test(window.label) ? window.label : `${window.label} limit`;
+}
+
+/**
+ * The one limit a thread is closest to hitting, for a glanceable card:
+ * `Claude · 5-hour limit`, `64% left`, `resets in 2h 10m · on pace`.
+ */
+export interface LimitHeadline {
+  readonly title: string;
+  readonly remainingPercent: number;
+  readonly remainingLabel: string;
+  /** Reset countdown and pace in words; empty when the window reports neither. */
+  readonly detail: string;
+  /** The pace glyph to show; null when unknown or running low, which has no glyph. */
+  readonly pace: LimitPace | null;
+  /** Running fast or nearly spent. The text already says so; this only tints. */
+  readonly warning: boolean;
+  readonly accessibilityLabel: string;
+}
+
+/** One account in a limit report, as far as the limit card needs it. */
+interface LimitReportAccount {
+  readonly label: string;
+  readonly displayName?: string | undefined;
+  readonly email?: string | undefined;
+  readonly limits: ServerProviderUsageLimits;
+}
+
+/**
+ * The account's name as Usage → Limits shows it, without printing an email:
+ * its configured name, else the email's initials (`someone@example.com` →
+ * `SE`), else the report's own label.
+ */
+function limitAccountName(account: LimitReportAccount): string {
+  const displayName = account.displayName?.trim();
+  if (displayName) return displayName;
+  if (account.email) {
+    const [local = "", domain = ""] = account.email.split("@");
+    const initials = `${local[0] ?? ""}${domain[0] ?? ""}`.toUpperCase();
+    if (initials) return initials;
+  }
+  return account.label.replace(/\.json$/i, "");
+}
+
+/**
+ * The most constrained window across a provider's limit report: least quota
+ * left, and of equals the one that resets last. Accounts whose limits could
+ * not be read are skipped; null when no window remains. When more than one
+ * account or proxy reports limits, the title names the one picked:
+ * `Claude (work) · 5-hour limit`.
+ */
+export function mostConstrainedLimit(
+  report: { readonly accounts: ReadonlyArray<LimitReportAccount> },
+  providerLabel: string,
+  now: number,
+): LimitHeadline | null {
+  const readable = report.accounts.filter((account) => limitsNotice(account.limits) === null);
+  let picked: LimitReportAccount | null = null;
+  let chosen: ServerProviderUsageWindow | null = null;
+  for (const account of readable) {
+    for (const window of account.limits.windows) {
+      if (chosen === null) {
+        picked = account;
+        chosen = window;
+        continue;
+      }
+      const left = remainingPercent(window) - remainingPercent(chosen);
+      const later =
+        (resetMillis(window) ?? Number.POSITIVE_INFINITY) >
+        (resetMillis(chosen) ?? Number.POSITIVE_INFINITY);
+      if (left < 0 || (left === 0 && later)) {
+        picked = account;
+        chosen = window;
+      }
+    }
+  }
+  if (chosen === null || picked === null) return null;
+  const remaining = remainingPercent(chosen);
+  const reading = limitPaceReading(paceOf(chosen, now), remaining);
+  const owner =
+    readable.length > 1 ? `${providerLabel} (${limitAccountName(picked)})` : providerLabel;
+  const title = `${owner} · ${limitWindowName(chosen)}`;
+  const remainingLabel = `${remaining}% left`;
+  const detail = [formatResetsIn(chosen, now), reading ? LIMIT_PACE_WORDS[reading] : null]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  return {
+    title,
+    remainingPercent: remaining,
+    remainingLabel,
+    detail,
+    pace: reading === "low" ? null : reading,
+    warning: reading === "ahead" || remaining <= LOW_REMAINING_PERCENT,
+    accessibilityLabel: [title, remainingLabel, detail].filter(Boolean).join(", "),
+  };
+}
+
 /** Limit commands are served by E6 from the same snapshots as Usage → Limits. */
 export const USAGE_LIMITS_COMMAND = {
   name: "usage-limits",

@@ -17,7 +17,7 @@ import {
   normalizeModelSlug,
   REASONING_SELECT_DESCRIPTOR_IDS,
 } from "@e6tools/shared/model";
-import { memo, type ReactNode, useCallback } from "react";
+import { memo, type ReactNode } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { GaugeIcon, ZapIcon } from "lucide-react";
 import { buttonVariants } from "../ui/button";
@@ -44,6 +44,12 @@ import {
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { EffortGlyph, resolveEffortGlyph } from "./EffortGlyph";
+import {
+  effortSegmentForValue,
+  type EffortSegment,
+  nextEffortSegment,
+  resolveEffortSegments,
+} from "@e6tools/client-runtime/effort-segments";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -288,6 +294,133 @@ export interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
 }
 
+type SetProviderModelOptions = ReturnType<
+  typeof useComposerDraftStore.getState
+>["setProviderModelOptions"];
+
+/** Writes trait changes to the composer draft, or to the caller when it owns persistence. */
+function createModelOptionsUpdater(
+  setProviderModelOptions: SetProviderModelOptions,
+  input: Pick<TraitsMenuContentProps, "provider" | "instanceId" | "model"> & TraitsPersistence,
+) {
+  return (nextOptions: ProviderOptions | undefined) => {
+    if ("onModelOptionsChange" in input) {
+      input.onModelOptionsChange(nextOptions);
+      return;
+    }
+    const threadTarget = input.threadRef ?? ("draftId" in input ? input.draftId : undefined);
+    if (!threadTarget) {
+      return;
+    }
+    setProviderModelOptions(threadTarget, input.provider, nextOptions, {
+      ...(input.instanceId ? { instanceId: input.instanceId } : {}),
+      model: input.model,
+      persistSticky: true,
+    });
+  };
+}
+
+/**
+ * Applies a select value. Prompt-injected levels (Ultrathink) edit the prompt; picking another
+ * effort strips that prefix, and effort is locked while the prompt body itself says ultrathink.
+ */
+function applyTraitSelectChange(input: {
+  selected: Pick<
+    ReturnType<typeof getSelectedTraits>,
+    | "descriptors"
+    | "primarySelectDescriptor"
+    | "ultrathinkPromptControlled"
+    | "ultrathinkInBodyText"
+  >;
+  prompt: string;
+  onPromptChange: (prompt: string) => void;
+  updateModelOptions: (nextOptions: ProviderOptions | undefined) => void;
+  descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>;
+  value: string;
+}) {
+  const { selected, prompt, onPromptChange, descriptor, value } = input;
+  if (!value) return;
+  if (descriptor.promptInjectedValues?.includes(value)) {
+    const nextPrompt =
+      prompt.trim().length === 0
+        ? ULTRATHINK_PROMPT_PREFIX
+        : applyClaudePromptEffortPrefix(prompt, "ultrathink");
+    onPromptChange(nextPrompt);
+    return;
+  }
+  const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
+  if (selected.ultrathinkInBodyText && isPrimary) return;
+  if (selected.ultrathinkPromptControlled && isPrimary) {
+    onPromptChange(prompt.replace(/^Ultrathink:\s*/i, ""));
+  }
+  input.updateModelOptions(
+    buildProviderOptionSelectionsFromDescriptors(
+      replaceDescriptorCurrentValue(selected.descriptors, descriptor.id, value),
+    ),
+  );
+}
+
+/**
+ * Fast / Balanced / Deep over the model's reasoning effort, sharing the traits menu's state.
+ * Null when the model has no effort or too few levels for three distinct steps.
+ */
+export function useEffortSegmentControl(
+  input:
+    | (Pick<
+        TraitsMenuContentProps,
+        | "provider"
+        | "instanceId"
+        | "models"
+        | "model"
+        | "prompt"
+        | "onPromptChange"
+        | "modelOptions"
+        | "planModeEnabled"
+      > &
+        TraitsPersistence)
+    | null,
+) {
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  if (!input) return null;
+  const { models, prompt, onPromptChange, modelOptions, planModeEnabled } = input;
+  const updateModelOptions = createModelOptionsUpdater(setProviderModelOptions, input);
+  const selected = getSelectedTraits(
+    input.provider,
+    models,
+    input.model,
+    prompt,
+    modelOptions,
+    true,
+    planModeEnabled,
+  );
+  const descriptor = selected.modelIsUnavailable ? null : selected.primarySelectDescriptor;
+  const segments = resolveEffortSegments(descriptor);
+  if (!descriptor || !segments) return null;
+  const select = (segment: EffortSegment) =>
+    applyTraitSelectChange({
+      selected,
+      prompt,
+      onPromptChange,
+      updateModelOptions,
+      descriptor,
+      value: segments.values[segment],
+    });
+  return {
+    segments,
+    selected: effortSegmentForValue(segments, selected.effort),
+    /** The exact level name, for when it sits between or beyond the three steps. */
+    currentLabel: descriptor.options.find((option) => option.id === selected.effort)?.label ?? null,
+    disabled: selected.ultrathinkInBodyText,
+    select,
+    cycle: () => {
+      if (selected.ultrathinkInBodyText) return;
+      select(nextEffortSegment(segments, selected.effort));
+    },
+  };
+}
+
+export type EffortSegmentControl = NonNullable<ReturnType<typeof useEffortSegmentControl>>;
+
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   provider,
   instanceId,
@@ -301,24 +434,21 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
-  const updateModelOptions = useCallback(
-    (nextOptions: ProviderOptions | undefined) => {
-      if ("onModelOptionsChange" in persistence) {
-        persistence.onModelOptionsChange(nextOptions);
-        return;
-      }
-      const threadTarget = persistence.threadRef ?? persistence.draftId;
-      if (!threadTarget) {
-        return;
-      }
-      setProviderModelOptions(threadTarget, provider, nextOptions, {
-        ...(instanceId ? { instanceId } : {}),
-        model,
-        persistSticky: true,
-      });
-    },
-    [instanceId, model, persistence, provider, setProviderModelOptions],
-  );
+  const updateModelOptions = createModelOptionsUpdater(setProviderModelOptions, {
+    provider,
+    ...(instanceId ? { instanceId } : {}),
+    model,
+    ...persistence,
+  });
+  const selected = getTraitsSectionVisibility({
+    provider,
+    models,
+    model,
+    prompt,
+    modelOptions,
+    allowPromptInjectedEffort,
+    planModeEnabled,
+  });
   const {
     descriptors,
     selectDescriptors,
@@ -328,15 +458,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     ultrathinkInBodyText,
     hasAnyControls,
     modelIsUnavailable,
-  } = getTraitsSectionVisibility({
-    provider,
-    models,
-    model,
-    prompt,
-    modelOptions,
-    allowPromptInjectedEffort,
-    planModeEnabled,
-  });
+  } = selected;
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
@@ -344,23 +466,15 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   const handleSelectChange = (
     descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
     value: string,
-  ) => {
-    if (!value) return;
-    if (descriptor.promptInjectedValues?.includes(value)) {
-      const nextPrompt =
-        prompt.trim().length === 0
-          ? ULTRATHINK_PROMPT_PREFIX
-          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
-      onPromptChange(nextPrompt);
-      return;
-    }
-    if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
-    if (ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id) {
-      const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
-      onPromptChange(stripped);
-    }
-    updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
-  };
+  ) =>
+    applyTraitSelectChange({
+      selected,
+      prompt,
+      onPromptChange,
+      updateModelOptions,
+      descriptor,
+      value,
+    });
 
   if (!hasAnyControls) {
     return null;
@@ -410,6 +524,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 </div>
               ) : null}
               <MenuRadioGroup
+                aria-label={descriptor.label}
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
@@ -459,6 +574,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 {descriptor.label}
               </div>
               <MenuRadioGroup
+                aria-label={descriptor.label}
                 value={selectedValue}
                 onValueChange={(value) => {
                   updateDescriptors(
@@ -635,7 +751,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   const accessibleLabel = effortGlyph
     ? [
         `Effort: ${effortGlyph.label}`,
-        showFastModeIcon ? "Fast" : null,
+        showFastModeIcon ? "Fast mode" : null,
         ...otherLabels,
         extraMenuHint,
       ]
@@ -704,7 +820,15 @@ export const TraitsPicker = memo(function TraitsPicker({
           {effortGlyph ? (
             <span className="flex items-center gap-1.5">
               {effortWord === null ? (
-                <EffortGlyph count={effortGlyph.count} filled={effortGlyph.filled} size={size} />
+                <>
+                  <EffortGlyph count={effortGlyph.count} filled={effortGlyph.filled} size={size} />
+                  {/* Stands in for the bars when the composer's effort steps show them. */}
+                  <GaugeIcon
+                    aria-hidden="true"
+                    data-composer-effort-steps-icon
+                    className="hidden size-3.5"
+                  />
+                </>
               ) : (
                 <>
                   <span data-composer-control-label>{effortWord}</span>

@@ -1,13 +1,4 @@
-import { useEffect } from "react";
 import { View } from "react-native";
-import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
 
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -18,7 +9,6 @@ export type ConnectionStatusDotState = RemoteClientConnectionState;
 function statusDotTone(
   state: ConnectionStatusDotState,
   theme: MobileThemeVariables,
-  dark: boolean,
 ): {
   readonly dotColor: string;
   readonly haloColor: string;
@@ -34,8 +24,8 @@ function statusDotTone(
       };
     case "connected":
       return {
-        dotColor: dark ? "#34d399" : "#059669",
-        haloColor: themeColorWithAlpha(dark ? "#34d399" : "#059669", 0.48),
+        dotColor: theme["--color-success-foreground"],
+        haloColor: themeColorWithAlpha(theme["--color-success-foreground"], 0.48),
       };
     case "connecting":
     case "reconnecting":
@@ -52,48 +42,17 @@ function statusDotTone(
   }
 }
 
-function usePulseAnimation(pulse: boolean) {
-  const pulseProgress = useSharedValue(0);
-
-  useEffect(() => {
-    if (pulse) {
-      pulseProgress.value = withRepeat(
-        withTiming(1, {
-          duration: 1100,
-          easing: Easing.out(Easing.cubic),
-        }),
-        -1,
-        false,
-      );
-      return;
-    }
-
-    cancelAnimation(pulseProgress);
-    pulseProgress.value = withTiming(0, {
-      duration: 180,
-      easing: Easing.out(Easing.quad),
-    });
-  }, [pulse, pulseProgress]);
-
-  return pulseProgress;
-}
-
+/** A status dot with an optional static halo for in-progress states. Nothing loops. */
 export function ConnectionStatusDot(props: {
   readonly state: ConnectionStatusDotState;
-  readonly pulse: boolean;
+  readonly halo: boolean;
   readonly size?: number;
 }) {
-  const pulseProgress = usePulseAnimation(props.pulse);
-  const { themeAppearance, themeVariables } = useAppearancePreferences();
-  const tone = statusDotTone(props.state, themeVariables, themeAppearance === "dark");
+  const { themeVariables } = useAppearancePreferences();
+  const tone = statusDotTone(props.state, themeVariables);
   const dotSize = props.size ?? 10;
   const haloSize = dotSize + 4;
   const containerSize = haloSize + 4;
-
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: props.pulse ? 0.14 + (1 - pulseProgress.value) * 0.3 : 0,
-    transform: [{ scale: 0.78 + pulseProgress.value * 1.16 }],
-  }));
 
   return (
     <View
@@ -104,18 +63,18 @@ export function ConnectionStatusDot(props: {
         justifyContent: "center",
       }}
     >
-      <Animated.View
-        style={[
-          haloStyle,
-          {
+      {props.halo ? (
+        <View
+          style={{
             position: "absolute",
             width: haloSize,
             height: haloSize,
             borderRadius: haloSize / 2,
             backgroundColor: tone.haloColor,
-          },
-        ]}
-      />
+            opacity: 0.6,
+          }}
+        />
+      ) : null}
       <View
         style={{
           width: dotSize,

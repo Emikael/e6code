@@ -482,7 +482,7 @@ function MiniPlayerShell({
               <span
                 className={cn(
                   "block size-2 rounded-full shadow-sm ring-1 ring-background/70",
-                  recording ? "bg-red-500 motion-safe:animate-status-pulse" : "bg-foreground/25",
+                  recording ? "bg-destructive" : "bg-foreground/25",
                 )}
               />
             </div>
@@ -495,7 +495,7 @@ function MiniPlayerShell({
             >
               {recording ? (
                 <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
-                  <span className="size-2 rounded-full bg-red-500 motion-safe:animate-status-pulse" />
+                  <span className="size-2 rounded-full bg-destructive" />
                 </span>
               ) : null}
               <Tooltip>
