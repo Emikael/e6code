@@ -3,7 +3,7 @@
  * without diagrams pay nothing. Ported from T3 Code. The SVG goes through DOMPurify: diagrams
  * can come from agent output or pull request descriptions.
  */
-import DOMPurify from "dompurify";
+import type DOMPurifyFactory from "dompurify";
 import type { DiagramType, MathResolver } from "pele/lazy";
 import { use, useState } from "react";
 
@@ -13,12 +13,17 @@ type Pele = typeof import("pele/lazy");
 type PeleLoad = { readonly status: "loaded"; readonly pele: Pele } | { readonly status: "failed" };
 
 let coreLoad: Promise<PeleLoad> | null = null;
+let purifier: ReturnType<typeof DOMPurifyFactory> | null = null;
 // Each diagram type is its own chunk, so a chat with one flowchart loads only that parser.
 const diagramLoads = new Map<DiagramType, Promise<PeleLoad>>();
 
+// DOMPurify loads with pele so chats without diagrams fetch neither.
 function loadCore(): Promise<PeleLoad> {
-  coreLoad ??= import("pele/lazy").then(
-    (pele): PeleLoad => ({ status: "loaded", pele }),
+  coreLoad ??= Promise.all([import("pele/lazy"), import("dompurify")]).then(
+    ([pele, { default: createPurifier }]): PeleLoad => {
+      purifier ??= createPurifier(window);
+      return { status: "loaded", pele };
+    },
     (): PeleLoad => ({ status: "failed" }),
   );
   return coreLoad;
@@ -148,12 +153,10 @@ const KATEX_MATHML_ATTRIBUTES = new Set([
   "voffset",
 ]);
 
-let purifier: ReturnType<typeof DOMPurify> | null = null;
-
 // Pele escapes labels and links and images are off; this is defense in depth against anything
 // that could navigate, run script, or fetch remote content.
 export function sanitizeDiagramSvg(svg: string): DocumentFragment {
-  purifier ??= DOMPurify(window);
+  if (!purifier) throw new Error("Diagram sanitizer is not loaded.");
   return purifier.sanitize(svg, {
     FORBID_ATTR: ["href", "xlink:href", "src", "srcset"],
     FORBID_TAGS: ["a", "image", "foreignObject", "style"],
@@ -164,7 +167,7 @@ export function sanitizeDiagramSvg(svg: string): DocumentFragment {
 
 // Pele puts MathML labels in a <foreignObject> with an HTML <div> around them.
 function sanitizeMathDiagramSvg(svg: string): DocumentFragment {
-  purifier ??= DOMPurify(window);
+  if (!purifier) throw new Error("Diagram sanitizer is not loaded.");
   return purifier.sanitize(svg, {
     ADD_TAGS: ["foreignObject", ...KATEX_MATHML_TAGS],
     ADD_ATTR: (attribute, tagName) =>
