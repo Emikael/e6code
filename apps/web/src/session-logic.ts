@@ -21,6 +21,7 @@ import {
   type WorkLogToolLifecycleStatus,
 } from "@e6tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
+import { type HtmlRenderReference, readHtmlRenderReference } from "@e6tools/shared/htmlRender";
 import {
   mainAgentDiffStat,
   type WorkLogDiffStat,
@@ -90,6 +91,8 @@ export interface WorkLogEntry {
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
   toolIcon?: import("@e6tools/contracts").ToolActivityIcon;
   toolSource?: import("@e6tools/contracts").ToolActivitySource;
+  /** The page an `html_render` call published; the server keeps it on the payload. */
+  htmlRender?: HtmlRenderReference;
   toolData?: unknown;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
@@ -678,6 +681,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (toolPresentation.toolSource) {
     entry.toolSource = toolPresentation.toolSource;
   }
+  const htmlRender = readHtmlRenderReference(payload?.htmlRender);
+  if (htmlRender) {
+    entry.htmlRender = htmlRender;
+  }
   if (itemType === "mcp_tool_call") {
     const data = asRecord(payload?.data);
     const toolData = typeof data?.toolName === "string" ? (data.item ?? data) : data?.item;
@@ -903,6 +910,7 @@ function mergeDerivedWorkLogEntries(
   const toolSurface = next.toolSurface ?? previous.toolSurface;
   const toolIcon = next.toolIcon ?? previous.toolIcon;
   const toolSource = next.toolSource ?? previous.toolSource;
+  const htmlRender = next.htmlRender ?? previous.htmlRender;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
   const collapseKey = next[workLogCollapseKey] ?? previous[workLogCollapseKey];
@@ -923,6 +931,7 @@ function mergeDerivedWorkLogEntries(
     ...(toolSurface ? { toolSurface } : {}),
     ...(toolIcon ? { toolIcon } : {}),
     ...(toolSource ? { toolSource } : {}),
+    ...(htmlRender ? { htmlRender } : {}),
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
     ...(collapseKey ? { [workLogCollapseKey]: collapseKey } : {}),
