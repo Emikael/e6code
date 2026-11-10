@@ -329,3 +329,28 @@ export function findHtmlRenderViewportHeightUnit(html: string): string | undefin
   }
   return undefined;
 }
+
+/**
+ * Pages each turn published, in order and once each, read from thread activities whose payload
+ * carries the server-projected `htmlRender` reference. Clients without the web work log use this.
+ */
+export function htmlRendersByTurnId<TurnKey extends string>(
+  activities: ReadonlyArray<{ readonly turnId: TurnKey | null; readonly payload: unknown }>,
+): ReadonlyMap<TurnKey, ReadonlyArray<HtmlRenderReference>> {
+  const byTurnId = new Map<TurnKey, HtmlRenderReference[]>();
+  for (const activity of activities) {
+    if (activity.turnId === null || typeof activity.payload !== "object" || !activity.payload) {
+      continue;
+    }
+    const reference = readHtmlRenderReference(
+      (activity.payload as { readonly htmlRender?: unknown }).htmlRender,
+    );
+    if (!reference) continue;
+    const renders = byTurnId.get(activity.turnId) ?? [];
+    if (!renders.some((render) => render.attachmentId === reference.attachmentId)) {
+      renders.push(reference);
+    }
+    byTurnId.set(activity.turnId, renders);
+  }
+  return byTurnId;
+}

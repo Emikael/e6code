@@ -1,3 +1,4 @@
+import type { HtmlRenderReference } from "@e6tools/shared/htmlRender";
 import {
   WorktreeWorkingHeader,
   WorktreeSetupCard,
@@ -158,6 +159,7 @@ import {
   type ThreadFeedEntry,
   type ThreadFeedLatestTurn,
 } from "../../lib/threadActivity";
+import { HtmlRenderArtifact } from "./HtmlRenderArtifact";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import {
   resolveThreadFeedLiveFollow,
@@ -248,6 +250,12 @@ function isFreshTimestamp(input: string): boolean {
   return Number.isFinite(timestamp) && Date.now() - timestamp < FRESH_ENTRY_WINDOW_MS;
 }
 
+const EMPTY_HTML_RENDERS: ReadonlyArray<HtmlRenderReference> = [];
+const EMPTY_HTML_RENDERS_BY_TURN: ReadonlyMap<
+  TurnId,
+  ReadonlyArray<HtmlRenderReference>
+> = new Map();
+
 export interface ThreadFeedProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
@@ -259,6 +267,8 @@ export interface ThreadFeedProps {
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   readonly turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
+  /** Pages each turn published with `html_render`, shown above the turn's final reply. */
+  readonly htmlRendersByTurnId?: ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>>;
   readonly contentPresentation: ThreadContentPresentation;
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
@@ -1365,6 +1375,7 @@ function renderFeedEntry(
     readonly workRowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
+    readonly htmlRendersByTurnId: ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>>;
     /** Usage for turns without a "Worked for ..." row, by final assistant message id. */
     readonly assistantUsageLabels: ReadonlyMap<string, string>;
     readonly unsettledTurnId: TurnId | null;
@@ -1686,9 +1697,16 @@ function renderFeedEntry(
       );
     }
 
+    const htmlRenders =
+      message.role === "assistant" &&
+      message.turnId &&
+      props.terminalAssistantMessageIds.has(message.id)
+        ? (props.htmlRendersByTurnId.get(message.turnId) ?? EMPTY_HTML_RENDERS)
+        : EMPTY_HTML_RENDERS;
+
     // Skip empty assistant messages (no text, no attachments) — they would
     // render as an orphaned timestamp and break adjacent activity-group merging.
-    if (renderedText.trim().length === 0 && attachments.length === 0) {
+    if (renderedText.trim().length === 0 && attachments.length === 0 && htmlRenders.length === 0) {
       return null;
     }
 
@@ -1702,6 +1720,13 @@ function renderFeedEntry(
         className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-1 px-1", hasWideBlock && "w-full")}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
+        {htmlRenders.map((htmlRender) => (
+          <HtmlRenderArtifact
+            key={htmlRender.attachmentId}
+            environmentId={props.environmentId}
+            htmlRender={htmlRender}
+          />
+        ))}
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
@@ -2498,6 +2523,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       dispatchingMessageId: props.dispatchingMessageId,
       unsettledTurnId,
       assistantUsageLabels,
+      htmlRendersByTurnId: props.htmlRendersByTurnId,
       showThinkingTimeline: appearance.showThinkingTimeline,
       copiedRowId,
       expandedWorkRows,
@@ -2516,6 +2542,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.dispatchingMessageId,
       unsettledTurnId,
       assistantUsageLabels,
+      props.htmlRendersByTurnId,
       appearance.showThinkingTimeline,
       copiedRowId,
       expandedWorkRows,
@@ -2785,6 +2812,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             workRowSizing,
             workGroupScrollPositions,
             terminalAssistantMessageIds,
+            htmlRendersByTurnId: props.htmlRendersByTurnId ?? EMPTY_HTML_RENDERS_BY_TURN,
             assistantUsageLabels,
             unsettledTurnId,
             isWorking: props.activeWorkStartedAt !== null,
@@ -2833,6 +2861,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       workRowSizing,
       workGroupScrollPositions,
       terminalAssistantMessageIds,
+      props.htmlRendersByTurnId,
       assistantUsageLabels,
       unsettledTurnId,
       props.activeWorkStartedAt,

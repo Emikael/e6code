@@ -1,3 +1,4 @@
+import { htmlRendersByTurnId } from "@e6tools/shared/htmlRender";
 import type { ComposerTextPaste } from "../native/E6ComposerEditor.types";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -200,6 +201,10 @@ export function useThreadComposerState() {
   const pendingCreationMessage = selectedThreadCreation?.message ?? null;
   const selectedThreadTurnUsage = useMemo(
     () => deriveTurnUsageByTurnId(selectedThreadActivities ?? []),
+    [selectedThreadActivities],
+  );
+  const selectedThreadHtmlRenders = useMemo(
+    () => htmlRendersByTurnId(selectedThreadActivities ?? []),
     [selectedThreadActivities],
   );
   const selectedThreadFeed = useMemo(() => {
@@ -805,6 +810,7 @@ export function useThreadComposerState() {
     dismissFeedback,
     selectedThreadFeed,
     selectedThreadTurnUsage,
+    selectedThreadHtmlRenders,
     selectedThreadQueueCount,
     selectedThreadQueuedMessages,
     dispatchingQueuedMessageId,

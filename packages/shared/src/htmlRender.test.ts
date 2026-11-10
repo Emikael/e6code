@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   findHtmlRenderViewportHeightUnit,
   htmlRenderFrameHeight,
+  htmlRendersByTurnId,
   injectHtmlRenderBootstrap,
   readHtmlRenderContentHeight,
   readHtmlRenderLinkRequest,
@@ -91,5 +92,20 @@ describe("frame messages", () => {
     expect(
       readHtmlRenderLinkRequest({ ...link, params: { url: "javascript:alert(1)" } }),
     ).toBeUndefined();
+  });
+});
+
+describe("htmlRendersByTurnId", () => {
+  it("groups valid references by turn, once each, skipping turnless and malformed ones", () => {
+    const other = { ...reference, attachmentId: "thread-abc-456-html" };
+    const byTurn = htmlRendersByTurnId([
+      { turnId: "t1", payload: { htmlRender: reference } },
+      { turnId: "t1", payload: { htmlRender: reference } },
+      { turnId: "t1", payload: { htmlRender: other } },
+      { turnId: "t2", payload: { htmlRender: { ...reference, attachmentId: "x.png" } } },
+      { turnId: null, payload: { htmlRender: reference } },
+      { turnId: "t3", payload: null },
+    ]);
+    expect([...byTurn.entries()]).toEqual([["t1", [reference, other]]]);
   });
 });
