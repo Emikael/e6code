@@ -160,10 +160,10 @@ vp run --filter e6code-relay deploy -- --stage "$USER" --env-file .env.local
 
 ## Marketing site deployment
 
-After a nightly release is published, the release workflow builds the same commit
+After a stable release is published, the release workflow builds the same commit
 and deploys it to the `e6code-marketing` Worker, whose apex custom domain serves
-`https://e6code.com`. Stable releases do not deploy the marketing site because
-they can promote an older nightly commit.
+`https://e6code.com`. Nightlies do not deploy the site, so the landing page only
+changes when the version its Download button serves changes.
 
 The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
 (variable). The `e6code.com` zone must be Active. The apex and `www` are custom
@@ -422,13 +422,13 @@ Checklist, in order:
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
 `v0.0.0-test.1`, classifies the run as the stable channel. It publishes `@e6code/e6` with npm dist-tag
-`latest`, creates a real GitHub Release, deploys the hosted app to `latest.app.e6code.com`, and can open a version bump pull request in the finalize job. Do not push a test tag
+`latest`, creates a real GitHub Release, deploys the hosted app to `latest.app.e6code.com` and the marketing site to `e6code.com`, and can open a version bump pull request in the finalize job. Do not push a test tag
 to validate the workflow.
 
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
 validate checks and builds without shipping. To exercise the complete release graph at lower stable
 risk, manually dispatch `channel=nightly`; this still publishes a real nightly npm package, GitHub
-prerelease, desktop updater release, hosted nightly channel, and marketing site, but it does not update the stable channel host or
+prerelease, desktop updater release, and hosted nightly channel, but it does not update the stable channel host or the marketing site, or
 open a version bump pull request. Only run it when a real nightly release is acceptable.
 
 Manual `channel=stable` is also a real stable-channel release. Omitting signing secrets only makes
