@@ -327,6 +327,65 @@ describe("projectActivityPayload", () => {
     ).not.toHaveProperty("toolIcon");
   });
 
+  const htmlRender = { attachmentId: "thread-1-0f7f5e4a-html", title: "Chart", height: 420 };
+
+  it.each([
+    // Claude and OpenCode: result on data, JSON text content.
+    {
+      toolName: "mcp__e6-code__html_render",
+      result: { content: [{ type: "text", text: JSON.stringify({ htmlRender, message: "ok" }) }] },
+    },
+    // Codex: result on the item, with structured content.
+    {
+      item: {
+        type: "mcpToolCall",
+        server: "e6_code",
+        tool: "html_render",
+        status: "completed",
+        result: { content: [], structuredContent: { htmlRender, message: "ok" } },
+      },
+    },
+  ])("keeps the html_render artifact reference through result slimming", (data) => {
+    const projected = projectActivityPayload(activity({ itemType: "mcp_tool_call", data }));
+    expect(projected.payload).toMatchObject({ htmlRender });
+    expect(projectActivityPayload(projected).payload).toMatchObject({ htmlRender });
+  });
+
+  const page = `<p>${"x".repeat(10_000)}</p>`;
+  it.each([
+    { toolName: "mcp__e6-code__html_render", input: { html: page, title: "Chart", height: 420 } },
+    {
+      item: {
+        type: "mcpToolCall",
+        server: "e6_code",
+        tool: "html_render",
+        status: "completed",
+        arguments: JSON.stringify({ html: page, title: "Chart", height: 420 }),
+      },
+    },
+  ])("keeps the html_render page markup off the wire", (data) => {
+    const projected = projectActivityPayload(activity({ itemType: "mcp_tool_call", data }));
+    const wire = JSON.stringify(projected.payload);
+    expect(wire).not.toContain("xxxxxxxxxx");
+    expect(wire).toContain('"title":"Chart"');
+  });
+
+  it.each([
+    {
+      toolName: "mcp__e6-code__html_render",
+      result: { isError: true, content: JSON.stringify({ htmlRender }) },
+    },
+    { toolName: "mcp__other__html_render", result: { content: JSON.stringify({ htmlRender }) } },
+    {
+      toolName: "mcp__e6-code__html_render",
+      result: { content: JSON.stringify({ htmlRender: { ...htmlRender, attachmentId: "../x" } }) },
+    },
+  ])("drops html_render references from failed, foreign, or invalid results", (data) => {
+    expect(
+      projectActivityPayload(activity({ itemType: "mcp_tool_call", data })).payload,
+    ).not.toHaveProperty("htmlRender");
+  });
+
   it("passes task lifecycle payloads (no data field) through untouched", () => {
     const source = activity({
       taskId: "task-9",

@@ -5,6 +5,10 @@ import type {
   OrchestrationThreadDetailSnapshot,
 } from "@e6tools/contracts";
 import { isWorkspaceImagePreviewPath } from "@e6tools/shared/filePreview";
+import {
+  HTML_RENDER_TOOL_NAME as HTML_RENDER_TOOL,
+  readHtmlRenderReference,
+} from "@e6tools/shared/htmlRender";
 import { extractJsonObject } from "@e6tools/shared/schemaJson";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -242,17 +246,27 @@ function summarizeMcpResult(result: unknown): Record<string, unknown> | undefine
   return summary ? { content: summary } : undefined;
 }
 
-/** Reuse the page URL already returned by preview tools before slimming their output. */
-function projectPreviewToolMetadata(data: Record<string, unknown>, status: unknown) {
+const E6_MCP_TOOL_PREFIX = String.raw`^(?:mcp__)?(?:e6-code|e6_code|e6code)_{1,2}`;
+const PREVIEW_TOOL_NAME = new RegExp(
+  `${E6_MCP_TOOL_PREFIX}preview_(?:open|navigate|status|snapshot|click|type|press|scroll|resize|set_appearance|evaluate|wait_for|recording_start|recording_stop)$`,
+);
+const HTML_RENDER_TOOL_NAME = new RegExp(`${E6_MCP_TOOL_PREFIX}${HTML_RENDER_TOOL}$`);
+
+function mcpToolName(data: Record<string, unknown>): unknown {
   const item = asRecord(data.item);
-  const name = item ? `mcp__${item.server}__${item.tool}` : (data.toolName ?? data.tool);
-  if (
-    typeof name !== "string" ||
-    !/^(?:mcp__)?(?:e6-code|e6_code|e6code)_{1,2}preview_(?:open|navigate|status|snapshot|click|type|press|scroll|resize|set_appearance|evaluate|wait_for|recording_start|recording_stop)$/.test(
-      name,
-    )
-  )
-    return {};
+  return item ? `mcp__${item.server}__${item.tool}` : (data.toolName ?? data.tool);
+}
+
+/**
+ * The structured result of a successful MCP tool call, read before the result is slimmed.
+ * Providers nest it differently: structured content, a JSON text block, or a JSON envelope
+ * serialized into text.
+ */
+function readSuccessfulMcpResult(
+  data: Record<string, unknown>,
+  status: unknown,
+): Record<string, unknown> | null {
+  const item = asRecord(data.item);
   const state = asRecord(data.state);
   const result = item?.result ?? data.result ?? state?.output;
   const record = asRecord(result);
@@ -264,12 +278,12 @@ function projectPreviewToolMetadata(data: Record<string, unknown>, status: unkno
     record?.isError === true ||
     record?.is_error === true
   )
-    return {};
+    return null;
 
   let page = record;
   let output: unknown = result;
   for (let depth = 0; depth < 3; depth += 1) {
-    if (page?.isError === true || page?.is_error === true) return {};
+    if (page?.isError === true || page?.is_error === true) return null;
     const structured = asRecord(page?.structuredContent);
     if (structured) {
       page = structured;
@@ -282,16 +296,33 @@ function projectPreviewToolMetadata(data: Record<string, unknown>, status: unkno
     } catch {
       // A truncated MCP envelope can still contain a complete first text block.
       const firstBlock = /^\s*\{\s*"content"\s*:\s*\[\s*/.exec(text);
-      if (!firstBlock) return {};
+      if (!firstBlock) return null;
       try {
         const block = asRecord(JSON.parse(extractJsonObject(text.slice(firstBlock[0].length))));
         page = block?.type === "text" ? { content: [block] } : null;
       } catch {
-        return {};
+        return null;
       }
     }
     output = page;
   }
+  return page;
+}
+
+/** Keep the artifact reference from `html_render` on the payload; slimming drops the result. */
+function projectHtmlRenderMetadata(data: Record<string, unknown>, status: unknown) {
+  const name = mcpToolName(data);
+  if (typeof name !== "string" || !HTML_RENDER_TOOL_NAME.test(name)) return {};
+  const htmlRender = readHtmlRenderReference(readSuccessfulMcpResult(data, status)?.htmlRender);
+  return htmlRender ? { htmlRender } : {};
+}
+
+/** Reuse the page URL already returned by preview tools before slimming their output. */
+function projectPreviewToolMetadata(data: Record<string, unknown>, status: unknown) {
+  const name = mcpToolName(data);
+  if (typeof name !== "string" || !PREVIEW_TOOL_NAME.test(name)) return {};
+  const page = readSuccessfulMcpResult(data, status);
+  if (!page) return {};
   const rawUrl = asTrimmedString(
     asRecord(page?.toolIcon)?.pageUrl ??
       (/preview_(?:open|navigate|status|snapshot)$/.test(name) ? page?.url : undefined),
@@ -312,8 +343,29 @@ function projectPreviewToolMetadata(data: Record<string, unknown>, status: unkno
  * keep the expanded-row UI working. Keep the fields the UI actually renders
  * and summarize the result like regular tool output.
  */
+/**
+ * `html_render` arguments carry the whole page (up to 512 KB). The page lives in the attachment
+ * store, so clients only need the title and height; keep the markup off the wire.
+ */
+function withoutHtmlRenderMarkup(value: unknown): unknown {
+  if (typeof value === "string") {
+    // Some providers send arguments as JSON text.
+    try {
+      return withoutHtmlRenderMarkup(JSON.parse(value));
+    } catch {
+      return value.length > 4096 ? undefined : value;
+    }
+  }
+  const record = asRecord(value);
+  if (!record || typeof record.html !== "string") return value;
+  const { html, ...rest } = record;
+  return { ...rest, htmlLength: html.length };
+}
+
 function projectMcpToolCallData(data: Record<string, unknown>): Record<string, unknown> {
   const projectedData: Record<string, unknown> = {};
+  const name = mcpToolName(data);
+  const isHtmlRender = typeof name === "string" && HTML_RENDER_TOOL_NAME.test(name);
 
   const item = asRecord(data.item);
   if (item) {
@@ -322,6 +374,9 @@ function projectMcpToolCallData(data: Record<string, unknown>): Record<string, u
       if (key in item) {
         projectedItem[key] = item[key];
       }
+    }
+    if (isHtmlRender && "arguments" in projectedItem) {
+      projectedItem.arguments = withoutHtmlRenderMarkup(projectedItem.arguments);
     }
     const result = summarizeMcpResult(item.result);
     if (result) {
@@ -334,7 +389,7 @@ function projectMcpToolCallData(data: Record<string, unknown>): Record<string, u
     projectedData.toolName = data.toolName;
   }
   if ("input" in data) {
-    projectedData.input = data.input;
+    projectedData.input = isHtmlRender ? withoutHtmlRenderMarkup(data.input) : data.input;
   }
   if (!item) {
     const result = summarizeMcpResult(data.result);
@@ -438,6 +493,7 @@ export function projectActivityPayload(
       : payload;
   const projectedPayload = {
     ...projectPreviewToolMetadata(data, statusPayload.status),
+    ...projectHtmlRenderMetadata(data, statusPayload.status),
     ...statusPayload,
   };
   const questionInput = projectQuestionToolInput(data, payload.title);
