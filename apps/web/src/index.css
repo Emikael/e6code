@@ -1679,6 +1679,24 @@ code {
   background: var(--app-scrollbar-thumb-hover);
 }
 
+/* Pele diagrams read their colors through these, so a theme change recolors
+   them without re-rendering. */
+.pele {
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-muted: var(--muted-foreground);
+  --pele-line: var(--muted-foreground);
+  --pele-surface: var(--secondary);
+  --pele-surface-alt: var(--accent);
+  --pele-border: color-mix(in srgb, var(--foreground) 28%, transparent);
+  --pele-accent: var(--primary);
+  --pele-critical: var(--destructive);
+}
+
+.chat-markdown-math-display .katex-display {
+  margin: 0;
+}
+
 /* Chat markdown rendering */
 
 .chat-markdown > :first-child {
