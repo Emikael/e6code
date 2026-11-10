@@ -32,6 +32,7 @@ import { resolveStorage } from "./lib/storage";
 const RIGHT_PANEL_KINDS = [
   "diff",
   "files",
+  "artifacts",
   "file",
   "preview",
   "device",
@@ -62,6 +63,7 @@ export type RightPanelSurface =
     }
   | { id: "diff"; kind: "diff" }
   | { id: "files"; kind: "files" }
+  | { id: "artifacts"; kind: "artifacts" }
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -217,6 +219,8 @@ const singletonSurface = (
       return { id: "diff", kind };
     case "files":
       return { id: "files", kind };
+    case "artifacts":
+      return { id: "artifacts", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
     case "device":

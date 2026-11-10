@@ -46,6 +46,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  AppWindowIcon,
   ArchiveIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
@@ -1907,6 +1908,20 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
+    });
+  }
+
+  if (activeThread !== null) {
+    const artifactsThreadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-thread-artifacts",
+      searchTerms: ["artifacts", "rendered page", "html", "chart", "diagram", "output"],
+      title: "Show artifacts",
+      icon: <AppWindowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(artifactsThreadRef, "artifacts");
+      },
     });
   }
 
