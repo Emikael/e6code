@@ -1085,8 +1085,8 @@ export const make = Effect.gen(function* () {
     function* (input: { readonly cwd: string; readonly host: string }) {
       const unavailable = () =>
         new GitHubViewerLoginUnavailableError({ command: "gh", cwd: input.cwd });
-      // A missing CLI, a signed-out CLI and a rate limit each name their own fix, so they keep
-      // their tags; anything else is just "no login". Rebuilt without the cause either way: the
+      // A missing CLI, a signed-out CLI, a rate limit and a host that did not answer each name
+      // their own fix, so they keep their tags; anything else is just "no login". Rebuilt without the cause either way: the
       // process output of a credential lookup never travels in an error.
       const classified = (error: GitHubCli.GitHubCliError) => {
         const context = { command: "gh" as const, cwd: input.cwd, cause: null };
@@ -1095,6 +1095,8 @@ export const make = Effect.gen(function* () {
             return new GitHubCli.GitHubCliUnavailableError(context);
           case "GitHubCliAuthenticationError":
             return new GitHubCli.GitHubCliAuthenticationError(context);
+          case "GitHubCliTimeoutError":
+            return new GitHubCli.GitHubCliTimeoutError(context);
           case "GitHubCliRateLimitError":
             return new GitHubCli.GitHubCliRateLimitError({
               ...context,
@@ -2186,10 +2188,12 @@ export const make = Effect.gen(function* () {
           // from the files API instead, a page per call. Only once the direct read has failed: a
           // pull request GitHub will serve a diff for must not pay for a second request. A
           // fallback that fails too reports the original refusal, which is the one that explains
-          // the page. Narrowed to a command that ran and was refused: a missing `gh` or a
-          // signed-out one fails the same way for every request.
+          // the page. Narrowed to a command that ran and was refused (or ran out of time on a
+          // patch too large to send): a missing `gh` or a signed-out one fails the same way for
+          // every request.
           Effect.catchTags({
             GitHubCliCommandError: (error) => filesPage(1).pipe(Effect.mapError(() => error)),
+            GitHubCliTimeoutError: (error) => filesPage(1).pipe(Effect.mapError(() => error)),
           }),
         );
     },

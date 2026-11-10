@@ -143,9 +143,13 @@ it.effect("fails reads within the probe timeout when the host does not answer", 
     }).pipe(Effect.forkChild);
     yield* TestClock.adjust(GitHubCli.PROBE_TIMEOUT_MS);
     const failures = yield* Fiber.join(reads);
+    // Said as the host not answering, rather than as a command that failed.
     assert.deepStrictEqual(
-      failures.map((failure) => failure._tag),
-      ["GitHubCliCommandError", "GitHubCliCommandError"],
+      failures.map((failure) => failure.detail),
+      [
+        "GitHub did not answer in time. Check your network connection, then try again.",
+        "GitHub did not answer in time. Check your network connection, then try again.",
+      ],
     );
     assert.strictEqual(probes, 1);
     assert.deepStrictEqual(commands, []);

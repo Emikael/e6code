@@ -151,6 +151,20 @@ export class GitHubCliCommandError extends Schema.TaggedError<GitHubCliCommandEr
   }
 }
 
+/** gh ran but its host did not answer before the command's timeout. */
+export class GitHubCliTimeoutError extends Schema.TaggedError<GitHubCliTimeoutError>()(
+  "GitHubCliTimeoutError",
+  gitHubCliFailureFields,
+) {
+  get detail(): string {
+    return "GitHub did not answer in time. Check your network connection, then try again.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in execute: ${this.detail}`;
+  }
+}
+
 const gitHubCliDecodeFields = {
   command: Schema.Literal("gh"),
   cwd: Schema.String,
@@ -215,6 +229,7 @@ export const GitHubCliError = Schema.Union([
   GitHubCliRateLimitError,
   GitHubPullRequestNotFoundError,
   GitHubCliCommandError,
+  GitHubCliTimeoutError,
   GitHubPullRequestListDecodeError,
   GitHubChangeRequestListDecodeError,
   GitHubPullRequestDecodeError,
@@ -239,6 +254,10 @@ export function fromVcsError(
     error.cause.reason.method === "spawn"
   ) {
     return new GitHubCliUnavailableError({ ...context, cause: error });
+  }
+
+  if (error._tag === "VcsProcessTimeoutError") {
+    return new GitHubCliTimeoutError({ ...context, cause: error });
   }
 
   if (error._tag === "VcsProcessExitError") {

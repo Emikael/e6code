@@ -2797,7 +2797,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
           Effect.sleep(input.timeoutMs ?? 30_000).pipe(
             Effect.andThen(
               Effect.fail(
-                new GitHubCli.GitHubCliCommandError({ command: "gh", cwd: input.cwd, cause: null }),
+                new GitHubCli.GitHubCliTimeoutError({ command: "gh", cwd: input.cwd, cause: null }),
               ),
             ),
           );
@@ -2812,7 +2812,11 @@ layer("GitHubPullRequestCli.layer", (it) => {
         yield* TestClock.adjust(GitHubCli.PROBE_TIMEOUT_MS);
         const error = yield* Fiber.join(lookup);
 
-        assert.strictEqual(error._tag, "GitHubViewerLoginUnavailableError");
+        // Said as the host not answering, rather than as an account with no login.
+        assert.strictEqual(
+          error.detail,
+          "GitHub did not answer in time. Check your network connection, then try again.",
+        );
       }),
   );
 
