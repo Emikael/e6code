@@ -57,7 +57,10 @@ function ArtifactWebView(props: {
         const height = readReportedHeight(event);
         if (height !== undefined) props.onHeight?.(height);
       }}
-      onShouldStartLoadWithRequest={(request) => allowNavigation(props.uri, request.url)}
+      // Subframes (an embedded chart or video) load in place; only the page itself is pinned.
+      onShouldStartLoadWithRequest={(request) =>
+        request.isTopFrame === false || allowNavigation(props.uri, request.url)
+      }
       setSupportMultipleWindows={false}
       scrollEnabled={props.scrollEnabled}
       accessibilityLabel={props.title}

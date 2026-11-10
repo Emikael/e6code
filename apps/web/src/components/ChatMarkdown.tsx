@@ -139,7 +139,7 @@ import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { GitHubIcon } from "./Icons";
 import { createIncrementalHighlightedDocument } from "../lib/incrementalHighlighting";
 import { HighlightedCodeLines } from "./chat/HighlightedCodeLines";
-import { MermaidDiagram } from "./chat/MermaidDiagram";
+import { isUnsafeMermaidSource, MermaidDiagram } from "./chat/MermaidDiagram";
 import { MarkdownMath } from "./chat/MarkdownMath";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
 import { useTheme } from "../hooks/useTheme";
@@ -2819,7 +2819,9 @@ function MarkdownMermaidCodeBlock({
 }) {
   const { expandMedia } = use(ChatMarkdownRendererContext);
   const [showCode, setShowCode] = useState(false);
-  const showDiagram = !showCode && !isStreaming && code.trim().length > 0;
+  // Sources with resource or config syntax stay code; the renderer would act on them first.
+  const renderable = code.trim().length > 0 && !isUnsafeMermaidSource(code);
+  const showDiagram = !showCode && !isStreaming && renderable;
   const toggleLabel = showCode ? "Show diagram" : "Show code";
   return (
     <MarkdownCodeBlock
@@ -2829,7 +2831,7 @@ function MarkdownMermaidCodeBlock({
       theme={theme}
       canWrap={!showDiagram}
       actions={
-        isStreaming ? null : (
+        isStreaming || !renderable ? null : (
           <Tooltip>
             <TooltipTrigger
               render={

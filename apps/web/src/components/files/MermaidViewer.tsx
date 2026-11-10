@@ -1,22 +1,12 @@
 import { Suspense, useState } from "react";
 
 import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
-import { MermaidDiagram } from "../chat/MermaidDiagram";
+import { isUnsafeMermaidSource, MermaidDiagram } from "../chat/MermaidDiagram";
 import { RenderErrorBoundary } from "../RenderErrorBoundary";
-
-// Pele lays out DOM before sanitizing its SVG. Refuse resource and config syntax before that pass
-// so a standalone file cannot initiate requests. Node metadata is YAML, whose escaped or aliased
-// image keys cannot be checked lexically. (Ported from T3 Code.)
-const UNSAFE_DIAGRAM_SOURCE =
-  /%%\s*\{|^\s*---|<\/?[A-Za-z]|<[!?]|@\s*\{|\b(?:img|image)\s*:|url\s*\(|@import|(?:https?|data|blob|file):/im;
-
-export function isUnsafeMermaidFileSource(text: string): boolean {
-  return UNSAFE_DIAGRAM_SOURCE.test(text);
-}
 
 export default function MermaidViewer(props: { readonly text: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  if (isUnsafeMermaidFileSource(props.text))
+  if (isUnsafeMermaidSource(props.text))
     return (
       <div role="alert" className="p-6 text-xs text-muted-foreground">
         This diagram contains resource URLs, markup, node metadata, or custom configuration. Show

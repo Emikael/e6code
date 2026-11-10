@@ -29,6 +29,17 @@ describe("chat math tokenizer", () => {
   });
 });
 
+describe("chat math tokenizer trade-offs", () => {
+  it("leaves code spans alone", () => {
+    expect(render("Read `items\\[0\\]` and `f\\(x\\)` first.")).not.toContain("language-math");
+  });
+
+  // Known trade-off of the backslash forms: escaped brackets in plain prose read as math.
+  it("treats escaped brackets in prose as math", () => {
+    expect(render("Read items\\[0\\] first.")).toContain("language-math");
+  });
+});
+
 describe("markdownMathKind", () => {
   it("reads remark-math classes and ignores other code", () => {
     expect(markdownMathKind("language-math math-inline")).toBe("inline");

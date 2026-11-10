@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { isUnsafeMermaidFileSource } from "./MermaidViewer";
+import { isUnsafeMermaidSource } from "../chat/MermaidDiagram";
 
-describe("isUnsafeMermaidFileSource", () => {
+describe("isUnsafeMermaidSource", () => {
   it("allows plain diagrams", () => {
-    expect(isUnsafeMermaidFileSource("flowchart LR\n  A --> B\n  B --> C")).toBe(false);
+    expect(isUnsafeMermaidSource("flowchart LR\n  A --> B\n  B --> C")).toBe(false);
   });
 
   it.each([
@@ -15,6 +15,6 @@ describe("isUnsafeMermaidFileSource", () => {
     "flowchart LR\n click A https://example.com",
     "classDef a fill:url(#x)",
   ])("refuses resource, markup, or config syntax: %s", (source) => {
-    expect(isUnsafeMermaidFileSource(source)).toBe(true);
+    expect(isUnsafeMermaidSource(source)).toBe(true);
   });
 });
