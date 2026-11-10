@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { describe, expect, it } from "vite-plus/test";
 
-import { markdownMathKind } from "./components/ChatMarkdown";
+import { markdownMathIsDisplay, markdownMathKind } from "./components/ChatMarkdown";
 
 // Same plugin order and options as chat, so this checks the tokenizer chat actually uses.
 const render = (text: string) =>
@@ -35,5 +35,18 @@ describe("markdownMathKind", () => {
     expect(markdownMathKind("language-math math-display")).toBe("display");
     expect(markdownMathKind("language-ts")).toBeNull();
     expect(markdownMathKind(undefined)).toBeNull();
+  });
+});
+
+describe("markdownMathIsDisplay", () => {
+  const at = (source: string, start: number) => ({
+    start: { offset: start },
+    end: { offset: source.length },
+  });
+  it("treats $$ and \\[ delimiters as display and \\( as inline", () => {
+    expect(markdownMathIsDisplay("$$x^2$$", at("$$x^2$$", 0))).toBe(true);
+    expect(markdownMathIsDisplay("\\[x^2\\]", at("\\[x^2\\]", 0))).toBe(true);
+    expect(markdownMathIsDisplay("\\(x^2\\)", at("\\(x^2\\)", 0))).toBe(false);
+    expect(markdownMathIsDisplay("$$x$$", undefined)).toBe(false);
   });
 });

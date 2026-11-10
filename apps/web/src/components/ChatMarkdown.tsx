@@ -541,6 +541,25 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS_AND_MATH: NonNullable<
   remarkNormalizeLinksAndTagInlineCode,
 ];
 
+/**
+ * `$$…$$` and `\[…\]` inside a paragraph parse as inline math, but readers expect a display
+ * equation, so the authored delimiter decides.
+ */
+export function markdownMathIsDisplay(
+  source: string,
+  position:
+    | {
+        readonly start: { readonly offset?: number | undefined };
+        readonly end: { readonly offset?: number | undefined };
+      }
+    | undefined,
+): boolean {
+  const start = position?.start.offset;
+  const end = position?.end.offset;
+  if (start === undefined || end === undefined) return false;
+  return /^(?:\$\$|\\\[)/.test(source.slice(start, end));
+}
+
 /** `inline` or `display` for a remark-math formula's code element, else null. */
 export function markdownMathKind(className: string | undefined): "inline" | "display" | null {
   if (!className?.includes("language-math")) return null;
@@ -3209,12 +3228,16 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
   code: function MarkdownCode({ node, children, className, ...props }) {
-    const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip, mathEnabled } = use(
-      ChatMarkdownRendererContext,
-    );
+    const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip, mathEnabled, text } =
+      use(ChatMarkdownRendererContext);
     const math = mathEnabled ? markdownMathKind(className) : null;
     if (math) {
-      return <MarkdownMath tex={nodeToPlainText(children)} display={math === "display"} />;
+      return (
+        <MarkdownMath
+          tex={nodeToPlainText(children)}
+          display={math === "display" || markdownMathIsDisplay(text, node?.position)}
+        />
+      );
     }
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
