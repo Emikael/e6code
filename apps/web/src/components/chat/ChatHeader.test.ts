@@ -1,7 +1,12 @@
-import { EnvironmentId } from "@e6tools/contracts";
+import { DEFAULT_RUNTIME_MODE, EnvironmentId, ThreadId, TurnId } from "@e6tools/contracts";
+import { joinThreadRowStatus } from "@e6tools/client-runtime/state/agent-state";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveRenameCommit, shouldShowOpenInPicker } from "./ChatHeader";
+import {
+  resolveRenameCommit,
+  resolveThreadHeaderStatus,
+  shouldShowOpenInPicker,
+} from "./ChatHeader";
 
 describe("shouldShowOpenInPicker", () => {
   const primaryEnvironmentId = EnvironmentId.make("environment-primary");
@@ -80,5 +85,80 @@ describe("resolveRenameCommit", () => {
     expect(resolveRenameCommit({ title: " Old ", originalTitle: "Old" })).toEqual({
       action: "noop",
     });
+  });
+});
+
+describe("resolveThreadHeaderStatus", () => {
+  const session = {
+    threadId: ThreadId.make("thread-1"),
+    status: "running" as const,
+    providerName: "Codex",
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    activeTurnId: null,
+    lastError: null,
+    updatedAt: "2026-03-09T10:00:00.000Z",
+  };
+  const completedTurn = {
+    turnId: TurnId.make("turn-1"),
+    state: "completed" as const,
+    requestedAt: "2026-03-09T10:00:00.000Z",
+    startedAt: "2026-03-09T10:00:01.000Z",
+    completedAt: "2026-03-09T10:01:00.000Z",
+    assistantMessageId: null,
+  };
+  const idle = {
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    session: null,
+    latestTurn: null,
+  };
+  const resolve = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) =>
+    resolveThreadHeaderStatus({ ...idle, ...thread }, (resetsAt) =>
+      resetsAt === "2026-03-09T14:20:00.000Z" ? "14:20" : "",
+    );
+  const label = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) =>
+    resolve(thread)?.label ?? null;
+  const fullText = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) => {
+    const status = resolve(thread);
+    return status === null ? null : joinThreadRowStatus(status);
+  };
+
+  it("carries the plan step and agent-state detail of a running thread", () => {
+    const planProgress = { step: "Write tests", completedSteps: 3, totalSteps: 6 };
+    expect(fullText({ session, planProgress })).toBe("Working · step 4 of 6");
+    expect(
+      fullText({
+        session,
+        planProgress,
+        agentState: { kind: "rate-limited", resetsAt: "2026-03-09T14:20:00.000Z" },
+      }),
+    ).toBe("Waiting for usage limit · resets 14:20");
+    expect(
+      fullText({ session, agentState: { kind: "retrying", attempt: 2, maxAttempts: 10 } }),
+    ).toBe("Retrying · attempt 2 of 10");
+    expect(fullText({ session, planProgress, agentState: { kind: "compacting" } })).toBe(
+      "Compacting",
+    );
+    expect(resolve({ session, agentState: { kind: "compacting" } })?.kind).toBe("working");
+    expect(fullText({ hasPendingApprovals: true, session, planProgress })).toBe("Needs approval");
+  });
+
+  it("follows the sidebar's priorities with full wording", () => {
+    expect(label({ hasPendingApprovals: true, hasPendingUserInput: true, session })).toBe(
+      "Needs approval",
+    );
+    expect(label({ hasPendingUserInput: true, session })).toBe("Needs your answer");
+    expect(label({ session, agentState: { kind: "rate-limited" } })).toBe(
+      "Waiting for usage limit",
+    );
+    expect(label({ session })).toBe("Working");
+    expect(label({ backgroundLiveness: "monitoring" })).toBe("Monitoring");
+    expect(label({ session: { ...session, status: "error", lastError: "boom" } })).toBe("Failed");
+  });
+
+  it("reads Done only after a completed turn", () => {
+    expect(label({ latestTurn: completedTurn })).toBe("Done");
+    expect(label({ latestTurn: { ...completedTurn, state: "interrupted" } })).toBeNull();
+    expect(label({})).toBeNull();
   });
 });

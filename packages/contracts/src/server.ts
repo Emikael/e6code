@@ -8,6 +8,7 @@ import {
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
   ForwardCompatibleArray,
+  ForwardCompatibleOptional,
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
@@ -66,6 +67,13 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+/**
+ * Relative API price of a model: 1 is cheapest, 3 most expensive. The server
+ * buckets the Usage page's rate table; see `apps/server/src/usage/usagePricing.ts`.
+ */
+export const ModelPriceTier = Schema.Literals([1, 2, 3]);
+export type ModelPriceTier = typeof ModelPriceTier.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -77,6 +85,11 @@ export const ServerProviderModel = Schema.Struct({
   isDefault: Schema.optional(Schema.Boolean),
   isLegacy: Schema.optional(Schema.Boolean),
   capabilities: Schema.NullOr(ModelCapabilities),
+  // Picker metadata. Absent when the provider does not report a context
+  // window or the model has no known price. A value this build cannot decode
+  // reads as absent instead of dropping the provider.
+  contextWindowTokens: ForwardCompatibleOptional(PositiveInt),
+  priceTier: ForwardCompatibleOptional(ModelPriceTier),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 
@@ -202,6 +215,11 @@ export const ServerProvider = Schema.Struct({
   reportsContextWindow: Schema.optional(Schema.Boolean),
   requiresNewThreadForModelChange: Schema.optional(Schema.Boolean),
   supportsConversationRollback: Schema.optional(Schema.Boolean),
+  // The driver can stop one running subagent without ending the turn.
+  supportsSubagentStop: Schema.optional(Schema.Boolean),
+  // The server accepts instructions with a declined approval. Older servers
+  // drop the field silently, so clients offer the option only with this set.
+  supportsApprovalFeedback: Schema.optional(Schema.Boolean),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
   setup: Schema.optional(
     Schema.Struct({

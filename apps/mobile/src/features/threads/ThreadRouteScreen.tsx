@@ -26,6 +26,7 @@ import {
   ThreadId,
   type ProjectScript,
 } from "@e6tools/contracts";
+import { findSubagent } from "@e6tools/client-runtime/state/subagentRuntime";
 import { shouldOfferHandoff } from "@e6tools/client-runtime/state/thread-handoff";
 import { providerDisplayLabel } from "../../lib/modelOptions";
 import { ThreadHandoffContainer } from "./ThreadHandoffContainer";
@@ -37,6 +38,7 @@ import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -94,6 +96,9 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { resolveThreadHeaderStatusText } from "./threadListV2";
+import { useThreadSubagentPanelModel } from "./ThreadInspectorSheet";
+import { inspectorButtonAccessibilityLabel } from "./thread-inspector-lineage";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -108,7 +113,7 @@ function ThreadHeader(
 ) {
   const navigation = useNavigation();
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
-  const { onOpenTerminal } = props.gitControls;
+  const { inspectorControl, onOpenTerminal } = props.gitControls;
   const native = useThreadHeaderOptions(props);
   const androidHeaderActions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const actions: ScreenHeaderAction[] = [];
@@ -117,6 +122,17 @@ function ThreadHeader(
         accessibilityLabel: "Return to chat",
         icon: "chevron.left",
         onPress: props.onReturnToThread,
+      });
+    }
+    // First so a phone's single direct slot shows the running-subagent badge;
+    // the other actions stay reachable from the overflow menu.
+    if (inspectorControl) {
+      actions.push({
+        id: "inspector",
+        accessibilityLabel: inspectorControl.accessibilityLabel,
+        badge: inspectorControl.badgeCount,
+        icon: "info.circle",
+        onPress: inspectorControl.onPress,
       });
     }
     if (props.hasThreadCwd) {
@@ -142,6 +158,7 @@ function ThreadHeader(
     });
     return actions;
   }, [
+    inspectorControl,
     props.inspectorMode,
     panes.auxiliaryPaneVisible,
     props.onOpenFilesInspector,
@@ -160,7 +177,13 @@ function ThreadHeader(
         subtitle={props.subtitle}
         sidebar={native.sidebar}
         options={native.options}
-        optionsVersion={props.gitControls.projectScripts}
+        // Native header factories are stabilized, so changing item content
+        // (the Inspector badge) must be named here to be reapplied.
+        optionsVersion={[
+          props.gitControls.projectScripts,
+          inspectorControl?.accessibilityLabel,
+          inspectorControl?.badgeColors,
+        ]}
         trailing={
           props.fileInspectorSupported && props.hasThreadCwd ? (
             <ScreenHeaderButton
@@ -327,6 +350,8 @@ function ThreadRouteContent(
 ) {
   const { themeVariables } = useAppearancePreferences();
   const headerColor = themeVariables["--color-header"];
+  const inspectorBadgeFill = themeVariables["--color-foreground"];
+  const inspectorBadgeText = themeVariables["--color-screen"];
   const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
@@ -483,9 +508,17 @@ function ThreadRouteContent(
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
+  // Like web's header, the machine is named with its connection state in
+  // words: remote work makes the connection part of the thread's context.
+  // The status leads in words, as in web's header pill, then the branch; the
+  // native subtitle is one line and truncates from the end.
+  const headerEnvironmentLabel = selectedEnvironmentConnection?.environmentLabel ?? null;
   const headerSubtitle = [
+    selectedThread ? resolveThreadHeaderStatusText(selectedThread) : null,
+    selectedThread?.branch ?? null,
     selectedThreadProject?.title ?? null,
-    selectedEnvironmentConnection?.environmentLabel ?? null,
+    headerEnvironmentLabel,
+    headerEnvironmentLabel ? connectionTone(routeConnectionState).label : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -497,6 +530,45 @@ function ThreadRouteContent(
           input: { cwd: selectedThreadCwd },
         })
       : null,
+  );
+  /* ─── Inspector sheet trigger (running-subagent badge) ───────────── */
+  const subagentPanel = useThreadSubagentPanelModel(
+    selectedThreadDetail?.activities,
+    selectedThread?.session ?? null,
+  );
+  const liveSubagentCount = subagentPanel.liveCount;
+  const activePendingApprovalAgentId = requests.activePendingApproval?.agentId;
+  const activePendingApprovalAgentTitle = activePendingApprovalAgentId
+    ? (findSubagent(subagentPanel, activePendingApprovalAgentId)?.title ?? null)
+    : null;
+  const activePendingUserInputAgentId = requests.activePendingUserInput?.agentId;
+  const activePendingUserInputAgentTitle = activePendingUserInputAgentId
+    ? (findSubagent(subagentPanel, activePendingUserInputAgentId)?.title ?? null)
+    : null;
+  const inspectorEnvironmentId = selectedThread?.environmentId ?? null;
+  const inspectorThreadId = selectedThread?.id ?? null;
+  const inspectorControl = useMemo(
+    () =>
+      inspectorEnvironmentId === null || inspectorThreadId === null
+        ? undefined
+        : {
+            accessibilityLabel: inspectorButtonAccessibilityLabel(liveSubagentCount),
+            badgeCount: liveSubagentCount,
+            badgeColors: { fill: inspectorBadgeFill, text: inspectorBadgeText },
+            onPress: () =>
+              navigation.navigate("ThreadInspector", {
+                environmentId: String(inspectorEnvironmentId),
+                threadId: String(inspectorThreadId),
+              }),
+          },
+    [
+      inspectorBadgeFill,
+      inspectorBadgeText,
+      inspectorEnvironmentId,
+      inspectorThreadId,
+      liveSubagentCount,
+      navigation,
+    ],
   );
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
@@ -724,6 +796,19 @@ function ThreadRouteContent(
     });
   }, [navigation, selectedThread, selectedThreadProject?.workspaceRoot, terminalMenuSessions]);
 
+  const selectedThreadProjectScripts = useMemo(
+    () =>
+      selectedThreadProject
+        ? resolveProjectScripts(
+            routeEnvironmentRuntime?.serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
+            selectedThreadProject,
+          )
+        : [],
+    [routeEnvironmentRuntime?.serverConfig?.settings, selectedThreadProject],
+  );
+  const rerunWorktreeSetup = useAtomCommand(vcsEnvironment.rerunWorktreeSetup, {
+    reportFailure: false,
+  });
   const handleRunProjectScript = useCallback(
     async (script: ProjectScript) => {
       terminalDebugLog("project-script:press", {
@@ -739,6 +824,27 @@ function ThreadRouteContent(
           reason: "no-thread-or-workspace",
         });
         return;
+      }
+
+      // The setup script in the thread's worktree runs on the server, which
+      // records it on the thread once it exits cleanly. Older servers lack
+      // the method, so fall through to a plain terminal run.
+      if (
+        selectedThread.worktreePath &&
+        setupProjectScript(selectedThreadProjectScripts)?.id === script.id
+      ) {
+        const rerun = await rerunWorktreeSetup({
+          environmentId: selectedThread.environmentId,
+          input: { threadId: selectedThread.id },
+        });
+        if (rerun._tag === "Success" && rerun.value.terminalId !== null) {
+          void navigation.navigate("ThreadTerminal", {
+            environmentId: String(selectedThread.environmentId),
+            threadId: String(selectedThread.id),
+            terminalId: rerun.value.terminalId,
+          });
+          return;
+        }
       }
 
       const targetTerminalId = resolveProjectScriptTerminalId({
@@ -787,9 +893,11 @@ function ThreadRouteContent(
     },
     [
       navigation,
+      rerunWorktreeSetup,
       selectedThread,
       selectedThreadDetailWorktreePath,
       selectedThreadProject,
+      selectedThreadProjectScripts,
       terminalMenuSessions,
     ],
   );
@@ -806,17 +914,13 @@ function ThreadRouteContent(
     onOpenFilesInspector:
       fileInspector.supported && selectedThreadCwd !== null ? handleOpenFilesInspector : undefined,
     onOpenGitInspector: fileInspector.supported ? handleOpenGitInspector : undefined,
+    inspectorControl,
     currentBranch: selectedThread?.branch ?? null,
     gitStatus: gitStatus.data,
     gitOperationLabel: gitState.gitOperationLabel,
     canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),
-    projectScripts: selectedThreadProject
-      ? resolveProjectScripts(
-          routeEnvironmentRuntime?.serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
-          selectedThreadProject,
-        )
-      : [],
+    projectScripts: selectedThreadProjectScripts,
     terminalSessions: terminalMenuSessions,
     showDirectFileControl: layout.usesSplitView,
     onOpenTerminal: handleOpenTerminal,
@@ -1011,6 +1115,7 @@ function ThreadRouteContent(
           feedbackSubmissions={composer.feedbackSubmissions}
           onDismissFeedback={composer.dismissFeedback}
           selectedThreadFeed={composer.selectedThreadFeed}
+          selectedThreadTurnUsage={composer.selectedThreadTurnUsage}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           isCompacting={composer.isCompacting}
           creationState={creationState}
@@ -1041,6 +1146,9 @@ function ThreadRouteContent(
               : null
           }
           activePendingApproval={requests.activePendingApproval}
+          activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
+          subagentRequests={requests.subagentRequests}
+          activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}

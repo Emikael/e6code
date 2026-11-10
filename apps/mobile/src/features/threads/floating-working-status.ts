@@ -1,4 +1,5 @@
 import type { EnvironmentConnectionPhase } from "@e6tools/client-runtime/connection";
+import type { ThreadAgentState } from "@e6tools/contracts";
 
 /**
  * What the floating pill says. Connection, syncing, and working share one
@@ -9,6 +10,8 @@ export type FloatingWorkingStatus =
   | { readonly kind: "working"; readonly startedAt: string }
   | { readonly kind: "syncing"; readonly label: string }
   | { readonly kind: "compacting" }
+  // What the running agent reports: compacting, retrying, or paused.
+  | { readonly kind: "agent-state"; readonly agentState: ThreadAgentState }
   // A task whose thread the server has not created yet: the worktree may
   // still be checking out, so there is no turn to time.
   | { readonly kind: "preparing"; readonly label: string }
@@ -42,7 +45,7 @@ export function pendingAttentionFloatingStatus(input: {
     return {
       kind: "attention",
       tone: "approval",
-      label: "Approval waiting",
+      label: "Needs approval",
       onPress: input.onPress,
     };
   }
@@ -50,11 +53,33 @@ export function pendingAttentionFloatingStatus(input: {
     return {
       kind: "attention",
       tone: "input",
-      label: "Question waiting",
+      label: "Needs your answer",
       onPress: input.onPress,
     };
   }
   return null;
+}
+
+/**
+ * The pill once the feed is ready: a requested /compact describes the whole
+ * turn, then what the agent reports about itself, then the working timer.
+ * The agent state only shows while the turn runs.
+ */
+export function activeWorkFloatingStatus(input: {
+  readonly isCompacting: boolean;
+  readonly agentState: ThreadAgentState | null | undefined;
+  readonly activeWorkStartedAt: string | null;
+}): FloatingWorkingStatus | null {
+  if (input.isCompacting) {
+    return { kind: "compacting" };
+  }
+  if (input.activeWorkStartedAt === null) {
+    return null;
+  }
+  if (input.agentState) {
+    return { kind: "agent-state", agentState: input.agentState };
+  }
+  return { kind: "working", startedAt: input.activeWorkStartedAt };
 }
 
 /**

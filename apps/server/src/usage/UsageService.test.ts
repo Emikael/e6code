@@ -15,6 +15,7 @@ import {
   UsageDay,
   type UsageSummaryInput,
 } from "@e6tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -24,6 +25,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Scheduler from "effect/Scheduler";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
@@ -393,6 +395,82 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.live("estimates one turn's cost from the rate table and custom prices", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const totals = {
+        uncachedInputTokens: 1_000,
+        cachedInputTokens: 10_000,
+        cacheCreationTokens: 0,
+        outputTokens: 2_000,
+        reasoningTokens: 500,
+      };
+
+      yield* Effect.gen(function* () {
+        const settingsService = yield* ServerSettings.ServerSettingsService;
+        const service = yield* UsageService.make;
+        yield* service.refreshRates;
+
+        // Reasoning is inside output, so it is not charged again.
+        const tabled = yield* service.estimateCostUsd("table-model", totals);
+        assert.closeTo(tabled ?? -1, 1_000 * 1e-6 + 10_000 * 1e-7 + 2_000 * 4e-6, 1e-12);
+        assert.strictEqual(yield* service.estimateCostUsd("unknown-model", totals), null);
+
+        yield* settingsService.updateSettings({
+          usagePriceOverrides: {
+            "unknown-model": { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 },
+          },
+        });
+        const overridden = yield* service.estimateCostUsd("unknown-model", totals);
+        assert.closeTo(overridden ?? -1, (11_000 * 2 + 2_000 * 8) / 1_000_000, 1e-12);
+      }).pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-estimate-test",
+            home,
+            settings,
+            ratesDocument: {
+              "table-model": {
+                input_cost_per_token: 1e-6,
+                output_cost_per_token: 4e-6,
+                cache_read_input_token_cost: 1e-7,
+              },
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("pings price-tier subscribers once a background rate fetch lands", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+
+      yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        const changes = yield* service.subscribeModelPriceTierChanges;
+        const firstChange = yield* changes.pipe(Stream.runHead, Effect.forkScoped);
+
+        // Nothing is loaded yet: the lookup answers from the empty table and
+        // starts the fetch in the background.
+        assert.strictEqual((yield* service.modelPriceTiers)("table-model"), undefined);
+        yield* Fiber.join(firstChange);
+        assert.strictEqual((yield* service.modelPriceTiers)("table-model"), 2);
+      }).pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-price-tier-changes-test",
+            home,
+            settings,
+            ratesDocument: {
+              "table-model": { input_cost_per_token: 2e-6, output_cost_per_token: 1e-5 },
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.live("counts appended usage on a rescan of a grown transcript", () =>
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;
@@ -590,6 +668,78 @@ describe("UsageService", () => {
       yield* service.readSummary(WINDOW);
       assert.strictEqual(ratesFetches, 2);
     }).pipe(Effect.scoped),
+  );
+
+  it.live(
+    "backs off rate loading after a failed fetch and keeps tier lookups off the network",
+    () =>
+      Effect.gen(function* () {
+        const { settings, home } = yield* setup;
+        const totals = {
+          uncachedInputTokens: 1_000,
+          cachedInputTokens: 0,
+          cacheCreationTokens: 0,
+          outputTokens: 1_000,
+          reasoningTokens: 0,
+        };
+        let ratesFetches = 0;
+        const backgroundFetch = Deferred.makeUnsafe<void>();
+
+        yield* Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          const service = yield* UsageService.make;
+
+          // The default document is unparsable, so this fetch fails.
+          yield* service.refreshRates;
+          assert.strictEqual(ratesFetches, 1);
+
+          // Inside the backoff window lookups neither refetch nor re-read the
+          // disk, even once a snapshot appears there.
+          const startedAtMs = yield* Clock.currentTimeMillis;
+          yield* Effect.promise(() =>
+            NodeFSP.writeFile(
+              NodePath.join(config.stateDir, "usage-model-rates.json"),
+              encodeUnknownJsonString({
+                fetchedAtMs: startedAtMs,
+                document: {
+                  "table-model": { input_cost_per_token: 2e-6, output_cost_per_token: 1e-5 },
+                },
+              }),
+            ),
+          );
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            assert.strictEqual((yield* service.modelPriceTiers)("table-model"), undefined);
+            assert.strictEqual(yield* service.estimateCostUsd("table-model", totals), null);
+          }
+          assert.strictEqual(ratesFetches, 1);
+
+          // After the window the on-disk snapshot answers without a fetch.
+          yield* TestClock.adjust(Duration.minutes(1));
+          assert.strictEqual((yield* service.modelPriceTiers)("table-model"), 2);
+          assert.strictEqual(ratesFetches, 1);
+
+          // A stale table does not send tier lookups to the network; pricing a
+          // turn refreshes it in the background.
+          yield* TestClock.adjust(Duration.days(2));
+          assert.strictEqual((yield* service.modelPriceTiers)("table-model"), 2);
+          assert.strictEqual(ratesFetches, 1);
+          assert.isNotNull(yield* service.estimateCostUsd("table-model", totals));
+          yield* Deferred.await(backgroundFetch);
+          assert.strictEqual(ratesFetches, 2);
+        }).pipe(
+          Effect.provide(
+            serviceLayers({
+              prefix: "usage-service-rates-backoff-test",
+              home,
+              settings,
+              onRatesFetch: () => {
+                ratesFetches += 1;
+                if (ratesFetches === 2) Deferred.doneUnsafe(backgroundFetch, Effect.void);
+              },
+            }),
+          ),
+        );
+      }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
   );
 
   it.live("refetches a rate table inside its TTL only when the client asks", () =>

@@ -5,6 +5,7 @@ import type {
 } from "../diffs/nativeReviewDiffSurface";
 import type { ResolvedMobileCodeSurface } from "../../lib/appearancePreferences";
 import { MOBILE_CODE_SURFACE, MOBILE_TYPOGRAPHY } from "../../lib/typography";
+import { MONO_FONT_FAMILY, SANS_FONT_FAMILY } from "../../lib/useFontFamily";
 import type { SourceHighlightTokens } from "./sourceHighlightingState";
 
 export const NATIVE_SOURCE_CONTENT_WIDTH = 32_000;
@@ -19,6 +20,8 @@ export function createNativeSourceStyle(
     gutterWidth: codeSurface.gutterWidth,
     codePadding: codeSurface.codePadding,
     textVerticalInset: codeSurface.textVerticalInset,
+    codeFontFamily: MONO_FONT_FAMILY,
+    uiFontFamily: SANS_FONT_FAMILY,
     codeFontSize: codeSurface.fontSize,
     codeFontWeight: "regular",
     lineNumberFontSize: codeSurface.lineNumberFontSize,

@@ -19,6 +19,7 @@ describe("appearancePreferences", () => {
       terminalFontSize: null,
       codeFontSize: null,
       codeWordBreak: false,
+      showThinkingTimeline: true,
     });
   });
 
@@ -95,6 +96,16 @@ describe("appearancePreferences", () => {
     expect(resolveAppearancePreferences({}).codeWordBreak).toBe(false);
     expect(resolveAppearancePreferences({ codeWordBreak: null }).codeWordBreak).toBe(false);
     expect(resolveAppearancePreferences({ codeWordBreak: false }).codeWordBreak).toBe(false);
+  });
+
+  it("shows the thinking timeline unless it is explicitly turned off, like web", () => {
+    expect(resolveAppearancePreferences(undefined).showThinkingTimeline).toBe(true);
+    expect(resolveAppearancePreferences({ showThinkingTimeline: null }).showThinkingTimeline).toBe(
+      true,
+    );
+    const off = resolveAppearancePreferences({ showThinkingTimeline: false });
+    expect(off.showThinkingTimeline).toBe(false);
+    expect(resolveAppearance(off).showThinkingTimeline).toBe(false);
   });
 
   it("returns the authored text scale at the 16pt default", () => {

@@ -185,7 +185,7 @@ function NativeSourceFileSurface(
 ) {
   const { NativeView, onRefresh } = props;
   const { codeSurface, codeWordBreak, nativeSourceStyle } = useAppearanceCodeSurface();
-  const { themeAppearance, themeId } = useAppearancePreferences();
+  const { themeAppearance } = useAppearancePreferences();
   const appTheme = useUniwindTheme();
   const { width: viewportWidth } = useWindowDimensions();
   const { rowsJson, status, targetIndex, tokens } = useSourceFileModel(props);
@@ -196,8 +196,8 @@ function NativeSourceFileSurface(
     [targetIndex],
   );
   const themeJson = useMemo(
-    () => JSON.stringify(createNativeReviewDiffTheme(themeAppearance, themeId, appTheme)),
-    [appTheme, themeAppearance, themeId],
+    () => JSON.stringify(createNativeReviewDiffTheme(themeAppearance, appTheme)),
+    [appTheme, themeAppearance],
   );
   const styleJson = useMemo(() => JSON.stringify(nativeSourceStyle), [nativeSourceStyle]);
   const contentWidth = codeWordBreak

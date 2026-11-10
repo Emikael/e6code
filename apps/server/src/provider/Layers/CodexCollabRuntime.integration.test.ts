@@ -18,6 +18,7 @@ import { type ProviderApprovalDecision, type ProviderEvent, ThreadId } from "@e6
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { assert, describe } from "vite-plus/test";
@@ -231,6 +232,81 @@ describe("CodexSessionRuntime collab integration", () => {
           params: { threadId: CHILD_A, excludeTurns: true },
         },
       ]);
+
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("stamps a child's item with the parent turn running when it lands", () =>
+    Effect.gen(function* () {
+      const firstTurnId = "019fe3e8-f908-7f31-8d51-283f4a478901";
+      const secondTurnId = "019fe3e8-f908-7f31-8d51-283f4a478902";
+      // Every parent turn replays the same notifications: the child registers
+      // (once; later rows are for a known child) and applies a patch.
+      const script = {
+        rootThreadId: ROOT,
+        // The parent turn is still running when its child's edit lands.
+        holdTurnOpen: true,
+        turnIds: [firstTurnId, secondTurnId],
+        notifications: [
+          capturedStartedActivity(),
+          {
+            method: "item/completed",
+            params: {
+              threadId: CHILD_A,
+              turnId: `${CHILD_A}-turn`,
+              completedAtMs: 1_767_225_600_000,
+              item: {
+                type: "fileChange",
+                id: "child-patch",
+                status: "completed",
+                changes: [{ path: "/repo/a.ts", kind: { type: "add" }, diff: "x\n" }],
+              },
+            },
+          },
+        ],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => NodeFS.rmSync(scriptPath, { force: true })),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-collab-child-item-turn"),
+        binaryPath: peerPath,
+        cwd: NodeOS.tmpdir(),
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const childItems = yield* Queue.unbounded<ProviderEvent>();
+      yield* runtime.events.pipe(
+        Stream.filter((event) => event.method === "collabAgent/item"),
+        Stream.runForEach((event) => Queue.offer(childItems, event)),
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      // Each turn's child edit must land before the next turn starts; otherwise
+      // the first edit can be processed after the second turn is active.
+      yield* runtime.sendTurn({ input: "spawn a child" });
+      const firstItem = yield* Queue.take(childItems);
+      yield* runtime.sendTurn({ input: "give the child more work" });
+      const secondItem = yield* Queue.take(childItems);
+
+      const items = [firstItem, secondItem];
+      // The event keeps the spawn turn; parentTurnId names the turn whose diff
+      // holds the edit.
+      assert.deepEqual(
+        items.map((event) => [
+          event.turnId,
+          (event.payload as { parentTurnId?: string }).parentTurnId,
+        ]),
+        [
+          [firstTurnId, firstTurnId],
+          [firstTurnId, secondTurnId],
+        ],
+      );
 
       yield* runtime.close;
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
@@ -605,6 +681,243 @@ describe("CodexSessionRuntime collab integration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  // it.live: the runtime talks to a real child process.
+  it.live("stopping one subagent interrupts only its child turn", () =>
+    Effect.gen(function* () {
+      const byIndex = wireFixture.notifications;
+      const turnStartedB = byIndex.find(
+        (entry) =>
+          entry.method === "turn/started" &&
+          (entry.params as { threadId?: string }).threadId === CHILD_B,
+      );
+      const registrationB = byIndex.find((entry) => {
+        const item = (entry.params as { item?: { type?: string; agentThreadId?: string } }).item;
+        return item?.type === "subAgentActivity" && item.agentThreadId === CHILD_B;
+      });
+      assert.isDefined(turnStartedB);
+      assert.isDefined(registrationB);
+      const script = {
+        rootThreadId: ROOT,
+        holdTurnOpen: true,
+        notifications: [registrationB, turnStartedB],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      const interruptsPath = `${scriptPath}.interrupts`;
+      NodeFS.rmSync(interruptsPath, { force: true });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(scriptPath, { force: true });
+          NodeFS.rmSync(interruptsPath, { force: true });
+        }),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-collab-stop-one"),
+        binaryPath: peerPath,
+        cwd: NodeOS.tmpdir(),
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const childBStartedFiber = yield* runtime.events.pipe(
+        Stream.filter(
+          (event) =>
+            event.method === "collabAgent/turnStarted" &&
+            (event.payload as { agentThreadId?: string }).agentThreadId === CHILD_B,
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "fan out" });
+      const childBStarted = yield* Fiber.join(childBStartedFiber).pipe(
+        Effect.timeoutOption("15 seconds"),
+      );
+      assert.isTrue(childBStarted._tag === "Some", "child B turnStarted never arrived");
+
+      const unknown = yield* runtime.interruptSubagent("not-a-child").pipe(Effect.result);
+      assert.equal(unknown._tag, "Failure");
+      if (unknown._tag === "Failure") {
+        assert.equal(unknown.failure._tag, "CodexSessionRuntimeSubagentNotRunningError");
+      }
+
+      yield* runtime.interruptSubagent(CHILD_B);
+
+      const interrupted = NodeFS.readFileSync(interruptsPath, "utf8")
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { threadId?: string; turnId?: string });
+      assert.deepEqual(interrupted, [
+        {
+          threadId: CHILD_B,
+          turnId: (turnStartedB.params as { turn: { id: string } }).turn.id,
+        },
+      ]);
+
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  // it.live: the runtime talks to a real child process.
+  it.live("a parked prompt from another child cannot hang a single-subagent stop", () =>
+    Effect.gen(function* () {
+      const byIndex = wireFixture.notifications;
+      const turnStartedB = byIndex.find(
+        (entry) =>
+          entry.method === "turn/started" &&
+          (entry.params as { threadId?: string }).threadId === CHILD_B,
+      );
+      const registrationB = byIndex.find((entry) => {
+        const item = (entry.params as { item?: { type?: string; agentThreadId?: string } }).item;
+        return item?.type === "subAgentActivity" && item.agentThreadId === CHILD_B;
+      });
+      assert.isDefined(turnStartedB);
+      assert.isDefined(registrationB);
+      // Child A's approval stays parked, so the transport never reads the
+      // interrupt reply for child B (the peer withholds it to make that certain).
+      const script = {
+        rootThreadId: ROOT,
+        holdTurnOpen: true,
+        hangInterruptFor: CHILD_B,
+        notifications: [registrationB, turnStartedB],
+        serverRequests: [
+          {
+            method: "item/permissions/requestApproval",
+            label: "perm-child-a",
+            params: {
+              cwd: "/tmp/project",
+              itemId: "app_child_a",
+              permissions: { network: { enabled: true } },
+              reason: "Fetch the share link schema",
+              startedAtMs: 1_778_000_000_000,
+              threadId: CHILD_A,
+              turnId: `${CHILD_A}-turn-1`,
+            },
+          },
+        ],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(scriptPath, { force: true });
+          NodeFS.rmSync(`${scriptPath}.interrupts`, { force: true });
+          NodeFS.rmSync(`${scriptPath}.approvalResponses`, { force: true });
+        }),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-collab-stop-one-parked"),
+        binaryPath: peerPath,
+        cwd: NodeOS.tmpdir(),
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const requestedReady = yield* Deferred.make<void>();
+      const childBReady = yield* Deferred.make<void>();
+      yield* runtime.events.pipe(
+        Stream.runForEach((event) =>
+          event.method === "item/permissions/requestApproval"
+            ? Deferred.succeed(requestedReady, undefined)
+            : event.method === "collabAgent/turnStarted" &&
+                (event.payload as { agentThreadId?: string }).agentThreadId === CHILD_B
+              ? Deferred.succeed(childBReady, undefined)
+              : Effect.void,
+        ),
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "fan out" });
+      const ready = yield* Effect.all([
+        Deferred.await(requestedReady),
+        Deferred.await(childBReady),
+      ]).pipe(Effect.timeoutOption("15 seconds"));
+      assert.isTrue(ready._tag === "Some", "child approval or child B start never arrived");
+
+      const stopped = yield* runtime
+        .interruptSubagent(CHILD_B)
+        .pipe(Effect.result, Effect.timeoutOption("10 seconds"));
+      assert.isTrue(stopped._tag === "Some", "the single-subagent stop hung");
+      if (stopped._tag === "Some") {
+        assert.equal(stopped.value._tag, "Failure");
+        if (stopped.value._tag === "Failure") {
+          assert.equal(stopped.value.failure._tag, "CodexSessionRuntimeSubagentStopTimedOutError");
+          assert.include(stopped.value.failure.message, "Answer it, or stop the turn");
+        }
+      }
+
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  // it.live: the runtime talks to a real child process.
+  it.live("tags an approval raised on a child thread with that subagent", () =>
+    Effect.gen(function* () {
+      // A collab subagent's requests carry its own thread id, which is also
+      // its task id; the runtime passes it on so the UI can name the agent.
+      const script = {
+        rootThreadId: ROOT,
+        holdTurnOpen: true,
+        notifications: [],
+        serverRequests: [
+          {
+            method: "item/permissions/requestApproval",
+            label: "perm-child",
+            params: {
+              cwd: "/tmp/project",
+              itemId: "app_child",
+              permissions: { network: { enabled: true } },
+              reason: "Fetch the share link schema",
+              startedAtMs: 1_778_000_000_000,
+              threadId: CHILD_A,
+              turnId: `${CHILD_A}-turn-1`,
+            },
+          },
+        ],
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      NodeFS.writeFileSync(scriptPath, JSON.stringify(script), "utf8");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          NodeFS.rmSync(scriptPath, { force: true });
+          NodeFS.rmSync(`${scriptPath}.approvalResponses`, { force: true });
+        }),
+      );
+
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId: ThreadId.make("thread-codex-child-approval"),
+        binaryPath: peerPath,
+        cwd: "/tmp",
+        runtimeMode: "full-access",
+        environment: { ...process.env, E6_CODEX_COLLAB_SCRIPT: scriptPath },
+      });
+      const requestedReady = yield* Deferred.make<ProviderEvent>();
+      yield* runtime.events.pipe(
+        Stream.runForEach((event) =>
+          event.method === "item/permissions/requestApproval"
+            ? Deferred.succeed(requestedReady, event)
+            : Effect.void,
+        ),
+        Effect.forkScoped,
+      );
+
+      yield* runtime.start();
+      yield* runtime.sendTurn({ input: "fan out" });
+      const requested = yield* Deferred.await(requestedReady).pipe(
+        Effect.timeoutOption("15 seconds"),
+      );
+      assert.isTrue(requested._tag === "Some", "child approval request never arrived");
+      assert.equal(requested._tag === "Some" ? requested.value.agentId : undefined, CHILD_A);
+
+      yield* runtime.interruptTurn();
+      yield* runtime.close;
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   // it.live: the runtime talks to a real child process; under it.effect's
   // TestClock the internal timers freeze and the join never completes.
   it.live("Stop answers a parked app-permission approval with a withheld grant", () =>
@@ -675,6 +988,7 @@ describe("CodexSessionRuntime collab integration", () => {
         Effect.timeoutOption("15 seconds"),
       );
       assert.isTrue(requested._tag === "Some", "permission approval request never arrived");
+      assert.isUndefined(requested._tag === "Some" ? requested.value.agentId : "missing");
 
       yield* runtime.interruptTurn();
 

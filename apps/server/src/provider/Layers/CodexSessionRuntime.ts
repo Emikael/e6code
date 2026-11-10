@@ -25,6 +25,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -213,6 +214,10 @@ export interface CodexSessionRuntimeShape {
   ) => Effect.Effect<ProviderTurnStartResult, CodexSessionRuntimeError>;
   readonly compactThread: Effect.Effect<void, CodexSessionRuntimeError>;
   readonly interruptTurn: (turnId?: TurnId) => Effect.Effect<void, CodexSessionRuntimeError>;
+  /** Interrupts one collab child's running turn; the parent turn continues. */
+  readonly interruptSubagent: (
+    agentThreadId: string,
+  ) => Effect.Effect<void, CodexSessionRuntimeError>;
   readonly readThread: Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
   readonly rollbackThread: (
     numTurns: number,
@@ -237,7 +242,9 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimePendingApprovalNotFoundError
   | CodexSessionRuntimePendingUserInputNotFoundError
   | CodexSessionRuntimeInvalidUserInputAnswersError
-  | CodexSessionRuntimeThreadIdMissingError;
+  | CodexSessionRuntimeThreadIdMissingError
+  | CodexSessionRuntimeSubagentNotRunningError
+  | CodexSessionRuntimeSubagentStopTimedOutError;
 
 export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedError<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
@@ -282,6 +289,35 @@ export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedError<
     return `Codex session is missing a provider thread id for ${this.threadId}`;
   }
 }
+
+export class CodexSessionRuntimeSubagentNotRunningError extends Schema.TaggedError<CodexSessionRuntimeSubagentNotRunningError>()(
+  "CodexSessionRuntimeSubagentNotRunningError",
+  {
+    agentThreadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Codex subagent ${this.agentThreadId} has no running turn to stop`;
+  }
+}
+
+export class CodexSessionRuntimeSubagentStopTimedOutError extends Schema.TaggedError<CodexSessionRuntimeSubagentStopTimedOutError>()(
+  "CodexSessionRuntimeSubagentStopTimedOutError",
+  {
+    agentThreadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return "Couldn't stop the subagent while another request is waiting for you. Answer it, or stop the turn.";
+  }
+}
+
+/**
+ * How long a single-subagent stop waits for Codex to acknowledge. Any parked
+ * prompt (the parent's or another child's) blocks the transport's read loop,
+ * so the reply may never arrive; the reactor must not wait on it forever.
+ */
+const SUBAGENT_INTERRUPT_TIMEOUT = "3 seconds";
 
 interface PendingApproval {
   readonly requestId: ApprovalRequestId;
@@ -1392,6 +1428,25 @@ export const makeCodexSessionRuntime = (
           ...event,
         });
       });
+    // A collab subagent runs on its own app-server thread, and its task id is
+    // that thread id. Requests from any thread but the root come from one.
+    const requestAgentId = (requestThreadId: string) =>
+      Effect.map(Ref.get(sessionRef), (session) => {
+        const rootThreadId = currentProviderThreadId(session);
+        return rootThreadId !== undefined &&
+          requestThreadId.length > 0 &&
+          requestThreadId !== rootThreadId
+          ? requestThreadId
+          : undefined;
+      });
+    // Every approval and question request goes through here, so none can skip the tag.
+    const emitRequestEvent = (
+      requestThreadId: string,
+      event: Omit<ProviderEvent, "id" | "provider" | "createdAt" | "kind" | "agentId">,
+    ) =>
+      Effect.flatMap(requestAgentId(requestThreadId), (agentId) =>
+        emitEvent({ kind: "request", ...event, ...(agentId ? { agentId } : {}) }),
+      );
     const emitSessionEvent = (method: string, message: string) =>
       emitEvent({
         kind: "session",
@@ -1527,11 +1582,16 @@ export const makeCodexSessionRuntime = (
         );
     });
 
-    const settlePendingApprovals = (decision: ProviderApprovalDecision) =>
+    // onlyTurnId narrows settling to one turn's prompts (a child's, on a
+    // single-subagent stop); omitted, every parked prompt settles.
+    const settlePendingApprovals = (decision: ProviderApprovalDecision, onlyTurnId?: string) =>
       Ref.get(pendingApprovalsRef).pipe(
         Effect.flatMap((pendingApprovals) =>
           Effect.forEach(
-            Array.from(pendingApprovals.values()),
+            Array.from(pendingApprovals.values()).filter(
+              (pendingApproval) =>
+                onlyTurnId === undefined || pendingApproval.turnId === onlyTurnId,
+            ),
             (pendingApproval) =>
               Deferred.succeed(pendingApproval.decision, decision).pipe(Effect.ignore),
             { discard: true },
@@ -1539,11 +1599,14 @@ export const makeCodexSessionRuntime = (
         ),
       );
 
-    const settlePendingUserInputs = (answers: ProviderUserInputAnswers) =>
+    const settlePendingUserInputs = (answers: ProviderUserInputAnswers, onlyTurnId?: string) =>
       Ref.get(pendingUserInputsRef).pipe(
         Effect.flatMap((pendingUserInputs) =>
           Effect.forEach(
-            Array.from(pendingUserInputs.values()),
+            Array.from(pendingUserInputs.values()).filter(
+              (pendingUserInput) =>
+                onlyTurnId === undefined || pendingUserInput.turnId === onlyTurnId,
+            ),
             (pendingUserInput) =>
               Deferred.succeed(pendingUserInput.answers, answers).pipe(Effect.ignore),
             { discard: true },
@@ -1791,7 +1854,10 @@ export const makeCodexSessionRuntime = (
             });
             return true;
           case "item/started":
-          case "item/completed":
+          case "item/completed": {
+            // A child can keep working in later parent turns; its edits belong
+            // to the parent turn running now, whose diff will show them.
+            const parentTurnId = (yield* Ref.get(sessionRef)).activeTurnId;
             yield* emitEvent({
               kind: "notification",
               threadId: options.threadId,
@@ -1799,10 +1865,12 @@ export const makeCodexSessionRuntime = (
               method: "collabAgent/item",
               payload: {
                 ...childIdentity,
+                ...(parentTurnId ? { parentTurnId } : {}),
                 item: notification.params.item,
               },
             });
             return true;
+          }
           case "thread/closed":
             // The child is gone: drop its live-turn entry so a later Stop
             // doesn't waste a turn/interrupt RPC on a closed thread before
@@ -2083,8 +2151,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/commandExecution/requestApproval",
           requestId,
@@ -2141,8 +2208,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/fileChange/requestApproval",
           requestId,
@@ -2209,8 +2275,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "mcpServer/elicitation/request",
           requestId,
@@ -2264,8 +2329,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/permissions/requestApproval",
           requestId,
@@ -2313,8 +2377,7 @@ export const makeCodexSessionRuntime = (
           return next;
         });
 
-        yield* emitEvent({
-          kind: "request",
+        yield* emitRequestEvent(payload.threadId, {
           threadId: options.threadId,
           method: "item/tool/requestUserInput",
           requestId,
@@ -2600,6 +2663,27 @@ export const makeCodexSessionRuntime = (
             threadId: providerThreadId,
             turnId: effectiveTurnId,
           });
+        }),
+      interruptSubagent: (agentThreadId) =>
+        Effect.gen(function* () {
+          const childTurnId = (yield* Ref.get(collabChildLiveTurnsRef)).get(agentThreadId);
+          if (!childTurnId) {
+            return yield* new CodexSessionRuntimeSubagentNotRunningError({ agentThreadId });
+          }
+          // A parked prompt from this child blocks the transport's read loop,
+          // and with it the interrupt response; settle the child's first, as
+          // interruptTurn does for every prompt.
+          yield* settlePendingApprovals("cancel", childTurnId);
+          yield* settlePendingUserInputs({}, childTurnId);
+          // The child's turn/completed (status interrupted) settles the row.
+          // Prompts from the parent or other children still block the reply,
+          // so the wait is bounded.
+          const acknowledged = yield* client
+            .request("turn/interrupt", { threadId: agentThreadId, turnId: childTurnId })
+            .pipe(Effect.timeoutOption(SUBAGENT_INTERRUPT_TIMEOUT));
+          if (Option.isNone(acknowledged)) {
+            return yield* new CodexSessionRuntimeSubagentStopTimedOutError({ agentThreadId });
+          }
         }),
       readThread: Effect.gen(function* () {
         const providerThreadId = yield* readProviderThreadId;

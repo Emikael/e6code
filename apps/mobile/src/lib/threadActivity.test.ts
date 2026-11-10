@@ -1,4 +1,5 @@
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
+import { deriveTurnUsageByTurnId } from "@e6tools/client-runtime/work-log/turn-usage";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -17,13 +18,18 @@ import {
   agentSpawnSummary,
   buildPendingUserInputAnswers,
   buildThreadFeed,
+  deriveAssistantUsageLabels,
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
+  thoughtPreviewText,
+  timelineRowStep,
   workEntryRowLabel,
+  workEntryRowStats,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
+  type ThreadTimelineStep,
   type WorkLogEntry,
 } from "./threadActivity";
 
@@ -585,6 +591,265 @@ describe("buildThreadFeed", () => {
     expect(row?.getCopyText()).toBe(`Command run\n${command}\n\n${command}`);
   });
 
+  it("carries the line counts of a main-agent file change, matched by path", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-main-edit-counts"),
+      projectId: ProjectId.make("project-1"),
+      title: "Main edit counts",
+      activities: [
+        makeActivity({
+          id: EventId.make("main-edit"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          payload: {
+            itemType: "file_change",
+            title: "Edit",
+            status: "completed",
+            data: { input: { file_path: "/repo/src/a.ts" } },
+            changedFiles: [{ path: "/repo/src/a.ts", additions: 48, deletions: 12 }],
+          },
+        }),
+      ],
+    });
+
+    const [group] = buildThreadFeed(thread);
+    expect(group?.type).toBe("activity-group");
+    if (group?.type !== "activity-group") return;
+    expect(group.activities[0]?.workEntry.diffStat).toEqual({ additions: 48, deletions: 12 });
+  });
+
+  it("times a step from its tool.started row and shows its line counts in one place", () => {
+    const payload = {
+      itemType: "file_change",
+      toolCallId: "edit-1",
+      title: "Edit",
+      data: { input: { file_path: "/repo/src/a.ts" } },
+    };
+    const thread = makeThread({
+      id: ThreadId.make("thread-step-timing"),
+      projectId: ProjectId.make("project-1"),
+      title: "Step timing",
+      activities: [
+        makeActivity({
+          id: EventId.make("edit-started"),
+          kind: "tool.started",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:01.000Z",
+          payload,
+        }),
+        makeActivity({
+          id: EventId.make("edit-updated"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:02.000Z",
+          payload: { ...payload, status: "inProgress" },
+        }),
+        makeActivity({
+          id: EventId.make("edit-completed"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Edit",
+          createdAt: "2026-09-01T00:00:02.200Z",
+          payload: {
+            ...payload,
+            status: "completed",
+            changedFiles: [{ path: "/repo/src/a.ts", additions: 48, deletions: 12 }],
+          },
+        }),
+      ],
+    });
+
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    const entry = group.activities[0]!.workEntry;
+    // The row keeps its place at the first rendered row.
+    expect(entry.createdAt).toBe("2026-09-01T00:00:02.000Z");
+    expect(workEntryRowStats(entry, true)).toEqual({
+      meta: { duration: "1.2s", diffStat: { additions: 48, deletions: 12 } },
+      inlineDiffStat: null,
+    });
+    expect(workEntryRowStats(entry, false)).toEqual({
+      meta: null,
+      inlineDiffStat: { additions: 48, deletions: 12 },
+    });
+  });
+
+  it("places an opened run's thoughts and tools on one timeline and rings the running call", () => {
+    const turnId = TurnId.make("timeline-turn");
+    const thread = makeThread({
+      id: ThreadId.make("thread-timeline"),
+      projectId: ProjectId.make("project-1"),
+      title: "Timeline",
+      messages: [
+        {
+          id: MessageId.make("timeline-thought"),
+          role: "reasoning",
+          text: "Look first.",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:01.000Z",
+          updatedAt: "2026-04-01T00:00:01.000Z",
+        },
+      ],
+      activities: [
+        makeActivity({
+          id: EventId.make("timeline-read"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Read",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { itemType: "file_read", toolCallId: "read-1", status: "inProgress" },
+        }),
+      ],
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+    const rows = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      thread.latestTurn,
+      new Set(),
+      new Set(["activity-run:timeline-thought"]),
+      "2026-04-01T00:00:00.000Z",
+    );
+    expect(rows.map((row) => row.type)).toEqual(["work-toggle", "message", "activity-group"]);
+    expect(rows[1]).toMatchObject({ timelineStep: "first" });
+    expect(rows[2]).toMatchObject({ timelineStep: "last" });
+    if (rows[2]?.type !== "activity-group") throw new Error("expected an activity group");
+    expect(rows[2].activities[0]).toMatchObject({ runningStep: true, groupedToolDetail: true });
+    // The ring is timeline-only; the plain list keeps not shimmering this row.
+    expect(rows[2].activities[0]?.live).toBeUndefined();
+  });
+
+  it("gives no timeline step to a group whose calls are all hidden", () => {
+    const turnId = TurnId.make("timeline-hidden-turn");
+    const thought = (id: string, createdAt: string) => ({
+      id: MessageId.make(id),
+      role: "reasoning" as const,
+      text: "Think.",
+      turnId,
+      streaming: false,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const thread = makeThread({
+      id: ThreadId.make("thread-timeline-hidden"),
+      projectId: ProjectId.make("project-1"),
+      title: "Timeline hidden",
+      messages: [
+        thought("hidden-thought-1", "2026-04-01T00:00:01.000Z"),
+        thought("hidden-thought-2", "2026-04-01T00:00:03.000Z"),
+      ],
+      activities: [
+        makeActivity({
+          id: EventId.make("hidden-read"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Read",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { itemType: "file_read", toolCallId: "read-1", status: "completed" },
+        }),
+        // A settled turn's unfinished call is neutral, so the opened run hides it.
+        makeActivity({
+          id: EventId.make("hidden-stale"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run",
+          createdAt: "2026-04-01T00:00:04.000Z",
+          turnId,
+          payload: { itemType: "command_execution", toolCallId: "cmd-1", status: "inProgress" },
+        }),
+      ],
+      latestTurn: {
+        turnId,
+        state: "completed",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:00.000Z",
+        completedAt: "2026-04-01T00:00:05.000Z",
+        assistantMessageId: null,
+      },
+    });
+    const rows = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      thread.latestTurn,
+      new Set([turnId]),
+      new Set(["activity-run:hidden-thought-1"]),
+      null,
+    );
+    const steps = rows.flatMap((row) =>
+      (row.type === "message" || row.type === "activity-group") && row.timelineStep
+        ? [`${row.type}:${row.timelineStep}`]
+        : [],
+    );
+    // The thought after the read ends the rail; the hidden call takes no step.
+    expect(steps).toEqual(["message:first", "activity-group:middle", "message:last"]);
+    expect(rows.some((row) => row.type === "activity-group" && row.activities.length === 0)).toBe(
+      false,
+    );
+  });
+
+  it("starts and ends a group's rail only at its outer rows", () => {
+    const rowSteps = (groupStep: ThreadTimelineStep, count: number) =>
+      Array.from({ length: count }, (_, index) => timelineRowStep(groupStep, index, count));
+    expect(rowSteps("only", 1)).toEqual(["only"]);
+    expect(rowSteps("only", 3)).toEqual(["first", "middle", "last"]);
+    expect(rowSteps("first", 1)).toEqual(["first"]);
+    expect(rowSteps("first", 2)).toEqual(["first", "middle"]);
+    expect(rowSteps("middle", 2)).toEqual(["middle", "middle"]);
+    expect(rowSteps("last", 1)).toEqual(["last"]);
+    expect(rowSteps("last", 2)).toEqual(["middle", "last"]);
+  });
+
+  it("previews a collapsed thought as plain text", () => {
+    expect(
+      thoughtPreviewText([
+        { text: "  " },
+        { text: "## **Plan** the `fix`\n- read [docs](https://x.dev)\n- ship" },
+      ]),
+    ).toBe("Plan the fix read docs ship");
+    expect(thoughtPreviewText([{ text: "" }])).toBeNull();
+  });
+
+  it("does not time a step that is still running", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-step-running"),
+      projectId: ProjectId.make("project-1"),
+      title: "Step running",
+      activities: [
+        makeActivity({
+          id: EventId.make("cmd-updated"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run",
+          createdAt: "2026-09-01T00:00:01.000Z",
+          payload: { itemType: "command_execution", toolCallId: "cmd-1", status: "inProgress" },
+        }),
+        makeActivity({
+          id: EventId.make("cmd-updated-2"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run",
+          createdAt: "2026-09-01T00:00:03.000Z",
+          payload: { itemType: "command_execution", toolCallId: "cmd-1", status: "inProgress" },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    expect(workEntryRowStats(group.activities[0]!.workEntry, true).meta).toBeNull();
+  });
+
   it("keeps OpenCode detail-only output when it equals the command", () => {
     const command = "printf hello";
     const thread = makeThread({
@@ -703,6 +968,55 @@ describe("buildThreadFeed", () => {
     const [row] = group.activities;
     expect(workEntryRowLabel(row!.workEntry)).toBe(input.label);
     expect(row?.canExpand).toBe(input.canExpand);
+  });
+
+  it("shows a declined approval with the instructions the provider received", () => {
+    const thread = makeThread({
+      id: ThreadId.make("declined-with-instructions"),
+      projectId: ProjectId.make("project-1"),
+      title: "Declined",
+      activities: [
+        makeActivity({
+          id: EventId.make("approval-feedback:approval-1"),
+          createdAt: "2026-09-01T00:00:00.000Z",
+          kind: "approval.declined-with-instructions",
+          tone: "approval",
+          summary: "Declined · Only delete build/cache",
+          payload: { requestId: "approval-1", feedback: "Only delete build/cache" },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    expect(group?.type).toBe("activity-group");
+    if (group?.type !== "activity-group") return;
+    expect(group.activities.map((row) => workEntryRowLabel(row.workEntry))).toEqual([
+      "Declined · Only delete build/cache",
+    ]);
+  });
+
+  it("keeps the declined label when long instructions expand to their full text", () => {
+    const full = `Only delete build/cache\nKeep ${"the fixtures ".repeat(20).trim()}`;
+    const thread = makeThread({
+      id: ThreadId.make("declined-long"),
+      projectId: ProjectId.make("project-1"),
+      title: "Declined",
+      activities: [
+        makeActivity({
+          id: EventId.make("approval-feedback:approval-2"),
+          createdAt: "2026-09-01T00:00:00.000Z",
+          kind: "approval.declined-with-instructions",
+          tone: "approval",
+          summary: "Declined · Only delete build/cache",
+          payload: { requestId: "approval-2", feedback: full, detail: full },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    if (group?.type !== "activity-group") throw new Error("expected an activity group");
+    const row = group.activities[0]!;
+    expect(workEntryRowLabel(row.workEntry)).toBe("Declined · Only delete build/cache");
+    expect(workEntryRowLabel(row.workEntry, true)).toBe("Declined · Only delete build/cache");
+    expect(row.canExpand).toBe(true);
   });
 
   it.each(["runtime.error", "runtime.warning"] as const)(
@@ -1902,6 +2216,101 @@ describe("buildThreadFeed", () => {
     );
     expect(retimed[1]).toMatchObject({ type: "turn-fold", label: "Worked for 23s" });
     expect(collapsed[1]).toMatchObject({ type: "turn-fold", label: "Worked for 17s" });
+
+    // The turn's usage record joins the fold label and never becomes a row.
+    const usageActivities = [
+      ...thread.activities,
+      makeActivity({
+        id: EventId.make("turn-usage"),
+        kind: "turn.usage",
+        tone: "info",
+        summary: "Turn usage",
+        createdAt: "2026-04-01T00:00:18.000Z",
+        turnId,
+        payload: { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" },
+      }),
+    ];
+    const withUsage = deriveThreadFeedPresentation(
+      buildThreadFeed({ ...thread, activities: usageActivities }),
+      thread.latestTurn,
+      new Set(),
+      new Set(),
+      null,
+      deriveTurnUsageByTurnId(usageActivities),
+    );
+    expect(withUsage.map((entry) => entry.id)).toEqual(collapsed.map((entry) => entry.id));
+    expect(withUsage[1]).toMatchObject({
+      type: "turn-fold",
+      label: "Worked for 17s · 48.6K tokens · ≈$0.12",
+    });
+  });
+
+  it("shows usage on the final answer only when its turn has no fold row", () => {
+    const turnId = TurnId.make("turn-1");
+    const usageActivity = makeActivity({
+      id: EventId.make("turn-usage"),
+      kind: "turn.usage",
+      tone: "info",
+      summary: "Turn usage",
+      createdAt: "2026-04-01T00:00:18.000Z",
+      turnId,
+      payload: { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" },
+    });
+    const toolActivity = makeActivity({
+      id: EventId.make("tool-completed"),
+      kind: "tool.completed",
+      tone: "tool",
+      summary: "Read files",
+      createdAt: "2026-04-01T00:00:05.000Z",
+      turnId,
+      payload: { title: "Read files", itemType: "file_read", status: "completed" },
+    });
+    const thread = makeThread({
+      id: ThreadId.make("thread-usage"),
+      projectId: ProjectId.make("project-1"),
+      title: "Usage",
+      latestTurn: {
+        turnId,
+        state: "completed",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        completedAt: "2026-04-01T00:00:18.000Z",
+        assistantMessageId: MessageId.make("assistant-final"),
+      },
+      messages: [
+        {
+          id: MessageId.make("assistant-final"),
+          role: "assistant",
+          text: "Done.",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:17.000Z",
+          updatedAt: "2026-04-01T00:00:18.000Z",
+        },
+      ],
+    });
+    const present = (activities: OrchestrationThread["activities"]) => {
+      const usage = deriveTurnUsageByTurnId(activities);
+      const feed = deriveThreadFeedPresentation(
+        buildThreadFeed({ ...thread, activities }),
+        thread.latestTurn,
+        new Set(),
+        new Set(),
+        null,
+        usage,
+      );
+      return { feed, labels: deriveAssistantUsageLabels(feed, usage) };
+    };
+
+    const withoutTools = present([usageActivity]);
+    expect(withoutTools.feed.some((entry) => entry.type === "turn-fold")).toBe(false);
+    expect([...withoutTools.labels]).toEqual([["assistant-final", "48.6K tokens · $0.12"]]);
+
+    const withTools = present([toolActivity, usageActivity]);
+    expect(withTools.feed.find((entry) => entry.type === "turn-fold")).toMatchObject({
+      label: "Worked for 17s · 48.6K tokens · $0.12",
+    });
+    expect(withTools.labels.size).toBe(0);
   });
 
   it("folds assistant messages between the first and terminal messages", () => {
@@ -2619,12 +3028,15 @@ describe("buildThreadFeed", () => {
           { hasFailure: true, hiddenCount: 3 },
         ]);
       }
+      const ranTools = boundary === "tool" || boundary === "failed-tool";
       expect(reasoningRows).toEqual(
-        messages.map((message) => ({
+        messages.map((message, index) => ({
           type: "message",
           id: message.id,
           createdAt: message.createdAt,
           message,
+          // A run with tools puts its thoughts on the timeline rail.
+          ...(ranTools ? { timelineStep: index === 0 ? "first" : "last" } : {}),
         })),
       );
     },
@@ -3386,6 +3798,12 @@ describe("quiet timeline: nested agents", () => {
       type: "agent-spawn",
       summary: { title: "2 subagents", status: "1 failed", tone: "failed" },
     });
+    // Members keep their task ids, so the card can match a pending approval.
+    expect(
+      settled[0]?.type === "agent-spawn"
+        ? settled[0].summary.members.map((member) => member.id)
+        : [],
+    ).toEqual(["a", "b"]);
     expect(settled.map((row) => row.type)).toEqual(["agent-spawn", "thinking"]);
   });
 
@@ -3786,4 +4204,83 @@ it("keeps attachment-only question answers expandable outside mobile work groups
   expect(running[0]?.type).toBe("work-toggle");
   expect(running[1]).toBe(group);
   expect(running[2]?.type).toBe("work-toggle");
+});
+
+describe("task list rows", () => {
+  const turnId = TurnId.make("plan-turn");
+  const planUpdate = (id: string, createdAt: string, plan: unknown) =>
+    makeActivity({
+      id: EventId.make(id),
+      kind: "turn.plan.updated",
+      summary: "Plan updated",
+      createdAt,
+      turnId,
+      payload: { plan },
+    });
+  const feedRows = (activities: OrchestrationThreadActivity[]) =>
+    buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("plan-thread"),
+        projectId: ProjectId.make("project-1"),
+        title: "Plan",
+        activities,
+      }),
+    ).flatMap((entry) => (entry.type === "activity-group" ? entry.activities : []));
+
+  it("shows each plan update as a Tasks row that expands to its steps", () => {
+    const [row, ...rest] = feedRows([
+      planUpdate("plan-1", "2026-04-01T00:00:01.000Z", [
+        { step: "Read code", status: "completed" },
+        { step: "Write fix", status: "inProgress" },
+        { step: "Run tests", status: "pending" },
+      ]),
+    ]);
+    expect(rest).toEqual([]);
+    expect(row).toMatchObject({
+      summary: "Tasks 1/3 · Write fix",
+      canExpand: true,
+      icon: "checklist",
+      workEntry: {
+        taskList: [
+          { step: "Read code", status: "completed" },
+          { step: "Write fix", status: "inProgress" },
+          { step: "Run tests", status: "pending" },
+        ],
+      },
+    });
+    expect(workEntryRowLabel(row!.workEntry, true)).toBe("Tasks 1/3 · Write fix");
+    expect(row!.getCopyText()).toBe("Tasks 1/3 · Write fix\n✓ Read code\n→ Write fix\n○ Run tests");
+  });
+
+  it("keeps one row per update and drops updates without steps", () => {
+    const rows = feedRows([
+      planUpdate("plan-1", "2026-04-01T00:00:01.000Z", [{ step: "A", status: "inProgress" }]),
+      planUpdate("plan-empty", "2026-04-01T00:00:02.000Z", []),
+      planUpdate("plan-2", "2026-04-01T00:00:03.000Z", [{ step: "A", status: "completed" }]),
+    ]);
+    expect(rows.map((row) => row.summary)).toEqual(["Tasks 0/1 · A", "Tasks 1/1"]);
+  });
+
+  it("hides the todo tool call that the turn's Tasks row already shows", () => {
+    const todoTool = (id: string, toolTurnId: TurnId) =>
+      makeActivity({
+        id: EventId.make(id),
+        kind: "tool.completed",
+        summary: "TodoWrite",
+        createdAt: "2026-04-01T00:00:02.000Z",
+        turnId: toolTurnId,
+        tone: "tool",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          data: { toolName: "TodoWrite" },
+        },
+      });
+    const rows = feedRows([
+      planUpdate("plan-1", "2026-04-01T00:00:01.000Z", [{ step: "A", status: "pending" }]),
+      todoTool("todo-same-turn", turnId),
+      todoTool("todo-other-turn", TurnId.make("other-turn")),
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(["plan-1", "todo-other-turn"]);
+  });
 });

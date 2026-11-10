@@ -1,4 +1,5 @@
 import { makeQueuedRuntimeEventStream } from "../runtimeEventStream.ts";
+import { retryingAgentState } from "../agentState.ts";
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
@@ -30,6 +31,7 @@ import {
   type TurnTokenUsage,
   ProviderApprovalDecision,
   ThreadId,
+  TurnId,
   ProviderSendTurnInput,
 } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
@@ -71,6 +73,7 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import { codexChangedFiles } from "../subagentChangedFiles.ts";
 import {
   type CodexRateLimitSnapshot,
   codexRateLimitsToUpdate,
@@ -1022,6 +1025,11 @@ function mapItemLifecycle(
           ? item.status
           : "completed"
         : undefined;
+  // Only the completed patch counts: the started item is still a proposal.
+  const changedFiles =
+    item.type === "fileChange" && status === "completed"
+      ? codexChangedFiles(item.changes)
+      : undefined;
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -1032,6 +1040,7 @@ function mapItemLifecycle(
       ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...toolPresentation,
+      ...(changedFiles ? { changedFiles } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };
@@ -1275,15 +1284,49 @@ function mapCollabAgentEvent(
         (typeof item?.query === "string" ? item.query : undefined);
       const canonical = toCanonicalItemType(itemTypeRaw);
       const summary = looseSummary ?? canonical.replaceAll("_", " ");
+      const progress: ProviderRuntimeEvent = {
+        ...base,
+        type: "task.progress",
+        payload: {
+          taskId,
+          description: title,
+          ...linkage,
+          summary,
+        },
+      };
+      // A child's applied patch also lands as the child's own file-change
+      // item, so clients can list the files each subagent changed. Only the
+      // completed item counts: the started one is a proposal.
+      const changedFiles =
+        itemTypeRaw === "fileChange" && item?.status === "completed"
+          ? codexChangedFiles(item.changes)
+          : undefined;
+      const childItemId = typeof item?.id === "string" ? item.id : undefined;
+      if (!changedFiles || !childItemId) {
+        return [progress];
+      }
+      // The edit belongs to the parent turn running when it landed (the
+      // session runtime stamps it), not the turn that spawned the child: only
+      // that turn's diff shows it. Outside any parent turn, no turn claims it.
+      const { turnId: _spawnTurnId, ...fileChangeBase } = base;
+      const parentTurnId =
+        typeof payload.parentTurnId === "string" && payload.parentTurnId.length > 0
+          ? TurnId.make(payload.parentTurnId)
+          : undefined;
       return [
+        progress,
         {
-          ...base,
-          type: "task.progress",
+          ...fileChangeBase,
+          ...(parentTurnId ? { turnId: parentTurnId } : {}),
+          eventId: EventId.make(`${event.id}:file-change`),
+          itemId: RuntimeItemId.make(childItemId),
+          type: "item.completed",
           payload: {
-            taskId,
-            description: title,
-            ...linkage,
-            summary,
+            itemType: "file_change",
+            status: "completed",
+            title: "File change",
+            agentId: taskId,
+            changedFiles,
           },
         },
       ];
@@ -1299,6 +1342,31 @@ function mapCollabAgentEvent(
     default:
       return [];
   }
+}
+
+const CODEX_RETRY_COUNTERS =
+  /\b(?:reconnecting|retrying)\b\W{0,8}(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/i;
+const CODEX_MAX_RETRY_ATTEMPTS = 100;
+
+/**
+ * Retry counters from a retryable Codex `error` message. The app-server
+ * protocol has no structured attempt or limit fields (the notification carries
+ * only `willRetry`, the message, and an error kind), so the counters come from
+ * Codex's own wording: "Reconnecting... 2/5", or "retrying 2/5 in 1s" on older
+ * builds. Only a pair right after that word counts, and an implausible pair is
+ * dropped whole, so the indicator falls back to plain "Retrying".
+ */
+function codexRetryCounters(
+  message: string,
+): { readonly attempt: number; readonly maxAttempts: number } | undefined {
+  const match = CODEX_RETRY_COUNTERS.exec(message);
+  if (!match) return undefined;
+  const attempt = Number(match[1]);
+  const maxAttempts = Number(match[2]);
+  if (attempt < 1 || attempt > maxAttempts || maxAttempts > CODEX_MAX_RETRY_ATTEMPTS) {
+    return undefined;
+  }
+  return { attempt, maxAttempts };
 }
 
 function mapToRuntimeEvents(
@@ -1340,6 +1408,7 @@ function mapToRuntimeEvents(
           type: "user-input.requested",
           payload: {
             questions,
+            ...(event.agentId ? { agentId: event.agentId } : {}),
           },
         },
       ];
@@ -1428,6 +1497,7 @@ function mapToRuntimeEvents(
               }
             : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
+          ...(event.agentId ? { agentId: event.agentId } : {}),
         },
       },
     ];
@@ -1679,7 +1749,21 @@ function mapToRuntimeEvents(
 
   if (event.method === "item/started") {
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
-    return started ? [started] : [];
+    if (!started) return [];
+    // Auto-compaction runs as an item; the working indicator names it until
+    // the item completes (thread.state.changed "compacted" clears it).
+    if (started.type === "item.started" && started.payload.itemType === "context_compaction") {
+      return [
+        started,
+        {
+          ...runtimeEventBase(event, canonicalThreadId),
+          eventId: EventId.make(`${event.id}:agent-compacting`),
+          type: "session.state.changed",
+          payload: { state: "running", agentState: { kind: "compacting" } },
+        },
+      ];
+    }
+    return [started];
   }
 
   if (event.method === "item/completed") {
@@ -2128,15 +2212,29 @@ function mapToRuntimeEvents(
   if (event.method === "error") {
     const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
     const message = payload?.error.message ?? event.message ?? "Provider runtime error";
-    const willRetry = payload?.willRetry === true;
+    if (payload?.willRetry !== true) {
+      return [
+        {
+          type: "runtime.error",
+          ...runtimeEventBase(event, canonicalThreadId),
+          payload: {
+            message,
+            class: "provider_error" as const,
+            ...(event.payload !== undefined ? { detail: event.payload } : {}),
+          },
+        },
+      ];
+    }
+    // A retry is not a work-log row: the working indicator names it until the
+    // stream resumes, and a final failure arrives as a non-retried error.
+    const counters = codexRetryCounters(message);
     return [
       {
-        type: willRetry ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
+        type: "session.state.changed",
         payload: {
-          message,
-          ...(!willRetry ? { class: "provider_error" as const } : {}),
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
+          state: "running",
+          agentState: retryingAgentState(counters?.attempt, counters?.maxAttempts),
         },
       },
     ];
@@ -2581,6 +2679,16 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     );
   });
 
+  const stopSubagent: NonNullable<CodexAdapterShape["stopSubagent"]> = (threadId, subagentId) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.interruptSubagent(subagentId)),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "turn/interrupt", cause),
+      ),
+    );
+
   const readThread: CodexAdapterShape["readThread"] = (threadId) =>
     requireSession(threadId).pipe(
       Effect.flatMap((session) => session.runtime.readThread),
@@ -2728,6 +2836,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     sendTurn,
     compaction: { type: "native", start: compactThread },
     interruptTurn,
+    stopSubagent,
     readThread,
     rollbackThread,
     uploadFeedback,

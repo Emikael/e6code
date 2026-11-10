@@ -6,7 +6,10 @@ import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-ro
 import { APP_VERSION } from "../../branding";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { useEnvironments } from "../../state/environments";
+import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
+import { connectionPhaseDotClassName } from "../ConnectionStatusDot";
+import { connectionPhaseWord } from "../EnvironmentConnectionChip";
+import { resolveSidebarEnvironmentReach } from "../Sidebar.logic";
 import { BrandStripe, E6Monogram } from "../E6Monogram";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -69,6 +72,91 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         </span>
       ) : null}
       <BrandStripe className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 opacity-90" />
+    </SidebarHeader>
+  );
+});
+
+/**
+ * The thread sidebar's title strip: the E6 tile, then the environment this
+ * client is driving, with its reach and connection phase in words under it
+ * ("local · connected"). E6 runs local, over Tailscale and through tunnels,
+ * so which machine you are on stays in view. The Dev/Nightly chip stays as a
+ * quiet tag after the name for builds that identify their channel.
+ */
+export const SidebarEnvironmentHeader = memo(function SidebarEnvironmentHeader({
+  isElectron,
+}: {
+  isElectron: boolean;
+}) {
+  const stageLabel = useEnvironmentStageLabel();
+  const environmentIdentificationMode = useEnvironmentIdentificationMode();
+  const channel =
+    environmentIdentificationMode === "none"
+      ? null
+      : resolveSidebarStageBackdropVariant(stageLabel);
+  const channelLabel = resolveEnvironmentIdentificationPillLabel(stageLabel);
+  const environment = usePrimaryEnvironment();
+  const build = stageLabel === "Alpha" ? APP_VERSION : `${stageLabel} ${APP_VERSION}`;
+  const reach = environment
+    ? resolveSidebarEnvironmentReach({
+        targetKind: environment.entry.target._tag,
+        httpBaseUrl: environment.displayUrl,
+      })
+    : null;
+  const phase = environment?.connection.phase ?? null;
+
+  return (
+    <SidebarHeader
+      className={cn(
+        "relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center px-3 py-0 md:px-0",
+        isElectron && "drag-region",
+      )}
+    >
+      <SidebarTrigger className="relative z-10 md:hidden" />
+      <div className="relative z-10 flex min-w-0 flex-1 items-center gap-2.5 md:ml-[var(--workspace-titlebar-content-left)] md:pr-[var(--sidebar-content-inset)]">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                aria-label={`Go to threads. E6 Code ${build}`}
+                className="hidden shrink-0 rounded-lg outline-hidden ring-ring focus-visible:ring-2 md:flex"
+                to="/"
+              />
+            }
+          >
+            <E6Monogram className="size-7" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            <span className="tabular-nums">{build}</span>
+          </TooltipPopup>
+        </Tooltip>
+        <div className="flex min-w-0 flex-col">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[13px] leading-[18px] font-semibold text-sidebar-foreground">
+              {environment?.label ?? "E6 Code"}
+            </span>
+            {channel && channelLabel ? (
+              <span
+                data-environment-identification={channel}
+                className="shrink-0 rounded-sm px-1 text-[10px] leading-4 font-medium text-sidebar-muted-foreground ring-1 ring-sidebar-border ring-inset"
+              >
+                {channelLabel}
+              </span>
+            ) : null}
+          </div>
+          {reach && phase ? (
+            <span className="flex min-w-0 items-center gap-[5px] font-mono text-[11px] leading-[14px] text-sidebar-muted-foreground">
+              <span
+                aria-hidden
+                className={cn("size-1.5 shrink-0 rounded-full", connectionPhaseDotClassName(phase))}
+              />
+              <span className="truncate">
+                {reach} · {connectionPhaseWord(phase).toLowerCase()}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      </div>
     </SidebarHeader>
   );
 });

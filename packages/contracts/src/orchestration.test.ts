@@ -36,6 +36,7 @@ import {
   SnapShotAccessibility,
   isProviderSendTurnSupportedImageMimeType,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+  PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS,
 } from "./orchestration.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
@@ -742,6 +743,78 @@ it.effect("defaults settled fields when decoding historical thread data", () =>
     });
     const oldClientFields = yield* Schema.decodeUnknownEffect(oldLinkFields)(newServerWire);
     assert.deepStrictEqual(oldClientFields.linkedPullRequest, legacyLink);
+  }),
+);
+
+it.effect("decodes a newer server's agent state kind as no state", () =>
+  Effect.gen(function* () {
+    const shellWith = (agentState: unknown) =>
+      decodeOrchestrationThreadShell({
+        id: "thread-1",
+        projectId: "project-1",
+        title: "Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: null,
+        session: null,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+        agentState,
+      });
+
+    assert.strictEqual((yield* shellWith({ kind: "future-thing" })).agentState, undefined);
+    assert.deepStrictEqual((yield* shellWith({ kind: "compacting" })).agentState, {
+      kind: "compacting",
+    });
+    assert.deepStrictEqual(
+      (yield* shellWith({ kind: "retrying", attempt: 2, maxAttempts: 5 })).agentState,
+      { kind: "retrying", attempt: 2, maxAttempts: 5 },
+    );
+    assert.deepStrictEqual(
+      (yield* shellWith({ kind: "rate-limited", resetsAt: "2026-01-01T01:00:00.000Z" })).agentState,
+      { kind: "rate-limited", resetsAt: "2026-01-01T01:00:00.000Z" },
+    );
+  }),
+);
+
+it.effect("decodes a newer server's usage total cost source as no total", () =>
+  Effect.gen(function* () {
+    const shellWith = (usageTotal: unknown) =>
+      decodeOrchestrationThreadShell({
+        id: "thread-1",
+        projectId: "project-1",
+        title: "Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: null,
+        session: null,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+        usageTotal,
+      });
+
+    assert.strictEqual(
+      (yield* shellWith({ totalTokens: 10, costUsd: 0.5, costSource: "invoiced" })).usageTotal,
+      undefined,
+    );
+    assert.deepStrictEqual(
+      (yield* shellWith({ totalTokens: 10, costUsd: 0.5, costSource: "reported" })).usageTotal,
+      { totalTokens: 10, costUsd: 0.5, costSource: "reported" },
+    );
   }),
 );
 
@@ -1655,5 +1728,77 @@ it.effect("encodes compatible icons inside snapshots and client commands", () =>
     });
     if (command.type !== "project.meta.update") throw new Error("Unexpected command");
     assert.deepEqual(yield* decodeNightlyIcon(command.projectIcon), fallback);
+  }),
+);
+
+const approvalRespond = (feedback?: unknown) => ({
+  type: "thread.approval.respond",
+  commandId: "cmd-approval-1",
+  threadId: "thread-1",
+  requestId: "approval-1",
+  decision: "decline",
+  ...(feedback !== undefined ? { feedback } : {}),
+  createdAt: "2026-01-01T00:00:00.000Z",
+});
+
+it.effect("decodes decline instructions on an approval response, trimmed", () =>
+  Effect.gen(function* () {
+    const command = yield* decodeClientOrchestrationCommand(
+      approvalRespond("  Use the staging DB \n"),
+    );
+    assert.strictEqual(command.type, "thread.approval.respond");
+    if (command.type !== "thread.approval.respond") return;
+    assert.strictEqual(command.feedback, "Use the staging DB");
+
+    const bare = yield* decodeClientOrchestrationCommand(approvalRespond());
+    assert.ok(bare.type === "thread.approval.respond" && bare.feedback === undefined);
+  }),
+);
+
+it.effect("rejects blank or oversized decline instructions", () =>
+  Effect.gen(function* () {
+    const blank = yield* Effect.exit(decodeClientOrchestrationCommand(approvalRespond("   ")));
+    assert.ok(Exit.isFailure(blank));
+    const oversized = yield* Effect.exit(
+      decodeClientOrchestrationCommand(
+        approvalRespond("x".repeat(PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS + 1)),
+      ),
+    );
+    assert.ok(Exit.isFailure(oversized));
+  }),
+);
+
+it.effect("decodes stored approval responses with and without instructions", () =>
+  Effect.gen(function* () {
+    const base = {
+      sequence: 1,
+      eventId: "event-approval-1",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      type: "thread.approval-response-requested",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      commandId: "cmd-approval-1",
+      causationEventId: null,
+      correlationId: "cmd-approval-1",
+      metadata: {},
+    };
+    const payload = {
+      threadId: "thread-1",
+      requestId: "approval-1",
+      decision: "decline",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const legacy = yield* decodeOrchestrationEvent({ ...base, payload });
+    assert.ok(legacy.type === "thread.approval-response-requested");
+    assert.strictEqual(legacy.payload.feedback, undefined);
+
+    // The length cap guards new commands only; stored history always decodes.
+    const long = "x".repeat(PROVIDER_APPROVAL_FEEDBACK_MAX_CHARS + 10);
+    const withFeedback = yield* decodeOrchestrationEvent({
+      ...base,
+      payload: { ...payload, feedback: long },
+    });
+    assert.ok(withFeedback.type === "thread.approval-response-requested");
+    assert.strictEqual(withFeedback.payload.feedback, long);
   }),
 );

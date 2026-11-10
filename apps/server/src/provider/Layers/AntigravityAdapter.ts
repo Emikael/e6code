@@ -1016,6 +1016,10 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
             ? { lastError: payload.errorMessage }
             : { lastError: undefined }),
         };
+        // Usage is not supported: Antigravity is not known to send ACP's
+        // unstable prompt `usage` or `usage_update`, so the turn carries no
+        // tokenUsage or turnCostUsd and records no usage row. Map them here
+        // if Antigravity starts sending them.
         yield* emit({
           type: "turn.completed",
           ...(yield* stamp),

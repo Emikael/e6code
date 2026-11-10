@@ -219,6 +219,12 @@ const THEME_EDITOR_ROLE_GROUPS: ReadonlyArray<{
         role: "warning",
         roles: ["warning", "warningForeground", "warningSurface"],
       },
+      {
+        id: "merged",
+        label: "Merged",
+        role: "merged",
+        roles: ["merged", "mergedForeground", "mergedSurface"],
+      },
     ],
   },
 ];

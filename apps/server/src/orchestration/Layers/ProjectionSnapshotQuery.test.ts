@@ -22,11 +22,14 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
+import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import * as ThreadAgentState from "../ThreadAgentState.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { encodeThreadDetailPageCursor } from "../threadDetailCursor.ts";
 import { projectThreadDetailSnapshot } from "../ActivityPayloadProjection.ts";
@@ -52,6 +55,7 @@ it.effect("reads project shells without loading threads or resolving excluded pr
   const layer = OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provide(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),
+    Layer.provide(ThreadAgentState.layer),
     Layer.provide(
       Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
         resolve: (root) =>
@@ -103,6 +107,7 @@ const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provide(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),
+    Layer.provide(ThreadAgentState.layer),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(NodeServices.layer),
@@ -1924,6 +1929,149 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("sums every turn's usage into the shell, beyond the detail activity window", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const activities = yield* ProjectionThreadActivityRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_usage_totals`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json, scripts_json,
+          created_at, updated_at, deleted_at
+        )
+        VALUES (
+          'project-1', 'Project 1', '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-02T00:00:00.000Z', '2026-04-02T00:00:01.000Z', NULL
+        )
+      `;
+      for (const threadId of [
+        "thread-reported",
+        "thread-mixed",
+        "thread-tokens",
+        "thread-none",
+        "thread-archived",
+      ]) {
+        const archivedAt = threadId === "thread-archived" ? "2026-04-02T00:00:05.000Z" : null;
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+            branch, worktree_path, latest_turn_id, latest_user_message_at,
+            pending_approval_count, pending_user_input_count, has_actionable_proposed_plan,
+            created_at, updated_at, archived_at, deleted_at
+          )
+          VALUES (
+            ${threadId}, 'project-1', 'Thread', '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access', 'default', NULL, NULL, NULL, NULL, 0, 0, 0,
+            '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', ${archivedAt}, NULL
+          )
+        `;
+      }
+      const insertActivity = (threadId: string, index: number, kind: string, payload: unknown) =>
+        activities.upsert({
+          activityId: asEventId(`${threadId}-${kind}-${index}`),
+          threadId: ThreadId.make(threadId),
+          turnId: asTurnId(`${threadId}-turn-${index}`),
+          tone: "info",
+          kind,
+          summary: "Activity",
+          payload,
+          sequence: index,
+          createdAt: "2026-04-02T00:00:04.000Z",
+        });
+      // More turns than the detail read keeps, each followed by tool noise, so
+      // the oldest usage rows fall outside any client's activity window.
+      for (let index = 0; index < 600; index += 1) {
+        yield* insertActivity("thread-reported", index * 2, "turn.usage", {
+          totalTokens: 1000,
+          partial: false,
+          costUsd: 0.01,
+          costSource: "reported",
+        });
+        yield* insertActivity("thread-reported", index * 2 + 1, "tool.completed", {});
+      }
+      yield* insertActivity("thread-mixed", 0, "turn.usage", {
+        totalTokens: 500,
+        partial: false,
+        costUsd: 0.25,
+        costSource: "reported",
+      });
+      yield* insertActivity("thread-mixed", 1, "turn.usage", {
+        totalTokens: 700,
+        partial: false,
+        costUsd: 0.5,
+        costSource: "estimated",
+      });
+      yield* insertActivity("thread-tokens", 0, "turn.usage", { totalTokens: 900, partial: true });
+      yield* insertActivity("thread-none", 0, "tool.completed", {});
+      yield* insertActivity("thread-archived", 0, "turn.usage", {
+        totalTokens: 300,
+        partial: false,
+        costUsd: 0.125,
+        costSource: "reported",
+      });
+
+      // The stored totals match the per-snapshot aggregation they replace.
+      const legacyTotals = yield* sql`
+        SELECT
+          thread_id AS "threadId",
+          COUNT(*) AS "turnCount",
+          SUM(json_extract(payload_json, '$.totalTokens')) AS "totalTokens",
+          SUM(json_extract(payload_json, '$.costUsd')) AS "costUsd",
+          COUNT(json_extract(payload_json, '$.costUsd')) AS "costedTurnCount",
+          COUNT(
+            CASE WHEN json_extract(payload_json, '$.costSource') = 'estimated' THEN 1 END
+          ) AS "estimatedTurnCount"
+        FROM projection_thread_activities
+        WHERE kind = 'turn.usage'
+        GROUP BY thread_id
+        ORDER BY thread_id
+      `;
+      const storedTotals = yield* sql`
+        SELECT
+          thread_id AS "threadId",
+          turn_count AS "turnCount",
+          total_tokens AS "totalTokens",
+          cost_usd AS "costUsd",
+          costed_turn_count AS "costedTurnCount",
+          estimated_turn_count AS "estimatedTurnCount"
+        FROM projection_thread_usage_totals
+        ORDER BY thread_id
+      `;
+      assert.deepEqual(storedTotals, legacyTotals);
+
+      const byId = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-reported"));
+      const reported = Option.getOrUndefined(byId)?.usageTotal;
+      assert.equal(reported?.totalTokens, 600_000);
+      assert.equal(reported?.costSource, "reported");
+      assert.approximately(reported?.costUsd ?? 0, 6, 1e-9);
+
+      const shells = (yield* snapshotQuery.getShellSnapshot()).threads;
+      const usageOf = (id: string) => shells.find((thread) => thread.id === id)?.usageTotal;
+      assert.deepEqual(usageOf("thread-reported"), reported);
+      assert.deepEqual(usageOf("thread-mixed"), {
+        totalTokens: 1200,
+        costUsd: 0.75,
+        costSource: "estimated",
+      });
+      assert.deepEqual(usageOf("thread-tokens"), { totalTokens: 900 });
+      assert.equal(usageOf("thread-none"), undefined);
+      assert.equal(usageOf("thread-archived"), undefined);
+
+      const archivedShells = (yield* snapshotQuery.getArchivedShellSnapshot()).threads;
+      assert.deepEqual(
+        archivedShells.find((thread) => thread.id === "thread-archived")?.usageTotal,
+        { totalTokens: 300, costUsd: 0.125, costSource: "reported" },
+      );
+    }).pipe(Effect.provide(ProjectionThreadActivityRepositoryLive)),
+  );
+
   it.effect("uses projection_threads.latest_turn_id for bulk command and shell snapshots", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -2477,6 +2625,7 @@ it.effect(
     const layer = OrchestrationProjectionSnapshotQueryLive.pipe(
       Layer.provide(ThreadBackgroundLiveness.layer),
       Layer.provide(ThreadPlanProgress.layer),
+      Layer.provide(ThreadAgentState.layer),
       Layer.provideMerge(
         Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
           resolve: (cwd: string) =>
@@ -3525,6 +3674,7 @@ it.effect("omits foreign-host PRs from legacy snapshots while preserving native 
   const layer = OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provide(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),
+    Layer.provide(ThreadAgentState.layer),
     Layer.provide(
       Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
         resolve: () =>

@@ -1,6 +1,8 @@
 ---
 import { getImage } from "astro:assets";
-import desktopScreenshot from "../assets/app-desktop.webp";
+import threadDark from "../assets/app-thread-dark.webp";
+import threadLight from "../assets/app-thread-light.webp";
+import settingsDark from "../assets/app-settings-dark.webp";
 import Layout from "../layouts/Layout.astro";
 import {
   ANDROID_PLAY_STORE_URL,
@@ -9,78 +11,59 @@ import {
   IOS_APP_STORE_URL,
 } from "../lib/site";
 
-const screenshot = await getImage({
-  src: desktopScreenshot,
-  widths: [864, 1180],
-  format: "webp",
-  quality: 90,
-});
+// Screenshots are 2x captures of the desktop app at 1440x900.
+const shotWidths = [960, 1440, 2160];
+const [threadDarkSet, threadLightSet, settingsSet] = await Promise.all(
+  [threadDark, threadLight, settingsDark].map((src) =>
+    getImage({ src, widths: shotWidths, format: "webp", quality: 86 }),
+  ),
+);
 
-// Sign-in steps mirror the README and docs/user/providers-*.md.
+// Sign-in steps mirror the README and docs/user/providers-*.md. Marks render as
+// one-colour masks so they follow the theme.
 const agents = [
-  {
-    key: "claude",
-    name: "Claude Code",
-    icon: "/harnesses/claude-ai-icon.svg",
-    command: "claude auth login",
-    note: "Separate accounts per configuration, compaction for long threads, and OpenRouter-compatible routing.",
-  },
-  {
-    key: "codex",
-    name: "Codex",
-    icon: "/harnesses/openai_dark.svg",
-    command: "codex login",
-    note: "The Codex CLI you already signed into. E6 Code drives it and leaves your plan alone.",
-  },
-  {
-    key: "cursor",
-    name: "Cursor",
-    icon: "/harnesses/cursor_light.svg",
-    command: "agent login",
-    note: "Cursor's CLI agent, running on the machine that owns your workspace.",
-  },
-  {
-    key: "grok",
-    name: "Grok Build",
-    icon: "/harnesses/grok-dark.svg",
-    command: "grok login",
-    note: "xAI's Grok Build CLI, in the same threads, diffs, and checkpoints as everything else.",
-  },
-  {
-    key: "opencode",
-    name: "OpenCode",
-    icon: "/harnesses/opencode-dark.svg",
-    command: "opencode auth login",
-    note: "Use a local or external OpenCode server, with approvals surfaced in the thread.",
-  },
-  {
-    key: "antigravity",
-    name: "Antigravity",
-    icon: "/harnesses/antigravity.png",
-    command: "Settings → Install Antigravity",
-    note: "No CLI required. Install it from Settings and sign in with Google, even from a remote device.",
-  },
+  { name: "Claude Code", icon: "/harnesses/claude-ai-icon.svg", command: "claude auth login" },
+  { name: "Codex", icon: "/harnesses/openai_dark.svg", command: "codex login" },
+  { name: "Cursor", icon: "/harnesses/cursor_light.svg", command: "agent login" },
+  { name: "Grok Build", icon: "/harnesses/grok-dark.svg", command: "grok login" },
+  { name: "OpenCode", icon: "/harnesses/opencode-mark.svg", command: "opencode auth login" },
+  { name: "Antigravity", icon: "/harnesses/antigravity.png", command: "Settings → Install", fullColor: true },
 ];
 
+const stats = [
+  { value: 6, label: "agent harnesses" },
+  { value: 3, label: "surfaces: desktop, web, phone" },
+  { value: 6, label: "git hosts for pull requests" },
+  { value: 0, label: "tokens resold" },
+];
+
+// Mirrors the subagents in the hero screenshot. Each state carries a word.
+const subagents = [
+  { name: "Dashboard share button", meta: "sonnet-4-5 · medium · 9.7K tok · 5 tools", state: "Working", tone: "live" },
+  { name: "Share link API", meta: "opus-4-5 · high · 3 files · +247 −6", state: "Needs approval", tone: "wait" },
+  { name: "Share link tests", meta: "asks: which share link expiry should the tests cover?", state: "Needs your answer", tone: "ask" },
+  { name: "Share link docs", meta: "sonnet-4-5 · 2 files · +76 −3 · 26s", state: "Done", tone: "done" },
+];
+
+const turns = [
+  { n: 1, title: "Scaffold settings panel", add: 212, del: 0 },
+  { n: 2, title: "Wire panel to contracts", add: 64, del: 18 },
+  { n: 3, title: "Fix stale label on reconnect", add: 9, del: 5 },
+  { n: 4, title: "Add focused tests", add: 88, del: 2 },
+];
+
+const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gitea"];
+
 const routes = [
-  {
-    key: "local",
-    prompt: "thanks, that fixed it!",
-    verdict: "Answered locally",
-    detail: "Small talk never wakes your provider. Zero provider tokens.",
-  },
-  {
-    key: "trim",
-    prompt: "what does this regex match?",
-    verdict: "Trimmed context",
-    detail: "A straightforward question goes to your agent with less context attached.",
-  },
-  {
-    key: "full",
-    prompt: "migrate the auth middleware to Effect",
-    verdict: "Full turn",
-    detail: "Real work gets the whole thread, exactly as if routing were off.",
-  },
+  { key: "local", prompt: "thanks, that fixed it!", verdict: "Answered locally" },
+  { key: "trim", prompt: "what does this regex match?", verdict: "Trimmed context" },
+  { key: "full", prompt: "migrate the auth middleware", verdict: "Full turn" },
+];
+
+const commands = [
+  { label: "New thread", keys: ["⌘", "⇧", "O"] },
+  { label: "Search threads", keys: ["⌘", "K"] },
+  { label: "Toggle run details", keys: ["⌘", "I"] },
 ];
 
 const connections = [
@@ -88,7 +71,7 @@ const connections = [
     key: "lan",
     label: "Same network",
     command: "e6 serve --host <private-ip>",
-    detail: "Enable Network access in Settings → Connections, then scan a one-time pairing link from your phone.",
+    detail: "Turn on Network access in Settings → Connections, then scan a one-time pairing link from your phone.",
   },
   {
     key: "tailscale",
@@ -104,360 +87,394 @@ const connections = [
   },
 ];
 
-const turns = [
-  { n: 1, title: "Scaffold settings panel", files: 4, add: 212, del: 0 },
-  { n: 2, title: "Wire panel to contracts", files: 3, add: 64, del: 18 },
-  { n: 3, title: "Fix stale label on reconnect", files: 1, add: 9, del: 5 },
-  { n: 4, title: "Add focused tests", files: 2, add: 88, del: 2 },
+const devices = [
+  { kind: "phone", name: "iPhone", y: 40 },
+  { kind: "browser", name: "Any browser", y: 130 },
+  { kind: "desktop", name: "Second Mac", y: 220 },
 ];
-
-const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gitea"];
 ---
 
 <Layout>
   <!-- ── Hero ──────────────────────────────────────────────────── -->
   <section class="hero">
-    <div class="hero-scan" aria-hidden="true"></div>
-
+    <div class="hero-bg" aria-hidden="true">
+      <div class="hero-grid"></div>
+      <div class="hero-aurora"></div>
+    </div>
     <div class="container hero-inner">
-      <div class="hero-copy">
-        <p class="hero-signal" data-rise>
-          <span class="signal-dot" data-motion aria-hidden="true"></span>
-          6 agents · 3 surfaces · 0 tokens resold
-        </p>
-
-        <h1 class="hero-title">
-          <span data-rise style="--d:80ms">Every coding agent.</span>
-          <span data-rise style="--d:170ms" class="chrome-text">One control room.</span>
-        </h1>
-
-        <p class="hero-sub" data-rise style="--d:280ms">
-          E6 Code runs Claude Code, Codex, Cursor, Grok, OpenCode, and Antigravity side by
-          side, on your machine, with the subscriptions you already pay for. Drive it from
-          the desktop, a browser, or your phone.
-        </p>
-
-        <div class="hero-actions" data-rise style="--d:380ms">
-          <a id="download-btn" href="https://github.com/Emikael/e6code/releases" class="btn btn-primary btn-lg">
-            <span class="dl-icon dl-icon--apple" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 814 1000"><path fill="currentColor" d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg></span>
-            <span class="dl-icon dl-icon--windows" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 88"><path fill="currentColor" d="m0 12.402 35.687-4.86.016 34.423-35.67.203zm35.67 33.529.028 34.453L.028 75.48.026 45.7zm4.326-39.025L87.314 0v41.527l-47.318.376zm47.329 39.349-.011 41.34-47.318-6.678-.066-34.739z"/></svg></span>
-            <span class="dl-icon dl-icon--linux" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></svg></span>
-            <span id="download-label">Download for macOS</span>
-          </a>
-          <a class="btn btn-ghost btn-lg" href="/download">All platforms</a>
-        </div>
-
-        <p class="hero-mobile-line" data-rise style="--d:460ms">
-          Also in your pocket:
-          <a href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS</a>
-          <span aria-hidden="true">·</span>
-          <a href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android</a>
-        </p>
+      <a class="hero-badge" href="#features" data-rise>
+        <span class="badge-new">New</span>
+        <span>The macOS redesign is here</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+      </a>
+      <h1 class="hero-title" data-rise style="--d:60ms">
+        Every coding agent.<br /><span class="gradient-text">One control room.</span>
+      </h1>
+      <p class="hero-sub" data-rise style="--d:120ms">
+        Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and Antigravity side by side, on your
+        machine, with the subscriptions you already pay for. Drive it from the desktop, a browser, or
+        your phone.
+      </p>
+      <div class="hero-actions" data-rise style="--d:180ms">
+        <a id="download-btn" href="https://github.com/Emikael/e6code/releases" class="btn btn-primary btn-lg btn-shine">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3" /><path d="m7 10 5 5 5-5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
+          <span id="download-label">Download for macOS</span>
+        </a>
+        <a class="btn btn-glass btn-lg" href="/download">All platforms</a>
       </div>
 
-      <div class="term install" data-rise style="--d:420ms">
-        <div class="term-head">
-          <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-          <div class="seg" role="tablist" aria-label="Install command">
-            <button type="button" role="tab" class="seg-btn" data-install="unix" aria-selected="true">macOS · Linux</button>
-            <button type="button" role="tab" class="seg-btn" data-install="windows" aria-selected="false" tabindex="-1">Windows</button>
-          </div>
+      <div class="install glass" data-rise style="--d:240ms">
+        <div class="seg" role="tablist" aria-label="Install command">
+          <button type="button" role="tab" class="seg-btn" data-install="unix" aria-selected="true">macOS · Linux</button>
+          <button type="button" role="tab" class="seg-btn" data-install="windows" aria-selected="false" tabindex="-1">Windows</button>
         </div>
-        <div class="term-body">
-          <div class="install-line">
-            <span class="prompt" aria-hidden="true">$</span>
-            <code id="install-command" data-unix={INSTALL_COMMANDS.unix} data-windows={INSTALL_COMMANDS.windows}>{INSTALL_COMMANDS.unix}</code>
-            <button type="button" class="copy-btn" id="install-copy" aria-label="Copy install command">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
-              <span class="copy-label">Copy</span>
-            </button>
-          </div>
-          <div class="dim"><span class="prompt" aria-hidden="true">$</span> e6</div>
-          <div class="dim">→ server up, web app opens in your browser</div>
-          <div class="dim"><span class="prompt" aria-hidden="true">$</span> e6 service install <span class="faint"># keep it running</span></div>
-          <div class="cursor-line"><span class="prompt" aria-hidden="true">$</span><span class="caret" data-motion></span></div>
+        <div class="install-line">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="install-command" data-unix={INSTALL_COMMANDS.unix} data-windows={INSTALL_COMMANDS.windows}>{INSTALL_COMMANDS.unix}</code>
+          <button type="button" class="copy-btn" id="install-copy" aria-label="Copy install command">
+            <span class="copy-label" aria-live="polite">Copy</span>
+          </button>
         </div>
       </div>
+
+      <p class="hero-mobile-line" data-rise style="--d:300ms">
+        Also on <a href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS</a> and <a href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android</a>. Free and MIT licensed.
+      </p>
     </div>
 
-    <div class="container" data-rise style="--d:560ms">
-      <figure class="shot">
-        <img
-          src={desktopScreenshot.src}
-          srcset={`${screenshot.srcSet.attribute}, ${desktopScreenshot.src} ${desktopScreenshot.width}w`}
-          sizes="(max-width: 1240px) calc(100vw - 40px), 1176px"
-          alt="The E6 Code desktop app: a Claude Code thread explaining its retry change beside the turn's diff"
-          width={desktopScreenshot.width}
-          height={desktopScreenshot.height}
-          loading="eager"
-          decoding="async"
-        />
+    <!-- Product shot: tilts back in 3D and settles flat as you scroll. -->
+    <div class="container tilt-stage">
+      <figure class="tilt">
+        <div class="tilt-glow" aria-hidden="true"></div>
+        <div class="tilt-frame">
+          <picture>
+            <source media="(prefers-color-scheme: light)" srcset={threadLightSet.srcSet.attribute} sizes="(max-width: 1240px) calc(100vw - 72px), 1160px" />
+            <img
+              src={threadDarkSet.src}
+              srcset={threadDarkSet.srcSet.attribute}
+              sizes="(max-width: 1240px) calc(100vw - 72px), 1160px"
+              alt="An E6 Code thread in which Claude splits the work across four subagents: one working, one waiting for approval, one asking a question and one done, beside the run details panel with context, changes and the live subagent"
+              width={threadDark.width}
+              height={threadDark.height}
+              loading="eager"
+              decoding="async"
+            />
+          </picture>
+        </div>
       </figure>
     </div>
   </section>
 
-  <!-- ── Agents ─────────────────────────────────────────────────── -->
-  <section id="agents" class="sec">
-    <div class="container split">
-      <div class="section-head">
-        <p class="eyebrow"><span class="idx">01</span> Bring your own subscription</p>
-        <h2>Sign in where you already do. We take it from there.</h2>
-        <p>
-          E6 Code doesn't resell tokens or proxy your keys. It drives the provider CLIs
-          installed on your machine, so your plan, limits, and credentials stay yours.
-          Pick a harness per thread.
-        </p>
-      </div>
-
-      <div class="agent-console">
-        <div class="agent-rail" role="tablist" aria-label="Providers" aria-orientation="vertical">
-          {agents.map((agent, index) => (
-            <button
-              type="button"
-              role="tab"
-              class="agent-tab"
-              id={`agent-tab-${agent.key}`}
-              aria-controls="agent-panel"
-              aria-selected={index === 0 ? "true" : "false"}
-              tabindex={index === 0 ? "0" : "-1"}
-              data-command={agent.command}
-              data-note={agent.note}
-              data-name={agent.name}
-            >
-              <span class:list={["agent-mark", agent.key === "antigravity" && "agent-mark--fill"]}><img src={agent.icon} alt="" width="20" height="20" /></span>
-              <span>{agent.name}</span>
-            </button>
+  <!-- ── Harness marquee ────────────────────────────────────────── -->
+  <section class="logos" aria-labelledby="logos-title">
+    <h2 id="logos-title" class="container">Sign in where you already do. E6 Code drives the CLI you have.</h2>
+    <div class="marquee" data-motion>
+      {[0, 1].map((copy) => (
+        <ul class="marquee-track" aria-hidden={copy === 1 ? "true" : undefined}>
+          {agents.map((agent) => (
+            <li class="logo-chip">
+              {agent.fullColor ? (
+                <img class="logo-img" src={agent.icon} alt="" width="26" height="26" loading="lazy" />
+              ) : (
+                <span class="logo-mark" style={`--logo: url(${agent.icon})`} aria-hidden="true"></span>
+              )}
+              <span class="logo-text">
+                <span class="logo-name">{agent.name}</span>
+                <span class="mono logo-cmd">{agent.command}</span>
+              </span>
+            </li>
           ))}
-        </div>
-
-        <div class="term agent-panel" id="agent-panel" role="tabpanel" aria-labelledby={`agent-tab-${agents[0]!.key}`}>
-          <div class="term-head">
-            <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span class="term-title">~/work · <span id="agent-name">{agents[0]!.name}</span></span>
-          </div>
-          <div class="term-body">
-            <div><span class="prompt" aria-hidden="true">$</span> <span id="agent-command">{agents[0]!.command}</span></div>
-            <div class="ok-line" id="agent-ok">✓ Signed in. E6 Code picks it up on the next scan.</div>
-            <p class="agent-note" id="agent-note">{agents[0]!.note}</p>
-          </div>
-        </div>
-      </div>
+        </ul>
+      ))}
     </div>
   </section>
 
-  <!-- ── Routing ────────────────────────────────────────────────── -->
-  <section id="routing" class="sec sec-routing">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow"><span class="idx">02</span> Jev routing · opt-in</p>
-        <h2>Not every message deserves a frontier model.</h2>
-        <p>
-          Turn on Jev routing and each turn is classified before it reaches your agent.
-          Greetings and quick lookups get answered without calling your provider, and simple
-          questions go out with trimmed context. Try a message:
-        </p>
+  <!-- ── Stats ──────────────────────────────────────────────────── -->
+  <section class="container stats reveal" aria-label="E6 Code in numbers">
+    {stats.map((stat) => (
+      <div class="stat">
+        <span class="stat-value gradient-text" data-count={stat.value}>{stat.value}</span>
+        <span class="stat-label">{stat.label}</span>
       </div>
+    ))}
+  </section>
 
-      <div class="router" id="router" data-route="">
-        <div class="router-prompts" role="group" aria-label="Sample messages">
-          {routes.map((route) => (
-            <button type="button" class="router-chip" data-route-key={route.key} data-verdict={route.verdict} data-detail={route.detail} aria-pressed="false">
-              <span class="prompt" aria-hidden="true">›</span> {route.prompt}
-            </button>
+  <!-- ── Features bento ─────────────────────────────────────────── -->
+  <section id="features" class="sec container" aria-labelledby="features-title">
+    <div class="section-head center reveal">
+      <p class="eyebrow">What you get</p>
+      <h2 id="features-title">The agent's work is the brightest thing on screen.</h2>
+      <p>Plans, subagents, diffs, and approvals sit in calm panels. The chrome stays out of the way.</p>
+    </div>
+
+    <div class="bento">
+      <article class="spot card span-4 reveal">
+        <div class="card-head">
+          <span class="card-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg></span>
+          <h3>Watch the run, not just the reply</h3>
+          <p>Split work across subagents and see each one's state, model, cost, and files. Destructive commands need a one-second hold to allow.</p>
+        </div>
+        <ul class="list">
+          {subagents.map((agent, index) => (
+            <li class="list-row" style={`--i:${index}`}>
+              <span class="list-main">
+                <span class="list-title">{agent.name}</span>
+                <span class="mono list-meta">{agent.meta}</span>
+              </span>
+              <span class:list={["state", `state--${agent.tone}`]}>
+                <span class="state-dot" aria-hidden="true"></span>{agent.state}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </article>
+
+      <article class="spot card span-2 reveal">
+        <div class="card-head">
+          <span class="card-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M12 3v6" /><path d="M12 15v6" /></svg></span>
+          <h3>Every turn is a checkpoint</h3>
+          <p>A hidden git ref after each turn. Diff it, or rewind when it wanders.</p>
+        </div>
+        <ol class="turns">
+          {turns.map((turn) => (
+            <li>
+              <span class="turn-dot" aria-hidden="true"></span>
+              <span class="turn-title">Turn {turn.n} · {turn.title}</span>
+              <span class="mono add">+{turn.add}</span>
+              <span class="mono del">−{turn.del}</span>
+            </li>
+          ))}
+        </ol>
+      </article>
+
+      <article class="spot card span-2 reveal">
+        <div class="card-head">
+          <span class="card-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2" /><circle cx="6" cy="18" r="2.2" /><circle cx="18" cy="6" r="2.2" /><path d="M6 8v8M18 8v5a3 3 0 0 1-3 3h-3" /></svg></span>
+          <h3>Every thread can be a PR</h3>
+          <p>Commit, push, and open the pull request without leaving the thread.</p>
+        </div>
+        <ul class="chips">
+          {hosts.map((host) => <li class="mono">{host}</li>)}
+        </ul>
+        <div class="pr-row">
+          <span class="list-main">
+            <span class="list-title">Add share links to dashboards</span>
+            <span class="mono list-meta"><span class="add">+323</span> <span class="del">−9</span> · 4 files</span>
+          </span>
+          <span class="pr-btn">Open PR</span>
+        </div>
+      </article>
+
+      <article class="spot card span-2 reveal">
+        <div class="card-head">
+          <span class="card-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5" /><path d="M8 3H3v5" /><path d="M12 22v-8.3a4 4 0 0 0-1.17-2.83L3 3" /><path d="m15 9 6-6" /></svg></span>
+          <h3>Jev routing, if you want it</h3>
+          <p>Each turn is classified first. Small talk never wakes your provider.</p>
+        </div>
+        <div class="router" data-motion>
+          <svg class="router-svg" viewBox="0 0 300 150" aria-hidden="true">
+            <path class="wire" d="M10 75 H120" />
+            <path class="wire" d="M180 75 C 220 75, 225 25, 290 25" />
+            <path class="wire" d="M180 75 H 290" />
+            <path class="wire" d="M180 75 C 220 75, 225 125, 290 125" />
+            <path class="pulse" d="M10 75 H120" />
+            <path class="pulse pulse--b" d="M180 75 C 220 75, 225 25, 290 25" />
+            <path class="pulse pulse--c" d="M180 75 H 290" />
+            <path class="pulse pulse--d" d="M180 75 C 220 75, 225 125, 290 125" />
+            <rect class="router-node" x="120" y="55" width="60" height="40" rx="10" />
+            <text class="router-label" x="150" y="80" text-anchor="middle">Jev</text>
+          </svg>
+          <ul class="routes">
+            {routes.map((route) => (
+              <li>
+                <span class="mono">› {route.prompt}</span>
+                <strong>{route.verdict}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </article>
+
+      <article class="spot card span-2 reveal">
+        <div class="card-head">
+          <span class="card-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" /></svg></span>
+          <h3>Keyboard first, touch equal</h3>
+          <p>Every action is in the command palette, with keybindings you can change.</p>
+        </div>
+        <div class="palette" aria-hidden="true">
+          <div class="palette-search">Search commands…</div>
+          {commands.map((command, index) => (
+            <div class:list={["palette-row", index === 0 && "is-active"]}>
+              <span>{command.label}</span>
+              <span class="keys">{command.keys.map((key) => <kbd>{key}</kbd>)}</span>
+            </div>
           ))}
         </div>
-
-        <svg class="router-graph" viewBox="0 0 640 220" role="img" aria-label="A message enters Jev, which sends it to one of three outlets: answered locally, trimmed context to your agent, or the full turn to your agent.">
-          <path class="wire wire-in" d="M20 110 H250" />
-          <path class="wire wire-local" d="M330 110 C 400 110, 410 40, 470 40 H 620" />
-          <path class="wire wire-trim" d="M330 110 H 620" />
-          <path class="wire wire-full" d="M330 110 C 400 110, 410 180, 470 180 H 620" />
-          <rect class="router-node" x="250" y="82" width="80" height="56" rx="12" />
-          <text class="router-node-label" x="290" y="116" text-anchor="middle">Jev</text>
-          <text class="outlet outlet-local" x="620" y="28" text-anchor="end">answered locally</text>
-          <text class="outlet outlet-trim" x="620" y="98" text-anchor="end">trimmed → your agent</text>
-          <text class="outlet outlet-full" x="620" y="168" text-anchor="end">full turn → your agent</text>
-        </svg>
-
-        <div class="router-readout" aria-live="polite">
-          <strong id="router-verdict">Pick a message</strong>
-          <span id="router-detail">See where it would go.</span>
-        </div>
-      </div>
-
-      <ul class="facts">
-        <li><b>$0.042</b> per million input tokens, metered per call</li>
-        <li><b>Usage</b> shows avoided provider calls next to Jev cost</li>
-        <li><b>Your key</b> stays on your server. Turn content goes to the Jev API</li>
-      </ul>
+      </article>
     </div>
   </section>
 
   <!-- ── Remote ─────────────────────────────────────────────────── -->
-  <section id="remote" class="sec">
-    <div class="container split split--reverse">
-      <div class="section-head">
-        <p class="eyebrow"><span class="idx">03</span> Remote ready</p>
-        <h2>Your agents keep working. You don't have to sit there.</h2>
-        <p>
-          The server lives on the machine with your code. Phones, browsers, and other
-          desktops connect to it over your network, your tailnet, or E6 Connect. With two or
-          more machines connected, new threads can balance across them.
-        </p>
-        <p class="store-line">
-          <a class="btn btn-ghost" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS app</a>
-          <a class="btn btn-ghost" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android app</a>
-        </p>
+  <section id="remote" class="sec container split" aria-labelledby="remote-title">
+    <div class="section-head reveal">
+      <p class="eyebrow">Remote ready</p>
+      <h2 id="remote-title">Your agents keep working. You don't have to sit there.</h2>
+      <p>
+        The server lives on the machine with your code. Phones, browsers, and other desktops connect
+        over your network, your tailnet, or E6 Connect. With two or more machines connected, new
+        threads can balance across them.
+      </p>
+      <p class="store-line">
+        <a class="btn btn-glass" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS app</a>
+        <a class="btn btn-glass" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android app</a>
+      </p>
+    </div>
+    <div class="spot card remote reveal" id="remote-visual">
+      <div class="seg seg--bar" role="tablist" aria-label="Connection mode">
+        {connections.map((mode, index) => (
+          <button
+            type="button"
+            role="tab"
+            class="seg-btn"
+            data-mode={mode.key}
+            data-command={mode.command}
+            data-detail={mode.detail}
+            aria-selected={index === 0 ? "true" : "false"}
+            tabindex={index === 0 ? "0" : "-1"}
+          >
+            {mode.label}
+          </button>
+        ))}
       </div>
-
-      <div class="remote" id="remote-visual" data-mode="lan">
-        <div class="seg remote-seg" role="tablist" aria-label="Connection mode">
-          {connections.map((mode, index) => (
-            <button
-              type="button"
-              role="tab"
-              class="seg-btn"
-              data-mode={mode.key}
-              data-command={mode.command}
-              data-detail={mode.detail}
-              aria-selected={index === 0 ? "true" : "false"}
-              tabindex={index === 0 ? "0" : "-1"}
-            >
-              {mode.label}
-            </button>
+      <div class="beams" data-motion>
+        <svg viewBox="0 0 400 260" preserveAspectRatio="none" aria-hidden="true">
+          {devices.map((device) => (
+            <>
+              <path class="wire" d={`M120 130 C 220 130, 220 ${device.y}, 300 ${device.y}`} />
+              <path class="pulse" style={`--delay:${device.y * 6}ms`} d={`M120 130 C 220 130, 220 ${device.y}, 300 ${device.y}`} />
+            </>
           ))}
+        </svg>
+        <div class="node node--host">
+          <span class="node-kind mono">host</span>
+          <span class="node-name">Workstation</span>
+          <span class="node-state"><span class="state-dot state-dot--ok" aria-hidden="true"></span>3 threads running</span>
         </div>
-
-        <div class="remote-map" aria-hidden="true">
-          <div class="device device-host">
-            <span class="device-kind">host</span>
-            <span class="device-name">workstation</span>
-            <span class="device-meta"><span class="signal-dot"></span>3 threads running</span>
+        {devices.map((device) => (
+          <div class="node node--device" style={`--y:${device.y}`}>
+            <span class="node-kind mono">{device.kind}</span>
+            <span class="node-name">{device.name}</span>
           </div>
-          <svg class="remote-links" viewBox="0 0 300 200" preserveAspectRatio="none">
-            <path d="M0 100 C 120 100, 150 30, 300 30" />
-            <path d="M0 100 H 300" />
-            <path d="M0 100 C 120 100, 150 170, 300 170" />
-          </svg>
-          <div class="device-stack">
-            <div class="device"><span class="device-kind">phone</span><span class="device-name">iPhone</span></div>
-            <div class="device"><span class="device-kind">browser</span><span class="device-name">any laptop</span></div>
-            <div class="device"><span class="device-kind">desktop</span><span class="device-name">second Mac</span></div>
-          </div>
-        </div>
-
-        <div class="term remote-term">
-          <div class="term-body">
-            <div><span class="prompt" aria-hidden="true">$</span> <span id="remote-command">{connections[0]!.command}</span></div>
-            <p class="agent-note" id="remote-detail" aria-live="polite">{connections[0]!.detail}</p>
-          </div>
-        </div>
+        ))}
+      </div>
+      <div class="remote-body">
+        <div class="well mono"><span class="prompt" aria-hidden="true">$</span> <span id="remote-command">{connections[0]!.command}</span></div>
+        <p id="remote-detail" aria-live="polite">{connections[0]!.detail}</p>
       </div>
     </div>
   </section>
 
-  <!-- ── Checkpoints & Git ──────────────────────────────────────── -->
-  <section id="git" class="sec">
-    <div class="container split">
-      <div class="section-head">
-        <p class="eyebrow"><span class="idx">04</span> Checkpoints &amp; Git</p>
-        <h2>Every turn is a checkpoint. Every thread can be a PR.</h2>
-        <p>
-          Each turn ends with a hidden git ref, so you can diff exactly what the agent changed
-          and rewind when it wanders. Edit an earlier prompt to revert the thread, files
-          included in worktrees. When it's right, commit, push, and open the pull request
-          without leaving the thread.
-        </p>
-        <ul class="hosts" aria-label="Supported source control hosts">
-          {hosts.map((host) => <li>{host}</li>)}
+  <!-- ── Themes: before/after slider ────────────────────────────── -->
+  <section class="sec container" aria-labelledby="themes-title">
+    <div class="section-head center reveal">
+      <p class="eyebrow">Make it yours</p>
+      <h2 id="themes-title">Porcelain by day, Slate by night.</h2>
+      <p>Drag to compare. Two quiet themes and four accents, and the accent only ever marks the next action or a working agent.</p>
+    </div>
+    <div class="compare reveal" id="compare" style="--pos: 50%">
+      <img
+        class="compare-img"
+        src={threadDarkSet.src}
+        srcset={threadDarkSet.srcSet.attribute}
+        sizes="(max-width: 1240px) calc(100vw - 64px), 1176px"
+        alt="The thread in the Slate theme"
+        width={threadDark.width}
+        height={threadDark.height}
+        loading="lazy"
+        decoding="async"
+      />
+      <img
+        class="compare-img compare-top"
+        src={threadLightSet.src}
+        srcset={threadLightSet.srcSet.attribute}
+        sizes="(max-width: 1240px) calc(100vw - 64px), 1176px"
+        alt="The same thread in the Porcelain theme"
+        width={threadLight.width}
+        height={threadLight.height}
+        loading="lazy"
+        decoding="async"
+      />
+      <span class="compare-tag compare-tag--left">Porcelain</span>
+      <span class="compare-tag compare-tag--right">Slate</span>
+      <span class="compare-handle" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18-6-6 6-6" /><path d="m15 6 6 6-6 6" /></svg>
+      </span>
+      <input class="compare-range" type="range" min="0" max="100" value="50" aria-label="Compare the Porcelain and Slate themes" />
+    </div>
+    <div class="spot card accents-row reveal">
+      <figure class="settings-thumb">
+        <img
+          src={settingsSet.src}
+          srcset={settingsSet.srcSet.attribute}
+          sizes="(max-width: 960px) calc(100vw - 64px), 560px"
+          alt="E6 Code Appearance settings with the Match system, Porcelain, and Slate themes and the Iris, Cobalt, Rose, and Graphite accents"
+          width={settingsDark.width}
+          height={settingsDark.height}
+          loading="lazy"
+          decoding="async"
+        />
+      </figure>
+      <div class="accents-copy">
+        <h3>Four accents, one meaning</h3>
+        <p>Pick Iris, Cobalt, Rose, or Graphite in Settings → Appearance. Surfaces stay neutral, and status keeps its own colours and words.</p>
+        <ul class="accents">
+        <li><span class="swatch swatch--iris" aria-hidden="true"></span>Iris</li>
+        <li><span class="swatch swatch--cobalt" aria-hidden="true"></span>Cobalt</li>
+        <li><span class="swatch swatch--rose" aria-hidden="true"></span>Rose</li>
+        <li><span class="swatch swatch--graphite" aria-hidden="true"></span>Graphite</li>
         </ul>
-      </div>
-
-      <div class="timeline" id="timeline">
-        <div class="timeline-turns" role="tablist" aria-label="Turns">
-          {turns.map((turn) => (
-            <button
-              type="button"
-              role="tab"
-              class="turn"
-              aria-selected={turn.n === turns.length ? "true" : "false"}
-              tabindex={turn.n === turns.length ? "0" : "-1"}
-              data-title={turn.title}
-              data-files={turn.files}
-              data-add={turn.add}
-              data-del={turn.del}
-              data-n={turn.n}
-            >
-              <span class="turn-dot" aria-hidden="true"></span>
-              <span>Turn {turn.n}</span>
-            </button>
-          ))}
-        </div>
-        <div class="term turn-card" aria-live="polite">
-          <div class="term-body">
-            <div class="turn-card-title" id="turn-title">{turns.at(-1)!.title}</div>
-            <div class="turn-card-meta">
-              <span id="turn-files">{turns.at(-1)!.files} files</span>
-              <span class="add" id="turn-add">+{turns.at(-1)!.add}</span>
-              <span class="del" id="turn-del">−{turns.at(-1)!.del}</span>
-            </div>
-            <div class="turn-card-actions">
-              <span class="pill" id="turn-action">Latest checkpoint</span>
-              <span class="pill pill--primary">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 8v8M18 8v5a3 3 0 01-3 3h-3"/></svg>
-                Commit, push &amp; open PR
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </section>
 
   <!-- ── Open source ────────────────────────────────────────────── -->
-  <section id="open" class="sec">
-    <div class="container split split--reverse">
+  <section id="open" class="sec container" aria-labelledby="open-title">
+    <div class="spot card open reveal">
       <div class="section-head">
-        <p class="eyebrow"><span class="idx">05</span> Open at the core</p>
-        <h2>Don't like a decision? Fork it.</h2>
+        <p class="eyebrow">Open at the core</p>
+        <h2 id="open-title">Don't like a decision? Fork it.</h2>
         <p>
-          E6 Code is MIT licensed and built in the open. Restyle every surface, wire in your
-          own agent, or ship your own build. If we ever head the wrong way, you already have
-          everything you need.
+          E6 Code is MIT licensed and built in the open. It doesn't resell tokens or proxy your keys,
+          so your plan, limits, and credentials stay yours.
         </p>
         <p class="store-line">
-          <a class="btn btn-primary" href={`${GITHUB_REPOSITORY_URL}/fork`} target="_blank" rel="noopener noreferrer">Fork on GitHub</a>
-          <a class="btn btn-ghost" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">Browse source</a>
+          <a class="btn btn-primary btn-shine" href={`${GITHUB_REPOSITORY_URL}/fork`} target="_blank" rel="noopener noreferrer">Fork on GitHub</a>
+          <a class="btn btn-glass" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">Browse source</a>
         </p>
       </div>
-
-      <div class="term">
-        <div class="term-head">
-          <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="term-title">~/code</span>
-        </div>
-        <div class="term-body">
-          <div><span class="prompt" aria-hidden="true">$</span> gh repo fork Emikael/e6code --clone</div>
-          <div class="dim">✓ Cloned into ./e6code</div>
-          <div><span class="prompt" aria-hidden="true">$</span> cd e6code &amp;&amp; vp i</div>
-          <div class="dim">✓ Dependencies installed</div>
-          <div><span class="prompt" aria-hidden="true">$</span> vp run dev</div>
-          <div class="dim">▲ server + web running · <span class="accent">your fork, your rules</span></div>
-        </div>
+      <div class="terminal">
+        <div class="terminal-bar" aria-hidden="true"><i></i><i></i><i></i><span class="mono">~/code</span></div>
+        <pre class="mono"><span class="prompt">$</span> gh repo fork Emikael/e6code --clone
+<span class="ok">✓</span> <span class="dim">Cloned into ./e6code</span>
+<span class="prompt">$</span> cd e6code &amp;&amp; vp i
+<span class="ok">✓</span> <span class="dim">Dependencies installed</span>
+<span class="prompt">$</span> vp run dev
+<span class="dim">server + web running ·</span> <span class="accent">your fork, your rules</span></pre>
       </div>
     </div>
   </section>
 
   <!-- ── Final CTA ──────────────────────────────────────────────── -->
-  <section id="download" class="sec sec-cta">
-    <div class="container cta-inner">
-      <h2 class="cta-title">Your agents deserve<br /><span class="chrome-text">better than a terminal.</span></h2>
-      <p class="cta-sub">Free and open source. Install it, plug in the harness you already pay for, and get back to the work only you can do.</p>
-      <div class="hero-actions cta-actions">
-        <a id="cta-download-btn" class="btn btn-primary btn-lg" href="https://github.com/Emikael/e6code/releases">
+  <section id="download" class="cta" aria-labelledby="cta-title">
+    <div class="cta-bg" aria-hidden="true"><div class="hero-grid"></div><div class="cta-glow"></div></div>
+    <div class="container cta-inner reveal">
+      <h2 id="cta-title">Your agents deserve<br /><span class="gradient-text">better than a terminal.</span></h2>
+      <p>Install it, plug in the harness you already pay for, and get back to the work only you can do.</p>
+      <div class="hero-actions">
+        <a id="cta-download-btn" class="btn btn-primary btn-lg btn-shine" href="https://github.com/Emikael/e6code/releases">
           <span id="cta-download-label">Download for macOS</span>
         </a>
-        <a class="btn btn-ghost btn-lg" href="/download">Windows · Linux · other</a>
+        <a class="btn btn-glass btn-lg" href="/download">Windows · Linux · other</a>
       </div>
     </div>
   </section>
@@ -465,7 +482,6 @@ const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gite
 
 <script>
   import { fetchLatestRelease, RELEASES_URL, type ReleaseAsset } from "../lib/releases";
-  import { startHomeMotion } from "../lib/homeMotion";
 
   type Platform = { os: "mac" | "win" | "linux"; label: string };
 
@@ -538,26 +554,6 @@ const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gite
     return select;
   }
 
-  // Retypes a short string so switching providers reads like a live terminal.
-  let typing: number | undefined;
-  function typeInto(element: HTMLElement, text: string, done: () => void) {
-    window.clearInterval(typing);
-    if (reducedMotion.matches) {
-      element.textContent = text;
-      done();
-      return;
-    }
-    let i = 0;
-    element.textContent = "";
-    typing = window.setInterval(() => {
-      element.textContent = text.slice(0, ++i);
-      if (i >= text.length) {
-        window.clearInterval(typing);
-        done();
-      }
-    }, 22);
-  }
-
   function initInstall(platform: Platform | null) {
     const code = byId("install-command");
     const copy = byId("install-copy");
@@ -582,72 +578,81 @@ const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gite
     });
   }
 
-  function initAgents() {
-    const command = byId("agent-command");
-    const note = byId("agent-note");
-    const name = byId("agent-name");
-    const ok = byId("agent-ok");
-    const panel = byId("agent-panel");
-    if (!command || !note || !name || !ok || !panel) return;
-    ok.classList.add("is-shown");
-    tabs(Array.from(document.querySelectorAll<HTMLElement>(".agent-tab")), (button) => {
-      panel.setAttribute("aria-labelledby", button.id);
-      name.textContent = button.dataset.name ?? "";
-      note.textContent = button.dataset.note ?? "";
-      ok.classList.remove("is-shown");
-      typeInto(command, button.dataset.command ?? "", () => ok.classList.add("is-shown"));
-    });
-  }
-
-  function initRouter() {
-    const router = byId("router");
-    const verdict = byId("router-verdict");
-    const detail = byId("router-detail");
-    if (!router || !verdict || !detail) return;
-    const chips = Array.from(router.querySelectorAll<HTMLElement>(".router-chip"));
-    for (const chip of chips) {
-      chip.addEventListener("click", () => {
-        for (const c of chips) c.setAttribute("aria-pressed", String(c === chip));
-        // Clearing first lets the one-shot trace replay on repeat clicks.
-        router.dataset.route = "";
-        void router.offsetWidth;
-        router.dataset.route = chip.dataset.routeKey ?? "";
-        verdict.textContent = chip.dataset.verdict ?? "";
-        detail.textContent = chip.dataset.detail ?? "";
-      });
-    }
-  }
-
   function initRemote() {
     const visual = byId("remote-visual");
     const command = byId("remote-command");
     const detail = byId("remote-detail");
     if (!visual || !command || !detail) return;
     tabs(Array.from(visual.querySelectorAll<HTMLElement>("button[data-mode]")), (button) => {
-      visual.dataset.mode = button.dataset.mode ?? "";
       command.textContent = button.dataset.command ?? "";
       detail.textContent = button.dataset.detail ?? "";
     });
   }
 
-  function initTimeline() {
-    const timeline = byId("timeline");
-    const title = byId("turn-title");
-    const files = byId("turn-files");
-    const add = byId("turn-add");
-    const del = byId("turn-del");
-    const action = byId("turn-action");
-    if (!timeline || !title || !files || !add || !del || !action) return;
-    const buttons = Array.from(timeline.querySelectorAll<HTMLElement>(".turn"));
-    tabs(buttons, (button) => {
-      const { title: t, files: f, add: a, del: d, n } = button.dataset;
-      title.textContent = t ?? "";
-      files.textContent = `${f} file${f === "1" ? "" : "s"}`;
-      add.textContent = `+${a}`;
-      del.textContent = `−${d}`;
-      action.textContent = Number(n) === buttons.length ? "Latest checkpoint" : `Rewind to turn ${n}`;
-      timeline.style.setProperty("--progress", String((Number(n) - 1) / (buttons.length - 1)));
+  /** Cards light up under the pointer. Only runs while a fine pointer hovers a card. */
+  function initSpotlight() {
+    if (!window.matchMedia("(pointer: fine)").matches) return;
+    for (const card of document.querySelectorAll<HTMLElement>(".spot")) {
+      card.addEventListener("pointermove", (event) => {
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty("--mx", `${event.clientX - rect.left}px`);
+        card.style.setProperty("--my", `${event.clientY - rect.top}px`);
+      });
+    }
+  }
+
+  /** Looping decorations ([data-motion]) play only while on screen and motion is allowed. */
+  function initMotion() {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-motion]"));
+    if (typeof IntersectionObserver === "undefined") return;
+    const visible = new Set<Element>();
+    const update = () => {
+      const allowed = document.visibilityState === "visible" && !reducedMotion.matches;
+      for (const element of elements) {
+        element.toggleAttribute("data-playing", allowed && visible.has(element));
+      }
+    };
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) visible.add(entry.target);
+        else visible.delete(entry.target);
+      }
+      update();
     });
+    for (const element of elements) observer.observe(element);
+    document.addEventListener("visibilitychange", update);
+    reducedMotion.addEventListener("change", update);
+  }
+
+  /** Stat numbers count up once, the first time they scroll into view. */
+  function initCounters() {
+    const counters = Array.from(document.querySelectorAll<HTMLElement>("[data-count]"));
+    if (reducedMotion.matches || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        const element = entry.target as HTMLElement;
+        const target = Number(element.dataset.count);
+        if (target === 0) continue;
+        const start = performance.now();
+        const tick = (now: number) => {
+          const t = Math.min(1, (now - start) / 900);
+          element.textContent = String(Math.round(target * (1 - Math.pow(1 - t, 3))));
+          if (t < 1) requestAnimationFrame(tick);
+        };
+        element.textContent = "0";
+        requestAnimationFrame(tick);
+      }
+    }, { threshold: 0.6 });
+    for (const counter of counters) observer.observe(counter);
+  }
+
+  function initCompare() {
+    const compare = byId("compare");
+    const range = compare?.querySelector<HTMLInputElement>(".compare-range");
+    if (!compare || !range) return;
+    range.addEventListener("input", () => compare.style.setProperty("--pos", `${range.value}%`));
   }
 
   const platform = detectPlatform();
@@ -656,803 +661,1353 @@ const hosts = ["GitHub", "GitLab", "Bitbucket", "Azure DevOps", "Forgejo", "Gite
     void initDownload(platform);
   }
   initInstall(platform);
-  initAgents();
-  initRouter();
   initRemote();
-  initTimeline();
-  startHomeMotion(Array.from(document.querySelectorAll<HTMLElement>("[data-motion]")));
+  initSpotlight();
+  initMotion();
+  initCounters();
+  initCompare();
 </script>
 
 <style>
-  /* ── Base ─────────────────────────────────────────────────── */
-  .sec {
-    position: relative;
-    padding: 112px 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .section-head {
-    max-width: 560px;
-  }
-
-  .section-head .eyebrow {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 18px;
-  }
-
-  .idx {
-    color: var(--accent);
-  }
-
-  .section-head h2,
-  .cta-title {
+  .mono {
     font-family: var(--font-mono);
-    font-weight: 500;
-    font-size: clamp(28px, 3.4vw, 42px);
-    letter-spacing: -0.045em;
-    line-height: 1.08;
-    margin-bottom: 20px;
-    text-wrap: balance;
   }
 
-  .section-head p {
+  .add {
+    color: var(--diff-add);
+  }
+
+  .del {
+    color: var(--diff-del);
+  }
+
+  .prompt {
     color: var(--fg-muted);
-    font-size: 17px;
-    line-height: 1.6;
   }
 
-  .chrome-text {
-    background: var(--chrome);
+  .gradient-text {
+    background: linear-gradient(100deg, var(--fg) 10%, var(--accent) 55%, var(--fg-muted) 95%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
 
-  .split {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-    gap: 64px;
-    align-items: center;
+  .glass {
+    background: color-mix(in srgb, var(--bg-card) 72%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid var(--border-strong);
   }
 
-  .split--reverse > :first-child {
-    order: 2;
-  }
-
-  .prompt {
-    color: var(--accent);
-    margin-right: 8px;
-  }
-
-  .dim { color: var(--fg-dim); }
-  .faint { color: var(--fg-faint); }
-  .accent { color: var(--accent); }
-
-  .signal-dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
-    flex-shrink: 0;
-  }
-
-  /* Only gated dots pulse; the rest stay still. */
-  .signal-dot[data-motion] {
-    animation: signal 2.4s ease-out infinite;
-    animation-play-state: var(--home-motion-state, paused);
-  }
-
-  @keyframes signal {
-    0% { box-shadow: 0 0 0 0 oklch(0.82 0.15 72 / 0.5); }
-    70%, 100% { box-shadow: 0 0 0 8px oklch(0.82 0.15 72 / 0); }
-  }
-
-  /* ── Terminal card ────────────────────────────────────────── */
-  .term {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: linear-gradient(180deg, #121215, #0c0c0e);
-    box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    overflow: hidden;
-    font-family: var(--font-mono);
-    font-size: 13px;
-  }
-
-  .term-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .term-lights {
-    display: inline-flex;
-    gap: 6px;
-  }
-
-  .term-lights i {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #27272a;
-  }
-
-  .term-title {
-    color: var(--fg-dim);
-    font-size: 12px;
-  }
-
-  .term-body {
-    padding: 18px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    line-height: 1.6;
-  }
-
-  .seg {
-    display: inline-flex;
-    padding: 3px;
-    gap: 2px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .seg-btn {
-    padding: 5px 10px;
-    border-radius: 6px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--fg-dim);
-    transition: color 0.15s ease, background 0.15s ease;
-  }
-
-  .seg-btn:hover { color: var(--fg); }
-
-  .seg-btn[aria-selected="true"] {
+  /* ── Buttons ──────────────────────────────────────────────── */
+  .btn-glass {
     color: var(--fg);
-    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-strong);
+    background: color-mix(in srgb, var(--bg-card) 60%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .btn-glass:hover {
+    background: var(--bg-card);
+  }
+
+  .btn-primary {
+    box-shadow: 0 8px 28px -10px var(--primary), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+
+  /* A light sweep crosses the button once per hover. */
+  .btn-shine {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .btn-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+    transform: translateX(-120%);
+  }
+
+  .btn-shine:hover::after {
+    transform: translateX(120%);
+    transition: transform 0.7s ease-out;
   }
 
   /* ── Hero ─────────────────────────────────────────────────── */
   .hero {
     position: relative;
-    padding: 88px 0 96px;
-    overflow: hidden;
+    padding-bottom: 40px;
+    overflow: clip;
   }
 
-  /* Static scanlines and a chrome glow; nothing here repaints. */
-  .hero-scan {
+  .hero-bg,
+  .cta-bg {
     position: absolute;
     inset: 0;
     pointer-events: none;
+    z-index: -1;
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%);
+  }
+
+  .hero-aurora {
+    position: absolute;
+    left: 50%;
+    top: -280px;
+    width: min(1200px, 140vw);
+    height: 760px;
+    transform: translateX(-50%);
     background:
-      radial-gradient(ellipse 60% 50% at 70% 10%, rgba(255, 255, 255, 0.07), transparent 70%),
-      radial-gradient(ellipse 40% 35% at 15% 30%, oklch(0.82 0.15 72 / 0.06), transparent 70%),
-      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 4px);
-    mask-image: linear-gradient(180deg, black 50%, transparent 95%);
-    -webkit-mask-image: linear-gradient(180deg, black 50%, transparent 95%);
+      radial-gradient(closest-side at 35% 55%, color-mix(in srgb, var(--primary) 45%, transparent), transparent),
+      radial-gradient(closest-side at 68% 45%, rgba(56, 189, 248, 0.22), transparent),
+      radial-gradient(closest-side at 50% 80%, rgba(244, 114, 182, 0.16), transparent);
+    filter: blur(60px);
+    opacity: 0.75;
   }
 
   .hero-inner {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-    gap: 56px;
-    align-items: end;
-    margin-bottom: 72px;
+    padding-top: 96px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 22px;
   }
 
-  .hero-signal {
+  .hero-badge {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
+    padding: 4px 12px 4px 4px;
     border-radius: 999px;
-    font-family: var(--font-mono);
-    font-size: 12px;
+    border: 1px solid var(--border-strong);
+    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    font-size: 13px;
     color: var(--fg-muted);
-    background: rgba(255, 255, 255, 0.02);
+    transition: border-color 0.15s ease-out, color 0.15s ease-out;
+  }
+
+  .hero-badge:hover {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+
+  .badge-new {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-fg);
+    font-size: 12px;
+    font-weight: 600;
   }
 
   .hero-title {
-    font-family: var(--font-mono);
-    font-weight: 500;
-    font-size: clamp(34px, 4.3vw, 58px);
-    letter-spacing: -0.055em;
+    max-width: 900px;
+    font-size: clamp(44px, 7vw, 84px);
     line-height: 1.02;
-    margin: 28px 0 24px;
+    font-weight: 600;
+    letter-spacing: -0.045em;
   }
 
-  .hero-title span { display: block; }
-
   .hero-sub {
+    max-width: 640px;
+    font-size: 18px;
+    line-height: 28px;
     color: var(--fg-muted);
-    font-size: clamp(16px, 1.35vw, 18px);
-    line-height: 1.6;
-    max-width: 560px;
-    margin-bottom: 32px;
   }
 
   .hero-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 20px;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 4px;
   }
 
-  .hero-mobile-line {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--fg-dim);
-    font-size: 13px;
+  .install {
+    width: 100%;
+    max-width: 560px;
+    border-radius: 14px;
+    text-align: left;
+    overflow: hidden;
   }
 
-  .hero-mobile-line a {
+  .seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .seg--bar {
+    padding: 8px;
+  }
+
+  .seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--fg-muted);
-    text-decoration: underline;
-    text-decoration-color: rgba(161, 161, 170, 0.4);
-    text-underline-offset: 3px;
+    transition: color 0.15s ease-out, background 0.15s ease-out;
   }
 
-  .hero-mobile-line a:hover { color: var(--fg); }
-
-  .dl-icon {
-    display: none;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
+  .seg-btn:hover {
+    color: var(--fg);
   }
 
-  .dl-icon svg { width: 100%; height: 100%; }
-
-  :global([data-platform="mac"]) .dl-icon--apple,
-  :global([data-platform="win"]) .dl-icon--windows,
-  :global([data-platform="linux"]) .dl-icon--linux,
-  :global(html:not([data-platform])) .dl-icon--apple { display: block; }
+  .seg-btn[aria-selected="true"] {
+    background: var(--accent-dim);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+  }
 
   .install-line {
     display: flex;
     align-items: center;
-    padding: 10px 10px 10px 12px;
-    margin: -4px -6px 6px;
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.35);
+    gap: 10px;
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 20px;
   }
 
   .install-line code {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     overflow-x: auto;
     white-space: nowrap;
-    color: var(--fg);
     font-family: inherit;
-    scrollbar-width: none;
   }
 
   .copy-btn {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid var(--border-strong);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .copy-btn:hover {
+    background: var(--bg-elev);
+  }
+
+  .hero-mobile-line {
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+
+  .hero-mobile-line a {
+    color: var(--accent);
+  }
+
+  .hero-mobile-line a:hover {
+    text-decoration: underline;
+  }
+
+  /* ── 3D product shot ──────────────────────────────────────── */
+  .tilt-stage {
+    margin-top: 56px;
+    perspective: 1400px;
+  }
+
+  .tilt {
+    position: relative;
+    transform-origin: 50% 0%;
+  }
+
+  .tilt-glow {
+    position: absolute;
+    inset: 8% 6% -4%;
+    z-index: -1;
+    border-radius: 40px;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 55%, transparent), transparent);
+    filter: blur(70px);
+    opacity: 0.6;
+  }
+
+  .tilt-frame {
+    padding: 8px;
+    border-radius: 24px;
+    border: 1px solid var(--border-strong);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--fg) 10%, transparent), transparent 40%), var(--bg-elev);
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, var(--fg) 12%, transparent) inset,
+      0 50px 100px -40px rgba(0, 0, 0, 0.6);
+  }
+
+  .tilt-frame img {
+    width: 100%;
+    height: auto;
+    border-radius: 17px;
+  }
+
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .tilt {
+        animation: tilt-in linear both;
+        animation-timeline: view();
+        animation-range: entry 0% cover 42%;
+      }
+    }
+  }
+
+  @keyframes tilt-in {
+    from {
+      transform: rotateX(22deg) scale(0.92) translateY(24px);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  /* ── Scroll reveal ────────────────────────────────────────── */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        animation: reveal linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 55%;
+      }
+    }
+  }
+
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(28px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* ── Marquee ──────────────────────────────────────────────── */
+  .logos {
+    padding: 64px 0 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .logos h2 {
+    text-align: center;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
+    color: var(--fg-muted);
+  }
+
+  .marquee {
+    display: flex;
+    overflow: hidden;
+    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  }
+
+  .marquee-track {
+    list-style: none;
+    display: flex;
+    flex-shrink: 0;
+    gap: 14px;
+    padding-right: 14px;
+    animation: marquee 42s linear infinite;
+    animation-play-state: paused;
+  }
+
+  .marquee[data-playing] .marquee-track {
+    animation-play-state: running;
+  }
+
+  .marquee:hover .marquee-track {
+    animation-play-state: paused;
+  }
+
+  @keyframes marquee {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+
+  .logo-chip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px 12px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+
+  .logo-mark {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    background: var(--fg);
+    mask: var(--logo) center / contain no-repeat;
+    -webkit-mask: var(--logo) center / contain no-repeat;
+  }
+
+  /* Antigravity ships only a full-colour app icon. */
+  .logo-img {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+  }
+
+  .logo-text {
+    display: flex;
+    flex-direction: column;
+    white-space: nowrap;
+  }
+
+  .logo-name {
+    font-size: 14px;
+    line-height: 18px;
+    font-weight: 600;
+  }
+
+  .logo-cmd {
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--fg-muted);
+  }
+
+  /* ── Stats ────────────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1px;
+    margin-top: 32px;
+    margin-bottom: 120px;
+    border-radius: 20px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--border);
+    padding: 0;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 28px 24px;
+    background: var(--bg);
+  }
+
+  .stat-value {
+    font-size: 56px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-label {
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+
+  /* ── Sections ─────────────────────────────────────────────── */
+  .sec {
+    padding-bottom: 128px;
+  }
+
+  .section-head {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 640px;
+  }
+
+  .section-head.center {
+    margin: 0 auto 48px;
+    align-items: center;
+    text-align: center;
+  }
+
+  .section-head h2 {
+    font-size: clamp(32px, 4.4vw, 50px);
+    line-height: 1.06;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+  }
+
+  .section-head > p:not(.eyebrow):not(.store-line) {
+    font-size: 17px;
+    line-height: 26px;
+    color: var(--fg-muted);
+  }
+
+  .eyebrow {
+    color: var(--accent);
+  }
+
+  .store-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  /* ── Spotlight cards ──────────────────────────────────────── */
+  .spot {
+    --mx: -400px;
+    --my: -400px;
+    position: relative;
+    isolation: isolate;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--fg) 4%, transparent), transparent 50%), var(--bg-card);
+    overflow: hidden;
+  }
+
+  /* Soft light under the pointer. */
+  .spot::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(420px circle at var(--mx) var(--my), color-mix(in srgb, var(--primary) 16%, transparent), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+  }
+
+  /* Lit edge ring near the pointer. */
+  .spot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: radial-gradient(260px circle at var(--mx) var(--my), color-mix(in srgb, var(--primary) 85%, transparent), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+    pointer-events: none;
+  }
+
+  .spot:hover::before,
+  .spot:hover::after {
+    opacity: 1;
+  }
+
+  /* ── Bento ────────────────────────────────────────────────── */
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .span-4 {
+    grid-column: span 4;
+  }
+
+  .span-2 {
+    grid-column: span 2;
+  }
+
+  .card {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .card-icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 14px;
+    border-radius: 10px;
+    color: var(--accent);
+    background: var(--accent-dim);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 25%, transparent);
+  }
+
+  .card-head h3 {
+    margin-bottom: 6px;
+    font-size: 19px;
+    line-height: 24px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .card-head p {
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--fg-muted);
+  }
+
+  .list {
+    list-style: none;
+    margin-top: auto;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    overflow: hidden;
+  }
+
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+  }
+
+  .list-row + .list-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .list-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .list-title {
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
+  }
+
+  .list-meta {
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .state {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-left: 10px;
-    padding: 5px 9px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .state-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .state--live {
+    color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .state--live .state-dot {
+    background: transparent;
+    border: 1.5px solid var(--primary);
+  }
+
+  .state--wait,
+  .state--ask {
+    color: var(--warn);
+    background: var(--warn-dim);
+  }
+
+  .state--wait .state-dot {
+    background: var(--warn-dot);
+  }
+
+  .state--ask .state-dot {
+    background: transparent;
+    border: 1.5px solid var(--warn-dot);
+  }
+
+  .state--done {
+    color: var(--ok);
+  }
+
+  .state--done .state-dot,
+  .state-dot--ok {
+    background: var(--ok-dot);
+  }
+
+  .turns {
+    list-style: none;
+    margin-top: auto;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-left: 4px;
+  }
+
+  .turns::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    bottom: 8px;
+    width: 1px;
+    background: linear-gradient(var(--primary), var(--border-strong));
+  }
+
+  .turns li {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .turn-dot {
+    width: 9px;
+    height: 9px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--bg-card);
+    border: 1.5px solid var(--primary);
+  }
+
+  .turns li:last-child .turn-dot {
+    background: var(--primary);
+    box-shadow: 0 0 0 4px var(--accent-dim);
+  }
+
+  .turns .mono {
+    font-size: 11px;
+  }
+
+  .turn-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chips {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chips li {
+    padding: 3px 9px;
     border-radius: 6px;
     border: 1px solid var(--border);
-    color: var(--fg-muted);
-    font-family: var(--font-mono);
+    background: var(--surface-well);
     font-size: 11px;
-    transition: color 0.15s ease, border-color 0.15s ease;
+    line-height: 16px;
   }
 
-  .copy-btn:hover { color: var(--fg); border-color: var(--border-strong); }
-
-  .cursor-line { display: flex; align-items: center; }
-
-  .caret {
-    width: 8px;
-    height: 16px;
-    background: var(--accent);
-    animation: blink 1.1s steps(1) infinite;
-    animation-play-state: var(--home-motion-state, paused);
-  }
-
-  @keyframes blink { 50% { opacity: 0; } }
-
-  .shot {
-    position: relative;
-    border: 1px solid var(--border-strong);
+  .pr-row {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
     border-radius: 14px;
-    overflow: hidden;
-    background: #0a0a0c;
-    box-shadow:
-      0 0 0 1px rgba(0, 0, 0, 0.6),
-      0 60px 120px -40px rgba(0, 0, 0, 0.9);
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
   }
 
-  .shot img {
+  .pr-btn {
+    height: 32px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: var(--primary-fg);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .router {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .router-svg {
     width: 100%;
     height: auto;
   }
 
-  /* ── Agents ───────────────────────────────────────────────── */
-  .agent-console {
-    display: grid;
-    grid-template-columns: 190px minmax(0, 1fr);
-    gap: 14px;
-  }
-
-  .agent-rail {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .agent-tab {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    font-size: 14px;
-    color: var(--fg-muted);
-    text-align: left;
-    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .agent-tab:hover { color: var(--fg); background: rgba(255, 255, 255, 0.025); }
-
-  .agent-tab[aria-selected="true"] {
-    color: var(--fg);
-    border-color: var(--border-strong);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .agent-mark {
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: #141417;
-    flex-shrink: 0;
-  }
-
-  .agent-mark img { width: 16px; height: 16px; object-fit: contain; }
-  .agent-mark--fill { overflow: hidden; }
-  .agent-mark--fill img { width: 100%; height: 100%; object-fit: cover; }
-
-  .agent-panel .term-body { min-height: 196px; }
-
-  .ok-line {
-    color: var(--ok);
-    opacity: 0;
-    transform: translateY(4px);
-    transition: opacity 0.25s ease, transform 0.25s ease;
-  }
-
-  .ok-line:global(.is-shown) { opacity: 1; transform: none; }
-
-  .agent-note {
-    margin-top: 10px;
-    padding-top: 14px;
-    border-top: 1px dashed var(--border);
-    font-family: var(--font-sans);
-    font-size: 14px;
-    color: var(--fg-muted);
-    line-height: 1.55;
-  }
-
-  /* ── Routing ──────────────────────────────────────────────── */
-  .sec-routing .section-head { max-width: 680px; margin-bottom: 48px; }
-
-  .router {
-    display: grid;
-    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
-    gap: 20px 40px;
-    align-items: center;
-    padding: 28px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background:
-      radial-gradient(ellipse 50% 70% at 50% 50%, rgba(255, 255, 255, 0.03), transparent),
-      #0b0b0d;
-  }
-
-  .router-prompts {
-    grid-row: span 2;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .router-chip {
-    text-align: left;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--fg-muted);
-    background: rgba(255, 255, 255, 0.015);
-    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
-  }
-
-  .router-chip:hover { color: var(--fg); border-color: var(--border-strong); }
-
-  .router-chip[aria-pressed="true"] {
-    color: var(--fg);
-    border-color: var(--accent);
-    background: var(--accent-dim);
-  }
-
-  .router-graph { width: 100%; height: auto; overflow: visible; }
-
   .wire {
     fill: none;
-    stroke: rgba(255, 255, 255, 0.1);
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+  }
+
+  .pulse {
+    fill: none;
+    stroke: var(--primary);
     stroke-width: 2;
     stroke-linecap: round;
+    stroke-dasharray: 18 400;
+    stroke-dashoffset: 18;
+    animation: pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation-delay: var(--delay, 0ms);
+    animation-play-state: paused;
+    opacity: 0;
+  }
+
+  [data-playing] .pulse {
+    animation-play-state: running;
+    opacity: 1;
+  }
+
+  .pulse--b {
+    animation-delay: 0.6s;
+  }
+
+  .pulse--c {
+    animation-delay: 1.2s;
+  }
+
+  .pulse--d {
+    animation-delay: 1.8s;
+  }
+
+  @keyframes pulse {
+    to {
+      stroke-dashoffset: -400;
+    }
   }
 
   .router-node {
-    fill: #141417;
-    stroke: var(--border-strong);
+    fill: var(--accent-dim);
+    stroke: var(--primary);
     stroke-width: 1.5;
-    transition: stroke 0.3s ease;
   }
 
-  .router-node-label {
-    fill: var(--fg);
-    font-family: var(--font-mono);
-    font-size: 15px;
-  }
-
-  .outlet {
-    fill: var(--fg-dim);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    transition: fill 0.3s ease;
-  }
-
-  /* One-shot trace: the input wire, then the chosen outlet. */
-  .router:not([data-route=""]) .wire-in,
-  .router[data-route="local"] .wire-local,
-  .router[data-route="trim"] .wire-trim,
-  .router[data-route="full"] .wire-full {
-    stroke: var(--accent);
-    stroke-dasharray: 400;
-    stroke-dashoffset: 400;
-    animation: trace 0.55s cubic-bezier(0.3, 0.7, 0.2, 1) forwards;
-  }
-
-  .router[data-route="local"] .wire-local,
-  .router[data-route="trim"] .wire-trim,
-  .router[data-route="full"] .wire-full { animation-delay: 0.4s; }
-
-  .router:not([data-route=""]) .router-node { stroke: var(--accent); }
-
-  .router[data-route="local"] .outlet-local,
-  .router[data-route="trim"] .outlet-trim,
-  .router[data-route="full"] .outlet-full { fill: var(--fg); }
-
-  @keyframes trace { to { stroke-dashoffset: 0; } }
-
-  @media (prefers-reduced-motion: reduce) {
-    .router .wire { animation: none !important; stroke-dashoffset: 0 !important; }
-  }
-
-  .router-readout {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 14px;
-    align-items: baseline;
-    padding-top: 16px;
-    border-top: 1px dashed var(--border);
+  .router-label {
+    fill: var(--accent);
+    font-family: var(--font-sans);
     font-size: 14px;
-    color: var(--fg-muted);
+    font-weight: 600;
   }
 
-  .router-readout strong {
-    font-family: var(--font-mono);
-    font-weight: 500;
-    color: var(--accent);
-  }
-
-  .facts {
+  .routes {
     list-style: none;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1px;
-    margin-top: 20px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
 
-  .facts li {
-    padding: 18px 20px;
-    background: var(--bg);
-    font-size: 14px;
+  .routes li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--surface-well);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .routes .mono {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--fg-muted);
   }
 
-  .facts b {
-    display: block;
+  .routes strong {
+    flex-shrink: 0;
+    font-weight: 600;
+  }
+
+  .palette {
+    margin-top: auto;
+    border-radius: 14px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-elev);
+    box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    font-size: 13px;
+  }
+
+  .palette-search {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-muted);
+  }
+
+  .palette-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 9px 12px;
+  }
+
+  .palette-row.is-active {
+    background: var(--accent-dim);
+  }
+
+  .keys {
+    display: flex;
+    gap: 4px;
+  }
+
+  kbd {
+    min-width: 20px;
+    padding: 0 5px;
+    border-radius: 5px;
+    border: 1px solid var(--border-strong);
+    border-bottom-width: 2px;
+    background: var(--bg-card);
     font-family: var(--font-mono);
-    font-weight: 500;
-    font-size: 18px;
-    color: var(--fg);
-    margin-bottom: 4px;
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
   }
 
   /* ── Remote ───────────────────────────────────────────────── */
-  .store-line {
+  .split {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 28px;
+    gap: 48px;
+    align-items: center;
+  }
+
+  .split > .section-head {
+    flex: 1 1 400px;
+    min-width: 0;
   }
 
   .remote {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
+    flex: 1 1 480px;
+    min-width: 0;
   }
 
-  .remote-seg { align-self: flex-start; }
-
-  .remote-map {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(60px, 0.8fr) minmax(0, 1fr);
-    align-items: center;
+  .beams {
+    position: relative;
+    height: 260px;
+    margin: 8px 16px 0;
   }
 
-  .device {
+  .beams svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .beams .pulse {
+    stroke-dasharray: 26 600;
+    animation-duration: 2.8s;
+  }
+
+  .node {
+    position: absolute;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: #0e0e11;
-    font-family: var(--font-mono);
-  }
-
-  .device-host {
-    border-color: var(--border-strong);
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.02);
-  }
-
-  .device-kind {
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--fg-dim);
-  }
-
-  .device-name { font-size: 14px; color: var(--fg); }
-
-  .device-meta {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--accent);
-  }
-
-  .device-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .remote-links {
-    width: 100%;
-    height: 100%;
-    min-height: 180px;
-  }
-
-  .remote-links path {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.22);
-    stroke-width: 1.5;
-    vector-effect: non-scaling-stroke;
-    transition: stroke 0.3s ease;
-  }
-
-  /* Each mode gets its own line language: solid LAN, dashed tailnet, amber relay. */
-  .remote[data-mode="tailscale"] .remote-links path { stroke-dasharray: 6 5; }
-  .remote[data-mode="connect"] .remote-links path { stroke: var(--accent); stroke-dasharray: 2 6; }
-
-  .remote-term .term-body { min-height: 120px; }
-
-  /* ── Timeline ─────────────────────────────────────────────── */
-  .hosts {
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 28px;
-  }
-
-  .hosts li {
-    padding: 5px 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--fg-muted);
-  }
-
-  .timeline {
-    --progress: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .timeline-turns {
-    position: relative;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-  }
-
-  .timeline-turns::before,
-  .timeline-turns::after {
-    content: "";
-    position: absolute;
-    top: 15px;
-    left: 12.5%;
-    height: 2px;
-    width: 75%;
-    background: var(--border-strong);
-  }
-
-  .timeline-turns::after {
-    width: calc(75% * var(--progress));
-    background: var(--accent);
-    transition: width 0.35s cubic-bezier(0.3, 0.7, 0.2, 1);
-  }
-
-  .turn {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 0;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--fg-dim);
-  }
-
-  .turn-dot {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    border: 2px solid var(--border-strong);
-    background: var(--bg);
-    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
-  }
-
-  .turn:hover .turn-dot { transform: scale(1.12); }
-  .turn[aria-selected="true"] { color: var(--fg); }
-  .turn[aria-selected="true"] .turn-dot { border-color: var(--accent); background: var(--accent); }
-
-  .turn-card-title { font-size: 15px; color: var(--fg); }
-
-  .turn-card-meta {
-    display: flex;
-    gap: 14px;
-    color: var(--fg-dim);
-  }
-
-  .add { color: var(--ok); }
-  .del { color: oklch(0.7 0.17 25); }
-
-  .turn-card-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 6px 11px;
+    padding: 10px 14px;
+    border-radius: 12px;
     border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    font-size: 12px;
+    background: var(--bg-elev);
+    transform: translateY(-50%);
+  }
+
+  .node--host {
+    left: 0;
+    top: 50%;
+    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+    box-shadow: 0 0 0 4px var(--accent-dim);
+  }
+
+  .node--device {
+    right: 0;
+    top: calc(var(--y) / 260 * 100%);
+    min-width: 128px;
+  }
+
+  .node-kind {
+    font-size: 11px;
     color: var(--fg-muted);
   }
 
-  .pill--primary {
-    border-color: transparent;
-    background: var(--fg);
-    color: #09090b;
-    font-weight: 500;
+  .node-name {
+    font-size: 14px;
+    font-weight: 600;
   }
 
-  /* ── CTA ──────────────────────────────────────────────────── */
-  .sec-cta {
-    text-align: center;
+  .node-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ok);
+  }
+
+  .remote-body {
+    padding: 8px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .remote-body p {
+    font-size: 14px;
+    color: var(--fg-muted);
+  }
+
+  .well {
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--surface-well);
+    font-size: 13px;
+    line-height: 20px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* ── Theme compare ────────────────────────────────────────── */
+  .compare {
+    position: relative;
+    border-radius: 22px;
     overflow: hidden;
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 50px 100px -50px rgba(0, 0, 0, 0.6);
+    user-select: none;
   }
 
-  .sec-cta::before {
-    content: "";
+  .compare-img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .compare-top {
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse 50% 60% at 50% 100%, rgba(255, 255, 255, 0.06), transparent 70%);
+    clip-path: inset(0 calc(100% - var(--pos)) 0 0);
+  }
+
+  .compare-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--pos);
+    width: 2px;
+    transform: translateX(-1px);
+    background: var(--primary);
     pointer-events: none;
   }
 
-  .cta-inner { position: relative; }
-
-  .cta-title {
-    font-size: clamp(32px, 4.6vw, 60px);
-    margin-bottom: 22px;
+  .compare-handle svg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 36px;
+    height: 36px;
+    padding: 9px;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-fg);
+    box-shadow: 0 0 0 6px var(--accent-dim);
   }
 
-  .cta-sub {
-    max-width: 540px;
-    margin: 0 auto 34px;
+  .compare-range {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: ew-resize;
+    margin: 0;
+  }
+
+  .compare:has(.compare-range:focus-visible) .compare-handle svg {
+    outline: 2px solid var(--fg);
+    outline-offset: 2px;
+  }
+
+  .compare-tag {
+    position: absolute;
+    top: 16px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(12, 13, 16, 0.72);
+    color: #eceef3;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+
+  .compare-tag--left {
+    left: 16px;
+  }
+
+  .compare-tag--right {
+    right: 16px;
+  }
+
+  .accents-row {
+    margin-top: 24px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 32px;
+  }
+
+  .accents-copy {
+    flex: 1 1 320px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .accents-copy h3 {
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .accents-copy p {
     color: var(--fg-muted);
+  }
+
+  .settings-thumb {
+    flex: 1 1 460px;
+    min-width: 0;
+    padding: 6px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+  }
+
+  .settings-thumb img {
+    width: 100%;
+    height: auto;
+    border-radius: 11px;
+  }
+
+  .accents {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .accents li {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
+  }
+
+  .swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, var(--border));
+  }
+
+  /* The four stock accents, dark values (STOCK_ACCENT_PALETTES in packages/shared/src/themePalettes.ts). */
+  .swatch--iris {
+    background: #9b8cff;
+  }
+
+  .swatch--cobalt {
+    background: #6387f6;
+  }
+
+  .swatch--rose {
+    background: #f472b6;
+  }
+
+  .swatch--graphite {
+    background: #d4d7de;
+  }
+
+  /* ── Open source ──────────────────────────────────────────── */
+  .open {
+    padding: 44px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 36px;
+    align-items: center;
+  }
+
+  .open .section-head {
+    flex: 1 1 360px;
+    min-width: 0;
+  }
+
+  .terminal {
+    flex: 1 1 440px;
+    min-width: 0;
+    border-radius: 14px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-well);
+    overflow: hidden;
+  }
+
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .terminal-bar i {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--border-strong);
+  }
+
+  .terminal-bar .mono {
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+
+  .terminal pre {
+    margin: 0;
+    padding: 18px 20px;
+    font-size: 13px;
+    line-height: 22px;
+    overflow-x: auto;
+  }
+
+  .terminal .ok {
+    color: var(--ok);
+  }
+
+  .terminal .dim {
+    color: var(--fg-muted);
+  }
+
+  .terminal .accent {
+    color: var(--accent);
+  }
+
+  /* ── CTA ──────────────────────────────────────────────────── */
+  .cta {
+    position: relative;
+    overflow: clip;
+    padding: 120px 0 140px;
+    border-top: 1px solid var(--border);
+  }
+
+  .cta .hero-grid {
+    mask-image: radial-gradient(ellipse 60% 70% at 50% 100%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 60% 70% at 50% 100%, #000 20%, transparent 75%);
+  }
+
+  .cta-glow {
+    position: absolute;
+    left: 50%;
+    bottom: -320px;
+    width: min(1000px, 130vw);
+    height: 600px;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 45%, transparent), transparent);
+    filter: blur(50px);
+  }
+
+  .cta-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    text-align: center;
+  }
+
+  .cta h2 {
+    font-size: clamp(36px, 5.4vw, 64px);
+    line-height: 1.04;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+  }
+
+  .cta-inner > p {
+    max-width: 520px;
     font-size: 17px;
+    line-height: 26px;
+    color: var(--fg-muted);
   }
 
-  .cta-actions { justify-content: center; }
-
-  /* ── Responsive ───────────────────────────────────────────── */
-  @media (max-width: 1000px) {
-    .hero-inner,
-    .split {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 40px;
+  @media (max-width: 960px) {
+    .span-4,
+    .span-2 {
+      grid-column: span 6;
     }
 
-    .split--reverse > :first-child { order: 0; }
-
-    .router { grid-template-columns: minmax(0, 1fr); }
-    .router-prompts { grid-row: auto; }
+    .bento {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
   }
 
-  @media (max-width: 720px) {
-    .container { padding: 0 20px; }
-    .sec { padding: 80px 0; }
-    .hero { padding: 48px 0 64px; }
-    .hero-inner { margin-bottom: 48px; }
+  @media (min-width: 640px) and (max-width: 960px) {
+    .span-2 {
+      grid-column: span 3;
+    }
+  }
 
-    .agent-console { grid-template-columns: minmax(0, 1fr); }
-
-    .agent-rail {
-      flex-direction: row;
-      overflow-x: auto;
-      scrollbar-width: none;
+  @media (max-width: 640px) {
+    .hero-inner {
+      padding-top: 56px;
     }
 
-    .agent-tab { flex-shrink: 0; }
+    .card,
+    .open {
+      padding: 20px;
+    }
 
-    .facts { grid-template-columns: minmax(0, 1fr); }
-    .router { padding: 18px; }
-    .hero-title { font-size: clamp(26px, 8.2vw, 40px); }
-    /* The graph scales down with the viewport; bump SVG text so labels stay legible. */
-    .outlet { font-size: 22px; }
-    .router-node-label { font-size: 24px; }
+    .stat-value {
+      font-size: 44px;
+    }
+
+    .node--device {
+      min-width: 0;
+    }
   }
 </style>

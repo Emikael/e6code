@@ -12,6 +12,7 @@ import type {
   PullRequestRef,
   PullRequestSummary,
 } from "@e6tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useLayoutEffect, useMemo } from "react";
@@ -20,6 +21,7 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   mergePullRequestLists,
+  pullRequestOperationFailureText,
   type EnvironmentPullRequestStat,
   type MergedPullRequestList,
 } from "../components/pullRequest/pullRequestList.logic";
@@ -217,7 +219,9 @@ function createMergedEnvironmentQuery<Input, A>(
         const result = get(atomFor(target));
         isPending ||= result.waiting;
         if (result._tag === "Failure" && error === null) {
-          error = formatEnvironmentQueryError(result.cause);
+          error =
+            pullRequestOperationFailureText(Cause.squash(result.cause)) ??
+            formatEnvironmentQueryError(result.cause);
         }
         const value = Option.getOrNull(AsyncResult.value(result));
         if (value !== null) values.push([target.environmentId, value]);

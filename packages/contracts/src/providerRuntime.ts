@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
   EventId,
+  ForwardCompatibleOptional,
   IsoDateTime,
   NonNegativeInt,
   ProviderItemId,
@@ -15,7 +16,7 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
-import { ProviderApprovalOption } from "./orchestration.ts";
+import { ProviderApprovalOption, ThreadAgentState } from "./orchestration.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -231,6 +232,12 @@ const SessionStateChangedPayload = Schema.Struct({
   state: RuntimeSessionState,
   reason: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(Schema.Unknown),
+  /**
+   * What the agent is doing now, when it is not plain work; null ends it.
+   * Absent leaves it as is while the session runs or waits; any other state
+   * ends it. A kind this build does not know decodes as absent.
+   */
+  agentState: ForwardCompatibleOptional(Schema.NullOr(ThreadAgentState)),
 });
 export type SessionStateChangedPayload = typeof SessionStateChangedPayload.Type;
 
@@ -317,13 +324,17 @@ const TurnStartedPayload = Schema.Struct({
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 
 /**
- * Normalized main-agent usage for one turn. Input includes cache reads and
- * writes. Output includes reasoning, and reasoningTokens is an optional subset.
- * Complete means the provider supplied full input and output totals. Partial
- * means every included count is valid, but the full turn total is not known.
+ * Normalized usage for one turn. Input includes cache reads and writes. Output
+ * includes reasoning, and reasoningTokens is an optional subset. Complete means
+ * the provider supplied full input and output totals. Partial means every
+ * included count is valid, but the full turn total is not known.
+ *
+ * `usageScope` says whose calls the counts cover: `main_agent` is the main
+ * agent loop only, `all_agents` adds subagents and internal calls such as
+ * compaction, the same calls a provider-reported cost covers.
  */
 const TurnTokenUsageCommonFields = {
-  usageScope: Schema.Literal("main_agent"),
+  usageScope: Schema.Literals(["main_agent", "all_agents"]),
   cachedInputTokens: Schema.optional(NonNegativeInt),
   cacheCreationTokens: Schema.optional(NonNegativeInt),
   reasoningTokens: Schema.optional(NonNegativeInt),
@@ -345,12 +356,40 @@ export const TurnTokenUsage = Schema.Union([
 ]);
 export type TurnTokenUsage = typeof TurnTokenUsage.Type;
 
+/** Thread activity kind that records what one finished turn cost. */
+export const TURN_USAGE_ACTIVITY_KIND = "turn.usage";
+
+/**
+ * Payload of a `turn.usage` activity. Token fields follow `TurnTokenUsage`:
+ * input includes cache reads and writes, output includes reasoning, and
+ * `totalTokens` is input plus output. `partial` marks a turn whose provider
+ * reported only some counts (usually an aborted turn). `costUsd` is present
+ * only when known: `reported` by the provider or `estimated` from model rates.
+ */
+export const TurnUsageActivityPayload = Schema.Struct({
+  totalTokens: NonNegativeInt,
+  inputTokens: Schema.optional(NonNegativeInt),
+  outputTokens: Schema.optional(NonNegativeInt),
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  cacheCreationTokens: Schema.optional(NonNegativeInt),
+  reasoningTokens: Schema.optional(NonNegativeInt),
+  partial: Schema.Boolean,
+  costUsd: Schema.optional(Schema.Number),
+  costSource: Schema.optional(Schema.Literals(["reported", "estimated"])),
+});
+export type TurnUsageActivityPayload = typeof TurnUsageActivityPayload.Type;
+
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
   stopReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   usage: Schema.optional(Schema.Unknown),
   modelUsage: Schema.optional(UnknownRecordSchema),
   totalCostUsd: Schema.optional(Schema.Number),
+  /**
+   * The provider-reported cost of this turn alone. Claude's `totalCostUsd` is
+   * a running total for the session, so its adapter reports the difference.
+   */
+  turnCostUsd: Schema.optional(Schema.Number),
   errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
   tokenUsage: Schema.optional(TurnTokenUsage),
 });
@@ -429,6 +468,18 @@ export const ToolActivitySource = Schema.Struct({
 });
 export type ToolActivitySource = typeof ToolActivitySource.Type;
 
+/**
+ * One file a completed file-change item touched, as the provider reported its
+ * path. Line counts are present only when the provider's own payload yields
+ * them; clients show the file without counts otherwise.
+ */
+const ItemChangedFile = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  additions: Schema.optional(NonNegativeInt),
+  deletions: Schema.optional(NonNegativeInt),
+});
+export type ItemChangedFile = typeof ItemChangedFile.Type;
+
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
@@ -445,6 +496,13 @@ export const ItemLifecyclePayload = Schema.Struct({
    */
   agentId: Schema.optional(TrimmedNonEmptyStringSchema),
   parentToolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
+  /**
+   * Files a completed file change touched, with line counts when the
+   * provider yields them, so clients need not walk raw tool data. Rows with
+   * agentId feed each subagent's file list; consumers that mean subagent
+   * files only must filter on agentId.
+   */
+  changedFiles: Schema.optional(Schema.Array(ItemChangedFile)),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
 
@@ -462,6 +520,13 @@ const RequestOpenedPayload = Schema.Struct({
   appName: Schema.optional(TrimmedNonEmptyStringSchema),
   options: Schema.optional(Schema.Array(ProviderApprovalOption)),
   args: Schema.optional(Schema.Unknown),
+  /**
+   * The subagent waiting on this request: its task id, as in task.* events.
+   * Absent when the main agent asked or the provider cannot tell. It can name
+   * a subagent the client has not seen; clients then show the request as
+   * they would without it.
+   */
+  agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type RequestOpenedPayload = typeof RequestOpenedPayload.Type;
 
@@ -494,6 +559,8 @@ export type UserInputQuestion = typeof UserInputQuestion.Type;
 export const UserInputRequestedPayload = Schema.Struct({
   questions: Schema.Array(UserInputQuestion),
   responseMode: Schema.optional(Schema.Literal("message")),
+  /** The subagent asking, as in RequestOpenedPayload.agentId. */
+  agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 

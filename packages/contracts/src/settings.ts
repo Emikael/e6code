@@ -1,5 +1,6 @@
 import { SshDeviceHostConfigs } from "./device.ts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
@@ -301,6 +302,15 @@ export type ChatWidth = typeof ChatWidth.Type;
 export const EffortDisplay = Schema.Literals(["label", "bars"]);
 export type EffortDisplay = typeof EffortDisplay.Type;
 
+/**
+ * Accent the stock E6 Code theme wears for `primary` (the next action and a
+ * live agent). Other themes carry their own accent and ignore it. An unknown
+ * value, such as one written by a newer client, falls back to Iris.
+ */
+export const StockAccent = Schema.Literals(["iris", "cobalt", "rose", "graphite"]);
+export type StockAccent = typeof StockAccent.Type;
+export const DEFAULT_STOCK_ACCENT: StockAccent = "iris";
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -311,8 +321,21 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
+  /**
+   * Draws an opened work log as a rail with one dot per step. Off restores the
+   * plain icon rows. A malformed stored value falls back to on rather than
+   * failing the whole settings decode.
+   */
+  showThinkingTimeline: Schema.Boolean.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome(true)),
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  stockAccent: StockAccent.pipe(
+    Schema.catchDecoding(() => Effect.succeed(Option.some(DEFAULT_STOCK_ACCENT))),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_STOCK_ACCENT)),
+  ),
   appearanceContrast: AppearanceContrast.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
   ),
@@ -1602,6 +1625,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   effortDisplay: Schema.optionalKey(EffortDisplay),
+  showThinkingTimeline: Schema.optionalKey(Schema.Boolean),
+  stockAccent: Schema.optionalKey(StockAccent),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),

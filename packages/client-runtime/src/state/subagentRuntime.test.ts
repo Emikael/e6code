@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 import { classifyTaskAgentKind, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import {
+  canStopSubagent,
   deriveAgentPanelModel,
+  findSubagentStopFailure,
   foldSubagentActivities,
+  describeSpawnBatchStatus,
+  formatSubagentElapsed,
+  formatSubagentFileCount,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
+  subagentActivityText,
+  subagentElapsedMs,
+  summarizeSubagentStatuses,
+  subagentTone,
 } from "./subagentRuntime.ts";
 
 let sequence = 0;
@@ -373,6 +382,101 @@ describe("foldSubagentActivities", () => {
   });
 });
 
+describe("subagent changed files", () => {
+  function fileChange(
+    agentId: string | undefined,
+    changedFiles: ReadonlyArray<Record<string, unknown>>,
+    turnId: string | null,
+    status = "completed",
+  ): OrchestrationThreadActivity {
+    const row = activity("tool.completed", {
+      itemType: "file_change",
+      status,
+      ...(agentId ? { agentId } : {}),
+      changedFiles,
+    });
+    return { ...row, turnId } as OrchestrationThreadActivity;
+  }
+
+  it("sums each subagent's edits per file and keeps the latest edit's turn", () => {
+    const agents = fold([
+      // An edit can arrive before the start row; it still lands on the agent.
+      fileChange("task-1", [{ path: "/repo/a.ts", additions: 3, deletions: 1 }], "turn-1"),
+      activity("task.started", { taskId: "task-1", title: "Refactor" }),
+      activity("task.started", { taskId: "task-2", title: "Docs" }),
+      fileChange(
+        "task-1",
+        [
+          { path: "/repo/b.ts", additions: 10, deletions: 0 },
+          { path: "/repo/a.ts", additions: 2, deletions: 2 },
+        ],
+        "turn-2",
+      ),
+      fileChange("task-2", [{ path: "/repo/README.md" }], "turn-2"),
+      // Not counted: the main agent's edit, a declined patch, and an unknown agent.
+      fileChange(undefined, [{ path: "/repo/main.ts", additions: 1, deletions: 0 }], "turn-2"),
+      fileChange(
+        "task-1",
+        [{ path: "/repo/c.ts", additions: 1, deletions: 0 }],
+        "turn-2",
+        "declined",
+      ),
+      fileChange("task-9", [{ path: "/repo/d.ts", additions: 1, deletions: 0 }], "turn-2"),
+    ]);
+    expect(agents).toHaveLength(2);
+    expect(agents.find((agent) => agent.id === "task-1")?.changedFiles).toEqual({
+      files: [
+        { path: "/repo/a.ts", additions: 5, deletions: 3, turnId: "turn-2" },
+        { path: "/repo/b.ts", additions: 10, deletions: 0, turnId: "turn-2" },
+      ],
+      additions: 15,
+      deletions: 3,
+    });
+    // Counts the provider did not report stay unknown instead of reading as zero.
+    expect(agents.find((agent) => agent.id === "task-2")?.changedFiles).toEqual({
+      files: [{ path: "/repo/README.md", additions: null, deletions: null, turnId: "turn-2" }],
+      additions: null,
+      deletions: null,
+    });
+  });
+
+  it("an agent that changed nothing has no file list", () => {
+    const agents = fold([activity("task.started", { taskId: "task-1", title: "Read only" })]);
+    expect(agents[0]!.changedFiles).toBeUndefined();
+  });
+
+  it("formats the file count", () => {
+    expect(formatSubagentFileCount(1)).toBe("1 file");
+    expect(formatSubagentFileCount(6)).toBe("6 files");
+  });
+});
+
+describe("deriveAgentPanelModel requests", () => {
+  it("marks the live subagents a pending request names", () => {
+    const agents = fold([
+      activity("task.started", { taskId: "agent-api", title: "Share link API" }),
+      activity("task.started", { taskId: "agent-docs", title: "Share link docs" }),
+      activity("task.completed", { taskId: "agent-docs", status: "completed" }),
+    ]);
+    const approval = { kind: "approval", requestKind: "command", detail: "vp test" } as const;
+    const model = deriveAgentPanelModel({
+      agents,
+      waitingOn: new Map([
+        ["agent-api", approval],
+        ["agent-docs", approval],
+        ["agent-unknown", approval],
+      ]),
+    });
+    expect(model.directAgents.map((agent) => [agent.id, agent.waitingOn])).toEqual([
+      ["agent-api", approval],
+      ["agent-docs", undefined],
+    ]);
+    expect(deriveAgentPanelModel({ agents }).directAgents.some((agent) => agent.waitingOn)).toBe(
+      false,
+    );
+  });
+});
+
 describe("deriveAgentPanelModel", () => {
   const roster = fold([
     activity("task.started", { taskId: "wf-1", taskType: "local_workflow", title: "audit" }),
@@ -553,11 +657,48 @@ describe("deriveAgentPanelModel", () => {
   });
 });
 
+describe("subagent stop", () => {
+  const roster = fold([
+    activity("task.started", { taskId: "wf-1", taskType: "local_workflow", title: "audit" }),
+    activity("task.progress", {
+      taskId: "wf-1:wf:0",
+      title: "audit:a",
+      status: "running",
+      parentAgentId: "wf-1",
+      agentIndex: 0,
+    }),
+    activity("task.started", { taskId: "child-1", title: "Marlow", parentAgentId: "root" }),
+    activity("task.started", { taskId: "done-1", title: "Finished" }),
+    activity("task.completed", { taskId: "done-1", status: "completed" }),
+  ]);
+  const model = deriveAgentPanelModel({ agents: roster });
+  const byId = (id: string) => roster.find((agent) => agent.id === id)!;
+
+  it("offers Stop only for a live subagent on a provider that supports it", () => {
+    expect(canStopSubagent(model, byId("child-1"), true)).toBe(true);
+    expect(canStopSubagent(model, byId("child-1"), false)).toBe(false);
+    expect(canStopSubagent(model, byId("done-1"), true)).toBe(false);
+  });
+
+  it("stops a workflow as a whole, not member by member", () => {
+    expect(canStopSubagent(model, byId("wf-1"), true)).toBe(true);
+    expect(canStopSubagent(model, byId("wf-1:wf:0"), true)).toBe(false);
+  });
+
+  it("finds the failure recorded for one stop request", () => {
+    const failed = (requestId: string, detail: string) =>
+      activity("provider.subagent.stop.failed", { requestId, detail, subagentId: "child-1" });
+    const activities = [failed("cmd-1", "first"), failed("cmd-2", "Subagent is not running.")];
+    expect(findSubagentStopFailure(activities, "cmd-2")).toBe("Subagent is not running.");
+    expect(findSubagentStopFailure(activities, "cmd-3")).toBeNull();
+  });
+});
+
 describe("formatSubagentTokenCount", () => {
   it("formats plain counters", () => {
     expect(formatSubagentTokenCount(950)).toBe("950");
-    expect(formatSubagentTokenCount(41200)).toBe("41.2k");
-    expect(formatSubagentTokenCount(247000)).toBe("247k");
+    expect(formatSubagentTokenCount(41200)).toBe("41.2K");
+    expect(formatSubagentTokenCount(247000)).toBe("247K");
     expect(formatSubagentTokenCount(1_400_000)).toBe("1.4M");
   });
 });
@@ -889,5 +1030,111 @@ describe("nested agents vs subagent shells", () => {
       }),
     ]);
     expect(agents.map((agent) => agent.id)).toEqual(["nested-1"]);
+  });
+});
+
+describe("subagent presentation", () => {
+  it("summarizes a batch with live work first and problems before successes", () => {
+    const summary = summarizeSubagentStatuses([
+      { status: "completed" },
+      { status: "running" },
+      { status: "waiting" },
+      { status: "failed" },
+      { status: "interrupted" },
+    ]);
+    expect(summary.text).toBe("2 working · 1 failed · 1 stopped · 1 done");
+    expect(summary.tone).toBe("working");
+    expect(summarizeSubagentStatuses([{ status: "completed" }, { status: "failed" }]).tone).toBe(
+      "failed",
+    );
+    expect(summarizeSubagentStatuses([]).text).toBe("");
+  });
+
+  it("puts a subagent blocked on the user first, and only while it is live", () => {
+    const blocked = {
+      status: "running" as const,
+      waitingOn: { kind: "approval", requestKind: "command" } as const,
+    };
+    const asking = {
+      status: "running" as const,
+      waitingOn: { kind: "question", question: "Which branch?" } as const,
+    };
+    expect(subagentTone(blocked)).toBe("approval");
+    expect(subagentTone(asking)).toBe("question");
+    // A settled subagent keeps its outcome even if a stale request names it.
+    expect(subagentTone({ ...blocked, status: "completed" })).toBe("done");
+    expect(
+      summarizeSubagentStatuses([asking, blocked, { status: "running" }, { status: "completed" }]),
+    ).toMatchObject({
+      text: "1 needs approval · 1 needs your answer · 1 working · 1 done",
+      tone: "approval",
+    });
+    // A batch whose only live member is blocked is still live.
+    expect(
+      describeSpawnBatchStatus({ agents: [asking, { status: "completed" }], agentCount: 2 }),
+    ).toMatchObject({ text: "1 needs your answer · 1 done", tone: "question", live: true });
+    expect(summarizeSubagentStatuses([blocked, blocked]).text).toBe("2 need approval");
+  });
+
+  it("leads live rows with progress and settled rows with the outcome", () => {
+    const base = { progress: "Editing a.ts", lastToolName: "Edit", result: null, error: null };
+    expect(subagentActivityText({ ...base, status: "running" })).toBe("Editing a.ts");
+    expect(
+      subagentActivityText({ ...base, status: "failed", error: "Exited 1\nstack trace" }),
+    ).toBe("Exited 1");
+    expect(subagentActivityText({ ...base, progress: null, status: "running" })).toBe("▸ Edit");
+  });
+
+  it("freezes elapsed time once an activation settles or rests", () => {
+    const now = Date.parse("2026-08-01T10:05:00.000Z");
+    const startedAt = "2026-08-01T10:00:00.000Z";
+    const updatedAt = "2026-08-01T10:00:40.000Z";
+    expect(
+      subagentElapsedMs({ status: "running", startedAt, completedAt: null, updatedAt }, now),
+    ).toBe(300_000);
+    expect(
+      subagentElapsedMs(
+        { status: "completed", startedAt, completedAt: "2026-08-01T10:00:32.000Z", updatedAt },
+        now,
+      ),
+    ).toBe(32_000);
+    // Idle is resumable, not terminal: it has no completedAt but must not keep counting.
+    expect(
+      subagentElapsedMs({ status: "idle", startedAt, completedAt: null, updatedAt }, now),
+    ).toBe(40_000);
+    expect(
+      subagentElapsedMs({ status: "pending", startedAt: null, completedAt: null, updatedAt }, now),
+    ).toBe(null);
+    expect(formatSubagentElapsed(19_000)).toBe("19s");
+    expect(formatSubagentElapsed(65_000)).toBe("1m 05s");
+    expect(formatSubagentElapsed(7_380_000)).toBe("2h 03m");
+  });
+
+  it("lets a workflow coordinator's own outcome lead the batch line", () => {
+    const done = [{ status: "completed" as const }, { status: "completed" as const }];
+    expect(
+      describeSpawnBatchStatus({ agents: done, agentCount: 2, coordinatorStatus: "failed" }),
+    ).toMatchObject({
+      text: "Workflow failed · 2 done",
+      parts: [
+        { text: "Workflow failed", tone: "failed" },
+        { text: "2 done", tone: "done" },
+      ],
+      tone: "failed",
+      live: false,
+    });
+    expect(
+      describeSpawnBatchStatus({ agents: done, agentCount: 2, coordinatorStatus: "running" }),
+    ).toMatchObject({ text: "Working · 2 done", tone: "working", live: true });
+    expect(describeSpawnBatchStatus({ agents: done, agentCount: 4 })).toMatchObject({
+      text: "2 done · 2 unavailable",
+      tone: "done",
+      live: false,
+    });
+    expect(describeSpawnBatchStatus({ agents: [], agentCount: 3 })).toMatchObject({
+      text: "3 unavailable",
+      tone: null,
+      live: false,
+    });
   });
 });

@@ -22,6 +22,7 @@ import {
   ProviderItemId,
   RuntimeRequestId,
   type ServerSettings,
+  type ThreadAgentState as AgentState,
   ThreadId,
   TurnId,
 } from "@e6tools/contracts";
@@ -58,6 +59,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import * as ThreadAgentState from "../ThreadAgentState.ts";
 import {
   ProviderRuntimeIngestionLive,
   splitBufferedAssistantText,
@@ -68,6 +70,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { UsageService } from "../../usage/UsageService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { makeSqlStatementCounter } from "../../../integration/SqlStatementCounter.integration.ts";
 
@@ -131,6 +134,7 @@ function createProviderServiceHarness() {
     sendTurn: () => unsupported(),
     compactThread: () => unsupported(),
     interruptTurn: () => unsupported(),
+    stopSubagent: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
@@ -293,6 +297,7 @@ describe("ProviderRuntimeIngestion", () => {
     threadTitle?: string;
     workspaceSubdirectory?: string;
     isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
+    estimateCostUsd?: UsageService["Service"]["estimateCostUsd"];
   }) {
     const repositoryRoot = makeTempDir("e6-provider-project-");
     NodeChildProcess.execFileSync("git", ["init", "--initial-branch=main"], {
@@ -342,7 +347,19 @@ describe("ProviderRuntimeIngestion", () => {
       monotonicTimeNanos: realClock.monotonicTimeNanos,
       sleep: (duration) => realClock.sleep(duration),
     };
+    const estimateCostUsd = options?.estimateCostUsd;
+    const usageLayer =
+      estimateCostUsd === undefined
+        ? Layer.empty
+        : Layer.succeed(UsageService, {
+            readSummary: () => Effect.die("unused"),
+            refreshRates: Effect.die("unused"),
+            estimateCostUsd,
+            modelPriceTiers: Effect.die("unused"),
+            subscribeModelPriceTierChanges: Effect.die("unused"),
+          });
     const layer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provide(usageLayer),
       Layer.provide(Layer.succeed(Clock.Clock, shiftedClock)),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(ingestionProjectionSnapshotLayer),
@@ -350,6 +367,7 @@ describe("ProviderRuntimeIngestion", () => {
       // engine, and the snapshot query (reader).
       Layer.provideMerge(ThreadBackgroundLiveness.layer),
       Layer.provideMerge(ThreadPlanProgress.layer),
+      Layer.provideMerge(ThreadAgentState.layer),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
@@ -818,6 +836,93 @@ describe("ProviderRuntimeIngestion", () => {
       state: "running",
       requestedAt: pendingAt,
     });
+  });
+
+  it("shows the agent state on the shell until progress or the turn end clears it", async () => {
+    const harness = await createHarness();
+    const base = {
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-agent-state"),
+    } as const;
+    const stateChanged = (
+      id: string,
+      createdAt: string,
+      agentState: AgentState | null,
+      turnId: TurnId = base.turnId,
+    ): ProviderRuntimeEvent => ({
+      ...base,
+      turnId,
+      type: "session.state.changed",
+      eventId: asEventId(id),
+      createdAt,
+      payload: { state: "running", agentState },
+    });
+    const shellAgentState = async () => (await harness.readThreadShell()).agentState;
+
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.started",
+        eventId: asEventId("as-started"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+      },
+      stateChanged("as-retry", "2026-01-01T00:00:02.000Z", {
+        kind: "retrying",
+        attempt: 2,
+        maxAttempts: 5,
+      }),
+    ]);
+    expect(await shellAgentState()).toEqual({ kind: "retrying", attempt: 2, maxAttempts: 5 });
+
+    // A superseded turn neither replaces nor clears the state.
+    await harness.emitAndDrain([
+      stateChanged(
+        "as-stale",
+        "2026-01-01T00:00:03.000Z",
+        { kind: "compacting" },
+        asTurnId("turn-old"),
+      ),
+    ]);
+    expect(await shellAgentState()).toEqual({ kind: "retrying", attempt: 2, maxAttempts: 5 });
+
+    // Streamed text proves the retry landed. The session is re-asserted so
+    // clients refetch the shell even while the text is still buffered.
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("as-delta"),
+        itemId: asItemId("as-text"),
+        createdAt: "2026-01-01T00:00:04.000Z",
+        payload: { streamKind: "assistant_text", delta: "Back on track." },
+      },
+    ]);
+    const cleared = await harness.readThreadShell();
+    expect(cleared.agentState).toBeUndefined();
+    expect(cleared.session?.status).toBe("running");
+    expect(cleared.session?.updatedAt).toBe("2026-01-01T00:00:04.000Z");
+
+    await harness.emitAndDrain([
+      stateChanged("as-paused", "2026-01-01T00:00:05.000Z", {
+        kind: "rate-limited",
+        resetsAt: "2026-01-01T01:00:00.000Z",
+      }),
+    ]);
+    expect(await shellAgentState()).toEqual({
+      kind: "rate-limited",
+      resetsAt: "2026-01-01T01:00:00.000Z",
+    });
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("as-completed"),
+        createdAt: "2026-01-01T00:00:06.000Z",
+        payload: { state: "interrupted" },
+      },
+    ]);
+    expect(await shellAgentState()).toBeUndefined();
   });
 
   it("applies provider session.state.changed transitions directly", async () => {
@@ -1918,6 +2023,42 @@ describe("ProviderRuntimeIngestion", () => {
     expect(rawOutput?.content).toBe('import * as Effect from "effect/Effect"\n');
   });
 
+  it("keeps a subagent's changed files on its file-change activity", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-subagent-file-change"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-file-change"),
+      itemId: asItemId("item-subagent-file-change"),
+      payload: {
+        itemType: "file_change",
+        status: "completed",
+        title: "File change",
+        agentId: "child-1",
+        changedFiles: [{ path: "/repo/a.ts", additions: 3, deletions: 1 }, { path: "/repo/b.ts" }],
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-subagent-file-change",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-subagent-file-change",
+    );
+    expect(activity?.kind).toBe("tool.completed");
+    expect(activity?.payload).toMatchObject({
+      agentId: "child-1",
+      changedFiles: [{ path: "/repo/a.ts", additions: 3, deletions: 1 }, { path: "/repo/b.ts" }],
+    });
+  });
+
   it("normalizes command execution activities to ran-command summaries", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -2431,6 +2572,18 @@ describe("ProviderRuntimeIngestion", () => {
       2_000,
       threadId,
     );
+    await harness.emitAndDrain([
+      {
+        type: "session.state.changed",
+        eventId: asEventId("evt-steered-over-retrying"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId,
+        turnId: oldTurnId,
+        payload: { state: "running", agentState: { kind: "retrying", attempt: 1 } },
+      },
+    ]);
+    expect((await harness.readThreadShell()).agentState).toEqual({ kind: "retrying", attempt: 1 });
 
     // The steer: a user-requested turn start while the old turn still runs.
     await Effect.runPromise(
@@ -2480,6 +2633,9 @@ describe("ProviderRuntimeIngestion", () => {
     expect(threadAfterSteer.session?.activeTurnId).toBe(newTurnId);
     expect(threadAfterSteer.latestTurn?.turnId).toBe(newTurnId);
     expect(threadAfterSteer.latestTurn?.state).toBe("running");
+    // The superseded turn's working state does not carry over to the new turn.
+    await harness.drain();
+    expect((await harness.readThreadShell()).agentState).toBeUndefined();
   });
 
   it("does not mark the source proposed plan implemented for an unrelated turn.started when no thread active turn is tracked", async () => {
@@ -3467,6 +3623,122 @@ describe("ProviderRuntimeIngestion", () => {
           message.id === "assistant:item-streaming-request-segment:segment:1",
       )?.text,
     ).toBe(" after approval");
+  });
+
+  it("keeps the main reply streaming when a subagent asks for approval or input", async () => {
+    const harness = await createHarness({ serverSettings: { responseStreamingMode: "token" } });
+    const startedAt = "2026-03-28T07:00:00.000Z";
+    const pausedAt = "2026-03-28T07:00:01.000Z";
+    const resumedAt = "2026-03-28T07:00:02.000Z";
+    const completedAt = "2026-03-28T07:00:03.000Z";
+    const turnId = asTurnId("turn-subagent-request");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.readModel,
+      (thread) => thread.session?.status === "running" && thread.session?.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-subagent-request-initial"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-subagent-request"),
+      payload: { streamKind: "assistant_text", delta: "while the subagent works" },
+    });
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-request-opened-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: pausedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      requestId: ApprovalRequestId.make("req-subagent-request"),
+      payload: { requestType: "command_execution_approval", detail: "pwd", agentId: "task-1" },
+    });
+    harness.emit({
+      type: "user-input.requested",
+      eventId: asEventId("evt-user-input-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: pausedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      requestId: ApprovalRequestId.make("req-subagent-input"),
+      payload: {
+        questions: [
+          {
+            id: "Which branch?",
+            header: "Branch",
+            question: "Which branch?",
+            options: [{ label: "main", description: "" }],
+          },
+        ],
+        agentId: "task-1",
+      },
+    });
+
+    const paused = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-user-input-subagent-request",
+      ),
+    );
+    expect(
+      paused.activities.find(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-user-input-subagent-request",
+      )?.payload,
+    ).toMatchObject({ agentId: "task-1" });
+    expect(
+      paused.messages.find(
+        (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-subagent-request",
+      )?.streaming,
+    ).toBe(true);
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-subagent-request-followup"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: resumedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-subagent-request"),
+      payload: { streamKind: "assistant_text", delta: ", it keeps going" },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-subagent-request"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: completedAt,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-subagent-request"),
+      payload: { itemType: "assistant_message", status: "completed" },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-subagent-request" && !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages
+        .filter((message: ProviderRuntimeTestMessage) =>
+          message.id.startsWith("assistant:item-subagent-request"),
+        )
+        .map((message: ProviderRuntimeTestMessage) => message.text),
+    ).toEqual(["while the subagent works, it keeps going"]);
   });
 
   it("streams assistant deltas when thread.turn.start requests streaming mode", async () => {
@@ -5147,6 +5419,199 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime still processed");
+  });
+  describe("turn usage", () => {
+    const completeUsage = {
+      usageStatus: "complete",
+      usageScope: "main_agent",
+      inputTokens: 40_000,
+      cachedInputTokens: 30_000,
+      cacheCreationTokens: 2_000,
+      outputTokens: 8_600,
+      reasoningTokens: 1_000,
+      hasSubagents: false,
+    } as const;
+
+    const turnUsageActivities = async (harness: Awaited<ReturnType<typeof createHarness>>) =>
+      ((await harness.readModel()).threads[0]?.activities ?? []).filter(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.usage",
+      );
+
+    it("records the provider-reported cost without pricing the model", async () => {
+      const priced: string[] = [];
+      const harness = await createHarness({
+        estimateCostUsd: (model) => {
+          priced.push(model);
+          return Effect.succeed(9);
+        },
+      });
+      await harness.emitAndDrain([
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-reported"),
+          provider: ProviderDriverKind.make("claudeAgent"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-reported"),
+          payload: { state: "completed", turnCostUsd: 0.12, tokenUsage: completeUsage },
+        },
+      ]);
+
+      const [activity, ...rest] = await turnUsageActivities(harness);
+      expect(rest).toEqual([]);
+      expect(activity?.id).toBe("turn-usage:thread-1:turn-usage-reported");
+      expect(activity?.turnId).toBe("turn-usage-reported");
+      expect(activity?.payload).toEqual({
+        totalTokens: 48_600,
+        inputTokens: 40_000,
+        outputTokens: 8_600,
+        cachedInputTokens: 30_000,
+        cacheCreationTokens: 2_000,
+        reasoningTokens: 1_000,
+        partial: false,
+        costUsd: 0.12,
+        costSource: "reported",
+      });
+      expect(priced).toEqual([]);
+    });
+
+    it("estimates cost at the thread model's rates when none is reported", async () => {
+      const pricedTotals: unknown[] = [];
+      const harness = await createHarness({
+        estimateCostUsd: (model, totals) => {
+          pricedTotals.push({ model, totals });
+          return Effect.succeed(0.34);
+        },
+      });
+      await harness.emitAndDrain([
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-estimated"),
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-estimated"),
+          payload: { state: "completed", tokenUsage: completeUsage },
+        },
+      ]);
+
+      const [activity] = await turnUsageActivities(harness);
+      expect(activity?.payload).toMatchObject({
+        totalTokens: 48_600,
+        costUsd: 0.34,
+        costSource: "estimated",
+      });
+      // Cache reads and writes are split out of input; reasoning stays inside output.
+      expect(pricedTotals).toEqual([
+        {
+          model: "gpt-5-codex",
+          totals: {
+            uncachedInputTokens: 8_000,
+            cachedInputTokens: 30_000,
+            cacheCreationTokens: 2_000,
+            outputTokens: 8_600,
+            reasoningTokens: 1_000,
+          },
+        },
+      ]);
+    });
+
+    it("estimates cost at the model the turn started on", async () => {
+      const pricedModels: string[] = [];
+      const harness = await createHarness({
+        estimateCostUsd: (model) => {
+          pricedModels.push(model);
+          return Effect.succeed(0.5);
+        },
+      });
+      await harness.emitAndDrain([
+        {
+          type: "turn.started",
+          eventId: asEventId("evt-usage-turn-model-started"),
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:04.000Z",
+          turnId: asTurnId("turn-usage-turn-model"),
+          payload: { model: "anthropic/claude-fable-5" },
+        },
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-turn-model-completed"),
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-turn-model"),
+          payload: { state: "completed", tokenUsage: completeUsage },
+        },
+      ]);
+
+      const [activity] = await turnUsageActivities(harness);
+      expect(activity?.payload).toMatchObject({ costUsd: 0.5, costSource: "estimated" });
+      expect(pricedModels).toEqual(["anthropic/claude-fable-5"]);
+    });
+
+    it("records tokens only when the model has no price", async () => {
+      const harness = await createHarness({ estimateCostUsd: () => Effect.succeed(null) });
+      await harness.emitAndDrain([
+        {
+          type: "turn.aborted",
+          eventId: asEventId("evt-usage-unpriced"),
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-unpriced"),
+          payload: {
+            reason: "Interrupted by user.",
+            tokenUsage: {
+              usageStatus: "partial",
+              usageScope: "main_agent",
+              outputTokens: 1_200,
+              hasSubagents: false,
+            },
+          },
+        },
+      ]);
+
+      const [activity] = await turnUsageActivities(harness);
+      expect(activity?.payload).toEqual({
+        totalTokens: 1_200,
+        outputTokens: 1_200,
+        partial: true,
+      });
+    });
+
+    it("records nothing when the provider reports no usage", async () => {
+      const harness = await createHarness({ estimateCostUsd: () => Effect.succeed(1) });
+      await harness.emitAndDrain([
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-none"),
+          provider: ProviderDriverKind.make("cursor"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:05.000Z",
+          turnId: asTurnId("turn-usage-none"),
+          payload: { state: "completed" },
+        },
+        {
+          type: "turn.completed",
+          eventId: asEventId("evt-usage-unavailable"),
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:06.000Z",
+          turnId: asTurnId("turn-usage-unavailable"),
+          payload: {
+            state: "completed",
+            tokenUsage: {
+              usageStatus: "unavailable",
+              usageScope: "main_agent",
+              hasSubagents: false,
+            },
+          },
+        },
+      ]);
+
+      expect(await turnUsageActivities(harness)).toEqual([]);
+    });
   });
 });
 

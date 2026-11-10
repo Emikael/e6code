@@ -43,6 +43,7 @@ import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@e6tools/contracts";
 import {
   ProviderAdapterRequestError,
+  ProviderValidationError,
   ProviderWorkspaceMissingError,
   type ProviderServiceError,
 } from "../../provider/Errors.ts";
@@ -64,6 +65,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import * as ThreadAgentState from "../ThreadAgentState.ts";
 import {
   providerErrorLabelFromInstanceHint,
   ProviderCommandReactorLive,
@@ -190,6 +192,7 @@ describe("ProviderCommandReactor", () => {
     readonly afterTurnStartDispatch?: () => Effect.Effect<void>;
     readonly compactThreadEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly interruptTurnEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
+    readonly stopSubagentEffect?: () => Effect.Effect<void, ProviderServiceError>;
     readonly stopSessionEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly startSessionEffect?: (
       session: ProviderSession,
@@ -283,7 +286,12 @@ describe("ProviderCommandReactor", () => {
     );
     const compactThread = vi.fn((_: ThreadId) => input?.compactThreadEffect?.() ?? Effect.void);
     const interruptTurn = vi.fn((_: unknown) => input?.interruptTurnEffect?.() ?? Effect.void);
-    const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
+    const stopSubagent = vi.fn<ProviderServiceShape["stopSubagent"]>(
+      () => input?.stopSubagentEffect?.() ?? Effect.void,
+    );
+    const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() =>
+      Effect.succeed({ feedbackDelivered: false }),
+    );
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const stopSession = vi.fn((stopInput: unknown) =>
       (input?.stopSessionEffect?.() ?? Effect.void).pipe(
@@ -369,6 +377,7 @@ describe("ProviderCommandReactor", () => {
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       compactThread,
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
+      stopSubagent,
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
@@ -416,6 +425,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(ThreadBackgroundLiveness.layer),
       Layer.provide(ThreadPlanProgress.layer),
+      Layer.provide(ThreadAgentState.layer),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
@@ -425,6 +435,7 @@ describe("ProviderCommandReactor", () => {
     const projectionSnapshotLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
       Layer.provide(ThreadBackgroundLiveness.layer),
       Layer.provide(ThreadPlanProgress.layer),
+      Layer.provide(ThreadAgentState.layer),
       Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
@@ -653,6 +664,7 @@ describe("ProviderCommandReactor", () => {
       sendTurn,
       compactThread,
       interruptTurn,
+      stopSubagent,
       respondToRequest,
       respondToUserInput,
       stopSession,
@@ -3909,6 +3921,107 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  effectIt.effect("stops one subagent without interrupting the turn", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-1");
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-subagent-stop"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.subagent.stop",
+        commandId: CommandId.make("cmd-subagent-stop"),
+        threadId,
+        subagentId: "child-thread-1",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => harness.drain());
+
+      expect(harness.stopSubagent.mock.calls).toEqual([
+        [{ threadId, subagentId: "child-thread-1" }],
+      ]);
+      expect(harness.interruptTurn).not.toHaveBeenCalled();
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(thread?.session).toMatchObject({ status: "running", activeTurnId: "turn-1" });
+      expect(
+        thread?.activities.some((activity) => activity.kind === "provider.subagent.stop.failed"),
+      ).toBe(false);
+    }),
+  );
+
+  effectIt.effect("records a failed subagent stop against the request that asked", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          stopSubagentEffect: () =>
+            Effect.fail(
+              new ProviderValidationError({
+                operation: "ProviderService.stopSubagent",
+                issue: "Provider 'grok' cannot stop a single subagent.",
+              }),
+            ),
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-1");
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-subagent-stop-unsupported"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "grok",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.subagent.stop",
+        commandId: CommandId.make("cmd-subagent-stop-unsupported"),
+        threadId,
+        subagentId: "task-1",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => harness.drain());
+
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(
+        thread?.activities.find((activity) => activity.kind === "provider.subagent.stop.failed"),
+      ).toMatchObject({
+        tone: "error",
+        payload: {
+          detail: "Provider 'grok' cannot stop a single subagent.",
+          requestId: "cmd-subagent-stop-unsupported",
+          subagentId: "task-1",
+        },
+      });
+      expect(harness.stopSession).not.toHaveBeenCalled();
+    }),
+  );
+
   effectIt.effect(
     "stops a running session and records the failure when provider interrupt fails",
     () =>
@@ -3964,7 +4077,13 @@ describe("ProviderCommandReactor", () => {
             const thread = (await harness.readModel()).threads.find(
               (entry) => entry.id === ThreadId.make("thread-1"),
             );
-            return thread?.session?.status === "stopped";
+            // The session stop lands before the failure activity is appended.
+            return (
+              thread?.session?.status === "stopped" &&
+              thread.activities.some(
+                (activity) => activity.kind === "provider.turn.interrupt.failed",
+              )
+            );
           }),
         );
 
@@ -4287,6 +4406,141 @@ describe("ProviderCommandReactor", () => {
       decision: "accept",
     });
   });
+
+  const respondWithFeedback = (outcome: boolean | "stale") =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      harness.respondToRequest.mockImplementation(() =>
+        outcome === "stale"
+          ? Effect.fail(
+              new ProviderAdapterRequestError({
+                provider: "opencode",
+                method: "permission.reply",
+                detail: "Unknown pending permission request: approval-request-1",
+              }),
+            )
+          : Effect.succeed({ feedbackDelivered: outcome }),
+      );
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-feedback"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+      // Asked in a turn that has since ended: the session has no active turn.
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-approval-feedback-requested"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-approval-feedback-requested"),
+          tone: "approval",
+          kind: "approval.requested",
+          summary: "Command approval requested",
+          payload: { requestId: "approval-request-1", requestKind: "command" },
+          turnId: TurnId.make("turn-asked"),
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.make("cmd-approval-feedback"),
+        threadId: ThreadId.make("thread-1"),
+        requestId: asApprovalRequestId("approval-request-1"),
+        decision: "decline",
+        feedback: "Run the unit tests instead",
+        createdAt: now,
+      });
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.respondToRequest.mock.calls[0]?.[0]).toEqual({
+        threadId: "thread-1",
+        requestId: "approval-request-1",
+        decision: "decline",
+        feedback: "Run the unit tests instead",
+      });
+      const readModel = yield* Effect.promise(() => harness.readModel());
+      return {
+        harness,
+        thread: readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1")),
+      };
+    });
+
+  effectIt.effect(
+    "sends decline instructions as the next user message when the provider cannot carry them",
+    () =>
+      Effect.gen(function* () {
+        const { harness, thread } = yield* respondWithFeedback(false);
+        expect(
+          thread?.messages.find((message) => message.id === "approval-feedback:approval-request-1"),
+        ).toMatchObject({ role: "user", text: "Run the unit tests instead" });
+        expect(harness.sendTurn.mock.calls.at(-1)?.[0]).toMatchObject({
+          threadId: "thread-1",
+          input: "Run the unit tests instead",
+        });
+        // The user message already shows the instructions; no second record.
+        expect(
+          thread?.activities.some(
+            (activity) => activity.kind === "approval.declined-with-instructions",
+          ),
+        ).toBe(false);
+      }),
+  );
+
+  effectIt.effect(
+    "records the decline with its instructions when the provider received them natively",
+    () =>
+      Effect.gen(function* () {
+        const { harness, thread } = yield* respondWithFeedback(true);
+        expect(
+          thread?.messages.some((message) => message.id.startsWith("approval-feedback:")),
+        ).toBe(false);
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        const records = thread?.activities.filter(
+          (activity) => activity.kind === "approval.declined-with-instructions",
+        );
+        expect(records).toHaveLength(1);
+        expect(records?.[0]).toMatchObject({
+          tone: "approval",
+          // The turn that asked, not the session's (now empty) active turn.
+          turnId: "turn-asked",
+          summary: "Declined · Run the unit tests instead",
+          payload: { requestId: "approval-request-1", feedback: "Run the unit tests instead" },
+        });
+        expect(records?.[0]?.payload).not.toHaveProperty("detail");
+      }),
+  );
+
+  effectIt.effect(
+    "reports instructions for an already answered request as stale, not declined",
+    () =>
+      Effect.gen(function* () {
+        const { harness, thread } = yield* respondWithFeedback("stale");
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        expect(
+          thread?.activities.some(
+            (activity) => activity.kind === "approval.declined-with-instructions",
+          ),
+        ).toBe(false);
+        const failure = thread?.activities.find(
+          (activity) => activity.kind === "provider.approval.respond.failed",
+        );
+        expect(failure?.payload).toMatchObject({
+          requestId: "approval-request-1",
+          detail: expect.stringContaining("Stale pending approval request: approval-request-1"),
+        });
+      }),
+  );
 
   it("forwards user input answers without reading unrelated message bodies", async () => {
     const harness = await createHarness({ unreadableHistory: true });

@@ -22,6 +22,7 @@ import { Children, type CSSProperties, isValidElement, type ReactNode, useState 
 
 import { cn } from "~/lib/utils";
 
+import { DiffStat, hasNonZeroStat } from "../DiffStat";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { PullRequestReviewOutcome } from "./pullRequestDetail.logic";
@@ -90,7 +91,7 @@ function reviewDecisionPresentation(decision: PullRequestReviewDecision) {
       return {
         Icon: UserRoundXIcon,
         label: "Changes requested",
-        toneClassName: "text-amber-600/90 dark:text-amber-400/80",
+        toneClassName: "text-warning-foreground",
       };
     case "review-required":
       return {
@@ -216,16 +217,16 @@ export function PullRequestConflictGlyph({
 }
 
 const CHECK_STATUS_PRESENTATION = {
-  pending: { label: "Running", Icon: Spinner, toneClassName: "text-amber-500" },
+  pending: { label: "Running", Icon: Spinner, toneClassName: "text-warning-foreground" },
   "action-required": {
     label: "Awaiting action",
     Icon: CircleDotIcon,
-    toneClassName: "text-amber-600 dark:text-amber-400/90",
+    toneClassName: "text-warning-foreground",
   },
   success: {
     label: "Passed",
     Icon: CircleCheckIcon,
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
+    toneClassName: "text-success-foreground",
   },
   failure: { label: "Failed", Icon: CircleXIcon, toneClassName: "text-destructive" },
   cancelled: { label: "Cancelled", Icon: CircleXIcon, toneClassName: "text-destructive" },
@@ -280,7 +281,7 @@ const CHECKS_STATE_PRESENTATION = {
   pending: {
     label: "Some checks haven't completed yet",
     Icon: CircleDotIcon,
-    toneClassName: "text-amber-600 dark:text-amber-400/90",
+    toneClassName: "text-warning-foreground",
   },
 } as const satisfies Record<
   PullRequestChecksState,
@@ -319,10 +320,9 @@ const REVIEW_OUTCOME_PRESENTATION = {
   approved: {
     label: "Approved",
     Icon: CircleCheckIcon,
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
-    ringClassName: "ring-2 ring-emerald-500 dark:ring-emerald-400",
-    staleRingClassName:
-      "ring-2 ring-[color-mix(in_srgb,var(--color-emerald-500)_35%,var(--background))] dark:ring-[color-mix(in_srgb,var(--color-emerald-400)_35%,var(--background))]",
+    toneClassName: "text-success-foreground",
+    ringClassName: "ring-2 ring-success",
+    staleRingClassName: "ring-2 ring-[color-mix(in_srgb,var(--success)_35%,var(--background))]",
     badgeVariant: "success",
   },
   "changes-requested": {
@@ -507,7 +507,7 @@ export function PullRequestActorLabel({
   );
 }
 
-/** Added and removed lines, coloured the way every host colours them. */
+/** A pull request's line counts, written out in full rather than compacted. */
 export function PullRequestDiffStat({
   additions,
   deletions,
@@ -517,16 +517,18 @@ export function PullRequestDiffStat({
   deletions: number;
   className?: string;
 }) {
-  // Not every host reports line counts. Showing "+0 -0" would read as an empty change set
+  // Not every host reports line counts. Showing "+0 −0" would read as an empty change set
   // rather than as a missing one, so the stat is left out instead.
-  if (additions === 0 && deletions === 0) {
+  if (!hasNonZeroStat({ additions, deletions })) {
     return null;
   }
   return (
-    <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)}>
-      <span className="text-diff-addition-foreground">+{additions.toLocaleString()}</span>
-      <span className="text-diff-deletion">-{deletions.toLocaleString()}</span>
-    </span>
+    <DiffStat
+      additions={additions}
+      deletions={deletions}
+      notation="full"
+      className={cn("items-baseline", className)}
+    />
   );
 }
 

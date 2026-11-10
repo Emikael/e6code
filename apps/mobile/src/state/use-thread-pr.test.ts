@@ -21,7 +21,7 @@ describe("presentThreadPr", () => {
     expect(presentThreadPr(pullRequest, undefined)).toMatchObject({
       label: "3774",
       accessibilityLabel: "#3774 pull request merged",
-      textClassName: "text-adaptive-violet-600-400",
+      textClassName: "text-merged-foreground",
     });
   });
 
@@ -91,17 +91,17 @@ describe("presentThreadLinkedPullRequests", () => {
       others: 1,
       state: "open",
       isDraft: false,
-      textClassName: "text-adaptive-emerald-600-400",
+      textClassName: "text-success-foreground",
     });
   });
 
   it.each([
-    ["closed", false, "closed", false, "closed", false, "text-adaptive-rose-600-400"],
+    ["closed", false, "closed", false, "closed", false, "text-danger-foreground"],
     ["open", true, "open", true, "open", true, "text-foreground-muted"],
-    ["open", true, "open", false, "open", false, "text-adaptive-emerald-600-400"],
-    ["closed", false, "open", false, "open", false, "text-adaptive-emerald-600-400"],
-    ["merged", false, "merged", false, "merged", false, "text-adaptive-violet-600-400"],
-    ["closed", false, "merged", false, "closed", false, "text-adaptive-rose-600-400"],
+    ["open", true, "open", false, "open", false, "text-success-foreground"],
+    ["closed", false, "open", false, "open", false, "text-success-foreground"],
+    ["merged", false, "merged", false, "merged", false, "text-merged-foreground"],
+    ["closed", false, "merged", false, "closed", false, "text-danger-foreground"],
   ] as const)(
     "colors linked %s (draft %s) and %s (draft %s) by their aggregate state",
     (firstState, firstDraft, secondState, secondDraft, state, isDraft, textClassName) => {
@@ -151,7 +151,7 @@ describe("presentThreadLinkedPullRequests", () => {
       presentThreadLinkedPullRequests([
         { ...link, snapshot: { ...link.snapshot!, state: "merged" } },
       ]),
-    ).toMatchObject({ state: "merged", textClassName: "text-adaptive-violet-600-400" });
+    ).toMatchObject({ state: "merged", textClassName: "text-merged-foreground" });
   });
 });
 

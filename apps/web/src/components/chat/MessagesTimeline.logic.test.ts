@@ -23,6 +23,10 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  deriveThinkingTimelineHeading,
+  activityGroupHasTimelineSteps,
+  formatWorkingTimer,
+  findSubagentSpawnRow,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
@@ -35,6 +39,7 @@ import {
   WORKTREE_SETUP_ROW_ID,
   buildToolCallExpandedBody,
   workEntryDisplayLabel,
+  resolveWorkingRowStatus,
 } from "./MessagesTimeline.logic";
 import {
   createMessageAttachmentPreviewProjector,
@@ -159,6 +164,28 @@ describe("streaming row projection", () => {
         expect(next.rows[index]).toBe(row);
       }
     }
+  });
+
+  it("keeps the streaming fast path when turn usage is rebuilt with the same records", () => {
+    const initial = fixture("Before");
+    const usage = { totalTokens: 10, partial: false };
+    const previous = deriveMessagesTimelineRowsWithState({
+      ...initial.input,
+      turnUsageByTurnId: new Map([[initial.historyTurnId, usage]]),
+    });
+    const last = initial.messages.at(-1)!;
+    const messages = [...initial.messages.slice(0, -1), { ...last, text: "After" }];
+    const timeline = deriveTimelineEntriesWithState(messages, [], initial.work, initial.timeline);
+    const next = deriveMessagesTimelineRowsWithState(
+      {
+        ...initial.input,
+        timelineEntries: timeline.entries,
+        turnUsageByTurnId: new Map([[initial.historyTurnId, usage]]),
+      },
+      previous,
+    );
+
+    expect(next.rows[0]).toBe(previous.rows[0]);
   });
 
   it("keeps earlier emitted rows unchanged across two projection branches", () => {
@@ -1460,26 +1487,73 @@ describe("deriveMessagesTimelineRows", () => {
           toolLifecycleStatus,
         },
       };
-      for (const trailingEntries of [[], [laterTool]]) {
-        const rows = deriveMessagesTimelineRows({
-          timelineEntries: [...direct.slice(0, 2), ...trailingEntries],
+      const rowsWhile = (liveAgentTaskIds: ReadonlySet<string>) =>
+        deriveMessagesTimelineRows({
+          timelineEntries: [...direct.slice(0, 2), laterTool],
           isWorking: true,
           runningTurnId: "turn-1" as TurnId,
           activeTurnStartedAt: "2026-01-01T00:00:00Z",
           turnDiffSummaries: [],
           supportsConversationRollback: false,
-          liveAgentTaskIds: new Set(["agent-b"]),
+          liveAgentTaskIds,
         });
-        expect(rows.filter((row) => row.kind === "work-live")).toMatchObject([
-          {
-            id: "live-activity-row",
-            entry: { id: trailingEntries.length ? "later-tool" : "spawn-entry" },
-            active: true,
-          },
-        ]);
-        expect(rows.some((row) => row.kind === "work" || row.kind === "thinking")).toBe(false);
-      }
+      // While a subagent works, its batch keeps its own card above the live
+      // row of the coordinator's later tool calls.
+      const working = rowsWhile(new Set(["agent-b"]));
+      expect(
+        working
+          .filter((row) => row.kind === "work" || row.kind === "work-live")
+          .map((row) => [row.kind, row.id]),
+      ).toEqual([
+        ["work", "spawn-entry"],
+        ["work-live", "live-activity-row"],
+      ]);
+      expect(working.find((row) => row.kind === "work-live")).toMatchObject({
+        entry: { id: "later-tool" },
+        active: true,
+      });
+      expect(working.some((row) => row.kind === "thinking")).toBe(false);
+      // Once the agents settle, the batch folds into the run like any tool call.
+      const settled = rowsWhile(new Set());
+      expect(settled.filter((row) => row.kind === "work-live")).toMatchObject([
+        {
+          entry: { id: "later-tool" },
+          groupedEntries: [{ id: "spawn-entry" }, { id: "later-tool" }],
+        },
+      ]);
+      expect(settled.some((row) => row.kind === "work")).toBe(false);
+
+      // "Show in thread" finds the card, and the group to open once it folded.
+      expect(findSubagentSpawnRow(working, new Set(["agent-b"]))).toEqual({
+        index: working.findIndex((row) => row.id === "spawn-entry"),
+        entryId: "spawn-entry",
+        foldedGroupId: null,
+      });
+      const settledLive = settled.find((row) => row.kind === "work-live");
+      expect(findSubagentSpawnRow(settled, new Set(["agent-a"]))).toEqual({
+        index: settled.indexOf(settledLive!),
+        entryId: "spawn-entry",
+        foldedGroupId: settledLive?.kind === "work-live" ? settledLive.groupId : "missing",
+      });
+      expect(findSubagentSpawnRow(working, new Set(["someone-else"]))).toBeNull();
     }
+
+    // A live batch with nothing after it is its own card, and the turn shows
+    // no separate thinking row while its agents work.
+    const liveBatchOnly = deriveMessagesTimelineRows({
+      timelineEntries: direct.slice(0, 2),
+      isWorking: true,
+      runningTurnId: "turn-1" as TurnId,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      liveAgentTaskIds: new Set(["agent-b"]),
+    });
+    expect(
+      liveBatchOnly
+        .filter((row) => row.kind === "work" || row.kind === "work-live" || row.kind === "thinking")
+        .map((row) => [row.kind, row.id]),
+    ).toEqual([["work", "spawn-entry"]]);
 
     expect(derive(direct, new Set())).toEqual(unfolded);
     expect(derive(direct, new Set(["agent-b"]))).toEqual(unfolded);
@@ -1773,6 +1847,130 @@ describe("deriveMessagesTimelineRows", () => {
     expect(
       expandedRows.find((row) => row.kind === "turn-fold" && row.expanded === true),
     ).toBeDefined();
+  });
+
+  it("adds a settled turn's tokens and cost to its fold label", () => {
+    const turnId = TurnId.make("turn-1");
+    const message = (id: string, role: "user" | "assistant", at: string) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at,
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        turnId: role === "user" ? null : turnId,
+        createdAt: at,
+        updatedAt: at,
+        streaming: false,
+      },
+    });
+    const timelineEntries = [
+      message("user", "user", "2026-01-01T00:00:00Z"),
+      {
+        id: "work-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:05Z",
+        entry: {
+          id: "work",
+          createdAt: "2026-01-01T00:00:05Z",
+          turnId,
+          label: "Ran command",
+          tone: "tool" as const,
+        },
+      },
+      message("assistant", "assistant", "2026-01-01T00:00:22Z"),
+    ];
+    const foldLabel = (
+      turnUsageByTurnId: Parameters<typeof deriveMessagesTimelineRows>[0]["turnUsageByTurnId"],
+    ) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+        ...(turnUsageByTurnId ? { turnUsageByTurnId } : {}),
+      }).find((row) => row.kind === "turn-fold")?.label;
+
+    expect(foldLabel(undefined)).toBe("Worked for 22s");
+    expect(
+      foldLabel(
+        new Map([
+          [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" }],
+        ]),
+      ),
+    ).toBe("Worked for 22s · 48.6K tokens · $0.12");
+    expect(
+      foldLabel(
+        new Map([
+          [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" }],
+        ]),
+      ),
+    ).toBe("Worked for 22s · 48.6K tokens · ≈$0.12");
+  });
+
+  it("shows usage on the final answer only when its turn has no fold row", () => {
+    const turnId = TurnId.make("turn-1");
+    const usage = {
+      totalTokens: 48_600,
+      partial: false,
+      costUsd: 0.12,
+      costSource: "reported" as const,
+    };
+    const message = (id: string, role: "user" | "assistant", at: string) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at,
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        turnId: role === "user" ? null : turnId,
+        createdAt: at,
+        updatedAt: at,
+        streaming: false,
+      },
+    });
+    const toolCall = {
+      id: "work-entry",
+      kind: "work" as const,
+      createdAt: "2026-01-01T00:00:05Z",
+      entry: {
+        id: "work",
+        createdAt: "2026-01-01T00:00:05Z",
+        turnId,
+        label: "Ran command",
+        tone: "tool" as const,
+      },
+    };
+    const user = message("user", "user", "2026-01-01T00:00:00Z");
+    const answer = message("assistant", "assistant", "2026-01-01T00:00:22Z");
+    const rowsFor = (
+      timelineEntries: Parameters<typeof deriveMessagesTimelineRows>[0]["timelineEntries"],
+    ) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+        turnUsageByTurnId: new Map([[turnId, usage]]),
+      });
+    const answerUsage = (rows: ReadonlyArray<MessagesTimelineRow>) => {
+      const row = rows.find((row) => row.kind === "message" && row.message.role === "assistant");
+      return row?.kind === "message" ? row.assistantUsageLabel : undefined;
+    };
+
+    const withoutTools = rowsFor([user, answer]);
+    expect(withoutTools.some((row) => row.kind === "turn-fold")).toBe(false);
+    expect(answerUsage(withoutTools)).toBe("48.6K tokens · $0.12");
+
+    const withTools = rowsFor([user, toolCall, answer]);
+    expect(withTools.find((row) => row.kind === "turn-fold")?.label).toBe(
+      "Worked for 22s · 48.6K tokens · $0.12",
+    );
+    expect(answerUsage(withTools)).toBeUndefined();
   });
 
   it("keeps a tool group after the terminal response visible when the turn is folded", () => {
@@ -3957,5 +4155,128 @@ describe("buildToolCallExpandedBody", () => {
         "/repo/shot.png",
       ),
     ).toEqual({ call: null, result: "repo/src/a.ts" });
+  });
+});
+
+describe("resolveWorkingRowStatus", () => {
+  const retrying = { kind: "retrying", attempt: 2, maxAttempts: 5 } as const;
+  const base = {
+    isPreparingWorktree: false,
+    isCompacting: false,
+    pendingAttention: null,
+    agentState: null,
+  } as const;
+
+  it("names what the agent reports over plain Working", () => {
+    expect(resolveWorkingRowStatus(base)).toEqual({ kind: "working" });
+    expect(resolveWorkingRowStatus({ ...base, agentState: retrying })).toEqual({
+      kind: "agent-state",
+      agentState: retrying,
+    });
+  });
+
+  it("keeps a requested /compact and worktree setup ahead of the agent state", () => {
+    const compacting = { kind: "compacting" } as const;
+    expect(
+      resolveWorkingRowStatus({ ...base, isCompacting: true, agentState: compacting }),
+    ).toEqual({ kind: "compacting" });
+    expect(
+      resolveWorkingRowStatus({ ...base, isPreparingWorktree: true, agentState: retrying }),
+    ).toEqual({ kind: "preparing" });
+  });
+
+  it("lets a request waiting on the user outrank a usage-limit pause", () => {
+    expect(
+      resolveWorkingRowStatus({
+        ...base,
+        pendingAttention: "approval",
+        agentState: { kind: "rate-limited" },
+      }),
+    ).toEqual({ kind: "attention", attention: "approval" });
+  });
+});
+
+describe("deriveThinkingTimelineHeading", () => {
+  it("spans the earliest step start to the latest step update once settled", () => {
+    expect(
+      deriveThinkingTimelineHeading({
+        active: false,
+        entries: [
+          { createdAt: "2026-11-09T10:00:05.000Z", startedAt: "2026-11-09T10:00:00.000Z" },
+          { createdAt: "2026-11-09T10:03:40.000Z" },
+          { createdAt: "2026-11-09T10:01:00.000Z" },
+        ],
+        stepCount: 4,
+      }),
+    ).toEqual({
+      startedAt: "2026-11-09T10:00:00.000Z",
+      duration: "3m 40s",
+      stepsLabel: "4 steps",
+    });
+  });
+
+  it("leaves the duration to the live timer while the group runs", () => {
+    expect(
+      deriveThinkingTimelineHeading({
+        active: true,
+        entries: [{ createdAt: "2026-11-09T10:00:05.000Z" }],
+        stepCount: 1,
+      }),
+    ).toEqual({ startedAt: "2026-11-09T10:00:05.000Z", duration: null, stepsLabel: "1 step" });
+  });
+
+  it("claims no duration when no step time parses", () => {
+    expect(
+      deriveThinkingTimelineHeading({
+        active: false,
+        entries: [{ createdAt: "not a date" }],
+        stepCount: 2,
+      }),
+    ).toEqual({ startedAt: null, duration: null, stepsLabel: "2 steps" });
+  });
+});
+
+describe("formatWorkingTimer", () => {
+  it("counts seconds under a minute and minutes after", () => {
+    expect(formatWorkingTimer("2026-11-09T10:00:00.000Z", "2026-11-09T10:00:42.900Z")).toBe("42s");
+    expect(formatWorkingTimer("2026-11-09T10:00:00.000Z", "2026-11-09T10:03:40.000Z")).toBe(
+      "3m 40s",
+    );
+    expect(formatWorkingTimer("bad", "2026-11-09T10:03:40.000Z")).toBeNull();
+  });
+});
+
+describe("activityGroupHasTimelineSteps", () => {
+  const step = {
+    id: "step",
+    createdAt: "2026-11-09T10:00:00.000Z",
+    label: "Read file",
+    tone: "tool" as const,
+    itemType: "command_execution" as const,
+    command: "cat a.ts",
+  };
+
+  it("needs a visible step for the rail and its heading", () => {
+    expect(
+      activityGroupHasTimelineSteps({
+        active: true,
+        entries: [
+          { kind: "message" },
+          { kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } },
+        ],
+      }),
+    ).toBe(true);
+    expect(activityGroupHasTimelineSteps({ active: true, entries: [{ kind: "message" }] })).toBe(
+      false,
+    );
+  });
+
+  it("leaves out a settled group's neutral rows", () => {
+    expect(
+      activityGroupHasTimelineSteps({
+        active: false,
+        entries: [{ kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } }],
+      }),
+    ).toBe(false);
   });
 });

@@ -10,7 +10,10 @@ Antigravity side by side with the subscriptions you already have, from your desk
 
 [Website](https://e6code.com) · [Download](https://github.com/Emikael/e6code/releases) · [Web app](https://latest.app.e6code.com) · [iOS](https://apps.apple.com/us/app/e6-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.e6tools.e6code) · [Docs](./docs)
 
-<img src="./apps/marketing/src/assets/app-desktop.webp" alt="The E6 Code desktop app: a Claude Code thread explaining its change beside the turn's diff" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="./apps/marketing/src/assets/app-thread-light.webp" />
+  <img src="./apps/marketing/src/assets/app-thread-dark.webp" alt="The E6 Code desktop app: Claude splits a task across four subagents, one working, one waiting for approval, one asking a question and one done, beside the run details panel" width="100%" />
+</picture>
 
 </div>
 

@@ -5,7 +5,13 @@ import { describe, expect, it } from "vite-plus/test";
 import { ChangedFilesCard, ChangedFilesTree } from "./ChangedFilesTree";
 
 describe("ChangedFilesCard", () => {
-  it("keeps its compact header sticky while preserving singular labels", () => {
+  const nestedFiles = [
+    { path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 },
+    { path: "packages/shared/src/git.ts", kind: "modified", additions: 15, deletions: 4 },
+    { path: "README.md", kind: "modified", additions: 3, deletions: 0 },
+  ];
+
+  it("keeps singular labels and the turn totals in the header", () => {
     const markup = renderToStaticMarkup(
       <ChangedFilesCard
         turnId={TurnId.make("turn-1")}
@@ -17,28 +23,21 @@ describe("ChangedFilesCard", () => {
       />,
     );
 
-    expect(markup).toContain('data-changed-files-state="tree"');
-    expect(markup).toContain('aria-label="Open diff"');
-    expect(markup).toContain('role="group" aria-label="2 additions, 1 deletions"');
+    // A flat change has no folders, so the tree choice cannot apply.
+    expect(markup).toContain('data-changed-files-state="list"');
+    expect(markup).toContain("Open diff");
+    expect(markup).toContain('<span aria-hidden="true">\u22121</span>');
+    expect(markup).toContain('<span class="sr-only">2 additions,</span>');
+    expect(markup).toContain('<span class="sr-only">1 deletions</span>');
     expect(markup).toContain("1 changed file");
     expect(markup).not.toContain("1 changed files");
   });
 
-  it("shows collapsed folders and root files together", () => {
+  it("lists every file by its full path until the folder view is chosen", () => {
     const markup = renderToStaticMarkup(
       <ChangedFilesCard
         turnId={TurnId.make("turn-1")}
-        files={[
-          { path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 },
-          { path: "apps/web/src/App.test.tsx", kind: "modified", additions: 30, deletions: 2 },
-          {
-            path: "packages/shared/src/git.ts",
-            kind: "modified",
-            additions: 15,
-            deletions: 4,
-          },
-          { path: "README.md", kind: "modified", additions: 3, deletions: 0 },
-        ]}
+        files={nestedFiles}
         allDirectoriesExpanded={false}
         resolvedTheme="light"
         onToggleAllDirectories={() => {}}
@@ -46,23 +45,19 @@ describe("ChangedFilesCard", () => {
       />,
     );
 
-    expect(markup).toContain('data-changed-files-state="tree"');
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain("apps/web/src");
-    expect(markup).not.toContain("App.tsx");
-    expect(markup).toContain("packages/shared/src");
-    expect(markup).not.toContain("git.ts");
+    expect(markup).toContain('data-changed-files-state="list"');
+    expect(markup).toContain('aria-label="Show as folders"');
+    expect(markup).toContain("App.tsx");
+    expect(markup).toContain("git.ts");
     expect(markup).toContain("README.md");
-    expect(markup).not.toContain("Show all");
-    expect(markup).not.toContain("App.test.tsx");
   });
 
-  it("keeps the folder tree visible when folders are collapsed", () => {
+  it("shows the expanded folder tree when the folder view is chosen", () => {
     const markup = renderToStaticMarkup(
       <ChangedFilesCard
         turnId={TurnId.make("turn-1")}
-        files={[{ path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 }]}
-        allDirectoriesExpanded={false}
+        files={nestedFiles}
+        allDirectoriesExpanded
         resolvedTheme="light"
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
@@ -70,10 +65,9 @@ describe("ChangedFilesCard", () => {
     );
 
     expect(markup).toContain('data-changed-files-state="tree"');
-    expect(markup).toContain("1 changed file");
-    expect(markup).toContain("apps/web/src");
-    expect(markup).not.toContain("Show all");
-    expect(markup).not.toContain("App.tsx");
+    expect(markup).toContain('aria-label="Show as a list"');
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain("App.tsx");
   });
 });
 

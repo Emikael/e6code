@@ -1,7 +1,7 @@
 import type { ProviderOptionDescriptor } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { selectableChoices } from "./thread-settings-options";
+import { resolveEffortSteps, selectableChoices } from "./thread-settings-options";
 
 const effortDescriptor: Extract<ProviderOptionDescriptor, { type: "select" }> = {
   id: "effort",
@@ -25,5 +25,32 @@ describe("selectableChoices", () => {
       "medium",
       "high",
     ]);
+  });
+});
+
+describe("resolveEffortSteps", () => {
+  it("maps the effort descriptor and marks the current level's step", () => {
+    const steps = resolveEffortSteps([effortDescriptor]);
+    expect(steps?.descriptorId).toBe("effort");
+    expect(steps?.segments.values).toEqual({ fast: "low", balanced: "medium", deep: "high" });
+    expect(steps?.selected).toBe("deep");
+  });
+
+  it("falls back to the default level and checks no step between steps", () => {
+    const { currentValue: _current, ...unset } = effortDescriptor;
+    expect(resolveEffortSteps([unset])?.selected).toBe("balanced");
+    const fourLevels = {
+      ...effortDescriptor,
+      options: [...effortDescriptor.options, { id: "xhigh", label: "Extra High" }],
+    };
+    expect(resolveEffortSteps([fourLevels])?.selected).toBeNull();
+  });
+
+  it("hides when the first select is not effort or effort has too few levels", () => {
+    const contextWindow = { ...effortDescriptor, id: "contextWindow" };
+    expect(resolveEffortSteps([contextWindow, effortDescriptor])).toBeNull();
+    const twoLevels = { ...effortDescriptor, options: effortDescriptor.options.slice(1, 3) };
+    expect(resolveEffortSteps([twoLevels])).toBeNull();
+    expect(resolveEffortSteps([])).toBeNull();
   });
 });

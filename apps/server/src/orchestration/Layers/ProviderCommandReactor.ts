@@ -1,5 +1,6 @@
 import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
 import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
   type ChatAttachment,
   CommandId,
   EventId,
@@ -40,7 +41,9 @@ import { increment, orchestrationEventsProcessedTotal } from "../../observabilit
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
+  ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
+  ProviderValidationError,
   ProviderWorkspaceMissingError,
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -75,6 +78,8 @@ const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderWorkspaceMissingError = Schema.is(ProviderWorkspaceMissingError);
+const isProviderValidationError = Schema.is(ProviderValidationError);
+const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
 type ProviderIntentEvent = Extract<
@@ -85,6 +90,7 @@ type ProviderIntentEvent = Extract<
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
+      | "thread.subagent-stop-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
       | "thread.session-stop-requested"
@@ -92,6 +98,18 @@ type ProviderIntentEvent = Extract<
       | "thread.session-set";
   }
 >;
+
+const APPROVAL_FEEDBACK_PREVIEW_CHARS = 160;
+
+/** One line of the instructions, short enough for a work log row. */
+function approvalFeedbackPreview(feedback: string): string {
+  const firstLine = feedback.split("\n", 1)[0]!.trim();
+  const shortened =
+    firstLine.length > APPROVAL_FEEDBACK_PREVIEW_CHARS
+      ? `${firstLine.slice(0, APPROVAL_FEEDBACK_PREVIEW_CHARS - 1).trimEnd()}…`
+      : firstLine;
+  return shortened === feedback ? feedback : shortened.length > 0 ? shortened : "instructions";
+}
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -124,6 +142,8 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
   event.commandId !== null ? `command:${event.commandId}` : `event:${event.eventId}`;
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
+/** Upper bound on a single-subagent stop; adapters bound their own RPCs below it. */
+const SUBAGENT_STOP_TIMEOUT = Duration.seconds(10);
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
@@ -280,6 +300,7 @@ const make = Effect.gen(function* () {
     readonly kind:
       | "provider.turn.start.failed"
       | "provider.turn.interrupt.failed"
+      | "provider.subagent.stop.failed"
       | "provider.approval.respond.failed"
       | "provider.user-input.respond.failed"
       | "provider.session.stop.failed";
@@ -288,6 +309,7 @@ const make = Effect.gen(function* () {
     readonly turnId: TurnId | null;
     readonly createdAt: string;
     readonly requestId?: string;
+    readonly subagentId?: string;
   }) =>
     Effect.all({
       commandId: serverCommandId("provider-failure-activity"),
@@ -306,6 +328,7 @@ const make = Effect.gen(function* () {
             payload: {
               detail: input.detail,
               ...(input.requestId ? { requestId: input.requestId } : {}),
+              ...(input.subagentId ? { subagentId: input.subagentId } : {}),
             },
             turnId: input.turnId,
             createdAt: input.createdAt,
@@ -1855,13 +1878,16 @@ const make = Effect.gen(function* () {
       });
     }
 
-    yield* providerService
+    const feedback = event.payload.feedback;
+    const response = yield* providerService
       .respondToRequest({
         threadId: event.payload.threadId,
         requestId: event.payload.requestId,
         decision: event.payload.decision,
+        ...(feedback !== undefined ? { feedback } : {}),
       })
       .pipe(
+        Effect.map(Option.some),
         Effect.catchCause((cause) =>
           appendProviderFailureActivity({
             threadId: event.payload.threadId,
@@ -1873,6 +1899,80 @@ const make = Effect.gen(function* () {
             turnId: null,
             createdAt: event.payload.createdAt,
             requestId: event.payload.requestId,
+          }).pipe(Effect.as(Option.none())),
+        ),
+      );
+    if (feedback === undefined || Option.isNone(response)) return;
+    if (response.value.feedbackDelivered) {
+      // The provider read the instructions with the refusal, so nothing in the
+      // conversation shows them. Record them in the turn that asked: the
+      // session's active turn may already be over or be a later one.
+      const preview = approvalFeedbackPreview(feedback);
+      const requestTurnId = yield* projectionSnapshotQuery
+        .getApprovalRequestTurnId({
+          threadId: event.payload.threadId,
+          requestId: event.payload.requestId,
+        })
+        .pipe(
+          Effect.map(Option.getOrNull),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("approval request turn lookup failed", {
+              requestId: event.payload.requestId,
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as(null)),
+          ),
+        );
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: yield* serverCommandId("approval-feedback-activity"),
+          threadId: event.payload.threadId,
+          activity: {
+            id: EventId.make(`approval-feedback:${event.payload.requestId}`),
+            tone: "approval",
+            kind: APPROVAL_FEEDBACK_ACTIVITY_KIND,
+            summary: `Declined · ${preview}`,
+            payload: {
+              requestId: event.payload.requestId,
+              feedback,
+              // Only a shortened preview needs the full text behind it.
+              ...(preview !== feedback ? { detail: feedback } : {}),
+            },
+            turnId: requestTurnId,
+            createdAt: event.payload.createdAt,
+          },
+          createdAt: event.payload.createdAt,
+        })
+        .pipe(Effect.ignoreCause({ log: true }));
+      return;
+    }
+    // The provider cannot carry a reason with the refusal, so the instructions
+    // follow as an ordinary user message, which steers the running turn or
+    // starts the next one exactly like a typed message.
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: yield* serverCommandId("approval-feedback"),
+        threadId: event.payload.threadId,
+        message: {
+          messageId: MessageId.make(`approval-feedback:${event.payload.requestId}`),
+          role: "user",
+          text: feedback,
+          attachments: [],
+        },
+        runtimeMode: thread.runtimeMode,
+        interactionMode: thread.interactionMode,
+        createdAt: event.payload.createdAt,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Instructions for the agent were not sent",
+            detail: Cause.pretty(cause),
+            turnId: null,
+            createdAt: event.payload.createdAt,
           }),
         ),
       );
@@ -1925,6 +2025,52 @@ const make = Effect.gen(function* () {
         );
     },
   );
+
+  /**
+   * Stops one subagent while the turn runs on. The provider's own task
+   * notification settles the subagent; only a failure is recorded here, keyed
+   * by the command id so the requesting client can tell the user.
+   */
+  const processSubagentStopRequested = Effect.fn("processSubagentStopRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.subagent-stop-requested" }>,
+  ) {
+    const recordFailure = (detail: string) =>
+      appendProviderFailureActivity({
+        threadId: event.payload.threadId,
+        kind: "provider.subagent.stop.failed",
+        summary: "Subagent stop failed",
+        detail,
+        turnId: null,
+        createdAt: event.payload.createdAt,
+        ...(event.commandId !== null ? { requestId: event.commandId } : {}),
+        subagentId: event.payload.subagentId,
+      });
+    yield* providerService
+      .stopSubagent({ threadId: event.payload.threadId, subagentId: event.payload.subagentId })
+      .pipe(
+        // This worker serves every thread; no adapter may hold it hostage.
+        Effect.timeoutOption(SUBAGENT_STOP_TIMEOUT),
+        Effect.flatMap((completed) =>
+          Option.isSome(completed)
+            ? Effect.void
+            : recordFailure(
+                "The provider did not confirm the stop in time. Try again, or stop the turn.",
+              ),
+        ),
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.interrupt;
+          }
+          const failure = cause.reasons.find(Cause.isFailReason)?.error;
+          const detail = isProviderValidationError(failure)
+            ? failure.issue
+            : isProviderAdapterSessionNotFoundError(failure)
+              ? "No active provider session is bound to this thread."
+              : formatFailureDetail(cause);
+          return recordFailure(detail);
+        }),
+      );
+  });
 
   const processSessionStopRequested = Effect.fn("processSessionStopRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-stop-requested" }>,
@@ -2041,6 +2187,9 @@ const make = Effect.gen(function* () {
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
         return;
+      case "thread.subagent-stop-requested":
+        yield* processSubagentStopRequested(event);
+        return;
       case "thread.approval-response-requested":
         yield* processApprovalResponseRequested(event);
         return;
@@ -2115,6 +2264,7 @@ const make = Effect.gen(function* () {
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
+        event.type === "thread.subagent-stop-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested" ||

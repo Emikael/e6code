@@ -6,6 +6,11 @@
 environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost. These estimates are not your subscription bill.
 
+On web and desktop, Usage also compares each total with the period before and shows where the
+cost went by model, or, under **Tokens**, where the period's tokens went. **View as table** lists
+each day or hour behind the chart. Mobile shows the same totals, providers, and models without those
+comparisons.
+
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
 record are missing from the totals.
 
@@ -21,6 +26,11 @@ results appear as each one responds.
 
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
+
+A finished turn's **Worked for** summary also shows the tokens that turn used and, when known, its
+cost. Claude reports its own cost; Codex and OpenCode costs are estimated from model prices and
+marked with `≈`. Custom model prices apply to these estimates too. Cursor, Grok, and Antigravity
+do not report per-turn usage.
 
 ## Set custom model prices
 

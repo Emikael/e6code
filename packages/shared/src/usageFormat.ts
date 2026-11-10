@@ -23,23 +23,41 @@ export function formatCount(value: number): string {
   return INTEGER.format(Math.round(value));
 }
 
+const COMPACT_UNITS = [
+  { size: 1e12, suffix: "T" },
+  { size: 1e9, suffix: "B" },
+  { size: 1e6, suffix: "M" },
+  { size: 1e3, suffix: "K" },
+] as const;
+
 /**
- * Compacts a token count to three significant figures with a unit suffix, so
- * columns of numbers line up at a glance (`19.9B`, `76.7M`, `804K`).
+ * Compacts a count to three significant figures with an uppercase unit suffix,
+ * so columns of numbers line up at a glance (`900`, `1.2K`, `804K`, `76.7M`,
+ * `19.9B`). Every client formats token and line counts through this.
  */
-export function formatTokens(value: number): string {
+export function formatCompactCount(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 1e12) return `${trim(value / 1e12)}T`;
-  if (abs >= 1e9) return `${trim(value / 1e9)}B`;
-  if (abs >= 1e6) return `${trim(value / 1e6)}M`;
-  if (abs >= 1e3) return `${trim(value / 1e3)}K`;
+  for (const [index, unit] of COMPACT_UNITS.entries()) {
+    const scaled = abs / unit.size;
+    if (scaled < 1) continue;
+    const rounded = roundSignificant(scaled);
+    // 999,999 rounds up to 1000K; name it in the next unit instead.
+    const larger = COMPACT_UNITS[index - 1];
+    if (rounded >= 1000 && larger) {
+      return `${Math.sign(value) * roundSignificant(abs / larger.size)}${larger.suffix}`;
+    }
+    return `${Math.sign(value) * rounded}${unit.suffix}`;
+  }
   return INTEGER.format(Math.round(value));
 }
 
-function trim(value: number): string {
-  const abs = Math.abs(value);
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-  return value.toFixed(digits).replace(/\.0+$/, "");
+/** A token count for display: `48.6K`, `1.25M`. */
+export function formatTokens(value: number): string {
+  return formatCompactCount(value);
+}
+
+function roundSignificant(value: number): number {
+  return Number(value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2));
 }
 
 export function formatPercent(share: number, digits = 1): string {

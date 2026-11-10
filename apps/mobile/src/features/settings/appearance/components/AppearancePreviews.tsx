@@ -1,19 +1,14 @@
-import { Platform, ScrollView, type StyleProp, type TextStyle, View } from "react-native";
+import { ScrollView, type StyleProp, type TextStyle, View } from "react-native";
 
 import { AppText as Text } from "../../../../components/AppText";
 import {
   resolveMarkdownFontSizes,
   resolveMobileCodeSurface,
 } from "../../../../lib/appearancePreferences";
+import { MONO_FONT_FAMILY } from "../../../../lib/useFontFamily";
 import { useUniwindTheme } from "../../../../lib/useUniwindTheme";
 import { getMobileTerminalTheme } from "../../../terminal/terminalTheme";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
-
-const CODE_FONT_FAMILY = Platform.select({
-  ios: "ui-monospace",
-  android: "monospace",
-  default: "monospace",
-});
 
 /** Hairline between a section's preview surface and its control rows. */
 export function AppearancePreviewSeparator() {
@@ -47,8 +42,8 @@ export function TextAppearancePreview(props: { readonly fontSize: number }) {
  * on the shared card background so it reads like the other previews.
  */
 export function TerminalAppearancePreview(props: { readonly fontSize: number }) {
-  const { themeAppearance: scheme, themeId } = useAppearancePreferences();
-  const theme = getMobileTerminalTheme(themeId, scheme);
+  const { themeAppearance: scheme, themeId, stockAccent } = useAppearancePreferences();
+  const theme = getMobileTerminalTheme(themeId, scheme, stockAccent);
   const lineHeight = Math.round(props.fontSize * 1.6);
   const lineStyle = {
     fontFamily: "Menlo",
@@ -148,7 +143,7 @@ export function CodeAppearancePreview(props: {
       key={line.id}
       style={{
         color: lineNumberColor,
-        fontFamily: CODE_FONT_FAMILY,
+        fontFamily: MONO_FONT_FAMILY,
         fontSize: surface.lineNumberFontSize,
         lineHeight: surface.rowHeight,
         width: 22,
@@ -164,7 +159,7 @@ export function CodeAppearancePreview(props: {
       key={line.id}
       numberOfLines={wrap ? undefined : 1}
       style={{
-        fontFamily: CODE_FONT_FAMILY,
+        fontFamily: MONO_FONT_FAMILY,
         fontSize: surface.fontSize,
         lineHeight: surface.rowHeight,
       }}
@@ -174,7 +169,7 @@ export function CodeAppearancePreview(props: {
           key={token.text}
           style={{
             color: token.keyword ? keywordColor : undefined,
-            fontFamily: CODE_FONT_FAMILY,
+            fontFamily: MONO_FONT_FAMILY,
             fontSize: surface.fontSize,
             lineHeight: surface.rowHeight,
           }}

@@ -162,6 +162,29 @@ describe("AcpCoreRuntimeEvents", () => {
       },
     });
 
+    const editCall = (status: "completed" | "failed") =>
+      makeAcpToolCallEvent({
+        stamp,
+        provider: ProviderDriverKind.make("cursor"),
+        threadId: "thread-1" as never,
+        turnId,
+        toolCall: {
+          toolCallId: "tool-2",
+          kind: "edit",
+          status,
+          title: "Edit",
+          data: {
+            content: [{ type: "diff", path: "/repo/a.ts", oldText: "a\n", newText: "b\nc\n" }],
+          },
+        },
+        rawPayload: { sessionId: "session-1" },
+      });
+    expect(editCall("completed").payload).toMatchObject({
+      itemType: "file_change",
+      changedFiles: [{ path: "/repo/a.ts", additions: 2, deletions: 1 }],
+    });
+    expect(editCall("failed").payload).not.toHaveProperty("changedFiles");
+
     expect(
       makeAcpToolCallEvent({
         stamp,

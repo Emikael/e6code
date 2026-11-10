@@ -1,3 +1,8 @@
+import {
+  agentStateLabelTicks,
+  formatAgentStateLabel,
+} from "@e6tools/client-runtime/state/agent-state";
+import type { ThreadAgentState } from "@e6tools/contracts";
 import { formatDuration } from "@e6tools/shared/orchestrationTiming";
 import { GlassContainer, GlassView } from "expo-glass-effect";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -26,7 +31,8 @@ import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus } from "./floating-working-status";
-import { ShimmeringWorkContent } from "./thread-work-log";
+import { useMinuteClock } from "../../lib/useMinuteClock";
+import { LiveWorkContent } from "./thread-work-log";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
 // The collapsed composer capsule starts 6 below its overlay's top edge, so
@@ -147,7 +153,9 @@ export function FloatingWorkingControl(props: {
             key={
               props.status.kind === "working" || props.status.kind === "compacting"
                 ? props.status.kind
-                : `${props.status.kind}:${props.status.label}`
+                : props.status.kind === "agent-state"
+                  ? `agent-state:${props.status.agentState.kind}`
+                  : `${props.status.kind}:${props.status.label}`
             }
             status={props.status}
             onLayout={handleLabelLayout}
@@ -263,10 +271,44 @@ function CompactingLabel(props: { readonly onLayout: (event: LayoutChangeEvent) 
       <SymbolView
         name="arrow.down.right.and.arrow.up.left"
         size={13}
-        tintColorClassName="foreground"
+        tintColorClassName="accent-primary-text"
         type="monochrome"
       />
-      <Text className="font-e6-medium text-xs text-foreground">Compacting…</Text>
+      <Text className="font-e6-medium text-xs text-primary-text">Compacting…</Text>
+    </StatusLabelRow>
+  );
+}
+
+const AGENT_STATE_SYMBOL = {
+  compacting: "arrow.down.right.and.arrow.up.left",
+  retrying: "arrow.clockwise",
+  "rate-limited": "pause.circle",
+} as const;
+
+function AgentStateLabel(props: {
+  readonly agentState: ThreadAgentState;
+  readonly onLayout: (event: LayoutChangeEvent) => void;
+}) {
+  // Only a countdown needs a clock, and it moves by the minute while shown.
+  const nowMs = useMinuteClock(agentStateLabelTicks(props.agentState));
+  const label = formatAgentStateLabel(props.agentState, nowMs);
+  const paused = props.agentState.kind === "rate-limited";
+  return (
+    <StatusLabelRow accessibilityLabel={label} className="gap-1.5" onLayout={props.onLayout}>
+      <SymbolView
+        name={AGENT_STATE_SYMBOL[props.agentState.kind]}
+        size={13}
+        tintColorClassName={paused ? "accent-warning-foreground" : "accent-foreground"}
+        type="monochrome"
+      />
+      <Text
+        className={`max-w-[260px] shrink font-e6-medium text-xs ${
+          paused ? "text-warning-foreground" : "text-foreground"
+        }`}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
     </StatusLabelRow>
   );
 }
@@ -295,6 +337,15 @@ function FloatingStatusLabel(props: {
   if (props.status.kind === "compacting") {
     return <CompactingLabel key="compacting" onLayout={props.onLayout} />;
   }
+  if (props.status.kind === "agent-state") {
+    return (
+      <AgentStateLabel
+        key={`agent-state:${props.status.agentState.kind}`}
+        agentState={props.status.agentState}
+        onLayout={props.onLayout}
+      />
+    );
+  }
   if (props.status.kind === "attention") {
     return (
       <StatusLabelRow
@@ -308,8 +359,8 @@ function FloatingStatusLabel(props: {
         <View
           className={
             props.status.tone === "approval"
-              ? "h-2 w-2 rounded-full bg-amber-500"
-              : "h-2 w-2 rounded-full bg-indigo-500"
+              ? "h-2 w-2 rounded-full bg-warning-foreground"
+              : "h-2 w-2 rounded-full bg-primary"
           }
         />
         <Text
@@ -334,7 +385,7 @@ function FloatingStatusLabel(props: {
         {props.status.tone === "reconnecting" ? (
           <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
         ) : (
-          <View className="h-2 w-2 rounded-full bg-red-500" />
+          <View className="h-2 w-2 rounded-full bg-danger-foreground" />
         )}
         <Text
           className="max-w-[260px] shrink font-e6-medium text-xs text-foreground"
@@ -356,10 +407,10 @@ function FloatingStatusLabel(props: {
         <SymbolView
           name="arrow.triangle.branch"
           size={13}
-          tintColorClassName="foreground"
+          tintColorClassName="accent-foreground"
           type="monochrome"
         />
-        <ShimmeringWorkContent
+        <LiveWorkContent
           className="flex-none"
           textClassName="font-e6-medium"
           compact
@@ -427,14 +478,18 @@ function WorkingDuration(props: {
   const label = `Working for ${duration}`;
 
   return (
-    <StatusLabelRow accessibilityLabel={label} onLayout={props.onLayout}>
-      <Text className="font-e6-medium text-xs text-foreground">Working for </Text>
-      <SystemText
-        className="text-xs text-foreground"
-        style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
-      >
-        {duration}
-      </SystemText>
+    // Iris dot plus words: the live agent reads the same as the web sidebar.
+    <StatusLabelRow accessibilityLabel={label} className="gap-2" onLayout={props.onLayout}>
+      <View className="h-2 w-2 rounded-full bg-primary" />
+      <View className="flex-row items-center">
+        <Text className="font-e6-medium text-xs text-primary-text">Working for </Text>
+        <SystemText
+          className="text-xs text-primary-text"
+          style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
+        >
+          {duration}
+        </SystemText>
+      </View>
     </StatusLabelRow>
   );
 }

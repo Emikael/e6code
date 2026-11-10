@@ -22,6 +22,7 @@ describe("KeybindingsSettings.logic", () => {
     for (const command of [
       "composer.host",
       "composer.effort",
+      "composer.cycleEffort",
       "composer.mode",
       "composer.workspace",
       "composer.branch",
@@ -30,6 +31,7 @@ describe("KeybindingsSettings.logic", () => {
       "modelPicker.nextProvider",
       "thread.copyReference",
       "pullRequest.copyNumber",
+      "pullRequest.merge",
     ]) {
       expect(rows.find((row) => row.command === command)).toMatchObject({
         source: "Default",

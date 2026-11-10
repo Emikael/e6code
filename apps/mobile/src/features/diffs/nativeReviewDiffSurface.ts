@@ -88,6 +88,10 @@ export interface NativeReviewDiffStyle {
   readonly fileHeaderPathRightPadding?: number;
   readonly fileHeaderCountColumnWidth?: number;
   readonly fileHeaderCountGap?: number;
+  /** Embedded PostScript family for code, line numbers, and hunk headers. */
+  readonly codeFontFamily?: string;
+  /** Embedded PostScript family for file headers and notices. */
+  readonly uiFontFamily?: string;
   readonly codeFontSize?: number;
   readonly codeFontWeight?: string;
   readonly lineNumberFontSize?: number;

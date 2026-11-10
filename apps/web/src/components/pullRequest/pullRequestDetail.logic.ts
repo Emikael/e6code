@@ -17,6 +17,7 @@ import {
   type PullRequestMergeMethod,
   type PullRequestReaction,
   type PullRequestRef,
+  type PullRequestReviewDecision,
   type RepositoryIdentity,
   type PullRequestReviewThread,
   type PullRequestState,
@@ -1254,6 +1255,184 @@ export function writePullRequestDetailSnapshot(
     // Quota or a private-mode store: the next open waits on the live read, which is the
     // cold start this snapshot exists to avoid, not a failure of its own.
   }
+}
+
+/**
+ * How one merge requirement stands: met, blocked on someone acting, waiting on something already
+ * under way, or not reported by this host. Unknown rows are shown but not counted, so "3/3" is
+ * never padded out with a requirement nobody could check.
+ */
+export type MergeReadinessStatus = "ok" | "blocked" | "waiting" | "unknown";
+
+export interface MergeReadinessRow {
+  readonly key: "checks" | "review" | "conflicts" | "base";
+  readonly status: MergeReadinessStatus;
+  readonly label: string;
+  readonly detail: string | null;
+  /**
+   * The panel action that clears this row, where there is one. Failing checks have none here:
+   * the findings button under the checklist hands them over with the review comments.
+   */
+  readonly action: "resolve-conflicts" | "update-branch" | null;
+}
+
+export interface MergeReadiness {
+  readonly rows: ReadonlyArray<MergeReadinessRow>;
+  readonly met: number;
+  readonly counted: number;
+}
+
+const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+
+/**
+ * What "Fix findings" would hand over, worded for the button beside it, or null where there is
+ * nothing to fix. Counted the way `buildFixFindingsHandoff` selects them: unresolved review
+ * threads somebody wrote in, and failing checks — or a failing rollup newer than the check list.
+ */
+export function summarizePullRequestFindings(input: {
+  readonly reviewThreads: ReadonlyArray<PullRequestReviewThread>;
+  readonly checks: ReadonlyArray<PullRequestCheck>;
+  readonly checksState: PullRequestChecksState | null;
+  readonly checksStale: boolean;
+}): string | null {
+  const threads = input.reviewThreads.filter(
+    (thread) =>
+      !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
+  ).length;
+  const failing = input.checksStale
+    ? null
+    : input.checks.filter((check) => check.status === "failure" || check.status === "cancelled")
+        .length;
+  const parts = [
+    threads > 0
+      ? `${threads} unresolved ${plural(threads, "review comment", "review comments")}`
+      : null,
+    failing === null
+      ? input.checksState === "failing"
+        ? "failing checks"
+        : null
+      : failing > 0
+        ? `${failing} failing ${plural(failing, "check", "checks")}`
+        : null,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : parts.join(" · ");
+}
+
+function checksReadinessRow(input: {
+  readonly checks: ReadonlyArray<PullRequestCheck>;
+  readonly checksState: PullRequestChecksState | null;
+  readonly checksStale: boolean;
+}): MergeReadinessRow {
+  const row = (
+    status: MergeReadinessStatus,
+    label: string,
+    detail: string | null = null,
+  ): MergeReadinessRow => ({ key: "checks", status, label, detail, action: null });
+  // A newer rollup than the check list says how things stand, not how many of each.
+  if (input.checksStale || input.checks.length === 0) {
+    switch (input.checksState) {
+      case "passing":
+        return row("ok", "Checks passed");
+      case "failing":
+        return row("blocked", "Checks failing");
+      case "pending":
+        return row("waiting", "Checks running");
+      default:
+        return row("unknown", "No checks reported");
+    }
+  }
+  const total = input.checks.length;
+  const count = (...statuses: ReadonlyArray<PullRequestCheck["status"]>) =>
+    input.checks.filter((check) => statuses.includes(check.status)).length;
+  const failed = count("failure", "cancelled");
+  const pending = count("pending", "action-required");
+  const passed = count("success");
+  const skipped = count("skipped", "neutral");
+  if (failed > 0) {
+    return row("blocked", `${failed} ${plural(failed, "check", "checks")} failing`, `of ${total}`);
+  }
+  if (pending > 0) return row("waiting", "Checks running", `${total - pending} of ${total} done`);
+  return row("ok", "Checks passed", skipped > 0 ? `${passed} · ${skipped} skipped` : `${passed}`);
+}
+
+/**
+ * The merge checklist above the merge control: checks, review, conflicts and base freshness,
+ * each worded so the row reads without its icon. Null for a pull request that is not open,
+ * where there is nothing left to merge.
+ */
+export function resolveMergeReadiness(input: {
+  readonly state: PullRequestState;
+  readonly checks: ReadonlyArray<PullRequestCheck>;
+  readonly checksState: PullRequestChecksState | null;
+  readonly checksStale: boolean;
+  readonly reviewDecision: PullRequestReviewDecision | null | undefined;
+  /** Standing approvals counted from the conversation, for hosts that give no decision. */
+  readonly approvalCount: number;
+  readonly mergeability: PullRequestMergeability;
+  readonly baseComparison?: PullRequestBaseComparison | undefined;
+  readonly behindBy?: number | undefined;
+}): MergeReadiness | null {
+  if (input.state !== "open") return null;
+  const review: MergeReadinessRow = {
+    key: "review",
+    action: null,
+    detail: null,
+    ...(input.reviewDecision === "changes-requested"
+      ? { status: "blocked", label: "Changes requested" }
+      : input.reviewDecision === "approved"
+        ? { status: "ok", label: "Approved" }
+        : input.reviewDecision === "review-required"
+          ? { status: "waiting", label: "Review required" }
+          : input.approvalCount > 0
+            ? { status: "ok", label: "Approved" }
+            : { status: "unknown", label: "No review decision" }),
+  };
+  const conflicts: MergeReadinessRow =
+    input.mergeability === "mergeable"
+      ? { key: "conflicts", status: "ok", label: "No conflicts", detail: null, action: null }
+      : input.mergeability === "conflicting"
+        ? {
+            key: "conflicts",
+            status: "blocked",
+            label: "Conflicts with the base branch",
+            detail: null,
+            action: "resolve-conflicts",
+          }
+        : {
+            key: "conflicts",
+            status: "unknown",
+            label: "Checking for conflicts",
+            detail: null,
+            action: null,
+          };
+  const base: MergeReadinessRow =
+    input.baseComparison === "up-to-date"
+      ? { key: "base", status: "ok", label: "Up to date with base", detail: null, action: null }
+      : input.baseComparison === "behind"
+        ? {
+            key: "base",
+            status: "waiting",
+            label: "Behind the base branch",
+            detail:
+              input.behindBy === undefined
+                ? null
+                : `${input.behindBy.toLocaleString()} ${plural(input.behindBy, "commit", "commits")}`,
+            action: "update-branch",
+          }
+        : {
+            key: "base",
+            status: "unknown",
+            label: "Base comparison unavailable",
+            detail: null,
+            action: null,
+          };
+  const rows = [checksReadinessRow(input), review, conflicts, base];
+  const counted = rows.filter((row) => row.status !== "unknown");
+  return {
+    rows,
+    met: counted.filter((row) => row.status === "ok").length,
+    counted: counted.length,
+  };
 }
 
 /** Live host state wins; a snapshot is only the same change request, never a neighbour's. */

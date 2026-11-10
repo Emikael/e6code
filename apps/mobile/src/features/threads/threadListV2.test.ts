@@ -23,10 +23,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { threadJumpTarget } from "../keyboard/threadKeyboardShortcuts";
+import { resolveThreadStatus } from "./threadPresentation";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
+  resolveThreadHeaderStatusText,
   resolveThreadListV2Enabled,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
@@ -163,10 +165,105 @@ describe("resolveThreadListV2Status", () => {
     expect(resolveThreadListV2Status(thread)).toBe("approval");
   });
 
+  it("says paused for a running turn parked on a usage limit, below user attention", () => {
+    const running = {
+      threadId: ThreadId.make("t"),
+      status: "running" as const,
+      providerName: "Claude",
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      runtimeMode: "full-access" as const,
+      activeTurnId: null,
+      lastError: null,
+      updatedAt: NOW,
+    };
+    const paused = makeThread({
+      id: ThreadId.make("t"),
+      title: "t",
+      session: running,
+      agentState: { kind: "rate-limited" },
+    });
+    expect(resolveThreadListV2Status(paused)).toBe("paused");
+    expect(resolveThreadListV2Status({ ...paused, hasPendingUserInput: true })).toBe("input");
+    expect(resolveThreadListV2Status({ ...paused, agentState: { kind: "retrying" } })).toBe(
+      "working",
+    );
+    expect(resolveThreadListV2Status({ ...paused, session: { ...running, status: "ready" } })).toBe(
+      "ready",
+    );
+
+    // The legacy list says the same, between input and working.
+    expect(resolveThreadStatus(paused)).toMatchObject({ kind: "paused", label: "Paused" });
+    expect(resolveThreadStatus({ ...paused, hasPendingUserInput: true })).toMatchObject({
+      kind: "awaiting-input",
+      label: "Needs your answer",
+    });
+    expect(resolveThreadStatus({ ...paused, hasPendingApprovals: true })).toMatchObject({
+      kind: "pending-approval",
+      label: "Needs approval",
+    });
+    expect(resolveThreadStatus({ ...paused, agentState: undefined })?.kind).toBe("working");
+  });
+
   it("resolves ready for quiescent threads", () => {
     expect(resolveThreadListV2Status(makeThread({ id: ThreadId.make("t"), title: "t" }))).toBe(
       "ready",
     );
+  });
+});
+
+describe("resolveThreadHeaderStatusText", () => {
+  const session = (status: "running" | "error" | "ready") => ({
+    threadId: ThreadId.make("t"),
+    status,
+    providerName: "Codex",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    runtimeMode: "full-access" as const,
+    activeTurnId: null,
+    lastError: null,
+    updatedAt: NOW,
+  });
+  const turn = (state: "completed" | "interrupted") => ({
+    turnId: TurnId.make("turn-1"),
+    state,
+    requestedAt: NOW,
+    startedAt: NOW,
+    completedAt: NOW,
+    assistantMessageId: null,
+  });
+
+  it("words every status as web's header pill does", () => {
+    const base = makeThread({ id: ThreadId.make("t"), title: "t" });
+    expect(resolveThreadHeaderStatusText({ ...base, hasPendingApprovals: true })).toBe(
+      "Needs approval",
+    );
+    expect(resolveThreadHeaderStatusText({ ...base, hasPendingUserInput: true })).toBe(
+      "Needs your answer",
+    );
+    expect(
+      resolveThreadHeaderStatusText({
+        ...base,
+        session: session("running"),
+        planProgress: { step: "Run tests", completedSteps: 3, totalSteps: 6 },
+      }),
+    ).toBe("Working · step 4 of 6");
+    expect(
+      resolveThreadHeaderStatusText(
+        {
+          ...base,
+          session: session("running"),
+          agentState: { kind: "rate-limited", resetsAt: "2026-01-01T14:20:00.000Z" },
+        },
+        () => "14:20",
+      ),
+    ).toBe("Waiting for usage limit · resets 14:20");
+    expect(resolveThreadHeaderStatusText({ ...base, session: session("error") })).toBe("Failed");
+  });
+
+  it("says Done only after a completed turn", () => {
+    const base = makeThread({ id: ThreadId.make("t"), title: "t", session: session("ready") });
+    expect(resolveThreadHeaderStatusText({ ...base, latestTurn: turn("completed") })).toBe("Done");
+    expect(resolveThreadHeaderStatusText({ ...base, latestTurn: turn("interrupted") })).toBeNull();
+    expect(resolveThreadHeaderStatusText(base)).toBeNull();
   });
 });
 

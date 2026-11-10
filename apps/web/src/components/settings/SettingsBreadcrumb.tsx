@@ -21,7 +21,6 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
-import { SETTINGS_SECTION_LABELS } from "./settingsSearch";
 import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
 import {
   ALL_ENVIRONMENTS_VALUE,
@@ -33,17 +32,6 @@ import {
   settingsScopeEnvironmentLabel,
 } from "./settingsScopeAxis";
 
-const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
-  ...SETTINGS_SECTION_LABELS,
-  "/settings/diagnostics": "Diagnostics",
-  "/settings/open-source-licenses": "Open source licenses",
-};
-
-function settingsBreadcrumbLabel(pathname: string): string | null {
-  const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
-  return SETTINGS_BREADCRUMB_LABELS[normalizedPathname] ?? null;
-}
-
 export interface SettingsScopeBreadcrumbProps {
   readonly value: SettingsScopeSearch;
   readonly groups: readonly SidebarProjectSnapshot[];
@@ -52,44 +40,22 @@ export interface SettingsScopeBreadcrumbProps {
 }
 
 /**
- * `Settings / Section / Environment / Project`. The last two crumbs are the
- * targets a change applies to and read like the usage page's filter: muted at
- * "all", foreground once narrowed. A project is the same project on every
- * environment, so the environment crumb alone decides where a project
- * override is written.
+ * `Environment / Project`: the targets a change applies to, read like the
+ * usage page's filter: muted at "all", foreground once narrowed. A project is
+ * the same project on every environment, so the environment crumb alone
+ * decides where a project override is written. The page names itself in its
+ * own header, so the top bar carries only these crumbs.
  */
-export function SettingsBreadcrumb({
-  pathname,
-  scope,
-}: {
-  pathname: string;
-  scope?: SettingsScopeBreadcrumbProps | undefined;
-}) {
-  const sectionLabel = settingsBreadcrumbLabel(pathname);
-
+export function SettingsScopeBreadcrumb(scope: SettingsScopeBreadcrumbProps) {
   return (
-    <WorkspaceBreadcrumb ariaLabel="Settings breadcrumb">
-      {sectionLabel ? (
-        <>
-          <WorkspaceBreadcrumbItem>Settings</WorkspaceBreadcrumbItem>
-          <WorkspaceBreadcrumbSeparator />
-        </>
-      ) : null}
-      <WorkspaceBreadcrumbItem current className="truncate">
-        {sectionLabel ?? "Settings"}
+    <WorkspaceBreadcrumb ariaLabel="Settings scope">
+      <WorkspaceBreadcrumbItem className="min-w-0 shrink">
+        <EnvironmentScopeMenu {...scope} />
       </WorkspaceBreadcrumbItem>
-      {scope ? (
-        <>
-          <WorkspaceBreadcrumbSeparator />
-          <WorkspaceBreadcrumbItem className="min-w-0 shrink">
-            <EnvironmentScopeMenu {...scope} />
-          </WorkspaceBreadcrumbItem>
-          <WorkspaceBreadcrumbSeparator />
-          <WorkspaceBreadcrumbItem className="min-w-0 shrink">
-            <ProjectScopeMenu {...scope} />
-          </WorkspaceBreadcrumbItem>
-        </>
-      ) : null}
+      <WorkspaceBreadcrumbSeparator />
+      <WorkspaceBreadcrumbItem className="min-w-0 shrink">
+        <ProjectScopeMenu {...scope} />
+      </WorkspaceBreadcrumbItem>
     </WorkspaceBreadcrumb>
   );
 }

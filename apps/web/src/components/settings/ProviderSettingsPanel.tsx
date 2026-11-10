@@ -52,7 +52,7 @@ import { getRelativeTimeState } from "../../timestampFormat";
 import {
   ConnectionStatusDot,
   connectionPhaseDotClassName,
-  connectionPhasePingClassName,
+  connectionPhaseHaloClassName,
 } from "../ConnectionStatusDot";
 import {
   isProviderSettingsUpdateCandidate,
@@ -363,7 +363,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
                       {environment.connection.phase !== "connected" ? (
                         <ConnectionStatusDot
                           dotClassName={connectionPhaseDotClassName(environment.connection.phase)}
-                          pingClassName={connectionPhasePingClassName(environment.connection.phase)}
+                          haloClassName={connectionPhaseHaloClassName(environment.connection.phase)}
                         />
                       ) : null}
                       <span className="sr-only">

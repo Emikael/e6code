@@ -37,11 +37,15 @@ import {
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import {
+  APPROVAL_FEEDBACK_ACTIVITY_KIND,
   type MessageId,
   type OrchestrationLatestTurn,
+  type ThreadAgentState,
   type TurnId,
+  type TurnUsageActivityPayload,
   type WorktreeSetupSnapshot,
 } from "@e6tools/contracts";
+import { appendTurnUsage, formatTurnUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 
 const TIMELINE_MINIMAP_ITEM_SPACING = 8;
@@ -61,6 +65,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
   // A Tasks row's detail is its step list, shown when expanded; the label is its summary.
   if (entry.sourceActivityKind === "turn.plan.updated") return entry.label;
+  // "Declined · <instructions>"; the full instructions are the expanded detail.
+  if (entry.sourceActivityKind === APPROVAL_FEEDBACK_ACTIVITY_KIND) return entry.label;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
@@ -113,6 +119,85 @@ export function workEntryIsVisibleInGroup(
       (entry.toolLifecycleStatus === "inProgress" ||
         entry.sourceActivityKind === "task.progress")) ||
     !workEntryIndicatesToolNeutralStatus(entry)
+  );
+}
+
+/** Elapsed time between two instants: "42s" under a minute, then "3m 40s". Null when unparsable. */
+export function formatWorkingTimer(startIso: string, endIso: string): string | null {
+  const startedAtMs = Date.parse(startIso);
+  const endedAtMs = Date.parse(endIso);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return null;
+  }
+  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s`;
+  }
+  return formatDuration(elapsedSeconds * 1_000);
+}
+
+interface ThinkingTimelineHeading {
+  /** When the group's first step began; a running group counts up from here. */
+  readonly startedAt: string | null;
+  /** "3m 40s" for a settled group; null while it runs or when the times are unknown. */
+  readonly duration: string | null;
+  /** "4 steps". */
+  readonly stepsLabel: string;
+}
+
+/**
+ * The closed heading of a thinking timeline: "Working for 3m 40s · 4 steps" while the group runs,
+ * "Worked for 3m 40s · 4 steps" once it settles. The span runs from the earliest step start to the
+ * latest step update, so a step that merged later lifecycle rows still counts its whole run.
+ */
+export function deriveThinkingTimelineHeading(input: {
+  readonly active: boolean;
+  readonly entries: ReadonlyArray<{
+    readonly createdAt: string;
+    readonly startedAt?: string | undefined;
+  }>;
+  readonly stepCount: number;
+}): ThinkingTimelineHeading {
+  let startedAt: string | null = null;
+  let startedAtMs = Number.POSITIVE_INFINITY;
+  let endedAt: string | null = null;
+  let endedAtMs = Number.NEGATIVE_INFINITY;
+  for (const entry of input.entries) {
+    const start = entry.startedAt ?? entry.createdAt;
+    const startMs = Date.parse(start);
+    if (Number.isFinite(startMs) && startMs < startedAtMs) {
+      startedAtMs = startMs;
+      startedAt = start;
+    }
+    const endMs = Date.parse(entry.createdAt);
+    if (Number.isFinite(endMs) && endMs > endedAtMs) {
+      endedAtMs = endMs;
+      endedAt = entry.createdAt;
+    }
+  }
+  const duration =
+    input.active || startedAt === null || endedAt === null
+      ? null
+      : formatWorkingTimer(startedAt, endedAt);
+  return {
+    startedAt,
+    duration,
+    stepsLabel: `${input.stepCount} step${input.stepCount === 1 ? "" : "s"}`,
+  };
+}
+
+/**
+ * Whether an activity group draws the thinking timeline (with the setting on): it needs at least
+ * one visible step to put on the rail. A live group that does carries the "Working for" heading.
+ */
+export function activityGroupHasTimelineSteps(row: {
+  readonly active: boolean;
+  readonly entries: ReadonlyArray<
+    { readonly kind: "work"; readonly entry: WorkLogEntry } | { readonly kind: "message" }
+  >;
+}): boolean {
+  return row.entries.some(
+    (entry) => entry.kind === "work" && workEntryIsVisibleInGroup(entry.entry, row.active),
   );
 }
 
@@ -423,6 +508,8 @@ export type MessagesTimelineRow =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      /** Turn usage for a settled turn with no "Worked for ..." row to carry it. */
+      assistantUsageLabel?: string | undefined;
     }
   | {
       kind: "assistant-meta";
@@ -431,6 +518,7 @@ export type MessagesTimelineRow =
       message: ChatMessage;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
+      assistantUsageLabel?: string | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -657,6 +745,7 @@ function deriveTurnFolds(input: {
   terminalAssistantMessageIds: ReadonlySet<string>;
   latestTurn: TimelineLatestTurn | null;
   unfoldedTurnIds: ReadonlySet<TurnId>;
+  turnUsageByTurnId: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined;
 }): ReadonlyMap<string, TurnFold> {
   interface TurnGroup {
     entries: Array<TimelineEntry>;
@@ -812,13 +901,16 @@ function deriveTurnFolds(input: {
               lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
-    const label = isLatestInterruptedTurn
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = appendTurnUsage(
+      isLatestInterruptedTurn
+        ? duration
+          ? `You stopped after ${duration}`
+          : "You stopped this response"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked",
+      input.turnUsageByTurnId?.get(turnId),
+    );
 
     foldsByAnchorEntryId.set(firstHiddenEntry.id, {
       turnId,
@@ -909,13 +1001,19 @@ function attachTrailingToolGroupsToAssistant(
       message: row.message,
       showAssistantCopyButton: row.showAssistantCopyButton,
       assistantCopyStreaming: row.assistantCopyStreaming,
+      assistantUsageLabel: row.assistantUsageLabel,
     });
   }
 
   const result: MessagesTimelineRow[] = [];
   for (const [index, row] of rows.entries()) {
     if (row.kind === "message" && messageRowsWithoutMeta.has(row.id)) {
-      result.push({ ...row, showAssistantMeta: false, showAssistantCopyButton: false });
+      result.push({
+        ...row,
+        showAssistantMeta: false,
+        showAssistantCopyButton: false,
+        assistantUsageLabel: undefined,
+      });
     } else {
       result.push(row);
     }
@@ -976,12 +1074,14 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt: string | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   supportsConversationRollback: boolean;
-  /** Task ids of subagents still working, used by the active tool indicator. */
+  /** Task ids of subagents still working: their batch keeps its own card while any is live. */
   liveAgentTaskIds?: ReadonlySet<string> | undefined;
   /** Live bootstrap progress. Renders a stage card under the first user message. */
   worktreeSetup?: WorktreeSetupSnapshot | null;
   /** Messages sent during the running turn, rendered after the live rows. */
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
+  /** Settled turns' tokens and cost, appended to their "Worked for ..." row. */
+  turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined;
 }): MessagesTimelineRow[] {
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
@@ -1016,9 +1116,12 @@ export function deriveMessagesTimelineRows(input: {
     terminalAssistantMessageIds,
     latestTurn: input.latestTurn ?? null,
     unfoldedTurnIds: activeVisualResponseTurnIds,
+    turnUsageByTurnId: input.turnUsageByTurnId,
   });
+  const foldedTurnIds = new Set<TurnId>();
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
+    foldedTurnIds.add(fold.turnId);
     if (!input.expandedTurnIds?.has(fold.turnId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
@@ -1040,12 +1143,20 @@ export function deriveMessagesTimelineRows(input: {
     unsettledTurnId !== null &&
     entry.toolLifecycleStatus === "inProgress" &&
     entry.turnId === unsettledTurnId;
+  const spawnHasLiveAgents = (spawn: NonNullable<WorkLogEntry["agentSpawn"]>) =>
+    (spawn.workflowId !== null && input.liveAgentTaskIds?.has(spawn.workflowId) === true) ||
+    spawn.agentTaskIds.some((taskId) => input.liveAgentTaskIds?.has(taskId) === true);
+  // The live row folds the active run's tool calls into one line. A batch
+  // whose subagents are still working ends that run instead: it keeps its own
+  // card, so the agents stay in view while the coordinator calls more tools.
+  // Once they settle, the batch folds with the run like any other tool call.
   const activeToolEntries: Array<Extract<TimelineEntry, { kind: "work" }>> = [];
   for (let index = input.timelineEntries.length - 1; index >= activeTurnHeaderIndex; index -= 1) {
     const entry = input.timelineEntries[index]!;
     if (
       !entryBelongsToActiveTurn(entry, index) ||
       entry.kind !== "work" ||
+      (entry.entry.agentSpawn !== undefined && spawnHasLiveAgents(entry.entry.agentSpawn)) ||
       entry.entry.questionAnswer !== undefined ||
       entry.entry.sourceActivityKind === "context-compaction" ||
       entry.entry.tone === "error"
@@ -1061,14 +1172,10 @@ export function deriveMessagesTimelineRows(input: {
   );
   const activeWorkAnchor = activeToolEntries[0];
   const latestVisibleToolEntry = visibleActiveToolEntries.at(-1);
-  const latestRunningToolEntry = visibleActiveToolEntries.findLast((entry) => {
-    const spawn = entry.entry.agentSpawn;
-    return spawn
-      ? entry === latestVisibleToolEntry &&
-          ((spawn.workflowId !== null && input.liveAgentTaskIds?.has(spawn.workflowId)) ||
-            spawn.agentTaskIds.some((taskId) => input.liveAgentTaskIds?.has(taskId)))
-      : workEntryIsActiveTurnActivity(entry.entry);
-  });
+  // Batches in the run have settled (see above), so none of them is running.
+  const latestRunningToolEntry = visibleActiveToolEntries.findLast(
+    (entry) => entry.entry.agentSpawn === undefined && workEntryIsActiveTurnActivity(entry.entry),
+  );
   const latestToolFailed =
     latestRunningToolEntry === undefined &&
     latestVisibleToolEntry !== undefined &&
@@ -1232,9 +1339,7 @@ export function deriveMessagesTimelineRows(input: {
       ) {
         const spawn = timelineEntry.entry.agentSpawn;
         if (spawn && entryBelongsToActiveTurn(timelineEntry, index)) {
-          hasActivityRow ||=
-            (spawn.workflowId !== null && input.liveAgentTaskIds?.has(spawn.workflowId)) ||
-            spawn.agentTaskIds.some((taskId) => input.liveAgentTaskIds?.has(taskId));
+          hasActivityRow ||= spawnHasLiveAgents(spawn);
         }
         nextRows.push({
           kind: "work",
@@ -1397,6 +1502,13 @@ export function deriveMessagesTimelineRows(input: {
       timelineEntry.message.role === "assistant" &&
       terminalAssistantMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
+    // The fold row carries a turn's usage. A turn without one (no tool calls)
+    // shows it beside its final answer instead, never in both places.
+    const usageTurnId = showAssistantMeta ? (timelineEntry.message.turnId ?? null) : null;
+    const assistantUsageLabel =
+      usageTurnId !== null && !foldedTurnIds.has(usageTurnId)
+        ? (formatTurnUsage(input.turnUsageByTurnId?.get(usageTurnId)) ?? undefined)
+        : undefined;
 
     nextRows.push({
       kind: "message",
@@ -1415,6 +1527,7 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
+      assistantUsageLabel,
     });
   }
 
@@ -1512,6 +1625,7 @@ function replaceStreamingMessageRows(
     latestTurn: previousLatestTurn,
     expandedTurnIds: previousExpandedTurns,
     expandedWorkGroupIds: previousExpandedGroups,
+    turnUsageByTurnId: previousTurnUsage,
     ...previousContext
   } = previous.input;
   const {
@@ -1520,11 +1634,14 @@ function replaceStreamingMessageRows(
     latestTurn,
     expandedTurnIds,
     expandedWorkGroupIds,
+    turnUsageByTurnId,
     ...context
   } = input;
   if (
     timelineEntries.length !== previousEntries.length ||
     !shallow(previousContext, context) ||
+    // Rebuilt on every activity change; its decoded records keep identity.
+    !shallow(previousTurnUsage, turnUsageByTurnId) ||
     !shallow(previousSummaries, turnDiffSummaries) ||
     !shallow(previousLatestTurn, latestTurn) ||
     !shallow(previousExpandedTurns, expandedTurnIds) ||
@@ -1628,7 +1745,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.createdAt === bm.createdAt &&
         a.message === bm.message &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
-        a.assistantCopyStreaming === bm.assistantCopyStreaming
+        a.assistantCopyStreaming === bm.assistantCopyStreaming &&
+        a.assistantUsageLabel === bm.assistantUsageLabel
       );
     }
 
@@ -1696,7 +1814,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.assistantUsageLabel === bm.assistantUsageLabel
       );
     }
   }
@@ -1774,4 +1893,69 @@ export function buildToolCallExpandedBody(
   }
   const result = results.length > 0 ? results.join("\n\n") : null;
   return call || result ? { call, result } : null;
+}
+
+/**
+ * The row that shows a subagent's spawn batch, for Run details' "Show in
+ * thread". A batch is its own row, or one of the entries a live row folded in
+ * after its agents settled; then `foldedGroupId` names the group to open.
+ * `agentIds` holds the subagent and its workflow coordinator, if it has one.
+ */
+export function findSubagentSpawnRow(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  agentIds: ReadonlySet<string>,
+): {
+  readonly index: number;
+  readonly entryId: string;
+  readonly foldedGroupId: string | null;
+} | null {
+  const holdsAgent = (entry: WorkLogEntry) => {
+    const spawn = entry.agentSpawn;
+    return (
+      spawn !== undefined &&
+      ((spawn.workflowId !== null && agentIds.has(spawn.workflowId)) ||
+        spawn.agentTaskIds.some((taskId) => agentIds.has(taskId)))
+    );
+  };
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "work") {
+      const entry = row.groupedEntries.find(holdsAgent);
+      if (entry) return { index, entryId: entry.id, foldedGroupId: null };
+    } else if (row.kind === "work-live") {
+      if (holdsAgent(row.entry)) return { index, entryId: row.entry.id, foldedGroupId: null };
+      const entry = row.groupedEntries.find(holdsAgent);
+      // An open group lists its entries in the details row after this one.
+      if (entry && !row.expanded) return { index, entryId: entry.id, foldedGroupId: row.groupId };
+    }
+  }
+  return null;
+}
+
+/** What the working row says while a turn runs. */
+export type WorkingRowStatus =
+  | { readonly kind: "preparing" }
+  | { readonly kind: "compacting" }
+  | { readonly kind: "attention"; readonly attention: "approval" | "input" }
+  | { readonly kind: "agent-state"; readonly agentState: ThreadAgentState }
+  | { readonly kind: "working" };
+
+/**
+ * Setup and a requested /compact describe the whole turn, so they win. A
+ * pending request needs the user, so it outranks what the agent reports
+ * about itself; the agent's state outranks plain "Working".
+ */
+export function resolveWorkingRowStatus(input: {
+  readonly isPreparingWorktree: boolean;
+  readonly isCompacting: boolean;
+  readonly pendingAttention: "approval" | "input" | null;
+  readonly agentState: ThreadAgentState | null;
+}): WorkingRowStatus {
+  if (input.isPreparingWorktree) return { kind: "preparing" };
+  if (input.isCompacting) return { kind: "compacting" };
+  if (input.pendingAttention !== null) {
+    return { kind: "attention", attention: input.pendingAttention };
+  }
+  if (input.agentState !== null) return { kind: "agent-state", agentState: input.agentState };
+  return { kind: "working" };
 }

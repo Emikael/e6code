@@ -780,7 +780,7 @@ export function PreviewView({
       />
 
       {desktopOverlay?.importedCookieGrant ? (
-        <div className="flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-foreground">
+        <div className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-foreground">
           <p>
             {controller === "agent"
               ? `Agent is using cookies imported from ${desktopOverlay.importedCookieBrowser ?? "your browser"}.`

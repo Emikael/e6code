@@ -36,6 +36,7 @@ export type ModelPickerJumpKeybindingCommand =
 
 const THREAD_KEYBINDING_COMMANDS = [
   "thread.stop",
+  "thread.stopSubagent",
   "thread.steerQueuedMessage",
   "thread.previous",
   "thread.next",
@@ -70,6 +71,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "rightPanel.close",
   "view.reopenClosed",
   "pullRequest.copyNumber",
+  "pullRequest.merge",
   "diff.toggle",
   "preview.toggle",
   "preview.refresh",
@@ -86,6 +88,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.stash",
   "composer.host",
   "composer.effort",
+  "composer.cycleEffort",
   "composer.mode",
   "composer.workspace",
   "composer.previousWorktree",

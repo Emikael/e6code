@@ -36,6 +36,11 @@ import type { ProviderServiceError } from "../Errors.ts";
 import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
 import type { ProviderInstanceRoutingInfo } from "./ProviderAdapterRegistry.ts";
 
+export interface ProviderRespondToRequestResult {
+  /** True when the provider received the decline instructions with the decision. */
+  readonly feedbackDelivered: boolean;
+}
+
 /**
  * ProviderServiceShape - Service API for provider session and turn orchestration.
  */
@@ -83,11 +88,20 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**
+   * Stop one running subagent without ending the turn. Fails with a
+   * validation error when the provider cannot stop a single subagent.
+   */
+  readonly stopSubagent: (input: {
+    readonly threadId: ThreadId;
+    readonly subagentId: string;
+  }) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
    * Respond to a provider approval request.
    */
   readonly respondToRequest: (
     input: ProviderRespondToRequestInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
+  ) => Effect.Effect<ProviderRespondToRequestResult, ProviderServiceError>;
 
   /**
    * Respond to a provider structured user-input request.

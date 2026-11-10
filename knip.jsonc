@@ -67,7 +67,8 @@
       ],
       // Fonts are configured as asset paths; Expo autolinks the native packages.
       "ignoreDependencies": [
-        "@expo-google-fonts/dm-sans",
+        "@expo-google-fonts/geist",
+        "@expo-google-fonts/geist-mono",
         "@e6tools/mobile-review-diff-native",
         "@e6tools/mobile-terminal-native",
       ],

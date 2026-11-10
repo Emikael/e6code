@@ -66,6 +66,7 @@ import {
 } from "./GitActionsControl.logic";
 import { WizardPopup, WizardHeader, WizardSteps, WizardPanel, WizardFooter } from "./ui/wizard";
 import { StartTruncatedPath } from "./StartTruncatedPath";
+import { DiffStat } from "./DiffStat";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -118,6 +119,8 @@ import { useOpenPrLink } from "~/lib/openPullRequestLink";
 
 interface GitActionsControlProps {
   presentation?: "toolbar" | "menu";
+  /** Row height in the "menu" presentation: touch rows on phones, compact on desktop. */
+  menuDensity?: "default" | "touch";
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
@@ -956,6 +959,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
 export default function GitActionsControl({
   presentation = "toolbar",
+  menuDensity = "touch",
   gitCwd,
   activeThreadRef,
   draftId,
@@ -1673,7 +1677,7 @@ export default function GitActionsControl({
         if (item.disabled && disabledReason && presentation === "menu") {
           return (
             <div key={`${item.id}-${item.label}`}>
-              <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+              <MenuItem density={presentation === "menu" ? menuDensity : "default"} disabled>
                 <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
                 <MenuItemLabel>{item.label}</MenuItemLabel>
               </MenuItem>
@@ -1690,7 +1694,7 @@ export default function GitActionsControl({
                 render={<span className="block w-max cursor-not-allowed" />}
               >
                 <MenuItem
-                  density={presentation === "menu" ? "touch" : "default"}
+                  density={presentation === "menu" ? menuDensity : "default"}
                   className="w-full"
                   disabled
                 >
@@ -1707,7 +1711,7 @@ export default function GitActionsControl({
 
         return (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
             key={`${item.id}-${item.label}`}
             disabled={item.disabled}
             onClick={() => {
@@ -1721,7 +1725,7 @@ export default function GitActionsControl({
       })}
       {canPublishRepository ? (
         <MenuItem
-          density={presentation === "menu" ? "touch" : "default"}
+          density={presentation === "menu" ? menuDensity : "default"}
           disabled={isGitActionRunning}
           onClick={() => {
             setIsPublishDialogOpen(true);
@@ -1732,7 +1736,7 @@ export default function GitActionsControl({
         </MenuItem>
       ) : null}
       {gitStatusForActions?.refName === null && (
-        <p className="px-2 py-1.5 text-xs text-warning">
+        <p className="px-2 py-1.5 text-xs text-warning-foreground">
           Detached HEAD: create and check out a branch to enable push and pull request actions.
         </p>
       )}
@@ -1741,7 +1745,9 @@ export default function GitActionsControl({
         !gitStatusForActions.hasWorkingTreeChanges &&
         gitStatusForActions.behindCount > 0 &&
         gitStatusForActions.aheadCount === 0 && (
-          <p className="px-2 py-1.5 text-xs text-warning">Behind upstream. Pull/rebase first.</p>
+          <p className="px-2 py-1.5 text-xs text-warning-foreground">
+            Behind upstream. Pull/rebase first.
+          </p>
         )}
       {gitStatusError && <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError}</p>}
     </>
@@ -1754,7 +1760,7 @@ export default function GitActionsControl({
       {presentation === "menu" ? (
         !isRepo ? (
           <MenuItem
-            density={presentation === "menu" ? "touch" : "default"}
+            density={presentation === "menu" ? menuDensity : "default"}
 
             disabled={initAction.isPending}
             onClick={initializeGit}
@@ -1767,7 +1773,7 @@ export default function GitActionsControl({
         ) : (
           <>
             <MenuItem
-              density={presentation === "menu" ? "touch" : "default"}
+              density={presentation === "menu" ? menuDensity : "default"}
 
               disabled={isGitActionRunning || quickAction.disabled || !!quickActionDisabledReason}
               onClick={runQuickAction}
@@ -1780,7 +1786,7 @@ export default function GitActionsControl({
               <MenuItemLabel>{quickAction.label}</MenuItemLabel>
             </MenuItem>
             {quickActionDisabledReason && (
-              <p className="max-w-64 px-2 py-1.5 text-xs text-warning">
+              <p className="max-w-64 px-2 py-1.5 text-xs text-warning-foreground">
                 {quickActionDisabledReason}
               </p>
             )}
@@ -1789,7 +1795,7 @@ export default function GitActionsControl({
                 if (open) requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
               }}
             >
-              <MenuSubTrigger density="touch" disabled={isGitActionRunning}>
+              <MenuSubTrigger density={menuDensity} disabled={isGitActionRunning}>
                 <SourceControlIcon className="size-4" />
                 <MenuItemLabel>Git actions</MenuItemLabel>
               </MenuSubTrigger>
@@ -1891,7 +1897,9 @@ export default function GitActionsControl({
                   <span className="font-medium">
                     {gitStatusForActions?.refName ?? "(detached HEAD)"}
                   </span>
-                  {isDefaultRef && <span className="text-right text-warning">Default branch</span>}
+                  {isDefaultRef && (
+                    <span className="text-right text-warning-foreground">Default branch</span>
+                  )}
                 </span>
               </div>
               <div className="space-y-1">
@@ -1967,11 +1975,11 @@ export default function GitActionsControl({
                                   {isExcluded ? (
                                     <span className="text-muted-foreground">Excluded</span>
                                   ) : (
-                                    <>
-                                      <span className="text-diff-addition">+{file.insertions}</span>
-                                      <span className="text-muted-foreground"> / </span>
-                                      <span className="text-diff-deletion">-{file.deletions}</span>
-                                    </>
+                                    <DiffStat
+                                      additions={file.insertions}
+                                      deletions={file.deletions}
+                                      notation="full"
+                                    />
                                   )}
                                 </span>
                               </button>
@@ -1980,14 +1988,12 @@ export default function GitActionsControl({
                         })}
                       </div>
                     </ScrollArea>
-                    <div className="flex justify-end font-mono">
-                      <span className="text-diff-addition">
-                        +{selectedFiles.reduce((sum, f) => sum + f.insertions, 0)}
-                      </span>
-                      <span className="text-muted-foreground"> / </span>
-                      <span className="text-diff-deletion">
-                        -{selectedFiles.reduce((sum, f) => sum + f.deletions, 0)}
-                      </span>
+                    <div className="flex justify-end">
+                      <DiffStat
+                        additions={selectedFiles.reduce((sum, f) => sum + f.insertions, 0)}
+                        deletions={selectedFiles.reduce((sum, f) => sum + f.deletions, 0)}
+                        notation="full"
+                      />
                     </div>
                   </div>
                 )}

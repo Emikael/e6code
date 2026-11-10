@@ -140,6 +140,14 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
     return Effect.promise(() => this.interruptTurnImpl(turnId));
   }
 
+  public readonly interruptSubagentImpl = vi.fn((_agentThreadId: string): Promise<void> =>
+    Promise.resolve(undefined),
+  );
+
+  interruptSubagent(agentThreadId: string) {
+    return Effect.promise(() => this.interruptSubagentImpl(agentThreadId));
+  }
+
   readThread = Effect.promise(() => this.readThreadImpl());
 
   rollbackThread(numTurns: number) {
@@ -400,6 +408,27 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       NodeAssert.deepStrictEqual(runtime.uploadFeedbackImpl.mock.calls, [
         ["The agent stopped early."],
       ]);
+    }),
+  );
+
+  it.effect("stops one subagent by interrupting its child thread", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-stop-subagent");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const runtime = sessionRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.ok(adapter.stopSubagent);
+
+      yield* adapter.stopSubagent(threadId, "child-thread-1");
+
+      NodeAssert.deepStrictEqual(runtime.interruptSubagentImpl.mock.calls, [["child-thread-1"]]);
+      NodeAssert.equal(runtime.interruptTurnImpl.mock.calls.length, 0);
+      yield* adapter.stopSession(threadId);
     }),
   );
 
@@ -1177,6 +1206,65 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("tags a child's completed file change with the child's task id", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 3)).pipe(
+        Effect.forkChild,
+      );
+
+      const changes = [
+        {
+          path: "/repo/src/a.ts",
+          kind: { type: "update", move_path: null },
+          diff: "@@ -1,2 +1,3 @@\n-old\n+new\n+added\n keep\n",
+        },
+        { path: "/repo/src/b.ts", kind: { type: "add" }, diff: "one\ntwo\n" },
+        { path: "/repo/src/c.ts", kind: { type: "delete" }, diff: "gone\n" },
+      ];
+      // The proposal (inProgress) is progress only; the applied patch lists files.
+      for (const [index, status] of ["inProgress", "completed"].entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-child-patch-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          method: "collabAgent/item",
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("turn-1"),
+          payload: {
+            agentThreadId: "child-patch",
+            // turn-1 spawned the child; it edits during a later parent turn.
+            parentTurnId: "turn-2",
+            item: { type: "fileChange", id: "patch-1", status, changes },
+          },
+        });
+      }
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.deepStrictEqual(
+        events.map((event) => event.type),
+        ["task.progress", "task.progress", "item.completed"],
+      );
+      const fileChange = events[2]!;
+      NodeAssert.equal(fileChange.itemId, "patch-1");
+      // The diff that holds the edit is the parent turn's, not the spawn turn's.
+      NodeAssert.equal(fileChange.turnId, "turn-2");
+      NodeAssert.notEqual(fileChange.eventId, events[1]!.eventId);
+      NodeAssert.deepStrictEqual(fileChange.payload, {
+        itemType: "file_change",
+        status: "completed",
+        title: "File change",
+        agentId: "child-patch",
+        changedFiles: [
+          { path: "/repo/src/a.ts", additions: 2, deletions: 1 },
+          { path: "/repo/src/b.ts", additions: 2, deletions: 0 },
+          { path: "/repo/src/c.ts", additions: 0, deletions: 1 },
+        ],
+      });
+    }),
+  );
+
   it.effect("does not reactivate an idle child after a parent interaction", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
@@ -1278,6 +1366,61 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       NodeAssert.equal(firstEvent.value.itemId, "msg_1");
       NodeAssert.equal(firstEvent.value.turnId, "turn-1");
       NodeAssert.equal(firstEvent.value.payload.itemType, "assistant_message");
+    }),
+  );
+
+  it.effect("lists the files and line counts of the main agent's applied patch", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 3)).pipe(
+        Effect.forkChild,
+      );
+
+      const changes = [
+        {
+          path: "/repo/src/a.ts",
+          kind: { type: "update", move_path: null },
+          diff: "@@ -1,2 +1,3 @@\n-old\n+new\n+added\n keep\n",
+        },
+        { path: "/repo/src/b.ts", kind: { type: "add" }, diff: "one\ntwo\n" },
+      ];
+      const patchEvent = (id: string, method: string, status: string): ProviderEvent => ({
+        id: asEventId(id),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId(`patch-${id}`),
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          ...(method === "item/started"
+            ? { startedAtMs: 1_778_000_000_000 }
+            : { completedAtMs: 1_778_000_000_000 }),
+          item: { type: "fileChange", id: `patch-${id}`, status, changes },
+        },
+      });
+      // The started item is a proposal; a declined patch changed nothing.
+      yield* runtime.emit(patchEvent("main-started", "item/started", "inProgress"));
+      yield* runtime.emit(patchEvent("main-completed", "item/completed", "completed"));
+      yield* runtime.emit(patchEvent("main-declined", "item/completed", "declined"));
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const payloads = events.map((event) =>
+        event.type === "item.started" || event.type === "item.completed"
+          ? event.payload
+          : undefined,
+      );
+      NodeAssert.equal(payloads[0]?.changedFiles, undefined);
+      NodeAssert.equal(payloads[1]?.agentId, undefined);
+      NodeAssert.deepStrictEqual(payloads[1]?.changedFiles, [
+        { path: "/repo/src/a.ts", additions: 2, deletions: 1 },
+        { path: "/repo/src/b.ts", additions: 2, deletions: 0 },
+      ]);
+      NodeAssert.equal(payloads[2]?.status, "declined");
+      NodeAssert.equal(payloads[2]?.changedFiles, undefined);
     }),
   );
 
@@ -1792,41 +1935,142 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("maps retryable Codex error notifications to runtime.warning", () =>
+  it.effect("names retries in the working indicator and leaves only final failures as rows", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      for (const [index, willRetry] of [true, false].entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-codex-error-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          method: "error",
+          turnId: asTurnId("turn-1"),
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message: willRetry ? "Reconnecting... 2/5" : "Stream failed" },
+            willRetry,
+          },
+        } satisfies ProviderEvent);
+      }
 
-      yield* runtime.emit({
-        id: asEventId("evt-retryable-error"),
+      const [retry, failure] = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.equal(retry?.type, "session.state.changed");
+      NodeAssert.equal(failure?.type, "runtime.error");
+      if (failure?.type === "runtime.error") {
+        NodeAssert.equal(failure.turnId, "turn-1");
+        NodeAssert.equal(failure.payload.message, "Stream failed");
+      }
+    }),
+  );
+
+  it.effect("names Codex retries and auto-compaction as agent states", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const statesFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "session.state.changed"),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const base = {
         kind: "notification",
         provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
         createdAt: "2026-01-01T00:00:00.000Z",
-        method: "error",
         turnId: asTurnId("turn-1"),
+      } as const;
+      for (const [index, message] of ["Reconnecting... 2/5", "stream disconnected"].entries()) {
+        yield* runtime.emit({
+          ...base,
+          id: asEventId(`evt-retry-${index}`),
+          method: "error",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message },
+            willRetry: true,
+          },
+        } satisfies ProviderEvent);
+      }
+      yield* runtime.emit({
+        ...base,
+        id: asEventId("evt-compaction-started"),
+        method: "item/started",
         payload: {
           threadId: "thread-1",
           turnId: "turn-1",
-          error: {
-            message: "Reconnecting... 2/5",
-          },
-          willRetry: true,
+          startedAtMs: 1_778_000_000_000,
+          item: { id: "compact-item", type: "contextCompaction" },
         },
       } satisfies ProviderEvent);
 
-      const firstEvent = yield* Fiber.join(firstEventFiber);
+      const states = Array.from(yield* Fiber.join(statesFiber)).map((event) =>
+        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      );
+      NodeAssert.deepStrictEqual(states, [
+        { kind: "retrying", attempt: 2, maxAttempts: 5 },
+        { kind: "retrying" },
+        { kind: "compacting" },
+      ]);
+    }),
+  );
 
-      NodeAssert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
+  it.effect("reads Codex retry counters only from its own retry wording", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const cases = [
+        ["Reconnecting... 2/5", { kind: "retrying", attempt: 2, maxAttempts: 5 }],
+        ["Reconnecting... 3 / 10", { kind: "retrying", attempt: 3, maxAttempts: 10 }],
+        ["stream error: retrying 1/5 in 200ms", { kind: "retrying", attempt: 1, maxAttempts: 5 }],
+        ["RECONNECTING 5/5", { kind: "retrying", attempt: 5, maxAttempts: 5 }],
+        // Numbers elsewhere in the text are not counters.
+        ["upstream 502/503, Reconnecting...", { kind: "retrying" }],
+        ["Reconnecting... (HTTP 429) 2/5", { kind: "retrying" }],
+        // Implausible pairs are dropped whole.
+        ["Reconnecting... 0/5", { kind: "retrying" }],
+        ["Reconnecting... 6/5", { kind: "retrying" }],
+        ["Reconnecting... 2/5000", { kind: "retrying" }],
+        ["Reconnecting... 2/500", { kind: "retrying" }],
+      ] as const;
+      const statesFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "session.state.changed"),
+        Stream.take(cases.length),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      for (const [index, [message]] of cases.entries()) {
+        yield* runtime.emit({
+          id: asEventId(`evt-retry-variant-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          turnId: asTurnId("turn-1"),
+          method: "error",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            error: { message },
+            willRetry: true,
+          },
+        } satisfies ProviderEvent);
       }
-      NodeAssert.equal(firstEvent.value.type, "runtime.warning");
-      if (firstEvent.value.type !== "runtime.warning") {
-        return;
-      }
-      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
-      NodeAssert.equal(firstEvent.value.payload.message, "Reconnecting... 2/5");
+
+      const states = Array.from(yield* Fiber.join(statesFiber)).map((event) =>
+        event.type === "session.state.changed" ? event.payload.agentState : undefined,
+      );
+      NodeAssert.deepStrictEqual(
+        states,
+        cases.map(([, state]) => state),
+      );
     }),
   );
 
@@ -2073,6 +2317,72 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       NodeAssert.equal(firstEvent.value.payload.requestType, "file_change_approval");
       NodeAssert.equal(firstEvent.value.payload.detail, "/tmp/workspace");
+      NodeAssert.equal(firstEvent.value.payload.agentId, undefined);
+    }),
+  );
+
+  it.effect("names the collab subagent whose thread asked for approval or input", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      // The session runtime tags requests from a child thread with that
+      // thread id, which is also the subagent's task id.
+      yield* runtime.emit({
+        id: asEventId("evt-child-command"),
+        kind: "request",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-08-24T00:00:00.000Z",
+        method: "item/commandExecution/requestApproval",
+        requestKind: "command",
+        requestId: ApprovalRequestId.make("req-child-command"),
+        turnId: asTurnId("turn-1"),
+        agentId: "provider-child-thread",
+        payload: {
+          itemId: "item-child",
+          command: "vp run typecheck --filter server",
+          threadId: "provider-child-thread",
+          turnId: "child-turn-1",
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "request.opened") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.payload.agentId, "provider-child-thread");
+
+      const questionFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      yield* runtime.emit({
+        id: asEventId("evt-child-question"),
+        kind: "request",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-08-24T00:00:01.000Z",
+        method: "item/tool/requestUserInput",
+        requestId: ApprovalRequestId.make("req-child-question"),
+        agentId: "provider-child-thread",
+        payload: {
+          itemId: "item-child-question",
+          threadId: "provider-child-thread",
+          turnId: "child-turn-1",
+          questions: [
+            {
+              id: "base",
+              header: "Branch",
+              question: "Which base branch?",
+              options: [{ label: "main", description: "The default branch" }],
+            },
+          ],
+        },
+      } satisfies ProviderEvent);
+      const question = yield* Fiber.join(questionFiber);
+      if (question._tag !== "Some" || question.value.type !== "user-input.requested") {
+        NodeAssert.fail("Expected user-input.requested event");
+      }
+      NodeAssert.equal(question.value.payload.agentId, "provider-child-thread");
     }),
   );
 

@@ -47,6 +47,8 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@e6tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@e6tools/client-runtime/connection";
+import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
+import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import {
   isPasteAsTextShortcut,
   nextPastedTextFileName,
@@ -83,7 +85,7 @@ import {
   formatAssistantCitationForComposer,
   replaceTextRange,
 } from "../../composer-logic";
-import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
+import { resolveComposerPlaceholder } from "../../composerPlaceholder";
 import { listContinuationForEnter, listIndentForTab } from "../../composer-list-continuation";
 import {
   deriveComposerSendState,
@@ -266,7 +268,9 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   hasProviderTraitsControls,
+  useProviderEffortSegmentControl,
 } from "./composerProviderState";
+import { EffortSegmentedControl } from "./EffortSegmentedControl";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -922,7 +926,7 @@ import {
   FileIcon,
   BotIcon,
   CircleAlertIcon,
-  PaperclipIcon,
+  PlusIcon,
   PencilRulerIcon,
   PlayIcon,
   ShieldIcon,
@@ -954,7 +958,7 @@ import {
 } from "./composerPromptHistory";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
-import type { ContextWindowSnapshot } from "../../lib/contextWindow";
+import type { ContextWindowSnapshot } from "@e6tools/client-runtime/work-log/context-window";
 import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
@@ -1208,6 +1212,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
+  stopShortcutLabel: string | null;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -1241,6 +1246,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isPreparingWorktree={props.isPreparingWorktree}
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
+        stopShortcutLabel={props.stopShortcutLabel}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
@@ -1272,6 +1278,9 @@ export interface ChatComposerHandle {
   openModelPicker: () => void;
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
+  /** Steps Fast → Balanced → Deep. False when the model has no effort steps. */
+  cycleEffort: () => boolean;
+  canCycleEffort: () => boolean;
   isModelPickerOpen: () => boolean;
   compactContext: () => void;
   readSnapshot: () => {
@@ -1362,6 +1371,12 @@ export interface ChatComposerProps {
 
   // Pending approvals / inputs
   activePendingApproval: PendingApproval | null;
+  /** Title of the subagent behind activePendingApproval, when one asked. */
+  activePendingApprovalAgentTitle?: string | null;
+  /** Agent that decline instructions go to; null when the provider cannot take them. */
+  approvalFeedbackAgentName?: string | null;
+  /** Title of the subagent behind the active question, when one asked. */
+  activePendingUserInputAgentTitle?: string | null;
   pendingApprovals: PendingApproval[];
   pendingUserInputs: PendingUserInput[];
   activePendingProgress: {
@@ -1444,6 +1459,7 @@ export interface ChatComposerProps {
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
+    feedback?: string,
   ) => Promise<unknown>;
   onSelectActivePendingUserInputOption: (questionId: string, optionValue: string) => void;
   onAdvanceActivePendingUserInput: () => void;
@@ -1509,6 +1525,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isPreparingWorktree,
     environmentUnavailable,
     activePendingApproval,
+    activePendingApprovalAgentTitle = null,
+    approvalFeedbackAgentName = null,
+    activePendingUserInputAgentTitle = null,
     pendingApprovals,
     pendingUserInputs,
     activePendingProgress,
@@ -2507,6 +2526,51 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
 
   const isComposerApprovalState = activePendingApproval !== null;
+  // Instructions typed while an approval waits belong to that request only and
+  // never touch the thread's draft, which comes back once the approval clears.
+  const [approvalFeedbackEntry, setApprovalFeedbackEntry] = useState<{
+    readonly requestId: ApprovalRequestId;
+    readonly text: string;
+    readonly cursor: number;
+  } | null>(null);
+  const approvalFeedbackEntryForRequest =
+    activePendingApproval !== null &&
+    approvalFeedbackEntry?.requestId === activePendingApproval.requestId
+      ? approvalFeedbackEntry
+      : null;
+  const approvalFeedbackText = approvalFeedbackEntryForRequest?.text ?? "";
+  const approvalFeedbackDraft = readApprovalFeedbackDraft(approvalFeedbackText);
+  const isRespondingToActiveApproval =
+    activePendingApproval !== null &&
+    respondingRequestIds.includes(activePendingApproval.requestId);
+  const canTypeApprovalFeedback = isComposerApprovalState && approvalFeedbackAgentName !== null;
+  const activeApprovalDestructive = useMemo(
+    () => (activePendingApproval ? classifyDestructiveApproval(activePendingApproval) : null),
+    [activePendingApproval],
+  );
+  const onApprovalFeedbackChange = useCallback(
+    (nextText: string, nextCursor: number) => {
+      if (!activePendingApproval) return;
+      setApprovalFeedbackEntry({
+        requestId: activePendingApproval.requestId,
+        text: nextText,
+        cursor: nextCursor,
+      });
+    },
+    [activePendingApproval],
+  );
+  // Instructions are plain text: files and large pastes must not land in the
+  // thread draft behind the approval, so the editor's own paste handles them.
+  const ignoreApprovalFeedbackPaste = useCallback(() => {}, []);
+  const submitApprovalFeedback = () => {
+    if (!activePendingApproval || approvalFeedbackDraft.status !== "ready") return;
+    if (isRespondingToActiveApproval) return;
+    void onRespondToApproval(
+      activePendingApproval.requestId,
+      "decline",
+      approvalFeedbackDraft.feedback,
+    );
+  };
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const isChoiceOnlyPendingQuestion =
     activePendingProgress?.activeQuestion?.allowCustomAnswer === false;
@@ -2667,6 +2731,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       : {}),
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
+  const effortSegmentControl = useProviderEffortSegmentControl(providerTraitsPickerInput);
+  // Read through a ref so the imperative handle does not rebuild on every render.
+  const effortSegmentControlRef = useRef(effortSegmentControl);
+  useLayoutEffect(() => {
+    effortSegmentControlRef.current = effortSegmentControl;
+  });
   const {
     controlsRef: restingComposerControlsRef,
     attachControls: attachRestingComposerControls,
@@ -3990,6 +4060,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isTaskItem = false,
     isCodeBlock = false,
   ) => {
+    if (isComposerApprovalState) {
+      // Only submission is claimed here: menus, history, and list editing all
+      // belong to the thread draft, not to instructions for a pending approval.
+      if (key !== "Enter" || event.isComposing) return false;
+      const intent = composerSubmissionIntentForEnter({
+        isMobileViewport,
+        shiftKey: event.shiftKey,
+        modifierKey: event.metaKey || event.ctrlKey,
+        isDraftThread: false,
+        sendShortcut: settings.sendShortcut,
+        prompt: approvalFeedbackText,
+      });
+      if (!intent) return false;
+      submitApprovalFeedback();
+      return true;
+    }
     if (isCodeBlock && (key !== "Enter" || !(event.metaKey || event.ctrlKey))) return false;
     if (key === "Tab" && event.shiftKey) {
       if (!planModeUiEnabled) return false;
@@ -4804,7 +4890,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             content: (
               <>
                 <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
+                {effortSegmentControl ? (
+                  // From md up the quick steps sit by the model; narrower screens keep the menu alone.
+                  <EffortSegmentedControl
+                    control={effortSegmentControl}
+                    size={composerControlsInStrip ? "xs" : "sm"}
+                    className="hidden md:inline-flex"
+                  />
+                ) : null}
+                <div
+                  className={cn(
+                    "contents",
+                    // Beside the steps the menu trigger shrinks to its icon, unless the level sits
+                    // between or beyond the steps and its name is the only place it shows.
+                    effortSegmentControl?.selected &&
+                      "md:[&_[data-composer-control-label]]:pointer-events-none md:[&_[data-composer-control-label]]:invisible md:[&_[data-composer-control-label]]:absolute md:[&_[data-composer-control-compact-icon]]:[visibility:inherit] md:[&_[data-composer-control-compact-icon]]:relative md:[&_[data-composer-effort-glyph]]:hidden md:[&_[data-composer-effort-steps-icon]]:block",
+                  )}
+                >
+                  {restingProviderTraitsPicker}
+                </div>
               </>
             ),
           },
@@ -4909,10 +5013,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         keybindings={keybindings}
         modelOptionsByInstance={modelOptionsByInstance}
         size={composerControlsInStrip ? "xs" : "sm"}
+        {...(composerControlsInStrip ? {} : { triggerVariant: "outline" as const })}
         triggerClassName={
           composerControlsInStrip
             ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-            : "-ms-2.5 min-w-13"
+            : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
         }
         terminalOpen={terminalOpen}
         open={isComposerModelPickerOpen}
@@ -4937,6 +5042,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           onProviderModelSelect(instanceId, model);
         }}
         onOpenProviderSetup={onOpenProviderSetup}
+        effortControl={effortSegmentControl}
       />
 
       <>
@@ -5733,6 +5839,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         trigger.focus({ preventScroll: true });
         trigger.click();
       },
+      cycleEffort: () => {
+        const control = effortSegmentControlRef.current;
+        if (!control || control.disabled) return false;
+        control.cycle();
+        return true;
+      },
+      canCycleEffort: () =>
+        effortSegmentControlRef.current !== null && !effortSegmentControlRef.current.disabled,
       compactContext: compactThreadContext,
       isModelPickerOpen: () => isComposerModelPickerOpen,
       readSnapshot: () => {
@@ -5935,6 +6049,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }}
       className="mx-auto w-full min-w-0 max-w-(--chat-max-width)"
       data-chat-composer-form="true"
+      data-approval-shortcut-scope=""
     >
       {composerControlsInStrip && restingControlsHost
         ? createPortal(
@@ -5960,6 +6075,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
                 data-chat-composer-top-drawer="true"
+                data-approval-shortcut-scope=""
                 className={COMPOSER_DRAWER_ARRIVAL_CLASS}
                 variant={activePendingApproval ? "warning" : "info"}
                 density={activePendingApproval ? "spacious" : "default"}
@@ -5978,6 +6094,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       <ComposerPendingApprovalPanel
                         approval={activePendingApproval}
                         pendingCount={pendingApprovals.length}
+                        agentTitle={activePendingApprovalAgentTitle}
+                        destructive={activeApprovalDestructive}
                       />
                     </ComposerBanner.Content>
                     <ComposerBanner.Actions>
@@ -5987,6 +6105,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           activePendingApproval.requestId,
                         )}
                         options={activePendingApproval.options}
+                        destructive={activeApprovalDestructive}
+                        declineFeedback={
+                          approvalFeedbackAgentName !== null
+                            ? { agentName: approvalFeedbackAgentName, draft: approvalFeedbackDraft }
+                            : null
+                        }
                         onRespondToApproval={onRespondToApproval}
                       />
                     </ComposerBanner.Actions>
@@ -6004,6 +6128,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleOption={onSelectActivePendingUserInputOption}
                     onAdvance={onAdvanceActivePendingUserInput}
                     onDismiss={onDismissActivePendingUserInput}
+                    agentTitle={activePendingUserInputAgentTitle}
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
                   <ComposerPlanFollowUpBanner
@@ -6024,6 +6149,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleOption={onSelectActivePendingUserInputOption}
                       onAdvance={onAdvanceActivePendingUserInput}
                       onDismiss={onDismissActivePendingUserInput}
+                      agentTitle={activePendingUserInputAgentTitle}
                     />
                     {!isChoiceOnlyPendingQuestion ||
                     activePendingProgress?.activeQuestion?.multiSelect ? (
@@ -6106,7 +6232,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             data-chat-composer-surface="true"
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
             className={cn(
-              "rounded-[20px] transition-[background-color] duration-200",
+              "rounded-2xl transition-[background-color] duration-200",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-primary-edge" : null,
               projectSelectionRequired ? "opacity-75" : null,
               composerProviderState.composerSurfaceClassName,
@@ -6300,7 +6426,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                     <span
                                       role="img"
                                       aria-label="Draft attachment may not persist"
-                                      className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
+                                      className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-warning-foreground"
                                     >
                                       <CircleAlertIcon className="size-3" />
                                     </span>
@@ -6602,12 +6728,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     richTextEnabled={settings.composerRichTextEnabled}
                     value={
                       isComposerApprovalState
-                        ? ""
+                        ? approvalFeedbackText
                         : activePendingProgress
                           ? activePendingProgress.customAnswer
                           : prompt
                     }
-                    cursor={composerCursor}
+                    cursor={
+                      isComposerApprovalState
+                        ? (approvalFeedbackEntryForRequest?.cursor ?? 0)
+                        : composerCursor
+                    }
                     contextRecords={composerContextRecords}
                     buildContextClipboardFragment={buildContextClipboardFragment}
                     importContextFragment={importContextFragment}
@@ -6623,33 +6753,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       isComposerResting &&
                         "flex items-center overflow-hidden whitespace-nowrap leading-8",
                     )}
-                    onChange={onPromptChange}
+                    onChange={isComposerApprovalState ? onApprovalFeedbackChange : onPromptChange}
                     onCommandKeyDown={onComposerCommandKey}
                     onPageScrollKeyDown={onPageScrollKeyDown}
                     onPageScrollKeyUp={onPageScrollKeyUp}
                     onPageScrollRelease={onPageScrollRelease}
                     onCitationSubmitAndSend={submitCitationAndSend}
-                    onPaste={onComposerPaste}
-                    placeholder={
-                      isComposerApprovalState
-                        ? "Resolve this approval request to continue"
-                        : activePendingProgress
-                          ? isChoiceOnlyPendingQuestion
-                            ? "Choose an option above"
-                            : "Type your own answer, or leave this blank to use the selected option"
-                          : showPlanFollowUpPrompt && activeProposedPlan
-                            ? "Add feedback to refine the plan, or leave this blank to implement it"
-                            : projectSelectionRequired
-                              ? "Choose a project above to start a thread"
-                              : showProviderUnavailable
-                                ? "Enable a provider in Settings to send a message"
-                                : phase === "disconnected"
-                                  ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                    onPaste={
+                      isComposerApprovalState ? ignoreApprovalFeedbackPaste : onComposerPaste
                     }
+                    placeholder={resolveComposerPlaceholder({
+                      approval: isComposerApprovalState
+                        ? { agentName: approvalFeedbackAgentName }
+                        : null,
+                      pendingQuestion: activePendingProgress
+                        ? { choiceOnly: isChoiceOnlyPendingQuestion }
+                        : null,
+                      planFollowUp: Boolean(showPlanFollowUpPrompt && activeProposedPlan),
+                      projectSelectionRequired,
+                      providerUnavailable: showProviderUnavailable,
+                      phase,
+                    })}
                     disabled={
                       isConnecting ||
-                      isComposerApprovalState ||
+                      (isComposerApprovalState &&
+                        (!canTypeApprovalFeedback || isRespondingToActiveApproval)) ||
                       projectSelectionRequired ||
                       isChoiceOnlyPendingQuestion ||
                       activePendingIsResponding
@@ -6689,7 +6817,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </div>
 
             <ComposerPromptLengthValidation
-              message={providerInputSubmissionError ?? composerSubmissionError}
+              message={
+                isComposerApprovalState
+                  ? approvalFeedbackDraft.status === "too-long"
+                    ? `Shorten your instructions to ${approvalFeedbackDraft.maxChars.toLocaleString()} characters.`
+                    : null
+                  : (providerInputSubmissionError ?? composerSubmissionError)
+              }
             />
 
             {/* Bottom Command Deck toolbar */}
@@ -6706,12 +6840,54 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     "absolute bottom-px right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
                 )}
               >
+                {/* Attach leads the footer as a quiet outline square, outside the measured
+                    controls so it never moves into their overflow. */}
+                {showComposerAttachAction && !isComposerResting ? (
+                  <div className="flex shrink-0 items-center pe-1.5">
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.currentTarget.files ?? []);
+                        event.currentTarget.value = "";
+                        // Inserting a chip refocuses the editor after the draft renders;
+                        // focusing synchronously here would report the editor's stale text
+                        // over the prompt that was just written.
+                        void addComposerAttachments(files).then((inserted) => {
+                          if (!inserted) focusComposer();
+                        });
+                      }}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            className="size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => attachmentInputRef.current?.click()}
+                            aria-label="Attach files"
+                          />
+                        }
+                      >
+                        <PlusIcon className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipPopup>Attach files</TooltipPopup>
+                    </Tooltip>
+                  </div>
+                ) : null}
                 <div
                   ref={expandedControlsLayout.attachControls}
                   data-chat-composer-controls="left"
                   data-chat-composer-footer-controls="true"
                   className={cn(
-                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    "relative -m-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    // Beside Attach the focus-ring gutter stays small so it never covers the button.
+                    showComposerAttachAction ? "-ms-1 ps-1" : "-ms-3.5 ps-3.5",
                     isComposerResting && "hidden",
                   )}
                 >
@@ -6727,43 +6903,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {showComposerAttachAction ? (
-                    <>
-                      <input
-                        ref={attachmentInputRef}
-                        type="file"
-                        multiple
-                        className="hidden"
-                        onChange={(event) => {
-                          const files = Array.from(event.currentTarget.files ?? []);
-                          event.currentTarget.value = "";
-                          // Inserting a chip refocuses the editor after the draft renders;
-                          // focusing synchronously here would report the editor's stale text
-                          // over the prompt that was just written.
-                          void addComposerAttachments(files).then((inserted) => {
-                            if (!inserted) focusComposer();
-                          });
-                        }}
-                      />
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              onPointerDown={(event) => event.preventDefault()}
-                              onClick={() => attachmentInputRef.current?.click()}
-                              aria-label="Attach files"
-                            />
-                          }
-                        >
-                          <PaperclipIcon />
-                        </TooltipTrigger>
-                        <TooltipPopup>Attach files</TooltipPopup>
-                      </Tooltip>
-                    </>
-                  ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={
@@ -6788,6 +6927,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={composerSendState.hasSendableContent}
                     preserveComposerFocusOnPointerDown={isMobileViewport || isComposerResting}
+                    stopShortcutLabel={shortcutLabelForCommand(keybindings, "thread.stop")}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

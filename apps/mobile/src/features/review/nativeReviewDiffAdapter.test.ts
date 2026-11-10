@@ -256,11 +256,8 @@ describe("createNativeReviewDiffTheme", () => {
   it("serializes every native color as cross-platform opaque hex", () => {
     for (const themeId of MOBILE_THEME_IDS) {
       for (const appearance of ["light", "dark"] as const) {
-        const theme = createNativeReviewDiffTheme(
-          appearance,
-          themeId,
-          appTheme(themeId, appearance),
-        );
+        const variables = appTheme(themeId, appearance);
+        const theme = createNativeReviewDiffTheme(appearance, variables);
         for (const color of Object.values(theme)) {
           expect(color, `${themeId}/${appearance}`).toMatch(/^#[\da-f]{6}$/i);
         }
@@ -268,6 +265,20 @@ describe("createNativeReviewDiffTheme", () => {
           contrastRatio(theme.hunkText, theme.hunkBackground),
           `${themeId}/${appearance} hunk text`,
         ).toBeGreaterThanOrEqual(4.5);
+        // Rows follow the shared diff roles rather than a fixed native palette.
+        expect(theme.addBar).toBe(variables["--color-diff-addition"]);
+        expect(theme.deleteBar).toBe(variables["--color-diff-deletion"]);
+        expect(theme.addText).toBe(variables["--color-diff-addition-foreground"]);
+        expect(theme.deleteText).toBe(variables["--color-diff-deletion-foreground"]);
+        for (const [text, row] of [
+          [theme.addText, theme.addBackground],
+          [theme.deleteText, theme.deleteBackground],
+        ] as const) {
+          expect(
+            contrastRatio(text, row),
+            `${themeId}/${appearance} row text`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
       }
     }
   });
@@ -284,7 +295,7 @@ describe("createNativeReviewDiffTheme", () => {
         "--color-border": "#44464F80",
         "--color-primary": "#A8C7FAFF",
       };
-      const theme = createNativeReviewDiffTheme(appearance, "material-you", variables);
+      const theme = createNativeReviewDiffTheme(appearance, variables);
       expect(theme.background).toBe("#181a1c");
       expect(theme.headerBackground).toBe(theme.background);
       expect(theme.text).toBe("#e3e2e6");
@@ -298,12 +309,14 @@ describe("createNativeReviewDiffTheme", () => {
   );
 
   it("uses the selected app palette for native code surfaces", () => {
-    const standard = createNativeReviewDiffTheme("dark", "e6-code", appTheme("e6-code", "dark"));
-    const iris = createNativeReviewDiffTheme("dark", "iris", appTheme("iris", "dark"));
+    const standard = createNativeReviewDiffTheme("dark", appTheme("e6-code", "dark"));
+    const iris = createNativeReviewDiffTheme("dark", appTheme("iris", "dark"));
 
     expect(iris.background).not.toBe(standard.background);
     expect(iris.hunkText).not.toBe(standard.hunkText);
+    // Additions keep the fixed success hue; deletions follow the theme's error
+    // role, as web's --diff-deletion follows --destructive.
     expect(iris.addBar).toBe(standard.addBar);
-    expect(iris.deleteBar).toBe(standard.deleteBar);
+    expect(iris.deleteBar).not.toBe(standard.deleteBar);
   });
 });

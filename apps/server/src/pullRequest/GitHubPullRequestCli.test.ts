@@ -2765,6 +2765,29 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect("says a signed-out gh is signed out, without the lookup's output", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(
+        Effect.fail(
+          new GitHubCli.GitHubCliAuthenticationError({
+            command: "gh",
+            cwd: "/w",
+            cause: new Error("no oauth token found for github.signed-out.test"),
+          }),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+      const error = yield* Effect.flip(
+        cli.getViewerLogin({ cwd: "/w", host: "github.signed-out.test" }),
+      );
+
+      // The page names `gh auth login` for this one, rather than a generic failed lookup.
+      assert.strictEqual(error._tag, "GitHubCliAuthenticationError");
+      expect(String((error as { cause?: unknown }).cause)).not.toContain("no oauth token");
+    }),
+  );
+
   it.effect("looks up the authenticated account on the requested enterprise host", () =>
     Effect.gen(function* () {
       mockedExecute

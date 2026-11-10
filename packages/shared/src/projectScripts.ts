@@ -73,3 +73,36 @@ export function projectScriptRuntimeEnv(
 export function setupProjectScript(scripts: readonly ProjectScript[]): ProjectScript | null {
   return scripts.find((script) => script.runOnWorktreeCreate) ?? null;
 }
+
+/**
+ * Short fingerprint of a setup script's command, recorded on a thread when
+ * its worktree runs the script and compared with the project's current setup
+ * script to tell the user the worktree is out of date. Synchronous FNV-1a so
+ * the server and every client compute the same value without async crypto.
+ * It only answers "did the command change", so a 32-bit hash is plenty.
+ */
+export function projectScriptHash(script: Pick<ProjectScript, "command">): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < script.command.length; index += 1) {
+    hash ^= script.command.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Whether the thread's worktree ran a setup script other than the project's
+ * current one. False when there is nothing to compare: no worktree, no
+ * recorded setup, or no setup script configured any more.
+ */
+export function isWorktreeSetupStale(
+  thread: {
+    readonly worktreePath: string | null;
+    readonly setupScriptHash?: string | null | undefined;
+  },
+  scripts: readonly ProjectScript[],
+): boolean {
+  if (!thread.worktreePath || !thread.setupScriptHash) return false;
+  const current = setupProjectScript(scripts);
+  return current !== null && projectScriptHash(current) !== thread.setupScriptHash;
+}

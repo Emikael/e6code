@@ -25,11 +25,16 @@ vi.mock("expo-widgets", () => ({
   createLiveActivity: vi.fn((name: string, layout: unknown) => ({ layout, name })),
 }));
 
+import { DEFAULT_MOBILE_THEME_ID, getMobileThemeVariables } from "../lib/mobileTheme";
 import {
   AgentActivity,
   type AgentActivityProps,
   type AgentActivityRowProps,
 } from "./AgentActivity";
+
+// The widget's generated palette is the stock theme's status text roles.
+const dark = getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, "dark");
+const light = getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, "light");
 
 function makeRow(overrides: Partial<AgentActivityRowProps>): AgentActivityRowProps {
   return {
@@ -78,8 +83,8 @@ describe("AgentActivity widget layout", () => {
       environment as never,
     );
     const banner = JSON.stringify(layout.banner);
-    expect(banner).toContain("#7dd3fc"); // sky-300: running
-    expect(banner).toContain("#fcd34d"); // amber-300: waiting_for_approval
+    expect(banner).toContain(dark["--color-primary-text"]); // running
+    expect(banner).toContain(dark["--color-warning-foreground"]); // waiting_for_approval
   });
 
   it("switches to the web sidebar's light palette when the scheme is light", () => {
@@ -97,10 +102,10 @@ describe("AgentActivity widget layout", () => {
       lightEnvironment as never,
     );
     const banner = JSON.stringify(layout.banner);
-    expect(banner).toContain("#0284c7"); // sky-600: running
-    expect(banner).toContain("#d97706"); // amber-600: waiting_for_approval
-    expect(banner).not.toContain("#7dd3fc");
-    expect(banner).not.toContain("#fcd34d");
+    expect(banner).toContain(light["--color-primary-text"]); // running
+    expect(banner).toContain(light["--color-warning-foreground"]); // waiting_for_approval
+    expect(banner).not.toContain(dark["--color-primary-text"]);
+    expect(banner).not.toContain(dark["--color-warning-foreground"]);
   });
 
   it("orders rows attention-first in the banner", () => {
@@ -154,9 +159,9 @@ describe("AgentActivity widget layout", () => {
       },
       environment as never,
     );
-    expect(JSON.stringify(layout.compactLeading)).toContain("#a5b4fc"); // indigo-300
+    expect(JSON.stringify(layout.compactLeading)).toContain(dark["--color-update-foreground"]);
     expect(JSON.stringify(layout.compactTrailing)).toContain("Input");
-    expect(JSON.stringify(layout.minimal)).toContain("#a5b4fc");
+    expect(JSON.stringify(layout.minimal)).toContain(dark["--color-update-foreground"]);
   });
 
   it("deep links the banner to the row that needs attention", () => {
@@ -213,7 +218,7 @@ describe("AgentActivity widget layout", () => {
     const banner = JSON.stringify(layout.banner);
     expect(banner).toContain("Agent work completed");
     expect(banner).not.toContain("0 active");
-    expect(banner).toContain("#6ee7b7"); // emerald-300 header tint
+    expect(banner).toContain(dark["--color-success-foreground"]); // header tint
     expect(JSON.stringify(layout.compactTrailing)).toContain("Done");
     expect(JSON.stringify(layout.compactTrailing)).not.toContain("0 active");
     expect(JSON.stringify(layout.expandedLeading)).toContain("Done");
@@ -233,7 +238,7 @@ describe("AgentActivity widget layout", () => {
     );
     const banner = JSON.stringify(layout.banner);
     expect(banner).toContain("Agent work failed");
-    expect(banner).toContain("#fca5a5"); // red-300 header tint
+    expect(banner).toContain(dark["--color-danger-foreground"]); // header tint
     expect(JSON.stringify(layout.compactTrailing)).toContain("Failed");
     expect(JSON.stringify(layout.expandedLeading)).toContain("Failed");
     expect(JSON.stringify(layout.minimal)).toContain("xmark.octagon.fill");
@@ -258,7 +263,7 @@ describe("AgentActivity widget layout", () => {
     const banner = JSON.stringify(layout.banner);
     expect(banner).toContain("Agent work failed");
     expect(banner).not.toContain("Agent work completed");
-    expect(banner).toContain("#fca5a5"); // red-300 header tint
+    expect(banner).toContain(dark["--color-danger-foreground"]); // header tint
     expect(JSON.stringify(layout.compactTrailing)).toContain("Failed");
     expect(JSON.stringify(layout.expandedLeading)).toContain("Failed");
     expect(JSON.stringify(layout.minimal)).toContain("xmark.octagon.fill");

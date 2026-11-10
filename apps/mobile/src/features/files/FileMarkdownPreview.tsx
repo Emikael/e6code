@@ -11,7 +11,7 @@ import {
 import { RefreshControl, ScrollView, Text as NativeText, View } from "react-native";
 
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
-import { useFontFamily } from "../../lib/useFontFamily";
+import { MONO_FONT_FAMILY, useFontFamily } from "../../lib/useFontFamily";
 import {
   resolveMarkdownFontSizes,
   resolveNativeMarkdownTypography,
@@ -136,13 +136,13 @@ function useMarkdownPreviewStyles(renderImage?: MarkdownImageRenderer): Markdown
         code: {
           backgroundColor: codeBackground,
           color: codeText,
-          fontFamily: "ui-monospace",
+          fontFamily: MONO_FONT_FAMILY,
         },
         codeBlock: {
           backgroundColor: codeBackground,
           borderRadius: 12,
           color: codeText,
-          fontFamily: "ui-monospace",
+          fontFamily: MONO_FONT_FAMILY,
           padding: 12,
         },
         hr: {

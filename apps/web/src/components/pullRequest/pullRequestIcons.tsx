@@ -1,4 +1,5 @@
 import {
+  createLucideIcon,
   GitMergeIcon,
   GitPullRequestArrowIcon,
   GitPullRequestClosedIcon,
@@ -22,6 +23,16 @@ export const PullRequestGlyph = {
   unlink: Unlink2Icon,
 } as const;
 
+/**
+ * Lucide's square holding its circle-question-mark glyph. Lucide ships no square variant, and
+ * the merge-readiness rows need one beside the square check, x and dashed icons.
+ */
+export const SquareQuestionMarkIcon = createLucideIcon("square-question-mark", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "square" }],
+  ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "question" }],
+  ["path", { d: "M12 17h.01", key: "dot" }],
+]);
+
 export type PullRequestGlyphIcon = (typeof PullRequestGlyph)[keyof typeof PullRequestGlyph];
 
 export interface PullRequestStatePresentation {
@@ -33,22 +44,22 @@ export interface PullRequestStatePresentation {
 export const PULL_REQUEST_STATE_PRESENTATION = {
   open: {
     label: "Open",
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
+    toneClassName: "text-success-foreground",
     Icon: PullRequestGlyph.pullRequest,
   },
   draft: {
     label: "Draft",
-    toneClassName: "text-zinc-500 dark:text-zinc-400/80",
+    toneClassName: "text-muted-foreground",
     Icon: PullRequestGlyph.draft,
   },
   closed: {
     label: "Closed",
-    toneClassName: "text-red-600 dark:text-red-300/90",
+    toneClassName: "text-destructive-foreground",
     Icon: PullRequestGlyph.closed,
   },
   merged: {
     label: "Merged",
-    toneClassName: "text-violet-600 dark:text-violet-300/90",
+    toneClassName: "text-merged-foreground",
     Icon: PullRequestGlyph.merged,
   },
 } as const satisfies Record<PullRequestState | "draft", PullRequestStatePresentation>;

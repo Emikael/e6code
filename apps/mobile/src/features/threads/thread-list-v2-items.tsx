@@ -19,6 +19,10 @@ import type { EnvironmentThreadSearchMatch } from "@e6tools/client-runtime/state
 import type { EnvironmentMachineKind } from "@e6tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@e6tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@e6tools/client-runtime/state/thread-sort";
+import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";
@@ -41,6 +45,7 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  formatResetClockTime,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
@@ -57,15 +62,25 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
  * hierarchy rather than card fills.
  */
 
-// Status hues follow the system-wide convention set by sidebar v1 and the
-// Live Activity/widgets (amber approval, indigo input, sky working) so a
-// thread reads the same color everywhere it surfaces.
+// Status colours use the semantic roles of the web sidebar's status line
+// (warning approval, primary input, primary working: Iris marks a live agent)
+// so a thread reads the same everywhere it surfaces. Each colour sits on a
+// word, never alone.
 const STATUS_LABEL_BY_STATUS: Partial<
-  Record<ThreadListV2Status, { label: string; className: string }>
+  Record<ThreadListV2Status, { label: string; accessibilityLabel?: string; className: string }>
 > = {
-  approval: { label: "Approval", className: "text-warning-foreground" },
-  input: { label: "Input", className: "text-adaptive-indigo-600-300" },
-  working: { label: "Working", className: "text-adaptive-sky-600-400" },
+  approval: {
+    label: "Approval",
+    accessibilityLabel: "Needs approval",
+    className: "text-warning-foreground",
+  },
+  input: {
+    label: "Input",
+    accessibilityLabel: "Needs your answer",
+    className: "text-primary-text",
+  },
+  paused: { label: "Paused", className: "text-warning-foreground" },
+  working: { label: "Working", className: "text-primary-text" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
 
@@ -548,6 +563,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  // Working and paused rows add the agent state or plan step, matching the
+  // web sidebar: "Working · step 4 of 6", "Waiting for usage limit · resets 14:20".
+  const statusText =
+    status === "working" || status === "paused"
+      ? joinThreadRowStatus(
+          formatRunningThreadStatus({
+            agentState: thread.agentState,
+            planProgress: thread.planProgress,
+            formatResetTime: formatResetClockTime,
+          }),
+        )
+      : statusLabel?.label;
   // Settled rows label by the same stamp they sort by, so order and label
   // can't disagree. updatedAt is always present, so the resolver never
   // returns null here.
@@ -864,14 +891,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ) : null}
         <Text
           className={cn(
-            "text-xs tabular-nums",
+            "max-w-[55%] shrink text-xs tabular-nums",
             statusLabel?.className ??
               (selected
                 ? selectedThreadRowColors.foregroundClassName
                 : rowAppearance.tertiaryForegroundClassName),
           )}
+          numberOfLines={1}
+          accessibilityLabel={statusLabel?.accessibilityLabel}
         >
-          {statusLabel?.label ?? timeLabel}
+          {statusText ?? timeLabel}
         </Text>
       </View>
       {props.searchMatch ? (
@@ -979,10 +1008,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   pr.state === null || pr.isDraft
                     ? rowAppearance.mutedIconTintClassName
                     : pr.state === "open"
-                      ? "accent-adaptive-emerald-600-400"
+                      ? "accent-success-foreground"
                       : pr.state === "closed"
-                        ? "accent-adaptive-rose-600-400"
-                        : "accent-adaptive-violet-600-400"
+                        ? "accent-danger-foreground"
+                        : "accent-merged-foreground"
                 }
               />
             ) : null}
@@ -1001,7 +1030,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               className={
                 selected
                   ? selectedThreadRowColors.mutedForegroundClassName
-                  : "text-adaptive-emerald-600-400"
+                  : "text-diff-addition-foreground"
               }
             >
               +{diff.insertions}
@@ -1010,7 +1039,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               className={
                 selected
                   ? selectedThreadRowColors.mutedForegroundClassName
-                  : "text-adaptive-rose-600-400"
+                  : "text-diff-deletion-foreground"
               }
             >
               −{diff.deletions}

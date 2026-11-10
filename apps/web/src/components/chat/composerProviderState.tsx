@@ -21,7 +21,12 @@ import type { buttonVariants } from "../ui/button";
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
-import { shouldRenderTraitsControls, TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
+import {
+  shouldRenderTraitsControls,
+  TraitsMenuContent,
+  TraitsPicker,
+  useEffortSegmentControl,
+} from "./TraitsPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
@@ -228,6 +233,11 @@ function resolveTraitsControlProps(input: TraitsRenderInput) {
 /** Whether the model has a traits (effort) menu for this target. */
 export function hasProviderTraitsControls(input: TraitsRenderInput): boolean {
   return resolveTraitsControlProps(input) !== null;
+}
+
+/** Fast / Balanced / Deep for the composer's model, or null when it has no usable effort. */
+export function useProviderEffortSegmentControl(input: TraitsRenderInput) {
+  return useEffortSegmentControl(resolveTraitsControlProps(input));
 }
 
 export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {

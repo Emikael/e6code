@@ -79,6 +79,7 @@ import {
   makeXAiAskUserQuestionCancelledResponse,
   makeXAiAskUserQuestionResponse,
   makeXAiExitPlanModeCapturedResponse,
+  promptResponseCameFromXAiNotification,
   promptResponseHasMissingXAiStopReason,
   XAiAskUserQuestionRequest,
   XAiExitPlanModeRequest,
@@ -87,6 +88,37 @@ import { type GrokAdapterShape } from "../Services/GrokAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
+
+/**
+ * After `_x.ai/session/prompt_complete`, Grok still writes the reply's last
+ * `session/update` chunks. They follow the completion on the wire, so no
+ * ordering rule includes them; the turn settles once its output has been
+ * quiet this long, and never later than the cap.
+ */
+const DEFAULT_TRAILING_XAI_OUTPUT_QUIET_MS = 40;
+const DEFAULT_TRAILING_XAI_OUTPUT_MAX_MS = 400;
+
+/**
+ * Wall-clock time and sleep for the trailing-output window. It measures when
+ * bytes actually arrive from the Grok process, which a scheduled (test) clock
+ * cannot stand in for, so it reads the host clock directly.
+ */
+const hostNowMs = () => performance.now();
+const hostSleep = (milliseconds: number) =>
+  Effect.callback<void>((resume) => {
+    // Deliberately the host timer: Effect.sleep follows the scheduled clock.
+    // @effect-diagnostics-next-line globalTimersInEffect:off
+    const timer = setTimeout(() => resume(Effect.void), milliseconds);
+    return Effect.sync(() => clearTimeout(timer));
+  });
+
+/** Ends a pending trailing-output wait early, so it re-checks its exit conditions. */
+function wakeTrailingOutputWait(ctx: GrokSessionContext): void {
+  const wake = ctx.trailingOutputWake;
+  if (wake === undefined) return;
+  ctx.trailingOutputWake = undefined;
+  Deferred.doneUnsafe(wake, Effect.void);
+}
 
 const PROVIDER = ProviderDriverKind.make("grok");
 const GROK_RESUME_VERSION = 1 as const;
@@ -114,6 +146,8 @@ export interface GrokAdapterLiveOptions {
   readonly turnInactivityTimeoutMs?: number;
   /** Override the longer active-tool liveness timeout in focused tests. */
   readonly activeToolInactivityTimeoutMs?: number;
+  /** Override the trailing-output window after `prompt_complete` in focused tests. */
+  readonly trailingXAiOutput?: { readonly quietMs: number; readonly maxMs: number };
 }
 
 interface PendingApproval {
@@ -168,8 +202,15 @@ interface GrokSessionContext {
   readonly livenessSignals: Queue.Queue<GrokTurnLivenessSignal>;
   livenessTurnId: TurnId | undefined;
   lastTurnActivityAtNanos: bigint | undefined;
+  /** Host-clock time of the turn's latest output, for the trailing xAI window. */
+  lastTurnOutputAtMs: number | undefined;
   readonly activeToolCallIds: Set<string>;
   livenessUpdatesInFlight: number;
+  /**
+   * Wakes a trailing-output wait early: when the last in-flight update
+   * settles, or when the turn is interrupted. Set only while one waits.
+   */
+  trailingOutputWake: Deferred.Deferred<void> | undefined;
   /** Prompt RPCs that returned before their turn settlement acquired the lock. */
   promptResponsesReady: number;
   currentModelId: string | undefined;
@@ -384,6 +425,10 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
         : DEFAULT_GROK_ACTIVE_TOOL_INACTIVITY_TIMEOUT_MS;
     const activeToolInactivityTimeoutNanos =
       BigInt(activeToolInactivityTimeoutMs) * NANOS_PER_MILLI;
+    const trailingXAiOutputQuietMs =
+      options?.trailingXAiOutput?.quietMs ?? DEFAULT_TRAILING_XAI_OUTPUT_QUIET_MS;
+    const trailingXAiOutputMaxMs =
+      options?.trailingXAiOutput?.maxMs ?? DEFAULT_TRAILING_XAI_OUTPUT_MAX_MS;
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
     const randomUUIDv4 = crypto.randomUUIDv4.pipe(
@@ -494,12 +539,50 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           }
         }
         ctx.lastTurnActivityAtNanos = activityAtNanos;
+        ctx.lastTurnOutputAtMs = hostNowMs();
       } finally {
         // Decrement before signaling. The watchdog treats in-flight updates as a
         // pause; if it consumed a signal while the counter was still > 0 it would
         // wait on the next take with no follow-up wake after this decrement.
         ctx.livenessUpdatesInFlight = Math.max(0, ctx.livenessUpdatesInFlight - 1);
+        if (ctx.livenessUpdatesInFlight === 0) wakeTrailingOutputWait(ctx);
         yield* signalTurnLiveness(ctx, turnId);
+      }
+    });
+
+    /**
+     * Waits for the chunks Grok writes after `prompt_complete` to reach this
+     * turn. Every root-session update moves `lastTurnOutputAtMs`, so the
+     * window restarts while chunks keep arriving and closes once they stop.
+     * An interrupt ends the wait at once; Stop is waiting on the thread lock.
+     */
+    const awaitTrailingXAiOutput = Effect.fn("GrokAdapter.awaitTrailingXAiOutput")(function* (
+      ctx: GrokSessionContext,
+      turnId: TurnId,
+    ) {
+      const waitStartedAt = hostNowMs();
+      while (!ctx.interruptedTurnIds.has(turnId)) {
+        const now = hostNowMs();
+        const remainingMs = waitStartedAt + trailingXAiOutputMaxMs - now;
+        if (remainingMs <= 0) return;
+        const quietSince = Math.max(ctx.lastTurnOutputAtMs ?? waitStartedAt, waitStartedAt);
+        const quietFor = now - quietSince;
+        if (quietFor >= trailingXAiOutputQuietMs && ctx.livenessUpdatesInFlight === 0) return;
+        // An update in flight restarts the window once it lands, so wait for
+        // it to settle rather than polling; otherwise sleep out the quiet gap.
+        const stepMs =
+          ctx.livenessUpdatesInFlight > 0
+            ? remainingMs
+            : Math.min(remainingMs, Math.max(1, trailingXAiOutputQuietMs - quietFor));
+        const wake = Deferred.makeUnsafe<void>();
+        ctx.trailingOutputWake = wake;
+        yield* Effect.raceFirst(hostSleep(stepMs), Deferred.await(wake)).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (ctx.trailingOutputWake === wake) ctx.trailingOutputWake = undefined;
+            }),
+          ),
+        );
       }
     });
 
@@ -1307,8 +1390,10 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             livenessSignals: yield* Queue.sliding<GrokTurnLivenessSignal>(1),
             livenessTurnId: undefined,
             lastTurnActivityAtNanos: undefined,
+            lastTurnOutputAtMs: undefined,
             activeToolCallIds: new Set(),
             livenessUpdatesInFlight: 0,
+            trailingOutputWake: undefined,
             promptResponsesReady: 0,
             currentModelId: boundModelId,
             currentReasoningEffort:
@@ -1856,6 +1941,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               for (let yieldAttempt = 0; yieldAttempt < 8; yieldAttempt += 1) {
                 yield* Effect.yieldNow;
               }
+              if (
+                result.stopReason !== "cancelled" &&
+                promptResponseCameFromXAiNotification(result)
+              ) {
+                yield* awaitTrailingXAiOutput(ctx, prepared.turnId);
+              }
               yield* prepared.acp.drainEvents;
               consumePromptResponseReady(ctx);
               if (ctx.interruptedTurnIds.has(prepared.turnId)) {
@@ -1918,6 +2009,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 };
                 yield* clearTurnLiveness(ctx);
                 const completedStopReason = completedStopReasonFromPromptResponse(result);
+                // Usage is not supported: Grok is not known to send ACP's
+                // unstable prompt `usage` or `usage_update`, and
+                // prompt_complete's `agentResult` is undocumented. The turn
+                // carries no tokenUsage or turnCostUsd; the Usage page reads
+                // Grok's session files instead. Map them here if Grok starts
+                // sending them.
                 yield* offerRuntimeEvent({
                   type: "turn.completed",
                   ...(yield* makeEventStamp()),
@@ -2030,6 +2127,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           const interruptedTurnId = turnId ?? activeTurnId;
           if (interruptedTurnId !== undefined) {
             ctx.interruptedTurnIds.add(interruptedTurnId);
+            wakeTrailingOutputWait(ctx);
           }
           return {
             _tag: "Proceed" as const,
