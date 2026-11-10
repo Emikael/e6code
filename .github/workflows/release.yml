@@ -1018,10 +1018,12 @@ jobs:
           echo "Deploying $channel_name to $channel_origin."
           vp dlx wrangler@4.151.2 deploy --env "$channel_name"
 
+  # The landing page ships with stable releases, so e6code.com describes and
+  # downloads the version users get, never a nightly that has not shipped.
   deploy_marketing:
     name: Deploy marketing site
     needs: [preflight, release]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'stable' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment:
