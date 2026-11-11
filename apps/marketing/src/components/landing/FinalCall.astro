@@ -1,0 +1,39 @@
+---
+import DownloadButtons from "./DownloadButtons.astro";
+import InstallCommand from "./InstallCommand.astro";
+---
+
+<section id="download" class="band">
+  <div class="wrap stack final">
+    <h2 class="h2 final-title">Install it and start one thread.</h2>
+    <p class="lead final-lead">You need at least one provider signed in. E6 Code uses it as it is.</p>
+    <DownloadButtons class="final-actions" />
+    <InstallCommand context="final section" class="final-install" />
+    <p class="t-body muted">Early software. Expect bugs, and tell us about them.</p>
+  </div>
+</section>
+
+<style>
+  .final {
+    align-items: center;
+    text-align: center;
+    gap: 18px;
+  }
+
+  .final-title {
+    max-width: 20ch;
+  }
+
+  .final-lead {
+    max-width: 54ch;
+  }
+
+  .final :global(.final-actions) {
+    justify-content: center;
+  }
+
+  /* The toggle and the command sit in this column's own rhythm. */
+  .final :global(.final-install) {
+    display: contents;
+  }
+</style>

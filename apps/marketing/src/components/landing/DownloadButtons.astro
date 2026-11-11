@@ -1,0 +1,46 @@
+---
+import { RELEASES_URL } from "../../lib/releases";
+import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../../lib/site";
+
+interface Props {
+  class?: string;
+}
+
+// One download button per platform, all pre-rendered. The head script in
+// index.astro sets html[data-platform] before first paint and landing.css shows
+// the matching button, so the label never swaps after load. Desktop buttons
+// carry the release asset suffix; the page script points them at the file once
+// the latest release is fetched.
+// Macs always get the arm64 build. Browsers cannot reliably tell Apple Silicon
+// from Intel (the UA lies, GPU strings lie), and a wrong guess hands an Apple
+// Silicon user a broken app. Intel users pick their build on /download.
+// Do NOT add arch detection back here.
+// On a phone the store link is an outline button: the filled primary is for
+// something a phone visitor can finish there (phase L8).
+const downloads = [
+  { os: "mac", label: "Download for macOS", href: RELEASES_URL, asset: "-arm64.dmg" },
+  { os: "win", label: "Download for Windows", href: RELEASES_URL, asset: "-x64.exe" },
+  { os: "linux", label: "Download for Linux", href: RELEASES_URL, asset: "-x86_64.AppImage" },
+  { os: "ios", label: "Get the iOS app", href: IOS_APP_STORE_URL },
+  { os: "android", label: "Get the Android app", href: ANDROID_PLAY_STORE_URL },
+];
+---
+
+<div class:list={["wrap-row", Astro.props.class]}>
+  {
+    downloads.map((download) => (
+      <a
+        class:list={[
+          "lp-btn lp-btn--lg dl",
+          `dl--${download.os}`,
+          download.asset ? "lp-btn--primary" : "lp-btn--outline",
+        ]}
+        href={download.href}
+        data-asset={download.asset}
+      >
+        {download.label}
+      </a>
+    ))
+  }
+  <a href="/download">Other platforms and Intel Macs</a>
+</div>

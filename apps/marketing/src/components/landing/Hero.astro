@@ -1,0 +1,47 @@
+---
+import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../../lib/site";
+import DownloadButtons from "./DownloadButtons.astro";
+import InstallCommand from "./InstallCommand.astro";
+---
+
+<section id="top" class="wrap hero">
+  <div class="grid2">
+    <div class="stack hero-copy">
+      <p class="eyebrow">Open-source app for coding agents</p>
+      <h1 class="h1">Run your agents in parallel. Know which one needs you.</h1>
+      <p class="lead hero-lead">
+        Run Claude Code, Codex, Cursor, Grok Build, OpenCode and Antigravity side by side on your machine, with the
+        subscriptions you already have.
+      </p>
+      <DownloadButtons />
+      <InstallCommand>
+        <p class="t-body muted">Or try it once without installing: <code>npx @e6code/e6@latest</code></p>
+      </InstallCommand>
+      <p class="t-body muted">
+        Free. MIT licensed. Also on <a href={IOS_APP_STORE_URL}>iOS</a> and <a href={ANDROID_PLAY_STORE_URL}>Android</a>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    padding-top: 40px;
+    padding-bottom: 64px;
+  }
+
+  .hero-copy {
+    gap: 20px;
+  }
+
+  .hero-lead {
+    max-width: 50ch;
+  }
+
+  .hero :global(.install) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+</style>
