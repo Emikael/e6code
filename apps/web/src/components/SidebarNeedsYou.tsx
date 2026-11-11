@@ -18,7 +18,7 @@ import {
   ListChecksIcon,
   MessageCircleQuestionIcon,
 } from "lucide-react";
-import { memo, useState, type ReactNode } from "react";
+import { memo, useCallback, useState, type ReactNode } from "react";
 
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useClientSettings } from "../hooks/useSettings";
@@ -31,7 +31,7 @@ export function BlockedDiamond({ className }: { className?: string }) {
   return (
     <span
       aria-hidden
-      className={cn("size-1.5 shrink-0 rotate-45 rounded-[1px] bg-warning-foreground", className)}
+      className={cn("size-2 shrink-0 rotate-45 rounded-[1px] bg-warning-foreground", className)}
     />
   );
 }
@@ -40,7 +40,15 @@ export function BlockedDiamond({ className }: { className?: string }) {
  * Whole minutes since `since`, on the shared minute clock. Only this span
  * re-renders each minute. Hidden when "Elapsed time in the thread list" is off.
  */
-export function SidebarElapsedTime({ since, prefix }: { since: string; prefix?: string }) {
+export function SidebarElapsedTime({
+  since,
+  prefix,
+  className,
+}: {
+  since: string;
+  prefix?: string;
+  className?: string;
+}) {
   const enabled = useClientSettings((settings) => settings.sidebarElapsedTimeEnabled);
   const nowMinute = useNowMinute();
   if (!enabled) return null;
@@ -48,7 +56,7 @@ export function SidebarElapsedTime({ since, prefix }: { since: string; prefix?: 
   const label = formatAttentionAge(since, new Date().toISOString());
   if (label === "") return null;
   return (
-    <span className="shrink-0 font-mono text-[11px] tabular-nums">
+    <span className={cn("shrink-0 font-mono text-[11px] tabular-nums", className)}>
       {prefix}
       {label}
     </span>
@@ -62,14 +70,20 @@ const BLOCKED_LABEL: Record<"approval" | "input" | "failed", string> = {
 };
 
 function BlockedGlyph({ kind }: { kind: ThreadAttentionKind }) {
-  if (kind === "approval") return <BlockedDiamond className="mx-[3px]" />;
+  if (kind === "approval") return <BlockedDiamond />;
   if (kind === "input") {
     return (
-      <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0 text-warning-foreground" />
+      <MessageCircleQuestionIcon
+        aria-hidden
+        className="size-3.5 shrink-0 text-warning-foreground"
+      />
     );
   }
-  return <CircleAlertIcon aria-hidden className="size-3 shrink-0 text-destructive-foreground" />;
+  return <CircleAlertIcon aria-hidden className="size-3.5 shrink-0 text-destructive-foreground" />;
 }
+
+/** Board 2: the selected row gets a 1px `input` edge over the card shadow, not a fill alone. */
+const SELECTED_ROW = "bg-sidebar-row-active shadow-xs ring-1 ring-input";
 
 const ROW_FOCUS =
   "outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
@@ -90,16 +104,16 @@ const BlockedRow = memo(function BlockedRow(props: {
         className={cn(
           "flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg px-2.5 py-[7px] text-left",
           ROW_FOCUS,
-          props.isActive ? "bg-sidebar-row-active" : "hover:bg-sidebar-row-hover",
+          props.isActive ? SELECTED_ROW : "hover:bg-sidebar-row-hover",
         )}
       >
         <span className="flex min-w-0 items-center gap-2 text-[13px] leading-[18px] font-medium text-sidebar-foreground">
-          <span className="inline-flex w-3 shrink-0 justify-center">
+          <span className="inline-flex w-3.5 shrink-0 justify-center">
             <BlockedGlyph kind={item.kind} />
           </span>
           <span className="min-w-0 truncate">{item.thread.title}</span>
         </span>
-        <span className="flex min-w-0 items-center gap-1.5 pl-5 text-xs text-sidebar-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1.5 pl-4 text-xs text-sidebar-muted-foreground">
           <span
             className={cn(
               "shrink-0 font-medium",
@@ -131,7 +145,7 @@ const ReviewRow = memo(function ReviewRow(props: {
         className={cn(
           "flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-left text-[13px] leading-[18px] font-medium text-sidebar-foreground",
           ROW_FOCUS,
-          props.isActive ? "bg-sidebar-row-active" : "hover:bg-sidebar-row-hover",
+          props.isActive ? SELECTED_ROW : "hover:bg-sidebar-row-hover",
         )}
       >
         {isPlan ? (
@@ -199,11 +213,14 @@ export function SidebarNeedsYou(props: {
   onOpen: (thread: EnvironmentThreadShell) => void;
   /** Offers snooze times for the snoozable threads in Earlier; null when none can be. */
   onSnoozeEarlier: ((position: { x: number; y: number }) => void) | null;
+  /** How many Earlier threads "Snooze" acts on: failed ones; approvals and questions cannot be. */
+  snoozableEarlierCount: number;
 }) {
   const { shown, hold, release } = useHeldAttention(props.attention, props.threadsByKey);
   const [earlierOpen, setEarlierOpen] = useState(false);
   const { blockedCount } = props.attention;
-  const open = (item: Item) => props.onOpen(item.thread);
+  const { onOpen } = props;
+  const open = useCallback((item: Item) => onOpen(item.thread), [onOpen]);
   if (shown.blocked.length === 0 && shown.earlier.length === 0 && shown.review.length === 0) {
     return null;
   }
@@ -275,7 +292,7 @@ export function SidebarNeedsYou(props: {
                   ROW_FOCUS,
                 )}
               >
-                Snooze all
+                Snooze {props.snoozableEarlierCount} failed
               </button>
             ) : null}
           </div>

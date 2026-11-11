@@ -49,7 +49,7 @@ import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { applyStockAccent } from "~/stockAccent";
 import { useClientSettings, useClientSettingsHydrationStatus } from "../hooks/useSettings";
-import { useBlockedThreadCount } from "../hooks/useThreadAttention";
+import { ThreadAttentionSync, useBlockedThreadCount } from "../hooks/useThreadAttention";
 import { documentTitleWithBlockedCount } from "../lib/needsYouNavigation";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
@@ -213,6 +213,7 @@ function RootRouteView() {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
+        <ThreadAttentionSync />
         <AttentionDocumentTitleSync />
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />

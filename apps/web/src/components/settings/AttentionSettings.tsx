@@ -61,7 +61,7 @@ export function AttentionSettingsPanel() {
             resetAction={
               sidebarElapsedTimeEnabled !== DEFAULT_CLIENT_SETTINGS.sidebarElapsedTimeEnabled ? (
                 <SettingResetButton
-                  label="elapsed time"
+                  label="Elapsed time"
                   onClick={() =>
                     updateSettings({
                       sidebarElapsedTimeEnabled: DEFAULT_CLIENT_SETTINGS.sidebarElapsedTimeEnabled,

@@ -177,7 +177,7 @@ it("removes alerts only from environments that leave the client", async () => {
   expect(retained!.close).toHaveBeenCalledOnce();
 });
 
-it("keeps the dock badge at the blocked count through focus, and clears it on unmount", async () => {
+it("keeps the dock badge at the blocked count through focus and unmount", async () => {
   state.blockedCount = 2;
   await render();
   expect(state.dock).toHaveBeenLastCalledWith(2);
@@ -191,7 +191,8 @@ it("keeps the dock badge at the blocked count through focus, and clears it on un
   await render();
   await act(async () => renderer!.unmount());
   renderer = undefined;
-  expect(state.dock).toHaveBeenLastCalledWith(0);
+  // Other windows may still be blocked; the main process clears it on quit.
+  expect(state.dock).toHaveBeenLastCalledWith(1);
 });
 
 it.each(["off", "sound", "focused", "denied", "archived"])(

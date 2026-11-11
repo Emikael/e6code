@@ -74,6 +74,7 @@ vi.mock("../threadNotifications", async (importOriginal) => ({
   playNotificationSound: state.sound,
   setNotificationBadge: vi.fn(),
 }));
+vi.mock("../hooks/useThreadAttention", () => ({ useBlockedThreadCount: () => 0 }));
 vi.mock("./ui/toast", () => ({
   toastManager: { add: state.add, close: state.close },
 }));

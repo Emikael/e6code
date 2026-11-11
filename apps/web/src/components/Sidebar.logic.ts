@@ -526,6 +526,8 @@ export interface ThreadStatusPill {
   colorClass: string;
   /** Static fill. Live work adds a ring instead of animating. */
   dotClass: string;
+  /** Drawn instead of the dot: the question bubble for an answer, the pause bars for a usage limit. */
+  glyph?: "question" | "pause";
 }
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
@@ -965,7 +967,7 @@ export function resolveSidebarRowStatus(input: {
       });
       if (input.status === "paused") {
         // Waiting on the clock, not on you: neutral, never amber.
-        return { kind: "paused", ...running, marker: "dot", tone: "muted" };
+        return { kind: "paused", ...running, marker: "icon", tone: "muted" };
       }
       if (input.agentState?.kind === "retrying") {
         return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
@@ -1209,6 +1211,7 @@ export function resolveThreadStatusPill(input: {
       label: "Needs your answer",
       colorClass: "text-warning-foreground",
       dotClass: BLOCKED_STATUS_DOT_CLASS,
+      glyph: "question",
     };
   }
 
@@ -1217,6 +1220,7 @@ export function resolveThreadStatusPill(input: {
       label: "Paused",
       colorClass: "text-muted-foreground",
       dotClass: "rounded-full bg-muted-foreground",
+      glyph: "pause",
     };
   }
 

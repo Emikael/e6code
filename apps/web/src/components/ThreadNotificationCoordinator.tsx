@@ -67,12 +67,13 @@ export function ThreadNotificationCoordinator() {
   }, [mode]);
 
   // The dock badge is a standing count of blocked threads, independent of
-  // notification settings and window focus.
+  // notification settings and window focus. It is not reset on unmount: other
+  // windows may still have blocked threads, and the main process clears it
+  // on quit.
   const blockedCount = useBlockedThreadCount();
   useEffect(() => {
     setDockBadge(blockedCount);
   }, [blockedCount]);
-  useEffect(() => () => setDockBadge(0), []);
 
   useEffect(() => {
     if (!hasNotificationSound(mode)) return;
