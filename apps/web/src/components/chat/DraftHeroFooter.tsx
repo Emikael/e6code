@@ -134,8 +134,8 @@ export function DraftHeroFooter({
   const hasProjectRows = unpushed !== null || staleSetup !== null;
   if (!hasLists && !hasProjectRows && hints.length === 0) return null;
   return (
-    // The hero hangs below a centred composer; long lists scroll in place.
-    <div className="flex max-h-[42dvh] flex-col gap-6 overflow-y-auto px-1 pb-2">
+    // Sits in the start screen's flow; long lists scroll the page with it.
+    <div className="flex flex-col gap-6">
       {blocked.length > 0 ? (
         <section aria-label="Needs you" className="flex flex-col gap-2">
           <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(attention.blockedCount)}</h3>
