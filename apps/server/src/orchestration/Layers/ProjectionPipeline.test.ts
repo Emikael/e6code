@@ -3763,6 +3763,150 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("keeps the earliest unresolved request time on the thread shell", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-pending-since");
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const appendActivity = (input: {
+        readonly id: string;
+        readonly at: string;
+        readonly kind: string;
+        readonly payload: Record<string, unknown>;
+      }) =>
+        appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make(`evt-${input.id}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: input.at,
+          commandId: CommandId.make(`cmd-${input.id}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-${input.id}`),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make(`activity-${input.id}`),
+              tone: "info",
+              kind: input.kind,
+              summary: input.kind,
+              payload: input.payload,
+              turnId: null,
+              createdAt: input.at,
+            },
+          },
+        });
+      const readPendingSince = sql<{ readonly pendingRequestSince: string | null }>`
+        SELECT pending_request_since AS "pendingRequestSince"
+        FROM projection_threads
+        WHERE thread_id = 'thread-pending-since'
+      `.pipe(Effect.map((rows) => rows[0]?.pendingRequestSince));
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-pending-since-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-pending-since"),
+        occurredAt: "2026-04-01T09:00:00.000Z",
+        commandId: CommandId.make("cmd-pending-since-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-since-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-pending-since"),
+          title: "Pending since",
+          workspaceRoot: "/tmp/project-pending-since",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-04-01T09:00:00.000Z",
+          updatedAt: "2026-04-01T09:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-pending-since-thread"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-04-01T09:00:01.000Z",
+        commandId: CommandId.make("cmd-pending-since-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-since-thread"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-pending-since"),
+          title: "Pending since",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-04-01T09:00:01.000Z",
+          updatedAt: "2026-04-01T09:00:01.000Z",
+        },
+      });
+      assert.isNull(yield* readPendingSince);
+
+      // A question, then an approval, then a second question: the oldest wins.
+      yield* appendActivity({
+        id: "pending-since-question-1",
+        at: "2026-04-01T09:01:00.000Z",
+        kind: "user-input.requested",
+        payload: { requestId: "pending-since-question-1", questions: [] },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:01:00.000Z");
+
+      yield* appendActivity({
+        id: "pending-since-approval",
+        at: "2026-04-01T09:02:00.000Z",
+        kind: "approval.requested",
+        payload: { requestId: "pending-since-approval", requestKind: "command" },
+      });
+      yield* appendActivity({
+        id: "pending-since-question-2",
+        at: "2026-04-01T09:03:00.000Z",
+        kind: "user-input.requested",
+        payload: { requestId: "pending-since-question-2", questions: [] },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:01:00.000Z");
+
+      // Resolving the oldest moves the time to the next open request.
+      yield* appendActivity({
+        id: "pending-since-question-1-resolved",
+        at: "2026-04-01T09:04:00.000Z",
+        kind: "user-input.resolved",
+        payload: { requestId: "pending-since-question-1", answers: {} },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:02:00.000Z");
+
+      yield* appendActivity({
+        id: "pending-since-approval-resolved",
+        at: "2026-04-01T09:05:00.000Z",
+        kind: "approval.resolved",
+        payload: { requestId: "pending-since-approval", decision: "accept" },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:03:00.000Z");
+
+      // Nothing left to answer clears it.
+      yield* appendActivity({
+        id: "pending-since-question-2-resolved",
+        at: "2026-04-01T09:06:00.000Z",
+        kind: "user-input.resolved",
+        payload: { requestId: "pending-since-question-2", answers: {} },
+      });
+      assert.isNull(yield* readPendingSince);
+    }),
+  );
+
   it.effect("does not fallback-retain messages whose turnId is removed by revert", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

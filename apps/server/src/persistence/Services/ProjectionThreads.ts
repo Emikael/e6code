@@ -57,6 +57,8 @@ export const ProjectionThread = Schema.Struct({
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
+  /** When the oldest unresolved approval or user-input request was asked. */
+  pendingRequestSince: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasActionableProposedPlan: NonNegativeInt,
   deletedAt: Schema.NullOr(IsoDateTime),
 });

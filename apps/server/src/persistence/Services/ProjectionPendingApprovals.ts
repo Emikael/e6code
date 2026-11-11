@@ -64,10 +64,17 @@ export interface ProjectionPendingApprovalRepositoryShape {
     input: ListProjectionPendingApprovalsInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionPendingApproval>, ProjectionRepositoryError>;
 
-  /** Count pending approvals without loading resolved request history. */
-  readonly countPendingByThreadId: (
+  /**
+   * Count pending approvals and find when the oldest was requested, without
+   * loading resolved request history. `earliestCreatedAt` is null when none
+   * is pending.
+   */
+  readonly summarizePendingByThreadId: (
     input: ListProjectionPendingApprovalsInput,
-  ) => Effect.Effect<number, ProjectionRepositoryError>;
+  ) => Effect.Effect<
+    { readonly count: number; readonly earliestCreatedAt: string | null },
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read a pending approval row by request id.
