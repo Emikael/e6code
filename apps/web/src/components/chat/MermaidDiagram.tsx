@@ -157,7 +157,7 @@ const KATEX_MATHML_ATTRIBUTES = new Set([
 
 // Pele escapes labels and links and images are off; this is defense in depth against anything
 // that could navigate, run script, or fetch remote content.
-export function sanitizeDiagramSvg(svg: string): DocumentFragment {
+function sanitizeDiagramSvg(svg: string): DocumentFragment {
   if (!purifier) throw new Error("Diagram sanitizer is not loaded.");
   return purifier.sanitize(svg, {
     FORBID_ATTR: ["href", "xlink:href", "src", "srcset"],

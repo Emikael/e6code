@@ -659,7 +659,7 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
 }
 
 /** Each turn's published pages in order, deduplicated across lifecycle updates of one call. */
-export function deriveHtmlRendersByTurnId(
+function deriveHtmlRendersByTurnId(
   timelineEntries: ReadonlyArray<TimelineEntry>,
 ): ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>> {
   const byTurnId = new Map<TurnId, HtmlRenderReference[]>();

@@ -22,7 +22,7 @@ export const HTML_RENDER_MAX_HEIGHT = 2000;
 export const HTML_RENDER_MAX_FIT_HEIGHT = 20_000;
 export const HTML_RENDER_MAX_TITLE_LENGTH = 200;
 export const HTML_RENDER_MAX_HTML_LENGTH = 512_000;
-export const HTML_RENDER_COLUMN_WIDTH = 728;
+const HTML_RENDER_COLUMN_WIDTH = 728;
 
 export interface HtmlRenderReference {
   readonly attachmentId: string;

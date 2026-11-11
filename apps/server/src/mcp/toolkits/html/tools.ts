@@ -50,7 +50,7 @@ export const HtmlRenderResult = Schema.Struct({
 });
 
 // Affects only the caller's thread, not its workspace, so read-only sandboxes and plan mode may use it.
-export const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
+const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
   description: `Show a finished HTML page (chart, diagram, mockup, small app) inline in this thread, above your final reply. The user can open it full screen or in a side panel. Do not announce or restate the page. Self-contained: inline <style> and <script>; remote URLs load as-is; scripts run in a sandbox without access to the app. The frame fits the page's height up to ${HTML_RENDER_MAX_FIT_HEIGHT}px. ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`,
   parameters: Schema.Struct({
     html: Schema.String.check(
