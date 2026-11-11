@@ -727,6 +727,13 @@ export default function DiffPanel({
       : null,
   );
   const [commitFocusRequest, setCommitFocusRequest] = useState(0);
+  // Each request focuses the commit box once, however often the changes panel remounts.
+  const handledCommitFocusRequestRef = useRef(0);
+  const consumeCommitFocusRequest = useCallback(() => {
+    if (handledCommitFocusRequestRef.current === commitFocusRequest) return false;
+    handledCommitFocusRequestRef.current = commitFocusRequest;
+    return true;
+  }, [commitFocusRequest]);
   useEffect(() => {
     if (!focusRequest || !routeThreadRef) return;
     useDiffPanelStore.getState().consumeFocusRequest(routeThreadRef);
@@ -1260,7 +1267,7 @@ export default function DiffPanel({
                 agentRunning={agentRunning}
                 selected={changedFileReveal}
                 onSelectFile={selectChangedFile}
-                commitFocusRequest={commitFocusRequest}
+                consumeCommitFocusRequest={consumeCommitFocusRequest}
               />
             </aside>
           ) : null}

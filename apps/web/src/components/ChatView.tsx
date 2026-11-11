@@ -85,6 +85,7 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   createModelSelection,
+  getProviderOptionDescriptors,
   resolvePromptInjectedEffort,
 } from "@e6tools/shared/model";
 import {
@@ -236,6 +237,7 @@ import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { focusedPanelTabSurfaceId, RightPanelTabs } from "./RightPanelTabs";
+import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -10017,21 +10019,35 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadRef, addDiffSurface],
   );
   const inspectorModelSelection = activeThread?.modelSelection ?? null;
-  const inspectorModelLabel = useMemo(
-    () =>
-      inspectorModelSelection
-        ? resolveContextWindowModelDisplayName(
-            inspectorModelSelection,
-            getCustomModelOptionsByInstance(
-              settings,
-              providerStatuses,
-              inspectorModelSelection.instanceId,
+  // "<model> · Balanced": the effort word follows the model when its provider has one.
+  const inspectorModelLabel = useMemo(() => {
+    if (!inspectorModelSelection) return null;
+    const name = resolveContextWindowModelDisplayName(
+      inspectorModelSelection,
+      getCustomModelOptionsByInstance(
+        settings,
+        providerStatuses,
+        inspectorModelSelection.instanceId,
+        inspectorModelSelection.model,
+      ),
+    );
+    const provider = providerStatuses.find(
+      (status) => status.instanceId === inspectorModelSelection.instanceId,
+    );
+    const effort = provider
+      ? modelEffortLabel(
+          getProviderOptionDescriptors({
+            caps: getProviderModelCapabilities(
+              provider.models,
               inspectorModelSelection.model,
+              provider.driver,
             ),
-          )
-        : null,
-    [inspectorModelSelection, providerStatuses, settings],
-  );
+            selections: inspectorModelSelection.options,
+          }).find((descriptor) => descriptor.type === "select"),
+        )
+      : null;
+    return effort ? `${name} · ${effort}` : name;
+  }, [inspectorModelSelection, providerStatuses, settings]);
   const inspectorLatestTurnStartedAt = activeThread?.latestTurn?.startedAt ?? null;
   const inspectorLatestTurnCompletedAt = activeThread?.latestTurn?.completedAt ?? null;
   const inspectorLatestTurnDurationMs =
@@ -10277,6 +10293,7 @@ export default function ChatView(props: ChatViewProps) {
         planLimits={inspectorPlanLimits}
         latestTurnDurationMs={inspectorLatestTurnDurationMs}
         modelLabel={inspectorModelLabel}
+        latestTurnId={activeThread?.latestTurn?.turnId ?? null}
         reviewShortcutLabel={shortcutLabelForCommand(keybindings, "diff.toggle")}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (

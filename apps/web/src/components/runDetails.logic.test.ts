@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   isRunDetailsSectionOpen,
+  modelEffortLabel,
+  planLimitReading,
   planLimitUsedPercent,
   planPositionLabel,
   planStepWords,
@@ -52,22 +54,88 @@ describe("planPositionLabel", () => {
 });
 
 describe("isRunDetailsSectionOpen", () => {
-  it("opens Plan and Changes and closes Usage by default", () => {
-    const context = { subagentWorking: false };
-    expect(isRunDetailsSectionOpen("plan", undefined, context)).toBe(true);
-    expect(isRunDetailsSectionOpen("changes", undefined, context)).toBe(true);
-    expect(isRunDetailsSectionOpen("usage", undefined, context)).toBe(false);
-  });
-
-  it("opens Subagents only while one is working", () => {
-    expect(isRunDetailsSectionOpen("subagents", undefined, { subagentWorking: true })).toBe(true);
-    expect(isRunDetailsSectionOpen("subagents", undefined, { subagentWorking: false })).toBe(false);
+  it("opens Plan and Changes and closes Usage and Subagents by default", () => {
+    expect(isRunDetailsSectionOpen("plan", undefined)).toBe(true);
+    expect(isRunDetailsSectionOpen("changes", undefined)).toBe(true);
+    expect(isRunDetailsSectionOpen("usage", undefined)).toBe(false);
+    expect(isRunDetailsSectionOpen("subagents", undefined)).toBe(false);
   });
 
   it("keeps the user's own choice", () => {
-    expect(isRunDetailsSectionOpen("plan", false, { subagentWorking: false })).toBe(false);
-    expect(isRunDetailsSectionOpen("subagents", false, { subagentWorking: true })).toBe(false);
-    expect(isRunDetailsSectionOpen("usage", true, { subagentWorking: false })).toBe(true);
+    expect(isRunDetailsSectionOpen("plan", false)).toBe(false);
+    expect(isRunDetailsSectionOpen("usage", true)).toBe(true);
+  });
+
+  it("opens Subagents when one starts working, even after an earlier close", () => {
+    const live = { liveTurnId: "turn-2", closedInTurnId: null };
+    expect(isRunDetailsSectionOpen("subagents", false, live)).toBe(true);
+  });
+
+  it("keeps Subagents closed for the rest of the turn the user closed it in", () => {
+    const live = { liveTurnId: "turn-2", closedInTurnId: "turn-2" };
+    expect(isRunDetailsSectionOpen("subagents", false, live)).toBe(false);
+  });
+
+  it("opens Subagents again in the next turn that starts one", () => {
+    const live = { liveTurnId: "turn-3", closedInTurnId: "turn-2" };
+    expect(isRunDetailsSectionOpen("subagents", false, live)).toBe(true);
+  });
+
+  it("follows the stored choice once no subagent works", () => {
+    const idle = { liveTurnId: null, closedInTurnId: "turn-2" };
+    expect(isRunDetailsSectionOpen("subagents", true, idle)).toBe(true);
+    expect(isRunDetailsSectionOpen("subagents", false, idle)).toBe(false);
+  });
+});
+
+describe("planLimitReading", () => {
+  const now = Date.parse("2026-09-03T12:00:00.000Z");
+  const format = { locale: "en-US", timeZone: "UTC" };
+
+  it("names the day when the reset is a day or more away", () => {
+    const monday = Date.parse("2026-09-07T09:00:00.000Z");
+    expect(planLimitReading(38, monday, now, format)).toBe("38% used · resets Mon");
+  });
+
+  it("names the clock time when the reset is sooner", () => {
+    const later = Date.parse("2026-09-03T16:30:00.000Z");
+    expect(planLimitReading(38, later, now, format)).toBe("38% used · resets 4:30 PM");
+  });
+
+  it("says only the share used without a future reset", () => {
+    expect(planLimitReading(38, null, now, format)).toBe("38% used");
+    expect(planLimitReading(38, now - 1, now, format)).toBe("38% used");
+  });
+});
+
+describe("modelEffortLabel", () => {
+  const effort = (currentValue: string) => ({
+    id: "reasoningEffort",
+    label: "Reasoning",
+    type: "select" as const,
+    currentValue,
+    options: [
+      { id: "low", label: "Low" },
+      { id: "medium", label: "Medium", isDefault: true },
+      { id: "high", label: "High" },
+      { id: "max", label: "Max" },
+    ],
+  });
+
+  it("names the quick step the level is on", () => {
+    expect(modelEffortLabel(effort("medium"))).toBe("Balanced");
+    expect(modelEffortLabel(effort("high"))).toBe("Deep");
+  });
+
+  it("names a level outside the quick steps by its own label", () => {
+    expect(modelEffortLabel(effort("max"))).toBe("Max");
+  });
+
+  it("says nothing for a model without an effort setting", () => {
+    expect(modelEffortLabel(undefined)).toBeNull();
+    expect(
+      modelEffortLabel({ ...effort("medium"), id: "contextWindow", label: "Context" }),
+    ).toBeNull();
   });
 });
 

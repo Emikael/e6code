@@ -47,8 +47,11 @@ interface DiffChangesPanelProps {
   readonly agentRunning: boolean;
   readonly selected: { readonly path: string; readonly section: DiffChangesSection } | null;
   readonly onSelectFile: (path: string, section: DiffChangesSection) => void;
-  /** Bumped to move focus into the commit message box, as Run details' Commit does. */
-  readonly commitFocusRequest?: number;
+  /**
+   * True once per request to move focus into the commit message box, as Run details' Commit
+   * makes. The owner remembers handled requests, so remounting this panel never refocuses.
+   */
+  readonly consumeCommitFocusRequest?: () => boolean;
 }
 
 const KIND_TONE: Record<VcsFileChangeKind, string> = {
@@ -92,13 +95,13 @@ export function DiffChangesPanel({
   agentRunning,
   selected,
   onSelectFile,
-  commitFocusRequest = 0,
+  consumeCommitFocusRequest,
 }: DiffChangesPanelProps) {
   const commitBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (commitFocusRequest === 0) return;
+    if (!consumeCommitFocusRequest?.()) return;
     commitBoxRef.current?.querySelector("textarea")?.focus();
-  }, [commitFocusRequest]);
+  }, [consumeCommitFocusRequest]);
   const selectedIn = (section: DiffChangesSection) =>
     selected?.section === section ? selected.path : null;
   const sections = useMemo(() => deriveVcsChangeSections(files), [files]);
