@@ -1,0 +1,48 @@
+---
+import { INSTALL_COMMANDS } from "../../lib/site";
+
+interface Props {
+  /** Names this toggle and its copy buttons apart from the other one on the page. */
+  context?: string;
+  class?: string;
+}
+
+const { context, class: className } = Astro.props;
+const suffix = context ? `, ${context}` : "";
+const commands = [
+  { os: "unix", label: "macOS · Linux", command: INSTALL_COMMANDS.unix },
+  { os: "windows", label: "Windows", command: INSTALL_COMMANDS.windows },
+];
+---
+
+<!-- Both commands are rendered. landing.css shows the Windows one when
+     html[data-platform] is win, so nothing swaps after load; the page script
+     sets data-choice when the visitor picks one by hand. -->
+<div class:list={["install", className]} data-install>
+  <span class="seg" role="radiogroup" aria-label={`Install command platform${suffix}`}>
+    {
+      commands.map((item, index) => (
+        <button
+          type="button"
+          role="radio"
+          data-os={item.os}
+          aria-checked={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+        >
+          {item.label}
+        </button>
+      ))
+    }
+  </span>
+  {
+    commands.map((item) => (
+      <div class="cmd" data-os={item.os}>
+        <span>{item.command}</span>
+        <button type="button" class="lp-btn lp-btn--ghost lp-btn--sm" data-copy aria-label={`Copy the install command${suffix}`}>
+          <span aria-live="polite">Copy</span>
+        </button>
+      </div>
+    ))
+  }
+  <slot />
+</div>

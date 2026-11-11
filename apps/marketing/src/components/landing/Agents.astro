@@ -1,0 +1,83 @@
+---
+import { fetchLatestReleaseAtBuild } from "../../lib/releases";
+import { GITHUB_REPOSITORY_URL } from "../../lib/site";
+
+// Sign-in steps mirror the README and docs/user/providers-*.md.
+const agents = [
+  { name: "Claude Code", command: "claude auth login" },
+  { name: "Codex", command: "codex login" },
+  { name: "Cursor", command: "agent login" },
+  { name: "Grok Build", command: "grok login" },
+  { name: "OpenCode", command: "opencode auth login" },
+  { name: "Antigravity", command: "Settings → Install" },
+];
+
+// Read when the site is built; the release workflow redeploys the site.
+const release = await fetchLatestReleaseAtBuild();
+const releaseDate = release?.publishedAt.toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+---
+
+<section class="band--tint" aria-labelledby="agents-title">
+  <div class="wrap stack agents">
+    <h2 id="agents-title" class="h3">Sign in where you already do. E6 Code drives the CLI you have.</h2>
+    <ul class="agent-grid">
+      {
+        agents.map((agent) => (
+          <li class="agent">
+            <b>{agent.name}</b>
+            <span>{agent.command}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <ul class="fact-grid">
+      {
+        release && (
+          <li class="fact">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+            <span>
+              Latest release {release.version}, {releaseDate}
+            </span>
+          </li>
+        )
+      }
+      <li class="fact">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+        <span><a href={GITHUB_REPOSITORY_URL}>MIT licensed</a>. No tokens resold, no keys proxied</span>
+      </li>
+      <li class="fact">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+        <span>The installer checks SHA256SUMS, and verifies the signature when Cosign or gh is installed</span>
+      </li>
+      <li class="fact">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
+        <span>Early software. Expect bugs</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<style>
+  .agents {
+    padding-top: 40px;
+    padding-bottom: 40px;
+    gap: 20px;
+  }
+
+  .agent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+    gap: 10px;
+  }
+
+  .fact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+    gap: 12px 24px;
+  }
+</style>

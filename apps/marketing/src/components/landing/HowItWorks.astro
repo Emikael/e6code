@@ -1,0 +1,217 @@
+---
+import { shipped, showHowItWorks } from "../../lib/shipped";
+---
+
+{
+  showHowItWorks && (
+    <section id="how" class="band band--tint">
+      <div class="wrap stack how">
+        <div class="stack head">
+          <p class="eyebrow">How it works</p>
+          <h2 class="h2">Send a prompt. Walk away. Come back to where you left off.</h2>
+        </div>
+        <div class="cards">
+          {shipped.notifiesCard && (
+            <article class="vig vig--on-page">
+              <h3 class="h3">It notifies you</h3>
+              <p class="copy">
+                A notification when an agent is blocked, and when the thread you were waiting on finishes. Other
+                finished threads arrive together when you next send, switch thread or stop typing.
+              </p>
+              <div
+                class="floating notice"
+                role="img"
+                aria-label="A notification: Thread completed, Remodel the theme tokens, worked 3 minutes 40 seconds"
+              >
+                <div class="row" aria-hidden="true">
+                  <svg class="i i14 done-mark" viewBox="0 0 24 24">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <span class="t-label grow">Thread completed</span>
+                  <span class="t-meta muted">now</span>
+                </div>
+                <span class="t-caption muted" aria-hidden="true">
+                  Remodel the theme tokens · worked 3m 40s
+                </span>
+              </div>
+            </article>
+          )}
+          {shipped.oneListCard && (
+            <article class="vig vig--on-page">
+              <h3 class="h3">One list of what needs you</h3>
+              <p class="copy">Blocked agents come first. Finished work sits in its own list and adds nothing to the count.</p>
+              <div
+                class="ill-card"
+                role="img"
+                aria-label="A list. Needs you: Fix tunnel reconnect loop. To review: Usage page totals, plan ready, and Settings search pulse, done."
+              >
+                <div class="ill-section" aria-hidden="true">
+                  <span class="grow">Needs you</span>
+                  <span class="t-meta">1</span>
+                </div>
+                <div class="navrow" aria-hidden="true">
+                  <span class="dot dot--waiting" />
+                  <span class="grow clip">Fix tunnel reconnect loop</span>
+                  <span class="t-meta muted">4m</span>
+                </div>
+                <div class="ill-section ill-section--next" aria-hidden="true">
+                  To review
+                </div>
+                <div class="navrow" aria-hidden="true">
+                  <svg class="i i14" viewBox="0 0 24 24">
+                    <path d="m3 17 2 2 4-4" />
+                    <path d="m3 7 2 2 4-4" />
+                    <path d="M13 6h8M13 12h8M13 18h8" />
+                  </svg>
+                  <span class="grow clip">Usage page totals</span>
+                  <span class="t-caption muted">Plan ready</span>
+                </div>
+                <div class="navrow" aria-hidden="true">
+                  <svg class="i i14 done-mark" viewBox="0 0 24 24">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <span class="grow clip">Settings search pulse</span>
+                  <span class="t-caption muted">Done</span>
+                </div>
+              </div>
+            </article>
+          )}
+          {shipped.whereYouLeftOffCard && (
+            <article class="vig vig--on-page">
+              <h3 class="h3">Where you left off</h3>
+              <p class="copy">
+                Open a thread that changed and see what you asked and what happened since. It is built from the thread
+                itself, with no model call.
+              </p>
+              <div
+                class="recap"
+                role="img"
+                aria-label="A recap card. You asked: Also update the mobile tokens. Since then: Claude read 3 files and changed 2."
+              >
+                <span class="t-heading" aria-hidden="true">
+                  Where you left off
+                </span>
+                <div class="recap-row" aria-hidden="true">
+                  <span class="recap-key">You asked</span>
+                  <span class="t-body">Also update the mobile tokens.</span>
+                </div>
+                <div class="recap-row" aria-hidden="true">
+                  <span class="recap-key">Since then</span>
+                  <span class="t-body">Claude read 3 files and changed 2.</span>
+                </div>
+              </div>
+            </article>
+          )}
+          {shipped.oneThreadCard && (
+            <article class="vig vig--on-page">
+              <h3 class="h3">One thread on screen</h3>
+              <p class="copy">Focus mode hides the sidebar and panels. Press a key to save a note without leaving the thread.</p>
+              <div
+                class="floating capture"
+                role="img"
+                aria-label="A one-line capture bar holding the note: Try view transitions for the sidebar"
+              >
+                <div class="row capture-row" aria-hidden="true">
+                  <svg class="i i18 muted" viewBox="0 0 24 24">
+                    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+                    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                  </svg>
+                  <span class="t-body grow clip">Try view transitions for the sidebar</span>
+                  <span class="kbd">↵</span>
+                </div>
+              </div>
+            </article>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .how {
+    gap: 32px;
+  }
+
+  .head {
+    gap: 12px;
+    max-width: 760px;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr));
+    gap: 20px;
+  }
+
+  .notice {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .ill-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 4px;
+    font: 500 11px/14px var(--font-sans);
+    letter-spacing: 0.01em;
+    color: var(--fg-muted);
+  }
+
+  .ill-section--next {
+    padding-top: 4px;
+  }
+
+  .navrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font: 500 13px/18px var(--font-sans);
+  }
+
+  .navrow svg {
+    color: var(--fg-muted);
+  }
+
+  .navrow svg.done-mark {
+    color: var(--ok);
+  }
+
+  .recap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .recap-row {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+  }
+
+  .recap-key {
+    font: 500 12px/16px var(--font-sans);
+    color: var(--fg-muted);
+  }
+
+  .capture {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .capture-row {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+</style>

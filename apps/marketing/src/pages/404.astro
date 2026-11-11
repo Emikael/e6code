@@ -3,8 +3,7 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <!-- Built to dist/404.html; wrangler.jsonc serves it for unknown paths. -->
-<Layout title="Page not found — E6 Code" description="This page does not exist on e6code.com.">
-  <meta slot="head" name="robots" content="noindex" />
+<Layout title="Page not found — E6 Code" description="This page does not exist on e6code.com." noindex>
   <section class="container not-found">
     <p class="eyebrow">404</p>
     <h1>Page not found</h1>
