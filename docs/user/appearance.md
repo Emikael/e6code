@@ -9,6 +9,11 @@ within each theme. Appearance preferences are saved separately on each device or
 Cobalt, Rose, or Graphite. It applies to the stock E6 Code theme only; other themes bring their
 own accent. On mobile, choose it under **Settings → Appearance**, separately on each device.
 
+New installs start with Graphite at contrast 120. Graphite is neutral, so color on screen always
+means a status: amber when an agent is blocked on you, red for a failure, teal for done. If you
+set up E6 Code before this default, it keeps the accent and contrast you had. To switch, pick
+**Graphite** under **Accent**, then raise **Contrast** under **Advanced** to 120.
+
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
 Use **Change appearance** in the command palette to choose System, Light, or Dark independently of

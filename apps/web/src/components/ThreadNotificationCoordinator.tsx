@@ -170,7 +170,7 @@ function EnvironmentNotifications({
               ) : status === "failed" ? (
                 <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
               ) : (
-                <MessageCircleQuestionIcon aria-hidden className="size-4 text-primary-text" />
+                <MessageCircleQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
               ),
           },
           actionProps: {

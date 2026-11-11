@@ -319,7 +319,6 @@ const rowStatusToneClassName: Record<SidebarRowStatus["tone"], string> = {
   warning: "text-warning-foreground",
   muted: "text-sidebar-muted-foreground",
   success: "text-success-foreground",
-  input: "text-primary-text",
   failed: "text-destructive-foreground",
 };
 

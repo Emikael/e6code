@@ -1929,6 +1929,64 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("carries the oldest pending request time on the shell and omits it otherwise", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_turns`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json, scripts_json,
+          created_at, updated_at, deleted_at
+        )
+        VALUES (
+          'project-1', 'Project 1', '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-02T00:00:00.000Z', '2026-04-02T00:00:01.000Z', NULL
+        )
+      `;
+      for (const [threadId, pendingSince] of [
+        ["thread-blocked", "2026-04-02T00:00:04.000Z"],
+        ["thread-idle", null],
+      ] as const) {
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+            branch, worktree_path, latest_turn_id, latest_user_message_at,
+            pending_approval_count, pending_user_input_count, pending_request_since,
+            has_actionable_proposed_plan, created_at, updated_at, archived_at, deleted_at
+          )
+          VALUES (
+            ${threadId}, 'project-1', 'Thread', '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access', 'default', NULL, NULL, NULL, NULL,
+            ${pendingSince === null ? 0 : 1}, 0, ${pendingSince}, 0,
+            '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', NULL, NULL
+          )
+        `;
+      }
+
+      const blocked = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-blocked"));
+      assert.strictEqual(
+        blocked._tag === "Some" ? blocked.value.pendingRequestSince : "missing",
+        "2026-04-02T00:00:04.000Z",
+      );
+      const idle = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-idle"));
+      assert.isFalse(idle._tag === "Some" && "pendingRequestSince" in idle.value);
+
+      const shells = (yield* snapshotQuery.getShellSnapshot()).threads;
+      const shellOf = (id: string) => shells.find((thread) => thread.id === id);
+      assert.strictEqual(
+        shellOf("thread-blocked")?.pendingRequestSince,
+        "2026-04-02T00:00:04.000Z",
+      );
+      assert.isFalse("pendingRequestSince" in (shellOf("thread-idle") ?? {}));
+    }),
+  );
+
   it.effect("sums every turn's usage into the shell, beyond the detail activity window", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

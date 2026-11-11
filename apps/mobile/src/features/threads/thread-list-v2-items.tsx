@@ -63,7 +63,7 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
  */
 
 // Status colours use the semantic roles of the web sidebar's status line
-// (warning approval, primary input, primary working: Iris marks a live agent)
+// (warning for approval and input, both blocked on you; primary working marks a live agent)
 // so a thread reads the same everywhere it surfaces. Each colour sits on a
 // word, never alone.
 const STATUS_LABEL_BY_STATUS: Partial<
@@ -77,7 +77,7 @@ const STATUS_LABEL_BY_STATUS: Partial<
   input: {
     label: "Input",
     accessibilityLabel: "Needs your answer",
-    className: "text-primary-text",
+    className: "text-warning-foreground",
   },
   paused: { label: "Paused", className: "text-warning-foreground" },
   working: { label: "Working", className: "text-primary-text" },

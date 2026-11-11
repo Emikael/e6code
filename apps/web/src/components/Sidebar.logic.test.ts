@@ -2070,7 +2070,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Paused" });
   });
 
-  it("asks for an answer when plan mode is blocked on user answers", () => {
+  it("asks for an answer in the same warning roles as an approval", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -2078,7 +2078,11 @@ describe("resolveThreadStatusPill", () => {
           hasPendingUserInput: true,
         },
       }),
-    ).toMatchObject({ label: "Needs your answer" });
+    ).toMatchObject({
+      label: "Needs your answer",
+      colorClass: "text-warning-foreground",
+      dotClass: "bg-warning",
+    });
   });
 
   it("falls back to working when the thread is actively running without blockers", () => {
@@ -2103,7 +2107,11 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Plan Ready" });
+    ).toMatchObject({
+      label: "Plan Ready",
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
+    });
   });
 
   it("does not manufacture completed state without a client visit marker", () => {
@@ -2215,11 +2223,11 @@ describe("resolveProjectStatusIndicator", () => {
         },
         {
           label: "Plan Ready",
-          colorClass: "text-primary-text",
-          dotClass: "bg-primary",
+          colorClass: "text-muted-foreground",
+          dotClass: "bg-muted-foreground",
         },
       ]),
-    ).toMatchObject({ label: "Plan Ready", dotClass: "bg-primary" });
+    ).toMatchObject({ label: "Plan Ready" });
   });
 });
 
@@ -2778,7 +2786,7 @@ describe("resolveSidebarRowStatus", () => {
       marker: "dot",
       tone: "warning",
     });
-    expect(line({ status: "input" })).toMatchObject({ text: "Needs your answer", tone: "input" });
+    expect(line({ status: "input" })).toMatchObject({ text: "Needs your answer", tone: "warning" });
     expect(line({ status: "failed" })).toMatchObject({ text: "Failed", tone: "failed" });
   });
 

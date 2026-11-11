@@ -1,6 +1,9 @@
+import { StockAccent } from "@e6tools/contracts/settings";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import indexHtml from "../index.html?raw";
+import { applyAppearanceContrast } from "./appearanceContrast";
+import { stockAccentVariables } from "./stockAccent";
 import {
   CUSTOM_THEMES_STORAGE_KEY,
   getDefaultThemeColors,
@@ -518,5 +521,48 @@ describe("index.html boot script", () => {
 
     const dark = runBootScript({ storageThrows: true, prefersDark: true });
     expect(dark.isDark).toBe(true);
+  });
+});
+
+describe("index.html boot accent and contrast", () => {
+  const CLIENT_SETTINGS_STORAGE_KEY = "e6code:client-settings:v1";
+  const bootWithSettings = (settings: unknown) =>
+    runBootScript({
+      storage: { [CLIENT_SETTINGS_STORAGE_KEY]: JSON.stringify(settings) },
+      prefersDark: false,
+    }).bootVariables;
+  const stockVariablesOf = (variables: Record<string, string>) =>
+    Object.fromEntries(Object.entries(variables).filter(([name]) => name.startsWith("--stock-")));
+
+  // The boot copy of the accent palettes is hand-maintained; asserting it
+  // against the runtime keeps a stored accent from flashing the default.
+  it.each(StockAccent.literals)("writes what the runtime writes for %s", (accent) => {
+    expect(stockVariablesOf(bootWithSettings({ stockAccent: accent }))).toEqual(
+      stockAccentVariables(accent),
+    );
+  });
+
+  it("writes what the runtime writes for a stored contrast", () => {
+    for (const contrast of [70, 100, 135]) {
+      const written: Record<string, string> = {};
+      applyAppearanceContrast(
+        {
+          style: { setProperty: (name: string, value: string) => (written[name] = value) },
+        } as unknown as HTMLElement,
+        contrast,
+      );
+      expect(bootWithSettings({ appearanceContrast: contrast })).toEqual(written);
+    }
+  });
+
+  it("leaves the stylesheet defaults for a new profile or unreadable settings", () => {
+    expect(runBootScript({ prefersDark: false }).bootVariables).toEqual({});
+    expect(bootWithSettings({ stockAccent: "chartreuse", appearanceContrast: 999 })).toEqual({});
+    expect(
+      runBootScript({
+        storage: { [CLIENT_SETTINGS_STORAGE_KEY]: "{not-json" },
+        prefersDark: false,
+      }).bootVariables,
+    ).toEqual({});
   });
 });

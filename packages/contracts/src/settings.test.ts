@@ -400,8 +400,12 @@ describe("ClientSettings chat width", () => {
 });
 
 describe("ClientSettings stock accent", () => {
-  it("defaults to Iris when no accent is saved", () => {
-    expect(decodeClientSettings({}).stockAccent).toBe("iris");
+  it("defaults to Graphite when no accent is saved", () => {
+    expect(decodeClientSettings({}).stockAccent).toBe("graphite");
+  });
+
+  it("keeps a stored Iris profile on Iris", () => {
+    expect(decodeClientSettings({ stockAccent: "iris" }).stockAccent).toBe("iris");
   });
 
   it.each(["iris", "cobalt", "rose", "graphite"])("round-trips the %s accent", (stockAccent) => {
@@ -410,9 +414,9 @@ describe("ClientSettings stock accent", () => {
     expect(decodeClientSettingsPatch({ stockAccent }).stockAccent).toBe(stockAccent);
   });
 
-  it("falls back to Iris for an accent this client does not know", () => {
-    expect(decodeClientSettings({ stockAccent: "chartreuse" }).stockAccent).toBe("iris");
-    expect(decodeClientSettings({ stockAccent: 7 }).stockAccent).toBe("iris");
+  it("falls back to the default for an accent this client does not know", () => {
+    expect(decodeClientSettings({ stockAccent: "chartreuse" }).stockAccent).toBe("graphite");
+    expect(decodeClientSettings({ stockAccent: 7 }).stockAccent).toBe("graphite");
   });
 });
 
@@ -620,8 +624,12 @@ describe("ClientSettings glass opacity", () => {
 });
 
 describe("ClientSettings appearance contrast", () => {
-  it("defaults to the theme's original contrast", () => {
-    expect(decodeClientSettings({}).appearanceContrast).toBe(100);
+  it("defaults new profiles to contrast 120", () => {
+    expect(decodeClientSettings({}).appearanceContrast).toBe(120);
+  });
+
+  it("keeps the contrast a stored profile was saved with", () => {
+    expect(decodeClientSettings({ appearanceContrast: 100 }).appearanceContrast).toBe(100);
   });
 
   it.each([49, 201, 92.5])("rejects an invalid appearance contrast: %s", (value) => {

@@ -158,10 +158,15 @@ function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
   }
 }
 
-function derivePendingUserInputCountFromActivities(
+/**
+ * Open user-input requests replayed from the thread's lifecycle activities:
+ * how many are unresolved and when the oldest of them was asked.
+ */
+function derivePendingUserInputFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
-): number {
-  const openRequestIds = new Set<string>();
+): { readonly count: number; readonly earliestRequestedAt: string | null } {
+  // Request id -> when it was first asked.
+  const openRequestIds = new Map<string, string>();
   const ordered = [...activities].toSorted(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) ||
@@ -180,7 +185,7 @@ function derivePendingUserInputCountFromActivities(
     const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
 
     if (activity.kind === "user-input.requested") {
-      openRequestIds.add(requestId);
+      if (!openRequestIds.has(requestId)) openRequestIds.set(requestId, activity.createdAt);
       continue;
     }
 
@@ -201,7 +206,19 @@ function derivePendingUserInputCountFromActivities(
     }
   }
 
-  return openRequestIds.size;
+  let earliestRequestedAt: string | null = null;
+  for (const requestedAt of openRequestIds.values()) {
+    if (earliestRequestedAt === null || requestedAt < earliestRequestedAt) {
+      earliestRequestedAt = requestedAt;
+    }
+  }
+  return { count: openRequestIds.size, earliestRequestedAt };
+}
+
+function earliestIsoTime(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left <= right ? left : right;
 }
 
 function retainProjectionMessagesAfterRevert(
@@ -579,7 +596,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         return;
       }
 
-      const [latestUserMessageAt, hasActionableProposedPlan, activities, pendingApprovalCount] =
+      const [latestUserMessageAt, hasActionableProposedPlan, activities, pendingApprovals] =
         yield* Effect.all([
           projectionThreadMessageRepository.getLatestUserMessageAt({ threadId }),
           projectionThreadProposedPlanRepository.hasActionableByThreadId({
@@ -587,16 +604,20 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestTurnId: existingRow.value.latestTurnId,
           }),
           projectionThreadActivityRepository.listUserInputLifecycleByThreadId({ threadId }),
-          projectionPendingApprovalRepository.countPendingByThreadId({ threadId }),
+          projectionPendingApprovalRepository.summarizePendingByThreadId({ threadId }),
         ]);
 
-      const pendingUserInputCount = derivePendingUserInputCountFromActivities(activities);
+      const pendingUserInput = derivePendingUserInputFromActivities(activities);
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
         latestUserMessageAt,
-        pendingApprovalCount,
-        pendingUserInputCount,
+        pendingApprovalCount: pendingApprovals.count,
+        pendingUserInputCount: pendingUserInput.count,
+        pendingRequestSince: earliestIsoTime(
+          pendingApprovals.earliestCreatedAt,
+          pendingUserInput.earliestRequestedAt,
+        ),
         hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
       });
     });
@@ -638,6 +659,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestUserMessageAt: null,
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
+            pendingRequestSince: null,
             hasActionableProposedPlan: 0,
             deletedAt: null,
           });

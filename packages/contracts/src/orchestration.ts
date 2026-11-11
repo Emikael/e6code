@@ -977,6 +977,13 @@ export const OrchestrationThreadShell = Schema.Struct({
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
+  /**
+   * When the oldest unresolved approval or user-input request was asked, so
+   * clients can order blocked threads by how long they have waited. Omitted
+   * when nothing is pending; clients on an older server fall back to
+   * `updatedAt`.
+   */
+  pendingRequestSince: Schema.optional(IsoDateTime),
   hasActionableProposedPlan: Schema.Boolean,
   /**
    * Native background work alive after the turn settles: "working" while

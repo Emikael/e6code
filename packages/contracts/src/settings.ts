@@ -109,7 +109,9 @@ export const AppearanceContrast = Schema.Int.check(
   Schema.isBetween({ minimum: MIN_APPEARANCE_CONTRAST, maximum: MAX_APPEARANCE_CONTRAST }),
 );
 export type AppearanceContrast = typeof AppearanceContrast.Type;
-const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
+// New profiles start at 120. Settings are saved whole, so a stored profile
+// keeps the 100 it was saved with; changing this never rewrites it.
+const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 120;
 export const MIN_PANEL_ANIMATION_DURATION_MS = 0;
 export const MAX_PANEL_ANIMATION_DURATION_MS = 400;
 export const PanelAnimationDurationMs = Schema.Int.check(
@@ -305,11 +307,14 @@ export type EffortDisplay = typeof EffortDisplay.Type;
 /**
  * Accent the stock E6 Code theme wears for `primary` (the next action and a
  * live agent). Other themes carry their own accent and ignore it. An unknown
- * value, such as one written by a newer client, falls back to Iris.
+ * value, such as one written by a newer client, falls back to the default.
+ * The default is Graphite, a neutral accent that leaves hue to status. Stored
+ * profiles keep the accent they were saved with (Iris before Graphite became
+ * the default).
  */
 export const StockAccent = Schema.Literals(["iris", "cobalt", "rose", "graphite"]);
 export type StockAccent = typeof StockAccent.Type;
-export const DEFAULT_STOCK_ACCENT: StockAccent = "iris";
+export const DEFAULT_STOCK_ACCENT: StockAccent = "graphite";
 
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
