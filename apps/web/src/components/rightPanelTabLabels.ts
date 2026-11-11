@@ -1,4 +1,9 @@
-import type { PreviewSessionSnapshot, PullRequestState } from "@e6tools/contracts";
+import type {
+  KeybindingShortcut,
+  PreviewSessionSnapshot,
+  PullRequestState,
+} from "@e6tools/contracts";
+import { isMacPlatform } from "@e6tools/shared/keybindings";
 import { getTerminalLabel } from "@e6tools/shared/terminalLabels";
 
 import type { RightPanelSurface } from "~/rightPanelStore";
@@ -151,4 +156,27 @@ export function overflowMenuLabel(
     };
   }
   return { text: `${hiddenCount} more`, ariaLabel: `${hiddenCount} more ${tabs}` };
+}
+
+/**
+ * A closable tab's `aria-keyshortcuts`: Delete, Backspace (a Mac laptop's delete key), then the
+ * close-tab shortcut when one is bound, written as ARIA spells modifiers ("Meta+W", "Control+W").
+ */
+export function closeTabKeyShortcuts(
+  closeShortcut: KeybindingShortcut | null,
+  platform: string,
+): string {
+  const keys = ["Delete", "Backspace"];
+  if (closeShortcut) {
+    const useMetaForMod = isMacPlatform(platform);
+    const parts: string[] = [];
+    if (closeShortcut.ctrlKey || (closeShortcut.modKey && !useMetaForMod)) parts.push("Control");
+    if (closeShortcut.altKey) parts.push("Alt");
+    if (closeShortcut.shiftKey) parts.push("Shift");
+    if (closeShortcut.metaKey || (closeShortcut.modKey && useMetaForMod)) parts.push("Meta");
+    const key = closeShortcut.key;
+    parts.push(key.length === 1 ? key.toUpperCase() : key.slice(0, 1).toUpperCase() + key.slice(1));
+    keys.push(parts.join("+"));
+  }
+  return keys.join(" ");
 }

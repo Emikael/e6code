@@ -763,7 +763,7 @@ export default function DiffPanel({
           <DropdownMenuTrigger
             render={
               <Button
-                size="sm"
+                size="compact"
                 variant="outline"
                 className="min-w-0 max-w-full"
                 aria-label={`Diff scope: ${selectedScopeLabel}`}
@@ -966,7 +966,7 @@ export default function DiffPanel({
           />
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
         <ToggleGroup
           aria-label="Diff layout"
           className="shrink-0"

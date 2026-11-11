@@ -124,7 +124,11 @@ import {
 } from "../components/pullRequest/PullRequestRow";
 import { PullRequestThreadJoin } from "../components/pullRequest/PullRequestRowThreads";
 import { PullRequestsUnavailableState } from "../components/pullRequest/PullRequestsUnavailableState";
-import { RightPanelTabs, type PullRequestTabStatusSeed } from "../components/RightPanelTabs";
+import {
+  focusedPanelTabSurfaceId,
+  RightPanelTabs,
+  type PullRequestTabStatusSeed,
+} from "../components/RightPanelTabs";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -2222,10 +2226,17 @@ function PullRequestsRouteView() {
     );
   });
   const closeActiveSurfaceFromShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (activePullRequestSurface === null) return;
+    // While focus is in the tab strip, the focused tab closes rather than the selected one.
+    const focusedTabId = focusedPanelTabSurfaceId(event.target);
+    const focused = rightPanelState.surfaces.find(
+      (entry): entry is PullRequestSurface =>
+        entry.id === focusedTabId && entry.kind === "pull-request",
+    );
+    const surface = focused ?? activePullRequestSurface;
+    if (surface === null) return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) closeSurface(activePullRequestSurface);
+    if (!event.repeat) closeSurface(surface);
   });
   const toggleRightPanelFromShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (!rightPanelAvailable) return;

@@ -235,7 +235,7 @@ import { pullRequestPanelContext } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
-import { RightPanelTabs } from "./RightPanelTabs";
+import { focusedPanelTabSurfaceId, RightPanelTabs } from "./RightPanelTabs";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -7248,10 +7248,16 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "rightPanel.close") {
         // Nothing open: leave the event alone so the shortcut keeps its
         // native meaning (close window on desktop, close tab in a browser).
-        if (!activeRightPanelSurface) return;
+        // While focus is in the tab strip, the focused tab closes rather than the selected one.
+        const focusedTabId = focusedPanelTabSurfaceId(event.target);
+        const surface =
+          (focusedTabId !== null
+            ? rightPanelState.surfaces.find((entry) => entry.id === focusedTabId)
+            : undefined) ?? activeRightPanelSurface;
+        if (!surface) return;
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
+        if (!event.repeat) closeRightPanelSurface(surface);
         return;
       }
 
@@ -7401,6 +7407,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeProject,
     activeRightPanelSurface,
+    rightPanelState.surfaces,
     activeProjectScripts,
     addTerminalSurface,
     activeThreadRef,

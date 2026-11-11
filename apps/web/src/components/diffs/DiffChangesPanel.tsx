@@ -537,7 +537,7 @@ const ChangeRow = memo(function ChangeRow(props: {
               size="icon-micro"
               variant="ghost"
               aria-label={`More for ${entry.path}`}
-              className="shrink-0"
+              className="size-6 shrink-0"
             />
           }
         >
@@ -552,7 +552,14 @@ const ChangeRow = memo(function ChangeRow(props: {
               onClick={action.onClick}
             >
               {action.icon}
-              {action.label}
+              {action.disabledReason ? (
+                <span className="flex min-w-0 flex-col">
+                  <span>{action.label}</span>
+                  <span className="text-muted-foreground text-xs">{action.disabledReason}</span>
+                </span>
+              ) : (
+                action.label
+              )}
             </MenuItem>
           ))}
         </MenuPopup>

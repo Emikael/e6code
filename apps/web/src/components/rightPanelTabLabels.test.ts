@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { RightPanelSurface } from "~/rightPanelStore";
 import {
+  closeTabKeyShortcuts,
   overflowMenuLabel,
   runningTerminalCount,
   surfaceTitle,
@@ -131,5 +132,25 @@ describe("overflowMenuLabel", () => {
       ariaLabel: "5 more tabs, 1 running",
     });
     expect(overflowMenuLabel(1, 0).ariaLabel).toBe("1 more tab");
+  });
+});
+
+describe("closeTabKeyShortcuts", () => {
+  const modW = {
+    key: "w",
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    modKey: true,
+  };
+
+  it("names Delete and Backspace, then the close shortcut for the platform", () => {
+    expect(closeTabKeyShortcuts(modW, "MacIntel")).toBe("Delete Backspace Meta+W");
+    expect(closeTabKeyShortcuts(modW, "Win32")).toBe("Delete Backspace Control+W");
+  });
+
+  it("leaves the shortcut out when none is bound", () => {
+    expect(closeTabKeyShortcuts(null, "MacIntel")).toBe("Delete Backspace");
   });
 });
