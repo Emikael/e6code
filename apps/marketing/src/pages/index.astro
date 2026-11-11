@@ -136,7 +136,6 @@ const devices = [
   <section class="hero">
     <div class="hero-bg" aria-hidden="true">
       <div class="hero-grid"></div>
-      <div class="hero-aurora"></div>
     </div>
     <div class="container hero-inner">
       <a class="hero-badge" href="#features" data-rise>
@@ -145,7 +144,7 @@ const devices = [
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
       </a>
       <h1 class="hero-title" data-rise style="--d:60ms">
-        Every coding agent.<br /><span class="gradient-text">One control room.</span>
+        Every coding agent.<br />One control room.
       </h1>
       <p class="hero-sub" data-rise style="--d:120ms">
         Run Claude Code, Codex, Cursor, Grok Build, OpenCode, and Antigravity side by side, on your
@@ -154,17 +153,17 @@ const devices = [
       </p>
       <div class="hero-actions" data-rise style="--d:180ms">
         {downloads.map((download) => (
-          <a class:list={["btn btn-primary btn-lg btn-shine dl", `dl--${download.os}`]} href={download.href} data-asset={download.asset}>
+          <a class:list={["btn btn-primary btn-lg dl", `dl--${download.os}`]} href={download.href} data-asset={download.asset}>
             {download.asset && (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3" /><path d="m7 10 5 5 5-5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
             )}
             <span>{download.label}</span>
           </a>
         ))}
-        <a class="btn btn-glass btn-lg" href="/download">All platforms</a>
+        <a class="btn btn-ghost btn-lg" href="/download">All platforms</a>
       </div>
 
-      <div class="install glass" data-rise style="--d:240ms">
+      <div class="install" data-rise style="--d:240ms">
         <div class="seg" role="tablist" aria-label="Install command">
           <button type="button" role="tab" class="seg-btn" data-install="unix" aria-selected="true">macOS · Linux</button>
           <button type="button" role="tab" class="seg-btn" data-install="windows" aria-selected="false" tabindex="-1">Windows</button>
@@ -186,7 +185,6 @@ const devices = [
     <!-- Product shot: tilts back in 3D and settles flat as you scroll. -->
     <div class="container tilt-stage">
       <figure class="tilt">
-        <div class="tilt-glow" aria-hidden="true"></div>
         <div class="tilt-frame">
           <picture>
             <source media="(prefers-color-scheme: light)" srcset={threadLightSet.srcSet.attribute} sizes="(max-width: 1240px) calc(100vw - 72px), 1160px" />
@@ -230,7 +228,7 @@ const devices = [
   <section class="container stats reveal" aria-label="E6 Code in numbers">
     {stats.map((stat) => (
       <div class="stat">
-        <span class="stat-value gradient-text">{stat.value}</span>
+        <span class="stat-value">{stat.value}</span>
         <span class="stat-label">{stat.label}</span>
       </div>
     ))}
@@ -358,8 +356,8 @@ const devices = [
         threads can balance across them.
       </p>
       <p class="store-line">
-        <a class="btn btn-glass" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS app</a>
-        <a class="btn btn-glass" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android app</a>
+        <a class="btn btn-ghost" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS app</a>
+        <a class="btn btn-ghost" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android app</a>
       </p>
     </div>
     <div class="spot card remote reveal" id="remote-visual">
@@ -478,8 +476,8 @@ const devices = [
           so your plan, limits, and credentials stay yours.
         </p>
         <p class="store-line">
-          <a class="btn btn-primary btn-shine" href={`${GITHUB_REPOSITORY_URL}/fork`} target="_blank" rel="noopener noreferrer">Fork on GitHub</a>
-          <a class="btn btn-glass" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">Browse source</a>
+          <a class="btn btn-primary" href={`${GITHUB_REPOSITORY_URL}/fork`} target="_blank" rel="noopener noreferrer">Fork on GitHub</a>
+          <a class="btn btn-ghost" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">Browse source</a>
         </p>
       </div>
       <div class="terminal">
@@ -496,17 +494,17 @@ const devices = [
 
   <!-- ── Final CTA ──────────────────────────────────────────────── -->
   <section id="download" class="cta" aria-labelledby="cta-title">
-    <div class="cta-bg" aria-hidden="true"><div class="hero-grid"></div><div class="cta-glow"></div></div>
+    <div class="cta-bg" aria-hidden="true"><div class="hero-grid"></div></div>
     <div class="container cta-inner reveal">
-      <h2 id="cta-title">Your agents deserve<br /><span class="gradient-text">better than a terminal.</span></h2>
+      <h2 id="cta-title">Your agents deserve<br />better than a terminal.</h2>
       <p>Install it, plug in the harness you already pay for, and get back to the work only you can do.</p>
       <div class="hero-actions">
         {downloads.map((download) => (
-          <a class:list={["btn btn-primary btn-lg btn-shine dl", `dl--${download.os}`]} href={download.href} data-asset={download.asset}>
+          <a class:list={["btn btn-primary btn-lg dl", `dl--${download.os}`]} href={download.href} data-asset={download.asset}>
             <span>{download.label}</span>
           </a>
         ))}
-        <a class="btn btn-glass btn-lg" href="/download">Windows · Linux · other</a>
+        <a class="btn btn-ghost btn-lg" href="/download">Windows · Linux · other</a>
       </div>
     </div>
   </section>
@@ -592,18 +590,6 @@ const devices = [
     });
   }
 
-  /** Cards light up under the pointer. Only runs while a fine pointer hovers a card. */
-  function initSpotlight() {
-    if (!window.matchMedia("(pointer: fine)").matches) return;
-    for (const card of document.querySelectorAll<HTMLElement>(".spot")) {
-      card.addEventListener("pointermove", (event) => {
-        const rect = card.getBoundingClientRect();
-        card.style.setProperty("--mx", `${event.clientX - rect.left}px`);
-        card.style.setProperty("--my", `${event.clientY - rect.top}px`);
-      });
-    }
-  }
-
   function initCompare() {
     const compare = byId("compare");
     const range = compare?.querySelector<HTMLInputElement>(".compare-range");
@@ -616,7 +602,6 @@ const devices = [
   if (platform === "mac" || platform === "win" || platform === "linux") void initDownload();
   initInstall(platform);
   initRemote();
-  initSpotlight();
   initCompare();
 </script>
 
@@ -635,58 +620,6 @@ const devices = [
 
   .prompt {
     color: var(--fg-muted);
-  }
-
-  .gradient-text {
-    background: linear-gradient(100deg, var(--fg) 10%, var(--accent) 55%, var(--fg-muted) 95%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .glass {
-    background: color-mix(in srgb, var(--bg-card) 72%, transparent);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    border: 1px solid var(--border-strong);
-  }
-
-  /* ── Buttons ──────────────────────────────────────────────── */
-  .btn-glass {
-    color: var(--fg);
-    border: 1px solid var(--border-strong);
-    background: color-mix(in srgb, var(--bg-card) 60%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  .btn-glass:hover {
-    background: var(--bg-card);
-  }
-
-  .btn-primary {
-    box-shadow: 0 8px 28px -10px var(--primary), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  }
-
-  /* A light sweep crosses the button once per hover. */
-  .btn-shine {
-    position: relative;
-    overflow: hidden;
-    isolation: isolate;
-  }
-
-  .btn-shine::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
-    transform: translateX(-120%);
-  }
-
-  .btn-shine:hover::after {
-    transform: translateX(120%);
-    transition: transform 0.7s ease-out;
   }
 
   /* ── Download buttons: one shows, picked by html[data-platform]. macOS when unknown. ── */
@@ -736,21 +669,6 @@ const devices = [
     -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%);
   }
 
-  .hero-aurora {
-    position: absolute;
-    left: 50%;
-    top: -280px;
-    width: min(1200px, 140vw);
-    height: 760px;
-    transform: translateX(-50%);
-    background:
-      radial-gradient(closest-side at 35% 55%, color-mix(in srgb, var(--primary) 45%, transparent), transparent),
-      radial-gradient(closest-side at 68% 45%, rgba(56, 189, 248, 0.22), transparent),
-      radial-gradient(closest-side at 50% 80%, rgba(244, 114, 182, 0.16), transparent);
-    filter: blur(60px);
-    opacity: 0.75;
-  }
-
   .hero-inner {
     padding-top: 96px;
     display: flex;
@@ -767,9 +685,7 @@ const devices = [
     padding: 4px 12px 4px 4px;
     border-radius: 999px;
     border: 1px solid var(--border-strong);
-    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--bg-card);
     font-size: 13px;
     color: var(--fg-muted);
     transition: border-color 0.15s ease-out, color 0.15s ease-out;
@@ -815,6 +731,8 @@ const devices = [
   .install {
     width: 100%;
     max-width: 560px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
     border-radius: 14px;
     text-align: left;
     overflow: hidden;
@@ -908,24 +826,12 @@ const devices = [
     transform-origin: 50% 0%;
   }
 
-  .tilt-glow {
-    position: absolute;
-    inset: 8% 6% -4%;
-    z-index: -1;
-    border-radius: 40px;
-    background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 55%, transparent), transparent);
-    filter: blur(70px);
-    opacity: 0.6;
-  }
-
   .tilt-frame {
     padding: 8px;
     border-radius: 24px;
     border: 1px solid var(--border-strong);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--fg) 10%, transparent), transparent 40%), var(--bg-elev);
-    box-shadow:
-      0 1px 0 0 color-mix(in srgb, var(--fg) 12%, transparent) inset,
-      0 50px 100px -40px rgba(0, 0, 0, 0.6);
+    background: var(--bg-elev);
+    box-shadow: var(--shadow-shot);
   }
 
   .tilt-frame img {
@@ -1120,48 +1026,13 @@ const devices = [
     margin-top: 4px;
   }
 
-  /* ── Spotlight cards ──────────────────────────────────────── */
+  /* ── Cards ────────────────────────────────────────────────── */
   .spot {
-    --mx: -400px;
-    --my: -400px;
     position: relative;
-    isolation: isolate;
     border-radius: 20px;
     border: 1px solid var(--border);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--fg) 4%, transparent), transparent 50%), var(--bg-card);
+    background: var(--bg-card);
     overflow: hidden;
-  }
-
-  /* Soft light under the pointer. */
-  .spot::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background: radial-gradient(420px circle at var(--mx) var(--my), color-mix(in srgb, var(--primary) 16%, transparent), transparent 60%);
-    opacity: 0;
-    transition: opacity 0.2s ease-out;
-  }
-
-  /* Lit edge ring near the pointer. */
-  .spot::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    padding: 1px;
-    border-radius: inherit;
-    background: radial-gradient(260px circle at var(--mx) var(--my), color-mix(in srgb, var(--primary) 85%, transparent), transparent 70%);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-    opacity: 0;
-    transition: opacity 0.2s ease-out;
-    pointer-events: none;
-  }
-
-  .spot:hover::before,
-  .spot:hover::after {
-    opacity: 1;
   }
 
   /* ── Bento ────────────────────────────────────────────────── */
@@ -1325,7 +1196,7 @@ const devices = [
     top: 8px;
     bottom: 8px;
     width: 1px;
-    background: linear-gradient(var(--primary), var(--border-strong));
+    background: var(--border-strong);
   }
 
   .turns li {
@@ -1470,7 +1341,7 @@ const devices = [
     border-radius: 14px;
     border: 1px solid var(--border-strong);
     background: var(--bg-elev);
-    box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-shot);
     overflow: hidden;
     font-size: 13px;
   }
@@ -1611,7 +1482,7 @@ const devices = [
     border-radius: 22px;
     overflow: hidden;
     border: 1px solid var(--border-strong);
-    box-shadow: 0 50px 100px -50px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-shot);
     user-select: none;
   }
 
@@ -1674,10 +1545,9 @@ const devices = [
     border-radius: 999px;
     font-size: 12px;
     font-weight: 600;
-    background: rgba(12, 13, 16, 0.72);
-    color: #eceef3;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
+    color: var(--fg);
     pointer-events: none;
   }
 
@@ -1849,17 +1719,6 @@ const devices = [
   .cta .hero-grid {
     mask-image: radial-gradient(ellipse 60% 70% at 50% 100%, #000 20%, transparent 75%);
     -webkit-mask-image: radial-gradient(ellipse 60% 70% at 50% 100%, #000 20%, transparent 75%);
-  }
-
-  .cta-glow {
-    position: absolute;
-    left: 50%;
-    bottom: -320px;
-    width: min(1000px, 130vw);
-    height: 600px;
-    transform: translateX(-50%);
-    background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 45%, transparent), transparent);
-    filter: blur(50px);
   }
 
   .cta-inner {

@@ -317,7 +317,7 @@ const imageProps = {
     padding: 3px;
     border: 1px solid var(--border-strong);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.03);
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
     transition: border-color 0.45s ease, background 0.45s ease;
   }
 
@@ -334,7 +334,7 @@ const imageProps = {
     left: 3px;
     width: calc(50% - 3px);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: color-mix(in srgb, var(--fg) 12%, transparent);
     transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), background 0.45s ease;
   }
 
@@ -472,13 +472,13 @@ const imageProps = {
     padding: 0.85rem 1rem;
     border-radius: 10px;
     border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.02);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
     transition: background 0.45s ease, border-color 0.45s ease, transform 0.2s ease;
   }
 
   .download-card:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+    border-color: var(--border-strong);
     transform: translateY(-1px);
   }
 
@@ -532,7 +532,7 @@ const imageProps = {
   .releases-link a {
     color: var(--fg-muted);
     text-decoration: underline;
-    text-decoration-color: rgba(161, 161, 170, 0.4);
+    text-decoration-color: var(--border-strong);
     text-underline-offset: 3px;
     transition: color 0.3s ease, text-decoration-color 0.3s ease;
   }

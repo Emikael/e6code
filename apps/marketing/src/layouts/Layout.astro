@@ -153,35 +153,42 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 </html>
 
 <style is:global>
-  /* Slate & Iris, the app's palette (apps/web/src/index.css). Slate is the
-     default; Porcelain follows a light system appearance. Names stay as the
-     marketing pages already use them. */
+  /* Graphite, the app's neutral accent, at contrast 120: STOCK_ACCENT_PALETTES.graphite
+     in packages/shared/src/themePalettes.ts over the Slate (dark, the default)
+     and Porcelain (light) surfaces, with text roles mixed 20% toward black or
+     white and borders 5% toward the foreground. Porcelain follows a light system
+     appearance. The short names are the ones the marketing pages already use:
+     --bg background, --bg-elev surface-raised, --bg-card card, --fg foreground,
+     --fg-muted and --fg-dim muted-foreground, --fg-faint placeholder,
+     --border-strong input, --accent primary-text, --accent-dim primary-surface,
+     --ok success-foreground, --warn warning-foreground. */
   :root {
-    --bg: #0c0d10;
+    --bg: #1a1d23;
     --bg-elev: #13151a;
-    --bg-card: #1a1d23;
+    --bg-card: #22252c;
     --surface-well: #0f1114;
-    --fg: #eceef3;
-    --fg-muted: #9da3b0;
-    --fg-dim: #9da3b0;
-    --fg-faint: #8c92a0;
-    --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.13);
-    /* Iris: the next action. --accent is Iris as text. */
-    --primary: #9b8cff;
-    --primary-hover: #ada0ff;
-    --primary-fg: #14102e;
-    --accent: #b9afff;
-    --accent-dim: rgba(155, 140, 255, 0.12);
-    --chrome: linear-gradient(180deg, #eceef3 0%, #9da3b0 100%);
+    --fg: #f0f1f5;
+    --fg-muted: #b1b5c0;
+    --fg-dim: #b1b5c0;
+    --fg-faint: #a3a8b3;
+    --border: #ffffff1c;
+    --border-strong: #ffffff2c;
+    /* The next action. --accent is the accent as text. */
+    --primary: #d4d7de;
+    --primary-hover: #e6e8ec;
+    --primary-fg: #14161b;
+    --primary-edge: #c0c4cc;
+    --ring: #d4d7de;
+    --accent: #e6e8ec;
+    --accent-dim: #d4d7de1f;
     --ok: #5eead4;
     --ok-dot: #2dd4bf;
     --warn: #fcd34d;
     --warn-dot: #fbbf24;
-    --warn-dim: rgba(251, 191, 36, 0.12);
+    --warn-dim: #fbbf2429;
     --diff-add: #5eead4;
     --diff-del: #fca5a5;
-    --shadow-shot: 0 40px 80px -40px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --shadow-shot: 0 22px 44px -16px #000000b3, 0 4px 12px -2px #0000006b;
     --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     --font-mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --radius: 12px;
@@ -192,30 +199,31 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
   @media (prefers-color-scheme: light) {
     :root {
-      --bg: #eef0f4;
+      --bg: #ffffff;
       --bg-elev: #f8f9fb;
       --bg-card: #ffffff;
       --surface-well: #eceef2;
-      --fg: #14161b;
-      --fg-muted: #5a606d;
-      --fg-dim: #5a606d;
-      --fg-faint: #6b7180;
-      --border: rgba(20, 22, 27, 0.08);
-      --border-strong: rgba(20, 22, 27, 0.14);
-      --primary: #5b4ae0;
-      --primary-hover: #4c3bd1;
+      --fg: #0c0d11;
+      --fg-muted: #41454f;
+      --fg-dim: #41454f;
+      --fg-faint: #4e525d;
+      --border: #d9dbe0;
+      --border-strong: #c4c8cf;
+      --primary: #2a2d35;
+      --primary-hover: #14161b;
       --primary-fg: #ffffff;
-      --accent: #4a3ad0;
-      --accent-dim: rgba(91, 74, 224, 0.08);
-      --chrome: linear-gradient(180deg, #14161b 0%, #5a606d 100%);
-      --ok: #0b7a6c;
+      --primary-edge: #2a2d35;
+      --ring: #2a2d35;
+      --accent: #2a2d35;
+      --accent-dim: #2a2d3514;
+      --ok: #096b5f;
       --ok-dot: #0f9f8c;
       --warn: #92400e;
       --warn-dot: #d97706;
-      --warn-dim: rgba(245, 158, 11, 0.11);
-      --diff-add: #0b6b5f;
+      --warn-dim: #d9770614;
+      --diff-add: #0b5e54;
       --diff-del: #a1170d;
-      --shadow-shot: 0 40px 80px -40px rgba(20, 22, 27, 0.35), 0 2px 6px rgba(20, 22, 27, 0.06);
+      --shadow-shot: 0 16px 36px -14px #14161b29, 0 2px 6px -1px #14161b0d;
       color-scheme: light;
     }
   }
@@ -298,6 +306,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
   .btn-primary {
     background: var(--primary);
     color: var(--primary-fg);
+    box-shadow: inset 0 0 0 1px var(--primary-edge);
   }
 
   .btn-primary:hover {
@@ -329,7 +338,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
   }
 
   :focus-visible {
-    outline: 2px solid var(--primary);
+    outline: 2px solid var(--ring);
     outline-offset: 1px;
     border-radius: 4px;
   }
@@ -371,9 +380,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     position: sticky;
     top: 0;
     z-index: 50;
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    background: var(--bg);
     border-bottom: 1px solid transparent;
     transition: border-color 0.3s ease;
   }
