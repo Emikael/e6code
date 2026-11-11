@@ -51,7 +51,12 @@ import { DiffStat } from "./DiffStat";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPanel";
 import { DIFF_FILE_RAIL_CLASS_NAME, DiffFileRail, DiffFileRailHeader } from "./diffs/DiffFileRail";
-import { diffRailRows, FILE_RAIL_OPEN_MIN_WIDTH, isFileRailOpen } from "./diffs/diffFileRail.logic";
+import {
+  diffRailRows,
+  FILE_RAIL_OPEN_MIN_WIDTH,
+  isFileRailOpen,
+  railFolderHints,
+} from "./diffs/diffFileRail.logic";
 import { DiffReviewToggle } from "./diffs/DiffReviewTick";
 import { diffSinceReview } from "./diffs/diffSinceReview.logic";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
@@ -101,9 +106,9 @@ import { DiffFileStatus } from "./diffs/DiffFileStatus";
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
-// The file rail's open state on this device; absent until the user opens or hides it. It keeps
-// the key the file tree it replaced used, so an earlier choice carries over.
-const DIFF_FILE_RAIL_STORAGE_KEY = "e6code.diffFileTreeOpen";
+// The file rail's open state on this device; absent until the user opens or hides it. A new key:
+// the file tree it replaced stored false by default, which would hide the rail everywhere.
+const DIFF_FILE_RAIL_STORAGE_KEY = "e6code.diffFileRailOpen:v2";
 const DIFF_FILE_RAIL_STORAGE_SCHEMA = Schema.NullOr(Schema.Boolean);
 const GIT_SCOPE_LABELS: Record<DiffPanelGitScope, string> = {
   uncommitted: "Uncommitted",
@@ -367,14 +372,20 @@ export default function DiffPanel({
   const [appliedPreview, setAppliedPreview] = useState<{
     readonly key: string;
     readonly data: NonNullable<typeof livePreview>;
+    /** The working tree as it was with this preview, so the changes rail holds still too. */
+    readonly workingTree: typeof workingTreeFiles;
   } | null>(null);
   const appliedPreviewForScope = appliedPreview?.key === previewKey ? appliedPreview.data : null;
+  // The pin holds back the agent's changes only. After the user's own stage, commit or refresh,
+  // the diff follows the live one until the preview that answers it arrives.
+  const [followLive, setFollowLive] = useState<{ readonly since: typeof livePreview } | null>(null);
+  const markUserChange = useCallback(() => setFollowLive({ since: livePreview }), [livePreview]);
   const sourceOfPreview = (preview: typeof livePreview | null) =>
     preview?.sources.find((source) => source.kind === GIT_SCOPE_SOURCE_KINDS[selectedGitScope]);
   const liveGitSource = sourceOfPreview(livePreview);
   const appliedGitSource = sourceOfPreview(appliedPreviewForScope);
   const pinState =
-    selectedTurnId === null
+    selectedTurnId === null && followLive === null
       ? diffPinState({
           agentRunning,
           appliedRevision: appliedGitSource?.diffHash ?? null,
@@ -384,23 +395,41 @@ export default function DiffPanel({
   if (
     pinState === "live" &&
     livePreview &&
-    (appliedPreview?.data !== livePreview || appliedPreview.key !== previewKey)
+    (appliedPreview?.data !== livePreview ||
+      appliedPreview.key !== previewKey ||
+      appliedPreview.workingTree !== workingTreeFiles)
   ) {
-    setAppliedPreview({ key: previewKey, data: livePreview });
+    setAppliedPreview({ key: previewKey, data: livePreview, workingTree: workingTreeFiles });
+  }
+  if (followLive !== null && livePreview && livePreview !== followLive.since) {
+    setFollowLive(null);
   }
   const shownPreview = pinState === "pinned" ? appliedPreviewForScope : livePreview;
   const pinnedChangeCount =
     pinState === "pinned" && liveGitSource
       ? newerChangeCount(appliedGitSource?.files, liveGitSource.files)
       : null;
-  const showPinnedBanner = pinState === "pinned" && liveGitSource !== undefined;
+  const showPinnedBanner = pinState === "pinned";
+  // While pinned, the changes rail lists the working tree the shown diff was taken from.
+  const shownWorkingTreeFiles =
+    pinState === "pinned" && appliedPreview?.key === previewKey
+      ? appliedPreview.workingTree
+      : workingTreeFiles;
+  const diffBodyRef = useRef<HTMLDivElement | null>(null);
   const applyNewestDiff = () => {
-    if (livePreview) setAppliedPreview({ key: previewKey, data: livePreview });
+    if (livePreview) {
+      setAppliedPreview({ key: previewKey, data: livePreview, workingTree: workingTreeFiles });
+    }
+    // Update leaves with the banner; the reader goes on in the diff.
+    diffBodyRef.current?.focus();
   };
 
   const selectedGitSource = sourceOfPreview(shownPreview);
   const refreshPreviewQuery = branchDiffPreview.refresh;
-  const refreshDiffFromUserAction = refreshPreviewQuery;
+  const refreshDiffFromUserAction = () => {
+    markUserChange();
+    refreshPreviewQuery();
+  };
 
   const currentLoadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
     const preview = shownPreview;
@@ -600,6 +629,12 @@ export default function DiffPanel({
     return getDiffLineStat(renderableFiles);
   }, [renderableFiles, selectedGitSource, selectedTurn]);
   // In the body's order, so the rail and the diff read the same way down.
+  // Folder hints depend on the paths alone, so patches loading in batches do not redo them.
+  const railPathsKey = renderableFiles.map(resolveFileDiffPath).join("\u0000");
+  const railHints = useMemo(
+    () => railFolderHints(railPathsKey === "" ? [] : railPathsKey.split("\u0000")),
+    [railPathsKey],
+  );
   const railRows = useMemo(
     () =>
       diffRailRows(
@@ -608,12 +643,27 @@ export default function DiffPanel({
           const stat = fileStats.get(path) ?? getDiffLineStat([fileDiff]);
           return { path, additions: stat.additions, deletions: stat.deletions };
         }),
+        railHints,
       ),
-    [fileStats, renderableFiles],
+    [fileStats, railHints, renderableFiles],
   );
   const railPaths = useMemo(() => railRows.map((row) => row.path), [railRows]);
   const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
   // Review marks: per thread and scope, keyed by what each file looks like now.
+  // Uncommitted compares against HEAD, as `git status` counts do, so its marks also keep those
+  // counts and Run details can check them whatever the whitespace setting.
+  const rawCountsByPath = useMemo(
+    () =>
+      selectedTurnId === null && selectedGitScope === "uncommitted"
+        ? new Map(
+            shownWorkingTreeFiles?.map((file) => [
+              file.path,
+              { additions: file.insertions, deletions: file.deletions },
+            ]),
+          )
+        : null,
+    [selectedGitScope, selectedTurnId, shownWorkingTreeFiles],
+  );
   const reviewFiles = useMemo(
     () =>
       renderableFiles.map((fileDiff, index) => {
@@ -625,10 +675,11 @@ export default function DiffPanel({
             additions: row.additions,
             deletions: row.deletions,
             ignoreWhitespace: diffIgnoreWhitespace,
+            rawCounts: rawCountsByPath?.get(row.path) ?? null,
           }),
         };
       }),
-    [diffIgnoreWhitespace, railRows, renderableFiles],
+    [diffIgnoreWhitespace, railRows, rawCountsByPath, renderableFiles],
   );
   const review = useDiffReviewView({
     threadKey: routeThreadRef ? scopedThreadKey(routeThreadRef) : null,
@@ -1198,11 +1249,11 @@ export default function DiffPanel({
               <span className="flex shrink-0 items-center gap-2 font-medium text-primary-text text-xs">
                 <span
                   aria-hidden
-                  className="size-2 shrink-0 rounded-full bg-primary ring-2 ring-primary-surface"
+                  className="size-2 shrink-0 rounded-full bg-primary ring-[3px] ring-primary-surface"
                 />
                 {stillWorkingLabel(activeThread.session?.providerName)}
               </span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
+              <span role="status" className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
                 {pinnedDiffMessage(pinnedChangeCount)}
               </span>
               <Button size="compact" variant="ghost" className="shrink-0" onClick={applyNewestDiff}>
@@ -1215,20 +1266,20 @@ export default function DiffPanel({
               railHostsChanges && activeThread && activeCwd ? (
                 <nav aria-label="Changed files" className={DIFF_FILE_RAIL_CLASS_NAME}>
                   <DiffFileRailHeader
-                    fileCount={workingTreeFiles?.length ?? null}
+                    fileCount={shownWorkingTreeFiles?.length ?? null}
                     meta={review.enabled ? `${review.viewedCount} reviewed` : null}
-                    onHide={() => setRailOpen(false)}
                   />
                   <DiffChangesPanel
                     environmentId={activeThread.environmentId}
                     cwd={activeCwd}
-                    files={workingTreeFiles ?? []}
+                    files={shownWorkingTreeFiles ?? []}
                     agentRunning={agentRunning}
                     selected={changedFileReveal}
                     onSelectFile={selectChangedFile}
                     consumeCommitFocusRequest={consumeCommitFocusRequest}
                     reviewStatusOf={review.enabled ? review.statusOf : null}
                     order={railPaths}
+                    onUserChange={markUserChange}
                   />
                 </nav>
               ) : (
@@ -1238,11 +1289,14 @@ export default function DiffPanel({
                   reviewedCount={review.viewedCount}
                   currentPath={railCurrentPath ?? selectedFilePath}
                   onSelect={selectRailFile}
-                  onHide={() => setRailOpen(false)}
                 />
               )
             ) : null}
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+            <div
+              ref={diffBodyRef}
+              tabIndex={-1}
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background outline-none"
+            >
               {isSelectedPatchTruncated && !lazySource && (
                 <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
                   This preview exceeds the size limit. Changes shown are incomplete.
@@ -1367,6 +1421,7 @@ export default function DiffPanel({
                           <span className="flex items-center gap-2">
                             {stat ? (
                               <DiffStat
+                                tone="neutral"
                                 additions={stat.additions}
                                 deletions={stat.deletions}
                                 layout="aligned"
@@ -1396,6 +1451,9 @@ export default function DiffPanel({
                             {review.enabled ? (
                               <DiffReviewToggle
                                 path={path}
+                                open={
+                                  !collapsedDiffFileKeys.has(buildFileDiffIdentityKey(fileDiff))
+                                }
                                 status={review.statusOf(path)}
                                 onToggle={setFileReviewed}
                               />

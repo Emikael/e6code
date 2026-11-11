@@ -46,6 +46,8 @@ export function DiffReviewTick(props: {
 export function DiffReviewToggle(props: {
   readonly path: string;
   readonly status: DiffReviewStatus;
+  /** The file is expanded: an unreviewed open file offers the toggle as an outline button. */
+  readonly open?: boolean;
   readonly onToggle: (path: string, reviewed: boolean) => void;
 }) {
   const reviewed = props.status === "reviewed";
@@ -53,9 +55,13 @@ export function DiffReviewToggle(props: {
     <Button
       type="button"
       size="compact"
-      variant="ghost"
+      variant={!reviewed && props.open ? "outline" : "ghost"}
       aria-pressed={reviewed}
-      className={cn("shrink-0 font-sans", reviewed && "ring-1 ring-inset ring-primary-edge")}
+      aria-label={`${reviewed ? "Reviewed" : "Mark reviewed"}: ${props.path}`}
+      className={cn(
+        "shrink-0 gap-1.5 font-sans",
+        reviewed && "bg-secondary ring-1 ring-inset ring-primary-edge",
+      )}
       onClick={(event) => {
         // The header folds its file on click; the toggle keeps its press to itself.
         event.stopPropagation();

@@ -17,7 +17,8 @@ import { resolveStorage } from "./lib/storage";
  * What a file looked like when it was marked. Git's blob ids on the patch's `index` line are
  * the same whether whitespace is shown or hidden, so they are compared first. A patch without
  * them, or one that has not loaded, falls back to its counts, which only compare under the same
- * whitespace setting.
+ * whitespace setting; `rawCounts`, the counts with whitespace shown as `git status` reports
+ * them, let Run details and a Diff that hides whitespace still compare like with like.
  */
 export interface DiffReviewFingerprint {
   /** `prev..next` blob ids from the patch, when it carries them. */
@@ -25,6 +26,8 @@ export interface DiffReviewFingerprint {
   /** `additions:deletions`. */
   readonly counts: string;
   readonly ignoreWhitespace: boolean;
+  /** `additions:deletions` with whitespace shown, when known. */
+  readonly rawCounts?: string | null;
   /**
    * Each change's fingerprint when the patch had loaded, so a file changed since can show only
    * the changes it did not have. Marks made before this was kept have none.
@@ -54,16 +57,24 @@ export function diffReviewFingerprint(input: {
   readonly additions: number;
   readonly deletions: number;
   readonly ignoreWhitespace: boolean;
+  /** The file's counts with whitespace shown, as `git status` reports them, when known. */
+  readonly rawCounts?: { readonly additions: number; readonly deletions: number } | null;
 }): DiffReviewFingerprint {
   const { fileDiff } = input;
+  const counts = `${input.additions}:${input.deletions}`;
   const objects =
     fileDiff && (fileDiff.prevObjectId || fileDiff.newObjectId)
       ? `${fileDiff.prevObjectId ?? ""}..${fileDiff.newObjectId ?? ""}`
       : null;
   return {
     objects,
-    counts: `${input.additions}:${input.deletions}`,
+    counts,
     ignoreWhitespace: input.ignoreWhitespace,
+    rawCounts: input.rawCounts
+      ? `${input.rawCounts.additions}:${input.rawCounts.deletions}`
+      : input.ignoreWhitespace
+        ? null
+        : counts,
     hunks: fileDiff ? hunkFingerprints(fileDiff) : null,
   };
 }
@@ -77,9 +88,15 @@ export function diffReviewStatus(
   if (mark.objects !== null && current.objects !== null) {
     return mark.objects === current.objects ? "reviewed" : "changed";
   }
-  // Counts differ between whitespace settings, so they say nothing across them.
-  if (mark.ignoreWhitespace !== current.ignoreWhitespace) return "reviewed";
-  return mark.counts === current.counts ? "reviewed" : "changed";
+  if (mark.ignoreWhitespace === current.ignoreWhitespace) {
+    return mark.counts === current.counts ? "reviewed" : "changed";
+  }
+  if (mark.rawCounts && current.rawCounts) {
+    return mark.rawCounts === current.rawCounts ? "reviewed" : "changed";
+  }
+  // Counts from different whitespace settings say nothing about each other, and a tick that
+  // cannot be checked is not shown.
+  return "unreviewed";
 }
 
 type DiffReviewMarks = Readonly<Record<string, DiffReviewMark>>;
@@ -227,6 +244,16 @@ export function useDiffReviewView(options: {
 }
 
 function noop() {}
+
+// Each app tab keeps marks in memory; adopt another tab's writes instead of overwriting them on
+// the next mark.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === useDiffReviewStore.persist.getOptions().name) {
+      void useDiffReviewStore.persist.rehydrate();
+    }
+  });
+}
 
 /** "2 of 5 reviewed". */
 export function reviewedCountLabel(reviewed: number, total: number): string {

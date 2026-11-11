@@ -35,18 +35,44 @@ describe("diffReviewStatus", () => {
     expect(diffReviewStatus(mark(), fingerprint({ counts: "2:0", ignoreWhitespace: true }))).toBe(
       "reviewed",
     );
-    // Without blob ids, counts from the other setting say nothing.
+  });
+
+  it("compares counts across whitespace settings only through the raw counts", () => {
+    // Marked in a Diff that hides whitespace, read by Run details from git status.
+    const marked = mark({
+      objects: "a1..b2",
+      counts: "2:0",
+      ignoreWhitespace: true,
+      rawCounts: "4:1",
+    });
+    const runDetails = (counts: string) =>
+      fingerprint({ objects: null, counts, ignoreWhitespace: false, rawCounts: counts });
+    expect(diffReviewStatus(marked, runDetails("4:1"))).toBe("reviewed");
+    expect(diffReviewStatus(marked, runDetails("6:1"))).toBe("changed");
+    // Without raw counts on the mark nothing can be compared, so no tick.
+    expect(diffReviewStatus({ ...marked, rawCounts: null }, runDetails("4:1"))).toBe("unreviewed");
+  });
+
+  it("is changed when the agent changes a file marked under the other setting", () => {
+    const marked = mark({ ignoreWhitespace: false, rawCounts: "4:1" });
+    expect(
+      diffReviewStatus(
+        marked,
+        fingerprint({ objects: null, counts: "1:0", ignoreWhitespace: true, rawCounts: "7:2" }),
+      ),
+    ).toBe("changed");
+  });
+
+  it("falls back to counts under the same setting while the patch has not loaded", () => {
+    expect(diffReviewStatus(mark(), fingerprint({ objects: null }))).toBe("reviewed");
+    expect(diffReviewStatus(mark(), fingerprint({ objects: null, counts: "5:1" }))).toBe("changed");
+    // Under the other setting, with nothing else to compare, it shows no tick.
     expect(
       diffReviewStatus(
         mark({ objects: null }),
         fingerprint({ objects: null, counts: "2:0", ignoreWhitespace: true }),
       ),
-    ).toBe("reviewed");
-  });
-
-  it("falls back to counts while the patch has not loaded", () => {
-    expect(diffReviewStatus(mark(), fingerprint({ objects: null }))).toBe("reviewed");
-    expect(diffReviewStatus(mark(), fingerprint({ objects: null, counts: "5:1" }))).toBe("changed");
+    ).toBe("unreviewed");
   });
 
   it("is unreviewed without a mark", () => {

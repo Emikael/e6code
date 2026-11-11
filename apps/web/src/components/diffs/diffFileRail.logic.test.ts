@@ -7,6 +7,7 @@ import {
   generatedFoldLabel,
   inDiffOrder,
   isFileRailOpen,
+  railFolderHints,
   visibleRailRows,
 } from "./diffFileRail.logic";
 
@@ -98,5 +99,20 @@ describe("inDiffOrder", () => {
       "z.ts",
       "y.ts",
     ]);
+  });
+});
+
+describe("railFolderHints", () => {
+  it("does not take swapped letters for one edit", () => {
+    expect([...railFolderHints(["a/ab.ts", "b/ba.ts"]).values()]).toEqual([null, null]);
+  });
+
+  it("names the folder for names one letter apart", () => {
+    const hints = railFolderHints([
+      "packages/shared/src/themePalettes.ts",
+      "apps/web/src/themePalette.ts",
+      "apps/web/src/other.ts",
+    ]);
+    expect([...hints.values()]).toEqual(["shared", "web", null]);
   });
 });

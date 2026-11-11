@@ -75,23 +75,58 @@ function distinguishingFolder(
   return null;
 }
 
-/** The rail's rows, in the order given, each with the folder it needs to be told apart. */
-export function diffRailRows(files: readonly DiffRailFile[]): DiffRailRow[] {
-  const parts = files.map((file) => splitPath(file.path));
-  return files.map((file, index) => {
-    const own = parts[index]!;
-    const peers = parts
-      .filter(
-        (other, otherIndex) => otherIndex !== index && areNamesConfusable(own.name, other.name),
-      )
-      .map((other) => other.directories);
-    return {
-      ...file,
-      name: own.name,
-      folder: peers.length > 0 ? distinguishingFolder(own.directories, peers) : null,
-      generated: diffFileTier(file.path) === "generated",
-    };
+/**
+ * For each path, the folder it needs to be told from a file with an easily confused name, else
+ * null. Linear in the number of files: names one edit apart share a key with one letter deleted,
+ * so only files sharing a key are compared.
+ */
+export function railFolderHints(paths: readonly string[]): Map<string, string | null> {
+  const parts = paths.map(splitPath);
+  const byKey = new Map<string, number[]>();
+  parts.forEach(({ name }, index) => {
+    const lower = name.toLowerCase();
+    const keys = new Set([lower]);
+    for (let at = 0; at < lower.length; at += 1) keys.add(lower.slice(0, at) + lower.slice(at + 1));
+    for (const key of keys) {
+      const bucket = byKey.get(key);
+      if (bucket) bucket.push(index);
+      else byKey.set(key, [index]);
+    }
   });
+  const peersOf = new Map<number, Set<number>>();
+  for (const bucket of byKey.values()) {
+    if (bucket.length < 2) continue;
+    for (const index of bucket) {
+      const peers = peersOf.get(index) ?? new Set<number>();
+      for (const other of bucket) if (other !== index) peers.add(other);
+      peersOf.set(index, peers);
+    }
+  }
+  const hints = new Map<string, string | null>();
+  paths.forEach((path, index) => {
+    const own = parts[index]!;
+    const peers = [...(peersOf.get(index) ?? [])]
+      .filter((other) => areNamesConfusable(own.name, parts[other]!.name))
+      .map((other) => parts[other]!.directories);
+    hints.set(path, peers.length > 0 ? distinguishingFolder(own.directories, peers) : null);
+  });
+  return hints;
+}
+
+/**
+ * The rail's rows, in the order given, each with the folder it needs to be told apart. Pass
+ * `hints` from `railFolderHints` memoised on the path list, so new counts do not redo them.
+ */
+export function diffRailRows(
+  files: readonly DiffRailFile[],
+  hints: ReadonlyMap<string, string | null> = railFolderHints(files.map((file) => file.path)),
+): DiffRailRow[] {
+  return files.map((file) => ({
+    ...file,
+    name: splitPath(file.path).name,
+    folder: hints.get(file.path) ?? null,
+    generated: diffFileTier(file.path) === "generated",
+  }));
 }
 
 /** The rows on show, and how many generated files the fold hides. Order is kept. */
