@@ -1,6 +1,7 @@
 ---
 import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../../lib/site";
 import DownloadButtons from "./DownloadButtons.astro";
+import HeroArt from "./HeroArt.astro";
 import InstallCommand from "./InstallCommand.astro";
 ---
 
@@ -21,6 +22,9 @@ import InstallCommand from "./InstallCommand.astro";
         Free. MIT licensed. Also on <a href={IOS_APP_STORE_URL}>iOS</a> and <a href={ANDROID_PLAY_STORE_URL}>Android</a>.
       </p>
     </div>
+    <div class="stack hero-art">
+      <HeroArt />
+    </div>
   </div>
 </section>
 
@@ -32,6 +36,10 @@ import InstallCommand from "./InstallCommand.astro";
 
   .hero-copy {
     gap: 20px;
+  }
+
+  .hero-art {
+    gap: 10px;
   }
 
   .hero-lead {
