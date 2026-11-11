@@ -13,6 +13,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setRunDetailsSectionOpen,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -27,6 +28,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    runDetailsSectionOpen: {},
     ...overrides,
   };
 }
@@ -138,6 +140,12 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("stores a Run details section choice and skips repeats", () => {
+    const opened = setRunDetailsSectionOpen(makeUiState(), "usage", true);
+    expect(opened.runDetailsSectionOpen).toEqual({ usage: true });
+    expect(setRunDetailsSectionOpen(opened, "usage", true)).toBe(opened);
+  });
+
   it("stores the endpoint preference by stable key", () => {
     const next = setDefaultAdvertisedEndpointKey(makeUiState(), "desktop-core:lan:http");
 
@@ -169,6 +177,14 @@ describe("parsePersistedState", () => {
 
     expect(parsed.pullRequestMergeMethod).toBe("squash");
     expect(invalid.pullRequestMergeMethod).toBe("merge");
+  });
+
+  it("keeps only known Run details sections with boolean state", () => {
+    const parsed = parsePersistedState({
+      runDetailsSectionOpen: { usage: true, plan: false, unknown: true, changes: "yes" as never },
+    });
+
+    expect(parsed.runDetailsSectionOpen).toEqual({ usage: true, plan: false });
   });
 
   it("hydrates raw UI-owned state without server entities", () => {
@@ -203,6 +219,7 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
+      runDetailsSectionOpen: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -332,6 +349,7 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      runDetailsSectionOpen: {},
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

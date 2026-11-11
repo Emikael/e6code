@@ -1,34 +1,35 @@
 /**
  * Run details: the thread's right panel at rest. It shows whenever the panel is
- * open and no other surface is active. Top to bottom: the agent's plan, how
- * full the context window is, what the thread has cost, the working tree's
- * changes, and the subagents this thread spawned, with the selected one in
- * detail. The provider's nearest plan limit stays pinned to the bottom.
+ * open and no other surface is active. Top to bottom it answers four questions:
+ * what is it doing (Plan), what changed (Changes), who else is working
+ * (Subagents), and what is it using (Usage). Each section collapses, and the
+ * choice is remembered on this device.
  *
  * Only what providers report is shown: totals, never an invented breakdown.
  *
  * Visualization rules (carried over from the Agents surface it replaces):
  * - Spawn order is stable. Activity and completion update rows in place;
  *   finished rows fold only when the panel opens, never under the pointer.
- * - Status is a glyph plus a word or label, never color alone.
+ * - Status is a glyph plus a word, never color alone.
  * - Stop ends one live subagent, not the turn. It shows its pending state on
  *   the control until the provider confirms, and a failure arrives as a toast.
  * - Elapsed timers tick by DOM writes; nothing repaints continuously.
+ * - Line counts are neutral; hue is kept for status.
  * - The panel sits on the sidebar ground, so metadata uses the sidebar's
- *   muted role, which every theme tunes for that ground. Cards are raised to
- *   the page background.
+ *   muted role, which every theme tunes for that ground. Cards are raised.
  */
 import { useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
   ProjectScript,
-  ProviderDriverKind,
+  ScopedThreadRef,
   ThreadId,
   ThreadUsageTotal,
   TurnId,
   UsageLimitsReport,
 } from "@e6tools/contracts";
 import { mostConstrainedLimit } from "@e6tools/shared/usageLimits";
+import { formatDuration } from "@e6tools/shared/orchestrationTiming";
 import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
 import {
   type AgentPanelModel,
@@ -41,7 +42,6 @@ import {
   type SubagentChangedFiles,
   SUBAGENT_FILES_PREVIEW_LIMIT,
   SUBAGENT_STATUS_LABEL,
-  isSubagentWaitingTone,
   subagentActivityText,
   subagentTone,
   summarizeSubagentStatuses,
@@ -52,10 +52,10 @@ import {
   describeContextWindowUsage,
   formatContextWindowTokens,
 } from "@e6tools/client-runtime/work-log/context-window";
-import { TASK_LIST_STEP_STATUS_LABELS } from "@e6tools/client-runtime/work-log/task-list";
 import { fileBasename, workspaceRelativeFilePath } from "@e6tools/client-runtime/markdown-links";
 import {
   BracesIcon,
+  CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CircleStopIcon,
@@ -63,16 +63,12 @@ import {
   EllipsisIcon,
   ExternalLinkIcon,
   MessageSquareTextIcon,
-  SquareCheckIcon,
-  SquareDotIcon,
-  SquareIcon,
   XIcon,
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   memo,
   type ReactNode,
-  type Ref,
   useCallback,
   useEffect,
   useId,
@@ -84,26 +80,37 @@ import {
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
+import { type DiffPanelFocusTarget } from "~/diffPanelStore";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 import { useSubagentSelectionStore } from "~/subagentSelectionStore";
+import { type RunDetailsSectionId, useUiStateStore } from "~/uiStateStore";
 import type { ActivePlanState } from "~/session-logic";
 import { DiffStat } from "./DiffStat";
+import {
+  isRunDetailsSectionOpen,
+  planLimitUsedPercent,
+  planPositionLabel,
+  planStepWords,
+  pushCommitsLabel,
+  RUN_DETAILS_CHANGES_PREVIEW_LIMIT,
+} from "./runDetails.logic";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
   SubagentElapsed,
   SubagentStatusGlyph,
-  SubagentTile,
 } from "./subagents/SubagentParts";
+import { GitDefaultBranchDialog, useGitActionRunner } from "./useGitActionRunner";
 import { Button } from "./ui/button";
+import { Kbd } from "./ui/kbd";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { toastManager } from "./ui/toast";
 
 /**
- * What Run details needs from the thread's workspace. Workspace actions (open in editor,
- * scripts, commit) live in the thread header, not here.
+ * What Run details needs from the thread's workspace. Branch, pull request and editor actions
+ * live in the thread header; Changes keeps only Review, Commit and Push.
  */
 export interface InspectorWorkspace {
   environmentId: EnvironmentId;
@@ -117,6 +124,8 @@ export interface InspectorWorkspace {
   onRunProjectScript: (script: ProjectScript) => void;
   /** Opens the Diff surface; null when the thread has no diff to show. */
   onOpenDiff: (() => void) | null;
+  /** Opens Diff on the working tree at one file or at its commit box; null with no diff. */
+  onFocusDiff: ((target: DiffPanelFocusTarget) => void) | null;
   /** Opens one turn's diff, optionally at a file; null when there is none to show. */
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
 }
@@ -131,54 +140,106 @@ export interface InspectorSubagentStop {
 }
 
 const MUTED = "text-sidebar-muted-foreground";
-/** The raised card the plan and the plan limit sit on. */
-const CARD_CLASS_NAME = "rounded-[10px] border border-border bg-background px-3 py-2.5";
+/** The raised card each section's body sits on. */
+const CARD_CLASS_NAME = "rounded-xl border border-border bg-surface-raised";
+/** Section metadata: mono, tabular, muted, on the heading's right. */
+const META_CLASS_NAME = cn("min-w-0 truncate font-mono text-[11px] tabular-nums", MUTED);
+/** A neutral bar with a visible edge, so an empty track still reads as a track. */
+const METER_TRACK_CLASS_NAME =
+  "h-1.5 overflow-hidden rounded-full bg-surface-well ring-1 ring-inset ring-sidebar-muted-foreground";
 
-/** A Run details section: a 13px heading with mono meta on the right, then its body. */
+/** A section's open state: the user's choice on this device, else the section's default. */
+function useRunDetailsSection(
+  section: RunDetailsSectionId,
+  context: { readonly subagentWorking: boolean } = { subagentWorking: false },
+) {
+  const stored = useUiStateStore((state) => state.runDetailsSectionOpen[section]);
+  const setOpen = useUiStateStore((state) => state.setRunDetailsSectionOpen);
+  const open = isRunDetailsSectionOpen(section, stored, context);
+  const toggle = useCallback(() => setOpen(section, !open), [open, section, setOpen]);
+  return [open, toggle] as const;
+}
+
+/**
+ * A collapsible Run details section: a heading that contains the toggle, optional content beside
+ * the title, mono meta on the right, then the body while open. The meta stays visible when closed.
+ */
 function DetailsSection({
   title,
+  open,
+  onToggle,
+  beside,
   meta,
-  metaClassName,
   children,
 }: {
   title: string;
+  open: boolean;
+  onToggle: () => void;
+  beside?: ReactNode;
   meta?: ReactNode;
-  metaClassName?: string | undefined;
   children?: ReactNode;
 }) {
   const headingId = useId();
+  const bodyId = useId();
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <h2 id={headingId} className="shrink-0 text-[13px] leading-[18px] font-semibold">
-          {title}
-        </h2>
-        {meta !== undefined && meta !== null ? (
-          <span
-            className={cn(
-              "ms-auto min-w-0 truncate font-mono text-[11px] tabular-nums",
-              MUTED,
-              metaClassName,
-            )}
+      <div className="flex min-h-6 min-w-0 items-center gap-2">
+        <h2 id={headingId} className="flex shrink-0 text-sm leading-5 font-semibold">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? bodyId : undefined}
+            onClick={onToggle}
+            className="inline-flex min-h-6 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
-            {meta}
-          </span>
+            <ChevronDownIcon
+              aria-hidden
+              className={cn("size-3.5 shrink-0", MUTED, !open && "-rotate-90")}
+            />
+            {title}
+          </button>
+        </h2>
+        {beside}
+        {meta !== undefined && meta !== null ? (
+          <span className={cn("ms-auto", META_CLASS_NAME)}>{meta}</span>
         ) : null}
       </div>
-      {children}
+      {open ? (
+        <div id={bodyId} className="flex flex-col gap-2">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-const PLAN_STEP_ICON = {
-  completed: { Icon: SquareCheckIcon, className: "text-success" },
-  inProgress: { Icon: SquareDotIcon, className: "text-primary" },
-  pending: { Icon: SquareIcon, className: MUTED },
-} as const;
+/** The plan's steps as segments: done, running, and hollow for what is left. */
+function PlanStepsMeter({ steps }: { steps: ActivePlanState["steps"] }) {
+  return (
+    <span aria-hidden className="flex shrink-0 gap-[3px]">
+      {steps.map((step, index) => (
+        <span
+          // Segments never reorder; the index is the step's position.
+          // oxlint-disable-next-line react/no-array-index-key
+          key={index}
+          className={cn(
+            "h-1.5 w-3.5 rounded-full",
+            step.status === "completed"
+              ? "bg-success"
+              : step.status === "inProgress"
+                ? "bg-primary"
+                : "ring-1 ring-inset ring-sidebar-muted-foreground",
+          )}
+        />
+      ))}
+    </span>
+  );
+}
 
-/** The agent's latest task list: done steps recede, the current one carries "in progress". */
+/** The agent's latest task list: each step says whether it is done, running, next or to do. */
 function PlanSection({ plan }: { plan: ActivePlanState }) {
-  const done = plan.steps.filter((step) => step.status === "completed").length;
+  const [open, toggle] = useRunDetailsSection("plan");
+  const words = planStepWords(plan.steps);
   // Step text can repeat; numbering repeats keeps keys unique and stable within one plan.
   const seen = new Map<string, number>();
   const keys = plan.steps.map((step) => {
@@ -189,152 +250,191 @@ function PlanSection({ plan }: { plan: ActivePlanState }) {
   return (
     <DetailsSection
       title="Plan"
-      meta={
-        <>
-          {done}/{plan.steps.length}
-          <span className="sr-only"> steps done</span>
-        </>
-      }
+      open={open}
+      onToggle={toggle}
+      beside={<PlanStepsMeter steps={plan.steps} />}
+      meta={planPositionLabel(plan.steps)}
     >
-      <ol className={cn(CARD_CLASS_NAME, "flex flex-col gap-[7px] text-[13px] leading-[18px]")}>
-        {plan.steps.map((step, index) => {
-          const { Icon, className } = PLAN_STEP_ICON[step.status];
-          return (
-            <li
-              key={keys[index]}
-              aria-current={step.status === "inProgress" ? "step" : undefined}
+      <ol className={cn(CARD_CLASS_NAME, "flex flex-col px-3 py-1")}>
+        {plan.steps.map((step, index) => (
+          <li
+            key={keys[index]}
+            aria-current={step.status === "inProgress" ? "step" : undefined}
+            className="flex min-h-[34px] min-w-0 items-center gap-2.5"
+          >
+            {step.status === "completed" ? (
+              <CheckIcon aria-hidden className="size-4 shrink-0 text-success-foreground" />
+            ) : step.status === "inProgress" ? (
+              <span
+                aria-hidden
+                className="mx-1 size-2 shrink-0 rounded-full bg-primary shadow-[0_0_0_3px_var(--color-primary-surface)]"
+              />
+            ) : (
+              <span
+                aria-hidden
+                className="mx-1 size-2 shrink-0 rounded-full border-[1.5px] border-sidebar-muted-foreground"
+              />
+            )}
+            <span
               className={cn(
-                "flex min-w-0 items-center gap-2",
+                "min-w-0 flex-1 truncate text-sm leading-[22px]",
                 step.status === "completed" && MUTED,
                 step.status === "inProgress" && "font-medium",
               )}
             >
-              <Icon aria-hidden className={cn("size-3.5 shrink-0", className)} />
-              <span className="min-w-0 flex-1 truncate">{step.step}</span>
-              {step.status === "inProgress" ? (
-                <span className="shrink-0 text-[11px] font-normal text-primary-text">
-                  in progress
-                </span>
-              ) : (
-                <span className="sr-only">, {TASK_LIST_STEP_STATUS_LABELS[step.status]}</span>
+              {step.step}
+            </span>
+            <span
+              className={cn(
+                "shrink-0 text-xs",
+                step.status === "inProgress" ? "font-medium text-primary-text" : MUTED,
               )}
-            </li>
-          );
-        })}
+            >
+              {words[index]}
+            </span>
+          </li>
+        ))}
       </ol>
     </DetailsSection>
   );
 }
 
 /**
- * How full the thread's context window is, from the latest usage the provider
- * reported. Providers that report none never render this section. The bar is
- * static: it moves only when a new snapshot arrives. Providers report one total,
- * so the bar has one fill and no history/files/tools split.
+ * The working tree: its files, then Review changes (Diff), Commit (Diff at its commit box) and
+ * Push. Space is reserved while status loads; hidden outside Git repositories.
  */
-function ContextSection({ snapshot }: { snapshot: ContextWindowSnapshot }) {
-  const usage = describeContextWindowUsage(snapshot);
-  const used = formatContextWindowTokens(snapshot.usedTokens);
-  const max =
-    snapshot.maxTokens !== null && snapshot.maxTokens !== undefined && snapshot.maxTokens > 0
-      ? formatContextWindowTokens(snapshot.maxTokens)
-      : null;
-  return (
-    <DetailsSection title="Context" meta={max ? `${used} of ${max}` : `${used} used`}>
-      {usage.percent !== null ? (
-        <div
-          role="meter"
-          aria-label="Context window usage"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={usage.percent}
-          aria-valuetext={usage.label}
-          className="h-1.5 overflow-hidden rounded-[2px] bg-surface-well"
-        >
-          <div
-            className={cn("h-full rounded-[2px]", usage.warning ? "bg-warning" : "bg-foreground")}
-            style={{ width: `${usage.percent}%` }}
-          />
-        </div>
-      ) : null}
-      {usage.warning || usage.compactionNote ? (
-        <p className={cn("text-xs", usage.warning ? "text-warning-foreground" : MUTED)}>
-          {[usage.warning ? "Nearly full" : null, usage.compactionNote].filter(Boolean).join(" · ")}
-        </p>
-      ) : null}
-    </DetailsSection>
-  );
-}
-
-/**
- * What the thread has cost across all its turns, summed by the server. Providers
- * report a total, so there is no per-category split. Hidden when nothing was reported.
- */
-function ThreadCostSection({ usageTotal }: { usageTotal: ThreadUsageTotal | null }) {
-  const usage = describeThreadUsage(usageTotal ?? undefined);
-  if (!usage) return null;
-  const approximate = usage.cost !== null && usageTotal?.costSource === "estimated";
-  return (
-    <DetailsSection
-      title="This thread"
-      meta={
-        <>
-          <span aria-hidden>{usage.cost ?? usage.tokens}</span>
-          <span className="sr-only">{usage.accessibilityLabel}</span>
-        </>
-      }
-      metaClassName={usage.cost ? "text-[13px] font-medium text-sidebar-foreground" : undefined}
-    >
-      {usage.cost ? (
-        <p aria-hidden className={cn("text-xs", MUTED)}>
-          {usage.tokens}
-          {approximate ? " · approximate, some turns were estimated or reported no cost" : null}
-        </p>
-      ) : null}
-    </DetailsSection>
-  );
-}
-
-/**
- * The working tree at a glance, beside the header's commit actions: line counts,
- * commits to push or pull, and a way into the Diff surface. Hidden until status
- * arrives and outside Git repositories.
- */
-function ChangesSection({ workspace, gitCwd }: { workspace: InspectorWorkspace; gitCwd: string }) {
+function ChangesSection({
+  workspace,
+  gitCwd,
+  reviewShortcutLabel,
+}: {
+  workspace: InspectorWorkspace;
+  gitCwd: string;
+  reviewShortcutLabel: string | null;
+}) {
+  const [open, toggle] = useRunDetailsSection("changes");
+  const [showAll, setShowAll] = useState(false);
   const { data: status } = useEnvironmentQuery(
     vcsEnvironment.status({ environmentId: workspace.environmentId, input: { cwd: gitCwd } }),
   );
-  if (!status || !status.isRepo) return null;
-  const files = status.workingTree.files.length;
-  const ahead = status.aheadCount ?? 0;
-  const behind = status.behindCount ?? 0;
-  const summary = [
-    files > 0 ? `${files} ${files === 1 ? "file" : "files"} changed` : "No uncommitted changes",
-    ahead > 0 ? `${ahead} to push` : null,
-    behind > 0 ? `${behind} to pull` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const threadRef = useMemo<ScopedThreadRef>(
+    () => ({ environmentId: workspace.environmentId, threadId: workspace.threadId }),
+    [workspace.environmentId, workspace.threadId],
+  );
+  const gitActions = useGitActionRunner({
+    gitCwd,
+    activeThreadRef: threadRef,
+    gitStatus: status ?? null,
+  });
+  if (status && !status.isRepo) return null;
+
+  const files = status?.workingTree.files ?? [];
+  const ahead = status?.aheadCount ?? 0;
+  const behind = status?.behindCount ?? 0;
+  const visibleFiles = showAll ? files : files.slice(0, RUN_DETAILS_CHANGES_PREVIEW_LIMIT);
+  const canReach = (status?.hasUpstream ?? false) || (status?.hasPrimaryRemote ?? false);
+  const pushDisabled = gitActions.isRunning || behind > 0 || status?.refName === null || !canReach;
+  const { onOpenDiff, onFocusDiff } = workspace;
+
   return (
     <DetailsSection
       title="Changes"
+      open={open}
+      onToggle={toggle}
       meta={
-        files > 0 ? (
+        status && files.length > 0 ? (
           <DiffStat
+            tone="neutral"
             additions={status.workingTree.insertions}
             deletions={status.workingTree.deletions}
           />
         ) : null
       }
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className={cn("min-w-0 flex-1 truncate text-xs", MUTED)}>{summary}</span>
-        {workspace.onOpenDiff && files > 0 ? (
-          <Button size="xs" variant="outline" className="shrink-0" onClick={workspace.onOpenDiff}>
-            Open diff
-          </Button>
-        ) : null}
-      </div>
+      {!status ? (
+        <div aria-busy className={cn(CARD_CLASS_NAME, "h-[76px]")}>
+          <span className="sr-only">Loading changes</span>
+        </div>
+      ) : files.length > 0 ? (
+        <div className={cn(CARD_CLASS_NAME, "flex flex-col p-1")}>
+          <ul className="flex flex-col">
+            {visibleFiles.map((file) => {
+              const content = (
+                <>
+                  <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
+                    {file.path}
+                  </span>
+                  <DiffStat
+                    tone="neutral"
+                    additions={file.insertions}
+                    deletions={file.deletions}
+                    className={cn("shrink-0 text-[11px]", MUTED)}
+                  />
+                </>
+              );
+              return (
+                <li key={file.path}>
+                  {onFocusDiff ? (
+                    <button
+                      type="button"
+                      aria-label={`Open diff of ${file.path}`}
+                      onClick={() => onFocusDiff({ kind: "file", path: file.path })}
+                      className="flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    <div className="flex min-h-8 min-w-0 items-center gap-2 px-2">{content}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {files.length > RUN_DETAILS_CHANGES_PREVIEW_LIMIT ? (
+            <button
+              type="button"
+              aria-expanded={showAll}
+              onClick={() => setShowAll((value) => !value)}
+              className={cn(
+                "flex min-h-8 w-full items-center rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                MUTED,
+              )}
+            >
+              {showAll ? "Show fewer" : `Show all ${files.length}`}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <p className={cn("text-xs", MUTED)}>No uncommitted changes</p>
+      )}
+      {status && (files.length > 0 || ahead > 0 || behind > 0) ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {onOpenDiff && files.length > 0 ? (
+            <Button size="sm" variant="outline" onClick={onOpenDiff}>
+              Review changes
+              {reviewShortcutLabel ? <Kbd className="ms-0.5">{reviewShortcutLabel}</Kbd> : null}
+            </Button>
+          ) : null}
+          {onFocusDiff && files.length > 0 ? (
+            <Button size="sm" variant="ghost" onClick={() => onFocusDiff({ kind: "commit" })}>
+              Commit
+            </Button>
+          ) : null}
+          {ahead > 0 && status.hasPrimaryRemote ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pushDisabled}
+              title={behind > 0 ? "Pull first: the branch is behind its remote." : undefined}
+              onClick={() => void gitActions.run({ action: "push" })}
+            >
+              {pushCommitsLabel(ahead)}
+            </Button>
+          ) : null}
+          {behind > 0 ? <span className={cn("text-xs", MUTED)}>{behind} to pull</span> : null}
+        </div>
+      ) : null}
+      <GitDefaultBranchDialog runner={gitActions} />
     </DetailsSection>
   );
 }
@@ -369,13 +469,53 @@ export interface InspectorPlanLimits {
   readonly providerLabel: string;
 }
 
+/** A labelled neutral meter: the name, a mono reading, then the bar. */
+function UsageMeter({
+  label,
+  reading,
+  percent,
+  accessibilityLabel,
+  note,
+}: {
+  label: string;
+  reading: string;
+  percent: number | null;
+  accessibilityLabel: string;
+  note?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-xs">{label}</span>
+        <span className={cn("shrink-0", META_CLASS_NAME)}>{reading}</span>
+      </div>
+      {percent !== null ? (
+        <div
+          role="meter"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          aria-valuetext={accessibilityLabel}
+          className={METER_TRACK_CLASS_NAME}
+        >
+          <div
+            className="h-full rounded-full bg-sidebar-muted-foreground"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      ) : null}
+      {note}
+    </div>
+  );
+}
+
 /**
- * The provider limit the thread is closest to, pinned under the scrolling sections.
- * Hidden when the provider reports no limits.
+ * The provider limit the thread is closest to, written as the share used so the words and the
+ * bar point the same way. Hidden when the provider reports no limits.
  */
-function PlanLimitCard({ planLimits }: { planLimits: InspectorPlanLimits }) {
+function PlanLimitMeter({ planLimits }: { planLimits: InspectorPlanLimits }) {
   const nowMinute = useNowMinute();
-  const headingId = useId();
   const limit = useMemo(
     () =>
       mostConstrainedLimit(
@@ -386,39 +526,108 @@ function PlanLimitCard({ planLimits }: { planLimits: InspectorPlanLimits }) {
     [nowMinute, planLimits],
   );
   if (!limit) return null;
+  const used = planLimitUsedPercent(limit.remainingPercent);
   return (
-    <section aria-labelledby={headingId} className={cn(CARD_CLASS_NAME, "flex flex-col gap-1.5")}>
-      <div className="flex min-w-0 items-baseline gap-2">
-        <h2 id={headingId} className="min-w-0 flex-1 truncate text-xs leading-4 font-semibold">
-          {limit.title}
-        </h2>
-        <span className="shrink-0 font-mono text-[11px] tabular-nums">{limit.remainingLabel}</span>
+    <div className="border-t border-border pt-3">
+      <UsageMeter
+        label={limit.title}
+        reading={[`${used}% used`, limit.detail || null].filter(Boolean).join(" · ")}
+        percent={used}
+        accessibilityLabel={limit.accessibilityLabel}
+        note={
+          limit.warning ? (
+            <p className="text-xs text-warning-foreground">Close to the limit</p>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * What the thread is using, in one card: the context window, what the thread cost, how long the
+ * latest turn ran, the model, and the nearest plan limit. The heading shows the context share
+ * and never money.
+ */
+function UsageSection({
+  contextWindow,
+  usageTotal,
+  latestTurnDurationMs,
+  modelLabel,
+  planLimits,
+}: {
+  contextWindow: ContextWindowSnapshot | null;
+  usageTotal: ThreadUsageTotal | null;
+  latestTurnDurationMs: number | null;
+  modelLabel: string | null;
+  planLimits: InspectorPlanLimits | null;
+}) {
+  const [open, toggle] = useRunDetailsSection("usage");
+  const context = contextWindow ? describeContextWindowUsage(contextWindow) : null;
+  const usage = describeThreadUsage(usageTotal ?? undefined);
+  const facts: Array<{ term: string; value: ReactNode }> = [];
+  if (usage) {
+    facts.push({
+      term: "This thread",
+      value: (
+        <>
+          <span aria-hidden>{usage.cost ? `${usage.cost} · ${usage.tokens}` : usage.tokens}</span>
+          <span className="sr-only">{usage.accessibilityLabel}</span>
+        </>
+      ),
+    });
+  }
+  if (latestTurnDurationMs !== null) {
+    facts.push({ term: "Latest turn", value: `ran ${formatDuration(latestTurnDurationMs)}` });
+  }
+  if (modelLabel) facts.push({ term: "Model", value: modelLabel });
+
+  const contextReading = contextWindow
+    ? contextWindow.maxTokens !== null &&
+      contextWindow.maxTokens !== undefined &&
+      contextWindow.maxTokens > 0
+      ? `${formatContextWindowTokens(contextWindow.usedTokens)} of ${formatContextWindowTokens(contextWindow.maxTokens)}`
+      : `${formatContextWindowTokens(contextWindow.usedTokens)} used`
+    : null;
+
+  return (
+    <DetailsSection
+      title="Usage"
+      open={open}
+      onToggle={toggle}
+      meta={context?.percent !== null && context ? `Context ${context.percent}%` : null}
+    >
+      <div className={cn(CARD_CLASS_NAME, "flex flex-col gap-3 p-3")}>
+        {context && contextReading ? (
+          <UsageMeter
+            label="Context"
+            reading={contextReading}
+            percent={context.percent}
+            accessibilityLabel={context.label}
+            note={
+              context.warning || context.compactionNote ? (
+                <p className={cn("text-xs", context.warning ? "text-warning-foreground" : MUTED)}>
+                  {[context.warning ? "Nearly full" : null, context.compactionNote]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              ) : null
+            }
+          />
+        ) : null}
+        {facts.length > 0 ? (
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1 text-xs">
+            {facts.map((fact) => (
+              <div key={fact.term} className="contents">
+                <dt>{fact.term}</dt>
+                <dd className={cn("min-w-0 truncate text-right", META_CLASS_NAME)}>{fact.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+        {planLimits ? <PlanLimitMeter planLimits={planLimits} /> : null}
       </div>
-      <div
-        role="meter"
-        aria-label={`${limit.title} remaining`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={limit.remainingPercent}
-        aria-valuetext={limit.accessibilityLabel}
-        className="h-1 overflow-hidden rounded-[2px] bg-surface-well"
-      >
-        <div
-          className={cn("h-full rounded-[2px]", limit.warning ? "bg-warning" : "bg-foreground")}
-          style={{ width: `${limit.remainingPercent}%` }}
-        />
-      </div>
-      {limit.detail ? (
-        <span
-          className={cn(
-            "min-w-0 truncate font-mono text-[11px] tabular-nums",
-            limit.warning ? "text-warning-foreground" : MUTED,
-          )}
-        >
-          {limit.detail}
-        </span>
-      ) : null}
-    </section>
+    </DetailsSection>
   );
 }
 
@@ -510,21 +719,23 @@ const PHASE_STATE_WORD: Readonly<Record<LineagePhase["state"], string>> = {
 };
 
 /**
- * One subagent in the lineage. Hover or focus trades the elapsed time for a
- * menu with the ways back out: the thread card, the task text and the session,
- * and Stop while it runs. Memoised: SubagentsSection passes stable callbacks,
- * so a row repaints only when its agent, selection or stop control changes.
+
+/**
+ * One subagent in the lineage: its glyph, title, status word and elapsed time. Selecting it
+ * opens its detail directly underneath. The More button holds the ways back out: the thread
+ * card, the task text and the session, and Stop while it runs. Memoised: SubagentsSection
+ * passes stable callbacks, so a row repaints only when its agent, state or stop control changes.
  */
 const LineageRow = memo(function LineageRow({
   agent,
-  providerKind,
+  expanded,
   selected,
   onSelect,
   onShowInThread,
   stopControl,
 }: {
   agent: RuntimeSubagent;
-  providerKind: ProviderDriverKind | null;
+  expanded: boolean;
   selected: boolean;
   onSelect: (agentId: string) => void;
   onShowInThread: ((agentId: string) => void) | null;
@@ -546,28 +757,25 @@ const LineageRow = memo(function LineageRow({
   });
   return (
     // The More button stays in view so its actions are never reachable by hover alone.
-    <div className="group/lineage relative flex min-w-0 items-center gap-0.5">
+    <div className="group/lineage flex min-h-9 min-w-0 items-center gap-1 ps-2 pe-1">
       <button
         type="button"
         data-lineage-row
         data-agent-id={agent.id}
-        aria-current={selected ? "true" : undefined}
-        aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}`}
+        aria-expanded={expanded}
         onClick={() => onSelect(agent.id)}
-        className={cn(
-          "flex h-7 min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-          // Selection takes the primary edge, the system's selected-outline role.
-          selected
-            ? "bg-accent ring-1 ring-inset ring-primary-edge"
-            : "group-hover/lineage:bg-accent/60",
-        )}
+        className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <SubagentTile driverKind={providerKind} size="sm" />
-        <span className="min-w-0 flex-1 truncate">{agent.title}</span>
         <SubagentStatusGlyph tone={tone} decorative />
+        <span className="min-w-0 flex-1 truncate text-[13px] leading-[18px] font-medium">
+          {agent.title}
+        </span>
+        <span className={cn("shrink-0 text-xs font-medium", SUBAGENT_TONE_TEXT_CLASS[tone])}>
+          {SUBAGENT_STATUS_LABEL[tone]}
+        </span>
         <SubagentElapsed
           agent={agent}
-          className={cn("min-w-14 shrink-0 text-right text-xs", MUTED)}
+          className={cn("min-w-8 shrink-0 text-right font-mono text-[11px]", MUTED)}
         />
       </button>
       <Menu>
@@ -655,7 +863,7 @@ function SubagentFilesSection({
         <span className="font-semibold">Files</span>
         <span>{formatSubagentFileCount(files.length)}</span>
         {additions !== null && deletions !== null ? (
-          <DiffStat additions={additions} deletions={deletions} />
+          <DiffStat tone="neutral" additions={additions} deletions={deletions} />
         ) : null}
       </span>
       <ul className="-mx-1 flex flex-col">
@@ -672,6 +880,7 @@ function SubagentFilesSection({
               </span>
               {file.additions !== null && file.deletions !== null ? (
                 <DiffStat
+                  tone="neutral"
                   additions={file.additions}
                   deletions={file.deletions}
                   className="shrink-0 text-[11px]"
@@ -712,29 +921,30 @@ function SubagentFilesSection({
   );
 }
 
-function SubagentDetailCard({
+/**
+ * A subagent's detail, under its row: what it is doing now (or its result), recent activity,
+ * its numbers, the actions, and the files it changed.
+ */
+function SubagentDetail({
   agent,
-  providerKind,
   environmentId,
   threadId,
   workspaceRoot,
   onOpenTurnDiff,
-  cardRef,
+  onShowInThread,
   stopControl,
 }: {
   agent: RuntimeSubagent;
-  providerKind: ProviderDriverKind | null;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
   workspaceRoot: string | null;
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
-  cardRef: Ref<HTMLDivElement>;
+  onShowInThread: ((agentId: string) => void) | null;
   stopControl: InspectorSubagentStop | null;
 }) {
   const [scriptOpen, setScriptOpen] = useState(false);
   const canStop = stopControl?.canStop(agent) === true;
   const stopPending = canStop && stopControl.isPending(agent.id);
-  const tone = subagentTone(agent);
   const live = isActiveSubagentStatus(agent.status);
   const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
   const role =
@@ -757,110 +967,106 @@ function SubagentDetailCard({
     .filter((entry) => entry.summary !== activity)
     .slice(-4)
     .toReversed();
+  const facts: Array<{ term: string; value: ReactNode }> = [
+    ...(role ? [{ term: "Role", value: role }] : []),
+    ...(modelLabel ? [{ term: "Model", value: modelLabel }] : []),
+    {
+      term: "Tokens",
+      value: agent.usage ? formatSubagentTokenCount(agent.usage.totalTokens) : "–",
+    },
+    {
+      term: "Tool calls",
+      value:
+        agent.activationCount > 1
+          ? `${agent.usage?.toolUses ?? "–"} · run ${agent.activationCount}`
+          : (agent.usage?.toolUses ?? "–"),
+    },
+    ...(agent.changedFiles
+      ? [{ term: "Files changed", value: agent.changedFiles.files.length }]
+      : []),
+  ];
 
   return (
     <div
-      ref={cardRef}
       role="group"
       aria-label={`${agent.title} details`}
-      className="flex flex-col gap-3 rounded-[10px] border border-border bg-background px-3 py-3 text-foreground"
+      className="flex flex-col gap-2.5 px-3 pt-1 pb-3"
     >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <SubagentTile driverKind={providerKind} size="lg" />
-        <div className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span className="truncate text-[13px] font-semibold">{agent.title}</span>
-          <span className="truncate text-xs text-muted-foreground">
-            {[role, modelLabel].filter(Boolean).join(" · ") || "Subagent"}
-          </span>
-        </div>
-        <span
+      {activity ? (
+        <p
           className={cn(
-            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-semibold",
-            // The warning word needs its own surface to stay readable in every theme.
-            isSubagentWaitingTone(tone) ? "bg-warning-surface" : "bg-accent",
-            SUBAGENT_TONE_TEXT_CLASS[tone],
+            "line-clamp-6 whitespace-pre-wrap break-words text-sm leading-[22px]",
+            agent.status === "failed" && "text-destructive-foreground",
           )}
         >
-          <SubagentStatusGlyph tone={tone} className="size-3" decorative />
-          {SUBAGENT_STATUS_LABEL[tone]}
-        </span>
-      </div>
-      {activity ? (
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold text-muted-foreground">
+          <span className={MUTED}>
             {live ? "Now" : agent.status === "failed" ? "Error" : "Result"}
           </span>
-          <p
-            className={cn(
-              "line-clamp-6 whitespace-pre-wrap break-words text-xs leading-relaxed",
-              agent.status === "failed" && "text-destructive-foreground",
-            )}
-          >
-            {request ? (
-              <>
-                {request.text}
-                {request.code ? (
-                  <>
-                    {" "}
-                    <code className="break-all font-mono text-[11px]">{request.code}</code>
-                  </>
-                ) : null}
-                <span className={cn("block", MUTED)}>{activity}</span>
-              </>
-            ) : (
-              activity
-            )}
-          </p>
-        </div>
+          {" · "}
+          {request ? (
+            <>
+              {request.text}
+              {request.code ? (
+                <>
+                  {" "}
+                  <code className="break-all font-mono text-xs">{request.code}</code>
+                </>
+              ) : null}
+              <span className={cn("block text-xs", MUTED)}>{activity}</span>
+            </>
+          ) : (
+            activity
+          )}
+        </p>
       ) : null}
       {recent.length > 0 ? (
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold text-muted-foreground">Recent</span>
+          <span className={cn("text-xs font-semibold", MUTED)}>Recent</span>
           <ul className="flex flex-col gap-0.5">
             {recent.map((entry) => (
-              <li
-                key={`${entry.at}:${entry.summary}`}
-                className="truncate text-xs text-muted-foreground"
-              >
+              <li key={`${entry.at}:${entry.summary}`} className={cn("truncate text-xs", MUTED)}>
                 {entry.summary}
               </li>
             ))}
           </ul>
         </div>
       ) : null}
-      <dl className="grid grid-cols-3 gap-2 border-t border-border pt-2.5">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <dt className="text-xs text-muted-foreground">Elapsed</dt>
-          <dd className="text-[13px] font-medium">
-            <SubagentElapsed agent={agent} />
-          </dd>
-        </div>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <dt className="text-xs text-muted-foreground">Tokens</dt>
-          <dd className="text-[13px] font-medium tabular-nums">
-            {agent.usage ? formatSubagentTokenCount(agent.usage.totalTokens) : "–"}
-          </dd>
-        </div>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <dt className="text-xs text-muted-foreground">Tool calls</dt>
-          <dd className="text-[13px] font-medium tabular-nums">
-            {agent.usage?.toolUses ?? "–"}
-            {agent.activationCount > 1 ? (
-              <span className="font-normal text-muted-foreground">
-                {" "}
-                · run {agent.activationCount}
-              </span>
-            ) : null}
-          </dd>
-        </div>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1 text-xs">
+        {facts.map((fact) => (
+          <div key={fact.term} className="contents">
+            <dt className={MUTED}>{fact.term}</dt>
+            <dd className="min-w-0 truncate text-right font-mono text-[11px] tabular-nums">
+              {fact.value}
+            </dd>
+          </div>
+        ))}
       </dl>
-      {canShowScript || sessionUrl || canStop ? (
-        <div className="flex gap-2">
+      {onShowInThread || canShowScript || sessionUrl || canStop ? (
+        <div className="flex flex-wrap gap-2">
+          {onShowInThread ? (
+            <Button size="sm" variant="outline" onClick={() => onShowInThread(agent.id)}>
+              Show in thread
+            </Button>
+          ) : null}
+          {canStop ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={stopPending}
+              title={
+                stopControl.shortcutLabel
+                  ? `Stop subagent (${stopControl.shortcutLabel})`
+                  : "Stop subagent"
+              }
+              onClick={() => stopControl.stop(agent.id)}
+            >
+              {stopPending ? "Stopping…" : "Stop subagent"}
+            </Button>
+          ) : null}
           {canShowScript ? (
             <Button
               size="sm"
-              variant="outline"
-              className="flex-1"
+              variant="ghost"
               aria-expanded={scriptOpen}
               onClick={() => setScriptOpen((value) => !value)}
             >
@@ -871,29 +1077,11 @@ function SubagentDetailCard({
           {sessionUrl ? (
             <Button
               size="sm"
-              variant="outline"
-              className="flex-1"
+              variant="ghost"
               render={<a href={sessionUrl} target="_blank" rel="noreferrer" />}
             >
               <ExternalLinkIcon aria-hidden />
               Open session
-            </Button>
-          ) : null}
-          {canStop ? (
-            <Button
-              size="sm"
-              variant="destructive-outline"
-              className="flex-1"
-              disabled={stopPending}
-              title={
-                stopControl.shortcutLabel
-                  ? `Stop subagent (${stopControl.shortcutLabel})`
-                  : "Stop subagent"
-              }
-              onClick={() => stopControl.stop(agent.id)}
-            >
-              <CircleStopIcon aria-hidden />
-              {stopPending ? "Stopping…" : "Stop subagent"}
             </Button>
           ) : null}
         </div>
@@ -921,11 +1109,13 @@ function SubagentDetailCard({
   );
 }
 
-/** Every subagent this thread spawned, in spawn order, with the selected one in detail. */
+/**
+ * Every subagent this thread spawned, in spawn order. Selecting a row opens its detail under
+ * it; selecting it again closes it. The section opens by itself while a subagent works.
+ */
 function SubagentsSection({
   model,
   threadKey,
-  providerKind,
   environmentId,
   threadId,
   workspaceRoot,
@@ -934,16 +1124,25 @@ function SubagentsSection({
 }: {
   model: AgentPanelModel;
   threadKey: string | null;
-  providerKind: ProviderDriverKind | null;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
   workspaceRoot: string | null;
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
   stopControl: InspectorSubagentStop | null;
 }) {
+  // Once open for live work, the section stays open when that work ends, so the
+  // result is still there; only the user's own choice closes it.
+  const [sawWork, setSawWork] = useState(model.liveCount > 0);
+  if (model.liveCount > 0 && !sawWork) setSawWork(true);
+  const [open, toggle] = useRunDetailsSection("subagents", { subagentWorking: sawWork });
   const [showFolded, setShowFolded] = useState(false);
+  // The selected row's detail is open unless the user closed it; picking another row, or a
+  // reveal from the thread, opens it again.
+  const [closedDetail, setClosedDetail] = useState<{
+    readonly agentId: string;
+    readonly revealCount: number;
+  } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
   const storedSelection = useSubagentSelectionStore((state) =>
     threadKey ? (state.selectedByThreadKey[threadKey] ?? null) : null,
   );
@@ -962,11 +1161,22 @@ function SubagentsSection({
     allAgents.find((agent) => isActiveSubagentStatus(agent.status)) ??
     allAgents.at(-1) ??
     null;
+  const selectedId = selected?.id ?? null;
+  const detailClosed =
+    closedDetail !== null &&
+    closedDetail.agentId === selectedId &&
+    closedDetail.revealCount === revealCount;
+  const expandedId = detailClosed ? null : selectedId;
   const onSelect = useCallback(
     (agentId: string) => {
-      if (threadKey) select(threadKey, agentId);
+      if (!threadKey) return;
+      if (agentId === selectedId) {
+        setClosedDetail(detailClosed ? null : { agentId, revealCount });
+        return;
+      }
+      select(threadKey, agentId);
     },
-    [select, threadKey],
+    [detailClosed, revealCount, select, selectedId, threadKey],
   );
   const onShowInThread = useCallback(
     (agentId: string) => {
@@ -977,23 +1187,19 @@ function SubagentsSection({
     [select, showInThread, threadKey],
   );
 
-  // Pin the default pick once shown, so the card does not jump to another
+  // Pin the default pick once shown, so the detail does not jump to another
   // agent when this one finishes and its result is what the user came for.
-  const selectedId = selected?.id ?? null;
   useEffect(() => {
-    if (threadKey && selectedId && storedSelection !== selectedId) {
-      if (storedSelection === null) select(threadKey, selectedId);
-    }
+    if (threadKey && selectedId && storedSelection === null) select(threadKey, selectedId);
   }, [select, selectedId, storedSelection, threadKey]);
 
-  // A pick from the thread scrolls the row and its card into view.
+  // A pick from the thread opens the row's detail and scrolls it into view.
   useEffect(() => {
     if (revealCount === 0 || !selectedId) return;
     const row = listRef.current?.querySelector<HTMLElement>(
       `[data-agent-id="${CSS.escape(selectedId)}"]`,
     );
-    row?.scrollIntoView({ block: "nearest" });
-    cardRef.current?.scrollIntoView({ block: "nearest" });
+    row?.parentElement?.parentElement?.scrollIntoView({ block: "nearest" });
   }, [revealCount, selectedId]);
 
   // Finished top-level rows fold only as the panel opens on live work; rows
@@ -1019,41 +1225,59 @@ function SubagentsSection({
     return members.length > 0 ? members : [node.agent];
   });
   const summary = summarizeSubagentStatuses(counted);
-  const meta = [
-    summary.text || null,
-    model.totalTokens > 0 ? `${formatSubagentTokenCount(model.totalTokens)} tok` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 
-  const renderRow = (agent: RuntimeSubagent) => (
-    <LineageRow
-      key={agent.id}
-      agent={agent}
-      providerKind={providerKind}
-      selected={agent.id === selectedId}
-      onSelect={onSelect}
-      onShowInThread={threadKey ? onShowInThread : null}
-      stopControl={stopControl}
-    />
-  );
+  const renderRow = (agent: RuntimeSubagent) => {
+    const expanded = agent.id === expandedId;
+    const row = (
+      <LineageRow
+        agent={agent}
+        expanded={expanded}
+        selected={agent.id === selectedId}
+        onSelect={onSelect}
+        onShowInThread={threadKey ? onShowInThread : null}
+        stopControl={stopControl}
+      />
+    );
+    return (
+      <div
+        key={agent.id}
+        className={cn(
+          "flex flex-col rounded-lg",
+          expanded && "bg-sidebar-row-selected ring-1 ring-inset ring-input",
+        )}
+      >
+        {row}
+        {expanded ? (
+          <SubagentDetail
+            agent={agent}
+            environmentId={environmentId}
+            threadId={threadId}
+            workspaceRoot={workspaceRoot}
+            onOpenTurnDiff={onOpenTurnDiff}
+            onShowInThread={threadKey ? onShowInThread : null}
+            stopControl={stopControl}
+          />
+        ) : null}
+      </div>
+    );
+  };
 
   return (
-    <DetailsSection title="Subagents" meta={meta || null}>
+    <DetailsSection title="Subagents" open={open} onToggle={toggle} meta={summary.text || null}>
       <div
         ref={listRef}
         role="group"
         aria-label="Subagents"
         onKeyDown={moveLineageFocus}
-        className="-mx-2 flex flex-col"
+        className={cn(CARD_CLASS_NAME, "flex flex-col gap-0.5 p-1")}
       >
         {visible.map((node) => (
-          <div key={node.agent.id} className="flex flex-col">
+          <div key={node.agent.id} className="flex flex-col gap-0.5">
             {renderRow(node.agent)}
             {node.phases.length > 0 || node.unphased.length > 0 ? (
-              <div className="ms-4 flex flex-col border-s border-sidebar-border ps-2.5">
+              <div className="ms-4 flex flex-col gap-0.5 border-s border-sidebar-border ps-2.5">
                 {node.phases.map((phase) => (
-                  <div key={phase.index} className="flex flex-col">
+                  <div key={phase.index} className="flex flex-col gap-0.5">
                     <div className={cn("flex h-6 items-center gap-1.5 px-2 text-xs", MUTED)}>
                       <span className="min-w-0 truncate font-medium">{phase.title}</span>
                       <span aria-hidden>·</span>
@@ -1073,14 +1297,14 @@ function SubagentsSection({
             aria-expanded={showFolded}
             onClick={() => setShowFolded((value) => !value)}
             className={cn(
-              "flex h-7 w-full items-center gap-2.5 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent/60 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+              "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
               MUTED,
             )}
           >
             {showFolded ? (
-              <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
+              <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
             ) : (
-              <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
+              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
             )}
             <span className="flex-1">
               {showFolded ? `Hide ${folded.length} done` : `${folded.length} done`}
@@ -1088,19 +1312,6 @@ function SubagentsSection({
           </button>
         ) : null}
       </div>
-      {selected ? (
-        <SubagentDetailCard
-          key={selected.id}
-          agent={selected}
-          providerKind={providerKind}
-          environmentId={environmentId}
-          threadId={threadId}
-          workspaceRoot={workspaceRoot}
-          onOpenTurnDiff={onOpenTurnDiff}
-          cardRef={cardRef}
-          stopControl={stopControl}
-        />
-      ) : null}
     </DetailsSection>
   );
 }
@@ -1108,7 +1319,6 @@ function SubagentsSection({
 interface InspectorOverviewProps {
   model: AgentPanelModel;
   threadKey: string | null;
-  providerKind: ProviderDriverKind | null;
   workspace: InspectorWorkspace | null;
   subagentStop: InspectorSubagentStop | null;
   /** The agent's latest task list; null when it has not published one. */
@@ -1119,21 +1329,35 @@ interface InspectorOverviewProps {
   usageTotal: ThreadUsageTotal | null;
   /** The thread provider's limits; null when it reports none. */
   planLimits: InspectorPlanLimits | null;
+  /** How long the latest turn ran, once it finished; the read model keeps no earlier timings. */
+  latestTurnDurationMs: number | null;
+  /** The thread's model, from `thread.modelSelection`, as the composer names it. */
+  modelLabel: string | null;
+  /** The Diff shortcut, shown on Review changes. */
+  reviewShortcutLabel: string | null;
 }
 
 function InspectorOverviewView({
   model,
   threadKey,
-  providerKind,
   workspace,
   subagentStop,
   plan,
   contextWindow,
   usageTotal,
   planLimits,
+  latestTurnDurationMs,
+  modelLabel,
+  reviewShortcutLabel,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
   const hasUsage = describeThreadUsage(usageTotal ?? undefined) !== null;
+  const showUsage =
+    contextWindow !== null ||
+    hasUsage ||
+    planLimits !== null ||
+    latestTurnDurationMs !== null ||
+    modelLabel !== null;
   const empty =
     (plan === null || plan.steps.length === 0) &&
     contextWindow === null &&
@@ -1145,22 +1369,34 @@ function InspectorOverviewView({
       data-inspector-overview
     >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-[22px] p-4">
           {plan && plan.steps.length > 0 ? <PlanSection plan={plan} /> : null}
-          {contextWindow ? <ContextSection snapshot={contextWindow} /> : null}
-          <ThreadCostSection usageTotal={usageTotal} />
           {workspace ? <WorktreeSetupNotice workspace={workspace} /> : null}
-          {workspace && gitCwd ? <ChangesSection workspace={workspace} gitCwd={gitCwd} /> : null}
+          {workspace && gitCwd ? (
+            <ChangesSection
+              workspace={workspace}
+              gitCwd={gitCwd}
+              reviewShortcutLabel={reviewShortcutLabel}
+            />
+          ) : null}
           {model.hasAgents ? (
             <SubagentsSection
               model={model}
               threadKey={threadKey}
-              providerKind={providerKind}
               environmentId={workspace?.environmentId ?? null}
               threadId={workspace?.threadId ?? null}
               workspaceRoot={gitCwd}
               onOpenTurnDiff={workspace?.onOpenTurnDiff ?? null}
               stopControl={subagentStop}
+            />
+          ) : null}
+          {showUsage ? (
+            <UsageSection
+              contextWindow={contextWindow}
+              usageTotal={usageTotal}
+              latestTurnDurationMs={latestTurnDurationMs}
+              modelLabel={modelLabel}
+              planLimits={planLimits}
             />
           ) : null}
           {empty ? (
@@ -1170,11 +1406,6 @@ function InspectorOverviewView({
           ) : null}
         </div>
       </ScrollArea>
-      {planLimits ? (
-        <div className="shrink-0 px-4 pb-4">
-          <PlanLimitCard planLimits={planLimits} />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1242,11 +1473,13 @@ export const InspectorOverview = memo(
   (previous, next) =>
     previous.model === next.model &&
     previous.threadKey === next.threadKey &&
-    previous.providerKind === next.providerKind &&
     previous.subagentStop === next.subagentStop &&
     samePlan(previous.plan, next.plan) &&
     sameContextWindow(previous.contextWindow, next.contextWindow) &&
     sameUsageTotal(previous.usageTotal, next.usageTotal) &&
     previous.planLimits === next.planLimits &&
+    previous.latestTurnDurationMs === next.latestTurnDurationMs &&
+    previous.modelLabel === next.modelLabel &&
+    previous.reviewShortcutLabel === next.reviewShortcutLabel &&
     shallowEqualWorkspace(previous.workspace, next.workspace),
 );

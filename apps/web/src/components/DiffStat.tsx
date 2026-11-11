@@ -14,6 +14,9 @@ export function hasNonZeroStat(stat: { additions: number; deletions: number }): 
  * Counts are compact ("1.2K") unless `notation="full"`. `layout="aligned"` puts the two counts in
  * fixed-width, right-aligned columns so a stack of file headers lines up. Each column fits the
  * widest compact count with its sign, "+1.23K", so keep it in step with `formatCompactCount`.
+ *
+ * `tone="neutral"` drops the addition and deletion hues for lists, tabs and summaries, where the
+ * signs carry the meaning and hue is kept for status; the diff body keeps its tint.
  */
 export const DiffStat = memo(function DiffStat(props: {
   additions: number;
@@ -21,8 +24,17 @@ export const DiffStat = memo(function DiffStat(props: {
   className?: string;
   notation?: "compact" | "full";
   layout?: "inline" | "aligned";
+  tone?: "tinted" | "neutral";
 }) {
-  const { additions, deletions, className, notation = "compact", layout = "inline" } = props;
+  const {
+    additions,
+    deletions,
+    className,
+    notation = "compact",
+    layout = "inline",
+    tone = "tinted",
+  } = props;
+  const neutral = tone === "neutral";
   const format =
     notation === "full" ? (value: number) => value.toLocaleString() : formatCompactCount;
   return (
@@ -35,11 +47,11 @@ export const DiffStat = memo(function DiffStat(props: {
         className,
       )}
     >
-      <span className="text-diff-addition-foreground">
+      <span className={neutral ? undefined : "text-diff-addition-foreground"}>
         <span aria-hidden="true">{`+${format(additions)}`}</span>
         <span className="sr-only">{additions.toLocaleString()} additions,</span>
       </span>
-      <span className="text-diff-deletion-foreground">
+      <span className={neutral ? undefined : "text-diff-deletion-foreground"}>
         <span aria-hidden="true">{`−${format(deletions)}`}</span>
         <span className="sr-only">{deletions.toLocaleString()} deletions</span>
       </span>

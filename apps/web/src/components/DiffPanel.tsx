@@ -7,6 +7,7 @@ import {
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@e6tools/client-runtime/errors";
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
 import type { ScopedThreadRef, TurnId } from "@e6tools/contracts";
 import {
   ArrowRightIcon,
@@ -728,6 +729,28 @@ export default function DiffPanel({
     },
     [renderableFileEntries, selectGitScope, selectedGitScope],
   );
+  // Run details asks to land on a working-tree file or on the commit box; handle it once.
+  const focusRequest = useDiffPanelStore((state) =>
+    routeThreadRef
+      ? (state.focusRequestByThreadKey[scopedThreadKey(routeThreadRef)] ?? null)
+      : null,
+  );
+  const [commitFocusRequest, setCommitFocusRequest] = useState(0);
+  useEffect(() => {
+    if (!focusRequest || !routeThreadRef) return;
+    useDiffPanelStore.getState().consumeFocusRequest(routeThreadRef);
+    if (focusRequest.kind === "commit") {
+      setChangesPanelOpen(true);
+      setCommitFocusRequest((current) => current + 1);
+      return;
+    }
+    const file = workingTreeFiles?.find((candidate) => candidate.path === focusRequest.path);
+    selectChangedFile(
+      focusRequest.path,
+      file?.staged !== undefined && file.unstaged === undefined ? "staged" : "unstaged",
+    );
+  }, [focusRequest, routeThreadRef, selectChangedFile, setChangesPanelOpen, workingTreeFiles]);
+
   // Reveal once per click, as soon as the file is in the diff (possibly after a scope switch).
   useEffect(() => {
     if (!changedFileReveal || handledChangedFileRevealRef.current === changedFileReveal.id) return;
@@ -1326,6 +1349,7 @@ export default function DiffPanel({
                 agentRunning={agentRunning}
                 selected={changedFileReveal}
                 onSelectFile={selectChangedFile}
+                commitFocusRequest={commitFocusRequest}
               />
             </aside>
           ) : null}
