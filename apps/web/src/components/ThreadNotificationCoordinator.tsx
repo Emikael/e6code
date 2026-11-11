@@ -114,8 +114,7 @@ function EnvironmentNotifications({
     }
     const next = new Map<ThreadId, { attention: string | null; completion: number | null }>();
     for (const thread of shell.snapshot.value.threads) {
-      let status = resolveSidebarThreadStatus(thread);
-      if (status === "ready" && thread.latestTurn?.state === "error") status = "failed";
+      const status = resolveSidebarThreadStatus(thread);
       const prior = previous.current.get(thread.id);
       const attention =
         status === "input" || status === "approval" || status === "failed"

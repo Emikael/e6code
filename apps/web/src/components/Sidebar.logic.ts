@@ -1,3 +1,4 @@
+import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
 import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -878,7 +879,7 @@ export function resolveSidebarThreadTitleTone(input: {
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
   "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "agentState"
->;
+> & { readonly latestTurn?: SidebarThreadSummary["latestTurn"] };
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   if (thread.hasPendingApprovals) {
@@ -893,9 +894,9 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
-  // A failed session outranks lingering background liveness: the user must
-  // see the failure, not a stale Working (review finding).
-  if (thread.session?.status === "error") {
+  // A failure outranks lingering background liveness: the user must see the
+  // failure, not a stale Working (review finding). The one shared failed rule.
+  if (isThreadFailed(thread)) {
     return "failed";
   }
   // Background work outlives the turn: fleets read as working; monitoring

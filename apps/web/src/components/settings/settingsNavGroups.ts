@@ -18,6 +18,7 @@ const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     paths: [
       "/settings/general",
       "/settings/appearance",
+      "/settings/attention",
       "/settings/keybindings",
       "/settings/snap-shot",
     ],
@@ -41,6 +42,7 @@ export const SETTINGS_DETAIL_PAGES: Readonly<
 const SETTINGS_PAGE_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "/settings/general": "Threads, confirmations, text generation, and updates.",
   "/settings/appearance": "How E6 Code looks on this device. Changes apply as you make them.",
+  "/settings/attention": "How much E6 Code asks of your attention.",
   "/settings/keybindings": "Shortcuts for commands across the app.",
   "/settings/snap-shot": "Capture windows into a draft without leaving what you are doing.",
   "/settings/providers": "Sign in to agents and choose the models they offer.",

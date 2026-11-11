@@ -18,8 +18,9 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
+import { useThreadAttention } from "~/hooks/useThreadAttention";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useProjects, useThreadShells } from "~/state/entities";
@@ -62,8 +63,8 @@ export function DraftHeroFooter({
   const router = useRouter();
   const threads = useThreadShells();
   const projects = useProjects();
-  const [nowMs] = useState(Date.now);
-  const picked = useMemo(() => selectPickUpThreads(threads, { limit: 3, nowMs }), [threads, nowMs]);
+  const attention = useThreadAttention();
+  const picked = useMemo(() => selectPickUpThreads(attention, 3), [attention]);
   const staleSetup = useMemo(
     () => selectStaleSetupThread(threads, setupProject),
     [threads, setupProject],
@@ -126,7 +127,7 @@ export function DraftHeroFooter({
                           {reason === "approval" ? "Needs approval" : "Needs your answer"}
                         </span>
                         {projectTitle ? ` · ${projectTitle}` : ""}
-                        {` · ${formatRelativeTimeLabel(thread.updatedAt)}`}
+                        {` · ${formatRelativeTimeLabel(thread.pendingRequestSince ?? thread.updatedAt)}`}
                       </span>
                     </span>
                     <ChevronRightIcon

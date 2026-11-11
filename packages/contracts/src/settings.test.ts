@@ -700,6 +700,18 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettingsPatch(stored)).toEqual({});
   });
 
+  it("turns the Needs you section and sidebar minutes on by default, and lets either be turned off", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.needsYouSectionEnabled).toBe(true);
+    expect(decoded.sidebarElapsedTimeEnabled).toBe(true);
+    expect(
+      decodeClientSettingsPatch({
+        needsYouSectionEnabled: false,
+        sidebarElapsedTimeEnabled: false,
+      }),
+    ).toEqual({ needsYouSectionEnabled: false, sidebarElapsedTimeEnabled: false });
+  });
+
   it("preserves an explicit legacy sidebar opt-in", () => {
     expect(decodeClientSettings({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(true);
     expect(decodeClientSettingsPatch({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(

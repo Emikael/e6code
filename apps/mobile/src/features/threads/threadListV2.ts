@@ -14,6 +14,7 @@ import type { SnoozePreset } from "@e6tools/client-runtime/state/thread-settled"
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
+import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
 import { formatUpcomingTimestamp } from "../../lib/time";
 import {
   sortActiveThreadsByOrderKey,
@@ -141,7 +142,7 @@ export function resolveThreadListV2Enabled(input: {
 export function resolveThreadListV2Status(
   thread: Pick<
     EnvironmentThreadShell,
-    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "agentState"
+    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn" | "agentState"
   >,
 ): ThreadListV2Status {
   if (thread.hasPendingApprovals) {
@@ -157,7 +158,7 @@ export function resolveThreadListV2Status(
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
-  if (thread.session?.status === "error") {
+  if (isThreadFailed(thread)) {
     return "failed";
   }
   return "ready";
