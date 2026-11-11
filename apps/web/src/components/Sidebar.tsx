@@ -56,6 +56,7 @@ import {
   FolderIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
+  PauseIcon,
   PinIcon,
   PinOffIcon,
   PlusIcon,
@@ -356,7 +357,9 @@ function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
             ? CircleAlertIcon
             : status.kind === "woke"
               ? AlarmClockIcon
-              : EyeIcon;
+              : status.kind === "paused"
+                ? PauseIcon
+                : EyeIcon;
       return <Icon aria-hidden className="size-3 shrink-0" />;
     }
   }
@@ -2133,9 +2136,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   </span>
                 )}
                 {elapsedSince !== null ? (
-                  <span className="ml-1.5 shrink-0 text-sidebar-muted-foreground">
-                    <SidebarElapsedTime since={elapsedSince} prefix="· " />
-                  </span>
+                  <SidebarElapsedTime
+                    since={elapsedSince}
+                    prefix="· "
+                    className="ml-1.5 text-sidebar-muted-foreground"
+                  />
                 ) : null}
               </span>
               <span className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 text-sidebar-muted-foreground">
@@ -5085,6 +5090,7 @@ export default function Sidebar() {
                   ? (position) => void handleSnoozeEarlier(position)
                   : null
               }
+              snoozableEarlierCount={snoozableEarlierRefs.length}
             />
           ) : null}
           {!isSearchingThreads ? (

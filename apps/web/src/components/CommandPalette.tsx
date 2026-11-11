@@ -103,7 +103,7 @@ import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl"
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
-import { useThreadAttention } from "../hooks/useThreadAttention";
+import { getThreadAttention } from "../hooks/useThreadAttention";
 import { goToNextThreadThatNeedsYou } from "../lib/needsYouNavigation";
 import { resolveSnoozePresets } from "./Sidebar.snooze";
 import { useTheme } from "../hooks/useTheme";
@@ -839,7 +839,6 @@ function OpenCommandPaletteDialog(props: {
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
   const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
   const serverConfigs = useServerConfigs();
-  const threadAttention = useThreadAttention();
   const { snoozeThread, unsnoozeThread } = useThreadActions();
   const activeThreadServerConfig = serverConfigs.get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
@@ -2227,7 +2226,7 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "thread.nextNeedsYou",
     run: async () => {
       goToNextThreadThatNeedsYou({
-        attention: threadAttention,
+        attention: getThreadAttention(),
         currentThreadKey: activeThreadKey,
         navigate: (options) => navigate(options),
       });
@@ -2275,15 +2274,33 @@ function OpenCommandPaletteDialog(props: {
                   ),
                 ),
               );
-              const snoozedCount = results.filter((result) => result._tag === "Success").length;
-              toastManager.add(
+              // Undo wakes only what this command put to sleep, never an
+              // earlier snooze the user set by hand.
+              const snoozedRefs = threadsToSnooze.flatMap((thread, index) =>
+                results[index]?._tag === "Success"
+                  ? [scopeThreadRef(thread.environmentId, thread.id)]
+                  : [],
+              );
+              const snoozedCount = snoozedRefs.length;
+              const toastId = toastManager.add(
                 stackedThreadToast({
                   type: snoozedCount === results.length ? "success" : "warning",
                   title: `Snoozed ${snoozedCount} thread${snoozedCount === 1 ? "" : "s"}`,
                   description:
                     snoozedCount === results.length
-                      ? "Wake them with Wake all snoozed threads."
+                      ? undefined
                       : `${results.length - snoozedCount} couldn't be snoozed.`,
+                  ...(snoozedCount > 0
+                    ? {
+                        actionProps: {
+                          children: "Undo",
+                          onClick: () => {
+                            toastManager.close(toastId);
+                            void Promise.all(snoozedRefs.map((ref) => unsnoozeThread(ref)));
+                          },
+                        },
+                      }
+                    : {}),
                 }),
               );
             },

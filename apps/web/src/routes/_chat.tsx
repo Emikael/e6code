@@ -1,7 +1,7 @@
 import { Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@e6tools/client-runtime/environment";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
@@ -14,7 +14,7 @@ import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { useThreadAttention } from "../hooks/useThreadAttention";
+import { getThreadAttention } from "../hooks/useThreadAttention";
 import { goToNextThreadThatNeedsYou } from "../lib/needsYouNavigation";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -34,10 +34,6 @@ function ChatRouteGlobalShortcuts() {
     useHandleNewThread();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const router = useRouter();
-  // Read through a ref so thread updates do not re-register the listener.
-  const attention = useThreadAttention();
-  const attentionRef = useRef(attention);
-  attentionRef.current = attention;
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
@@ -122,7 +118,7 @@ function ChatRouteGlobalShortcuts() {
         event.preventDefault();
         event.stopPropagation();
         goToNextThreadThatNeedsYou({
-          attention: attentionRef.current,
+          attention: getThreadAttention(),
           currentThreadKey: routeThreadRef ? scopedThreadKey(routeThreadRef) : null,
           navigate: (options) => router.navigate(options),
         });

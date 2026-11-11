@@ -2773,7 +2773,7 @@ describe("resolveSidebarRowStatus", () => {
     ).toEqual({ text: "Retrying · attempt 2 of 10", marker: "ring", tone: "muted" });
     expect(
       line({ status: "paused", agentState: { kind: "rate-limited", resetsAt: "later" } }),
-    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "muted" });
+    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "icon", tone: "muted" });
     expect(line({ status: "working", agentState: { kind: "compacting" } })).toMatchObject({
       text: "Compacting",
       marker: "live",

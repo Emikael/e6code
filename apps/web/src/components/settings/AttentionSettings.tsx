@@ -16,6 +16,7 @@ import {
   SettingsRow,
   SettingsSection,
 } from "./settingsLayout";
+import { NotificationSettingsSection } from "./NotificationSettings";
 import { searchableSetting } from "./settingsSearch";
 
 export function AttentionSettingsPanel() {
@@ -26,6 +27,8 @@ export function AttentionSettingsPanel() {
   return (
     <SettingsPageContainer>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] items-start gap-4">
+        <NotificationSettingsSection />
+
         <SettingsSection id="attention-start-and-layout" title="Start and layout">
           <SettingsRow
             {...searchableSetting("needs-you-section")}
@@ -61,7 +64,7 @@ export function AttentionSettingsPanel() {
             resetAction={
               sidebarElapsedTimeEnabled !== DEFAULT_CLIENT_SETTINGS.sidebarElapsedTimeEnabled ? (
                 <SettingResetButton
-                  label="elapsed time"
+                  label="Elapsed time"
                   onClick={() =>
                     updateSettings({
                       sidebarElapsedTimeEnabled: DEFAULT_CLIENT_SETTINGS.sidebarElapsedTimeEnabled,

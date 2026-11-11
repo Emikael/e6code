@@ -282,50 +282,39 @@ describe("ClaudeSettings auto-compaction", () => {
 });
 
 describe("ClientSettings notifications", () => {
-  it("requires opt-in when existing settings omit notification preferences", () => {
-    expect(decodeClientSettings({}).notificationMode).toBe("off");
-    expect(decodeClientSettings({}).inAppNotificationsEnabled).toBe(false);
-    expect(decodeClientSettingsPatch({})).not.toHaveProperty("inAppNotificationsEnabled");
-    expect(decodeClientSettingsPatch({})).not.toHaveProperty("notificationMode");
+  it("defaults to notifying when an agent is blocked", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.attentionNotifications).toBe("blocked");
+    expect(decoded.notifyWatchedThreads).toBe(true);
+    expect(decoded.holdFinishedUntilBreakpoint).toBe(true);
+    expect(decoded.attentionSoundEnabled).toBe(false);
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("attentionNotifications");
   });
 
-  it.each([true, false])(
-    "round-trips in-app notifications set to %s",
-    (inAppNotificationsEnabled) => {
-      const settings = decodeClientSettings({ inAppNotificationsEnabled });
-      expect(encodeClientSettings(settings).inAppNotificationsEnabled).toBe(
-        inAppNotificationsEnabled,
-      );
-      expect(
-        decodeClientSettingsPatch({ inAppNotificationsEnabled }).inAppNotificationsEnabled,
-      ).toBe(inAppNotificationsEnabled);
-    },
-  );
+  it("drops the retired keys so stored opt-outs reset to the new default", () => {
+    const decoded = decodeClientSettings({
+      notificationMode: "off",
+      inAppNotificationsEnabled: false,
+    });
+    expect(decoded.attentionNotifications).toBe("blocked");
+    const encoded = encodeClientSettings(decoded);
+    expect(encoded).not.toHaveProperty("notificationMode");
+    expect(encoded).not.toHaveProperty("inAppNotificationsEnabled");
+  });
 
-  it.each(["true", 1, null])(
-    "rejects an invalid in-app notification preference %s",
-    (inAppNotificationsEnabled) => {
-      expect(() => decodeClientSettings({ inAppNotificationsEnabled })).toThrow();
-      expect(() => decodeClientSettingsPatch({ inAppNotificationsEnabled })).toThrow();
-    },
-  );
+  it.each(["blocked", "all", "off"])("round-trips %s", (attentionNotifications) => {
+    const settings = decodeClientSettings({ attentionNotifications });
+    expect(encodeClientSettings(settings).attentionNotifications).toBe(attentionNotifications);
+    expect(decodeClientSettingsPatch({ attentionNotifications }).attentionNotifications).toBe(
+      attentionNotifications,
+    );
+  });
 
-  it.each(["off", "notifications", "sound", "notifications-and-sound"])(
-    "round-trips the %s mode",
-    (notificationMode) => {
-      const settings = decodeClientSettings({ notificationMode });
-      expect(encodeClientSettings(settings).notificationMode).toBe(notificationMode);
-      expect(decodeClientSettingsPatch({ notificationMode }).notificationMode).toBe(
-        notificationMode,
-      );
-    },
-  );
-
-  it.each(["always", true, null])(
-    "rejects unsupported notification mode %s",
-    (notificationMode) => {
-      expect(() => decodeClientSettings({ notificationMode })).toThrow();
-      expect(() => decodeClientSettingsPatch({ notificationMode })).toThrow();
+  it.each(["notifications-and-sound", true, null])(
+    "rejects unsupported notification choice %s",
+    (attentionNotifications) => {
+      expect(() => decodeClientSettings({ attentionNotifications })).toThrow();
+      expect(() => decodeClientSettingsPatch({ attentionNotifications })).toThrow();
     },
   );
 });

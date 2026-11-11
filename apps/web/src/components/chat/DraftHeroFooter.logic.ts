@@ -1,5 +1,13 @@
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
-import type { ThreadAttention } from "@e6tools/client-runtime/state/thread-attention";
+import { scopedThreadKey, scopeThreadRef } from "@e6tools/client-runtime/environment";
+import {
+  formatRunningThreadStatus,
+  joinThreadRowStatus,
+} from "@e6tools/client-runtime/state/agent-state";
+import type {
+  ThreadAttention,
+  ThreadAttentionKind,
+} from "@e6tools/client-runtime/state/thread-attention";
 import type { EnvironmentId, ProjectId, ProjectScript, VcsStatusResult } from "@e6tools/contracts";
 import {
   isWorktreeSetupStale,
@@ -7,31 +15,117 @@ import {
   setupProjectScript,
 } from "@e6tools/shared/projectScripts";
 
-export type PickUpReason = "approval" | "input";
-
-export interface PickUpThread {
-  readonly thread: EnvironmentThreadShell;
-  readonly reason: PickUpReason;
+/** "Needs you · 2 agents are blocked", the start screen's first list heading. */
+export function needsYouHeading(blockedCount: number): string {
+  return blockedCount === 1
+    ? "Needs you · 1 agent is blocked"
+    : `Needs you · ${blockedCount} agents are blocked`;
 }
 
 /**
- * Threads that are blocked on an approval or a question, for the
- * new-thread hero's "Pick up where you left off" list, in the shared Needs
- * you order (approval before answer, oldest request first). Failed threads
- * stay in the sidebar section; the hero offers only what you can answer.
+ * "asked 4m ago", "ready 26m ago", "finished just now". Past a day the age
+ * names the day ("asked Tue") instead of growing.
  */
-export function selectPickUpThreads(
-  attention: Pick<ThreadAttention<EnvironmentThreadShell>, "blocked" | "earlier">,
-  limit: number,
-): ReadonlyArray<PickUpThread> {
-  const picked: PickUpThread[] = [];
-  for (const item of [...attention.blocked, ...attention.earlier]) {
-    if (picked.length === limit) break;
-    if (item.kind === "approval" || item.kind === "input") {
-      picked.push({ thread: item.thread, reason: item.kind });
-    }
+export function formatAttentionCue(verb: string, age: string): string {
+  if (age === "") return "";
+  if (age === "now") return `${verb} just now`;
+  if (age.startsWith("since ")) return `${verb} ${age.slice("since ".length)}`;
+  return `${verb} ${age} ago`;
+}
+
+/** The time cue verb for an attention row: who waited, or what happened. */
+export function attentionCueVerb(kind: ThreadAttentionKind): string {
+  switch (kind) {
+    case "approval":
+    case "input":
+      return "asked";
+    case "failed":
+      return "failed";
+    case "plan":
+      return "ready";
+    case "done":
+      return "finished";
   }
-  return picked;
+}
+
+/** "Done · +4 −4" when the turn changed lines, else "Done"; plans read "Plan ready". */
+export function reviewCaption(
+  kind: "plan" | "done",
+  diffStat: { readonly insertions: number; readonly deletions: number } | undefined,
+): string {
+  if (kind === "plan") return "Plan ready";
+  if (!diffStat || (diffStat.insertions === 0 && diffStat.deletions === 0)) return "Done";
+  return `Done · +${diffStat.insertions} −${diffStat.deletions}`;
+}
+
+export type PlanSegment = "done" | "live" | "todo";
+
+/** The step meter: finished steps, the one running, then the rest. */
+export function planSegments(progress: {
+  readonly completedSteps: number;
+  readonly totalSteps: number;
+}): ReadonlyArray<PlanSegment> {
+  const total = Math.max(0, progress.totalSteps);
+  const done = Math.min(Math.max(0, progress.completedSteps), total);
+  return Array.from({ length: total }, (_, index) =>
+    index < done ? "done" : index === done ? "live" : "todo",
+  );
+}
+
+/**
+ * What a working agent is doing, in one line: "Step 3 of 5 · Updating the
+ * token map" when it reports a plan, otherwise its state ("Retrying ·
+ * attempt 2 of 10", "Compacting") or plain "Working". OpenCode reports no
+ * plan and always takes the fallback.
+ */
+export function workingCaption(
+  thread: Pick<EnvironmentThreadShell, "agentState" | "planProgress">,
+  formatResetTime: (resetsAt: string) => string,
+): string {
+  const progress = thread.planProgress;
+  if (!thread.agentState && progress && progress.totalSteps > 0) {
+    const step = Math.min(progress.completedSteps + 1, progress.totalSteps);
+    return `Step ${step} of ${progress.totalSteps} · ${progress.step}`;
+  }
+  const status = formatRunningThreadStatus({
+    agentState: thread.agentState,
+    planProgress: null,
+    formatResetTime,
+  });
+  return joinThreadRowStatus(status);
+}
+
+export interface WorkingThread {
+  readonly key: string;
+  readonly thread: EnvironmentThreadShell;
+  /** When the running turn started, or null when unknown. */
+  readonly startedAt: string | null;
+}
+
+/**
+ * Threads an agent is working on right now, for the start screen's Working
+ * list, oldest start first so rows never reshuffle. A thread already in
+ * Needs you is left out: it is waiting on you, not working.
+ */
+export function selectWorkingThreads(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  attention: Pick<ThreadAttention<EnvironmentThreadShell>, "blocked" | "earlier">,
+  startedAt: (thread: EnvironmentThreadShell) => string | null,
+): ReadonlyArray<WorkingThread> {
+  const blocked = new Set([...attention.blocked, ...attention.earlier].map((item) => item.key));
+  const working: WorkingThread[] = [];
+  for (const thread of threads) {
+    const status = thread.session?.status;
+    if (thread.archivedAt !== null || (status !== "running" && status !== "starting")) continue;
+    const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    if (blocked.has(key)) continue;
+    working.push({ key, thread, startedAt: startedAt(thread) });
+  }
+  const timeOf = (row: WorkingThread) => {
+    const ms = Date.parse(row.startedAt ?? "");
+    return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+  };
+  return working.sort((a, b) => timeOf(a) - timeOf(b) || a.key.localeCompare(b.key));
 }
 
 /**

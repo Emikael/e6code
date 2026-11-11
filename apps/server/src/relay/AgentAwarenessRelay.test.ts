@@ -246,7 +246,7 @@ describe("signRelayAgentActivityPublishProof", { concurrent: false }, () => {
       AgentAwarenessRelay.agentAwarenessPublishIdentity({
         ...state,
         phase: "completed",
-        headline: "Agent finished",
+        headline: "Thread completed",
       }),
     );
   });

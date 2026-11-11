@@ -1,48 +1,9 @@
-import type { ClientSettings } from "@e6tools/contracts/settings";
-
 import completionUrl from "./assets/notification-completion.mp3";
 import inputUrl from "./assets/notification-input.mp3";
 
-type NotificationMode = ClientSettings["notificationMode"];
-export const NOTIFICATION_MODE_LABELS = {
-  off: "Off",
-  notifications: "Notifications only",
-  sound: "Sound only",
-  "notifications-and-sound": "Notifications with sound",
-} satisfies Record<NotificationMode, string>;
-
-export function hasNotificationSound(mode: NotificationMode) {
-  return mode === "sound" || mode === "notifications-and-sound";
-}
-
-export function hasDesktopNotifications(mode: NotificationMode) {
-  return mode === "notifications" || mode === "notifications-and-sound";
-}
-
-let originalFavicon: HTMLLinkElement | undefined;
-let badgeFavicon: HTMLLinkElement | undefined;
-
-/** A red count on the web favicon for unseen notifications; browsers only. */
-export function setNotificationBadge(count: number) {
-  if (window.desktopBridge) return;
-  const image = count > 0 ? drawBadgeImage(count, "#e5484d", "white") : null;
-  if (image) {
-    if (!badgeFavicon) {
-      originalFavicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? undefined;
-      badgeFavicon = document.createElement("link");
-      badgeFavicon.rel = "icon";
-      badgeFavicon.type = "image/png";
-      badgeFavicon.sizes.value = "64x64";
-      originalFavicon?.remove();
-      document.head.append(badgeFavicon);
-    }
-    badgeFavicon.href = image;
-  } else if (badgeFavicon) {
-    badgeFavicon.remove();
-    badgeFavicon = undefined;
-    if (originalFavicon) document.head.append(originalFavicon);
-    originalFavicon = undefined;
-  }
+/** Whether this origin can show system notifications at all. */
+export function canRequestSystemNotifications(): boolean {
+  return typeof Notification !== "undefined" && window.isSecureContext;
 }
 
 /**
