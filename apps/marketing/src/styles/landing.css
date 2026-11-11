@@ -347,6 +347,7 @@ html[data-platform="win"] .install:not([data-choice]) .cmd[data-os="windows"],
 }
 
 .fact svg.i {
+  /* Centers the 16px icon on the first 20px text line. */
   margin-top: 2px;
 }
 

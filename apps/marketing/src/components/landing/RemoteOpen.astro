@@ -1,5 +1,5 @@
 ---
-import { GITHUB_REPOSITORY_URL } from "../../lib/site";
+import { GITHUB_REPOSITORY_URL, IDEAS_DISCUSSIONS_URL } from "../../lib/site";
 
 const connections = [
   { label: "Same network", command: "e6 serve --host <private-ip>" },
@@ -37,6 +37,7 @@ const connections = [
       <div class="wrap-row">
         <a href={`${GITHUB_REPOSITORY_URL}/fork`} class="lp-btn lp-btn--outline">Fork on GitHub</a>
         <a href={GITHUB_REPOSITORY_URL}>Browse the source</a>
+        <a href={IDEAS_DISCUSSIONS_URL}>Start a discussion</a>
       </div>
     </div>
   </div>

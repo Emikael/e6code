@@ -2,28 +2,29 @@
  * Release gate for the landing page. A sentence about an app feature must not
  * reach the live site before the feature does, so each gated part of the page
  * reads one flag here. Each flag is a row of the "Release gating" table in the
- * landing plan. Set one to false to hold that part back; the page then falls
- * back to copy that is true without it and never says "coming soon".
+ * landing plan. A flag is false until the app phases behind it are merged and
+ * released; while it is false the page falls back to copy that is true without
+ * it and never says "coming soon".
  */
 export const shipped = {
   /** The "Approval needed" notification above the hero list. */
-  heroNotification: true,
+  heroNotification: false,
   /** The sub-line's second sentence: notifies you when one is blocked and shows what changed. */
-  heroSecondSentence: true,
+  heroSecondSentence: false,
   /** How it works card: It notifies you. */
-  notifiesCard: true,
+  notifiesCard: false,
   /** How it works card: One list of what needs you. */
-  oneListCard: true,
+  oneListCard: false,
   /** How it works card: Where you left off. */
-  whereYouLeftOffCard: true,
+  whereYouLeftOffCard: false,
   /** How it works card: One thread on screen. */
-  oneThreadCard: true,
+  oneThreadCard: false,
   /** "Review a diff file by file". Without it the review heading is "Every turn is a checkpoint." */
-  reviewDiff: true,
+  reviewDiff: false,
   /** "The pull request card shows the next step". */
-  prCardNextStep: true,
+  prCardNextStep: false,
   /** The Calm by design section and its nav link. */
-  calmByDesign: true,
+  calmByDesign: false,
 } satisfies Record<string, boolean>;
 
 /** The How it works heading and nav link appear with the first card that ships. */

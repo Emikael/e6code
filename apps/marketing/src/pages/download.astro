@@ -227,6 +227,26 @@ const imageProps = {
     padding: 0 1.5rem 4rem;
   }
 
+  /* The nightly sky reaches up behind the site nav, which has no background,
+     and the sky is dark in both themes. The nav takes the dark (Slate) tokens
+     from Layout.astro while it shows. An open menu pushes the sky down, so the
+     open nav gets the dark page fill instead. */
+  :global(body:has(.download-page[data-channel="nightly"]) .site-header) {
+    --bg: #1a1d23;
+    --bg-card: #22252c;
+    --fg: #f0f1f5;
+    --fg-muted: #b1b5c0;
+    --border: #ffffff1c;
+    --border-strong: #ffffff2c;
+    --ring: #d4d7de;
+    --hover: #ffffff0f;
+    color-scheme: dark;
+  }
+
+  :global(body:has(.download-page[data-channel="nightly"]) .site-header:has([data-open])) {
+    background: var(--bg);
+  }
+
   /* ── Header ── */
 
   .download-head {

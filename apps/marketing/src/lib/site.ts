@@ -1,5 +1,8 @@
 export const GITHUB_REPOSITORY_URL = "https://github.com/Emikael/e6code";
 
+/** Proposals go to Ideas discussions, per CONTRIBUTING.md. */
+export const IDEAS_DISCUSSIONS_URL = `${GITHUB_REPOSITORY_URL}/discussions/categories/ideas`;
+
 export const SECURITY_REPORT_URL = `${GITHUB_REPOSITORY_URL}/security/advisories/new`;
 
 export const IOS_APP_STORE_URL =

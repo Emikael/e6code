@@ -127,22 +127,26 @@ const navLinks = [
     </div>
 
     <script>
-      // Under 700px the section links fold into the Menu button.
+      // Under 700px the section links fold into the Menu button. The links come
+      // before the button in the DOM (that is their order on a wide screen) but
+      // show below it when open, so opening moves focus to the first link and
+      // closing returns it to the button.
       const nav = document.querySelector<HTMLElement>("[data-nav]");
       const menu = nav?.querySelector<HTMLButtonElement>(".nav-menu");
-      const setOpen = (open: boolean) => {
+      const links = nav?.querySelector<HTMLElement>("#nav-links");
+      const setOpen = (open: boolean, focus: boolean) => {
         nav?.toggleAttribute("data-open", open);
         menu?.setAttribute("aria-expanded", String(open));
+        if (!focus) return;
+        if (open) links?.querySelector("a")?.focus();
+        else menu?.focus();
       };
-      menu?.addEventListener("click", () => setOpen(menu.getAttribute("aria-expanded") !== "true"));
-      nav?.querySelector("#nav-links")?.addEventListener("click", (event) => {
-        if ((event.target as Element).closest("a")) setOpen(false);
+      menu?.addEventListener("click", () => setOpen(menu.getAttribute("aria-expanded") !== "true", true));
+      links?.addEventListener("click", (event) => {
+        if ((event.target as Element).closest("a")) setOpen(false, false);
       });
       nav?.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && nav.hasAttribute("data-open")) {
-          setOpen(false);
-          menu?.focus();
-        }
+        if (event.key === "Escape" && nav.hasAttribute("data-open")) setOpen(false, true);
       });
     </script>
   </body>
@@ -340,6 +344,11 @@ const navLinks = [
     outline: 2px solid var(--ring);
     /* The ring is the primary fill's color, so it needs a gap to read as a ring. */
     outline-offset: 2px;
+  }
+
+  /* Plain text links get soft ring corners; buttons and other classed links
+     keep their own radius. */
+  a:not([class]):focus-visible {
     border-radius: 4px;
   }
 
@@ -500,6 +509,20 @@ const navLinks = [
   }
 
   @media (max-width: 700px) {
+    /* The closed bar stays on one line down to the narrowest phones. */
+    .nav {
+      gap: 12px;
+      padding: 0 8px 0 16px;
+    }
+
+    .nav:not([data-open]) {
+      flex-wrap: nowrap;
+    }
+
+    .nav-brand {
+      min-width: 0;
+    }
+
     .nav-links {
       display: none;
     }
