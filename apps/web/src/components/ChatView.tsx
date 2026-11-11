@@ -242,6 +242,8 @@ import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavaila
 import { focusedPanelTabSurfaceId, RightPanelTabs } from "./RightPanelTabs";
 import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
+import { ThreadNowBar } from "./chat/ThreadNowBar";
+import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
 import {
@@ -3915,6 +3917,16 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const nowBar = useThreadNowBar({
+    shell: paintOnlyDisplayedTimeline || isDraftHeroState ? null : activeThreadShell,
+    isWorking,
+    workStartedAt: activeWorkStartedAt,
+    workLogEntries,
+    pendingApprovals,
+    pendingUserInputs,
+    checkpoints: activeThread?.checkpoints ?? EMPTY_HELD_TURN_DIFF_SUMMARIES,
+    workspaceRoot: activeWorkspaceRoot,
+  });
   useLayoutEffect(() => {
     if (
       threadDetailLoading ||
@@ -7651,14 +7663,17 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
-  const onCompactContext = async () => {
-    if (compactDisabled || !activeThread || !clientSettingsHydrated || sendInFlightRef.current) {
+  /**
+   * Sends one text-only message outside the composer (/compact, Retry); the
+   * draft and its attachments stay local.
+   */
+  const sendStandaloneMessage = async (text: string, failureMessage: string) => {
+    if (!activeThread || !clientSettingsHydrated || sendInFlightRef.current) {
       return;
     }
     const context = composerRef.current?.getSendContext();
     if (!context?.providerAvailable) return;
 
-    // Compaction is a standalone command; the draft and its attachments stay local.
     const threadId = activeThread.id;
     const messageId = newMessageId();
     const createdAt = new Date().toISOString();
@@ -7670,7 +7685,7 @@ export default function ChatView(props: ChatViewProps) {
       {
         id: messageId,
         role: "user",
-        text: "/compact",
+        text,
         turnId: null,
         createdAt,
         updatedAt: createdAt,
@@ -7696,7 +7711,7 @@ export default function ChatView(props: ChatViewProps) {
               environmentId,
               input: {
                 threadId,
-                message: { messageId, role: "user", text: "/compact", attachments: [] },
+                message: { messageId, role: "user", text, attachments: [] },
                 modelSelection: context.selectedModelSelection,
                 runtimeMode,
                 interactionMode: context.interactionMode,
@@ -7710,10 +7725,7 @@ export default function ChatView(props: ChatViewProps) {
         resetLocalDispatch();
         if (!isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
-          setThreadError(
-            threadId,
-            error instanceof Error ? error.message : "Failed to compact context.",
-          );
+          setThreadError(threadId, error instanceof Error ? error.message : failureMessage);
         }
       } else {
         clearUsageLimitsFor(routeThreadKey);
@@ -7722,6 +7734,23 @@ export default function ChatView(props: ChatViewProps) {
       sendInFlightRef.current = false;
     }
   };
+  const onCompactContext = async () => {
+    if (compactDisabled) return;
+    await sendStandaloneMessage("/compact", "Failed to compact context.");
+  };
+  // The now bar's Retry resends your last message as it was. A message with
+  // attachments cannot be resent as text alone, so it gets no Retry.
+  const lastUserMessage = timelineMessages.findLast((message) => message.role === "user") ?? null;
+  const retryText =
+    lastUserMessage &&
+    (lastUserMessage.attachments?.length ?? 0) === 0 &&
+    lastUserMessage.text.trim()
+      ? lastUserMessage.text
+      : null;
+  const onRetryFailedTurn =
+    retryText === null || isWorking
+      ? null
+      : () => void sendStandaloneMessage(retryText, "Failed to retry.");
 
   const queuedMessages = useQueuedMessages(activeThreadKey ?? "");
   // Puts queued messages back into the composer, e.g. after Stop or a failed
@@ -10468,6 +10497,8 @@ export default function ChatView(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
+            changedFileCount={isServerThread ? nowBar.changedFileCount : null}
+            onOpenChanges={addDiffSurface}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
@@ -10524,8 +10555,19 @@ export default function ChatView(props: ChatViewProps) {
               {...workspaceAreaProps("conversation", 1, "Conversation")}
               className="relative flex min-h-0 flex-1 flex-col bg-background"
             >
+              {activeThreadKey ? (
+                <ThreadNowBar
+                  state={nowBar.state}
+                  watchKey={activeThreadKey}
+                  onRetry={onRetryFailedTurn}
+                  onReviewDiff={() => {
+                    if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
+                  }}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
+                nowBarAction={nowBar.state.kind === "hidden" ? undefined : nowBar.currentAction}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 {...(!paintOnlyDisplayedTimeline

@@ -23,6 +23,7 @@ import {
   CirclePauseIcon,
   EllipsisIcon,
   EyeIcon,
+  FileIcon,
   MessageCircleQuestionIcon,
   PencilIcon,
   ShieldQuestionIcon,
@@ -84,6 +85,10 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
+  /** Files the agent has changed in this thread; null hides the slot (drafts). */
+  changedFileCount: number | null;
+  /** Opens the Diff panel on the working tree. */
+  onOpenChanges: () => void;
   gitCwd: string | null;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
@@ -248,6 +253,28 @@ function ThreadHeaderBranch(props: { branch: string }) {
   );
 }
 
+/**
+ * The header's fixed "Changes so far" slot (F5): something bounded to look at
+ * while the agent works. It stays in place, disabled as "No changes yet", so
+ * the header never shifts when the first file changes.
+ */
+function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => void }) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={count === 0}
+      onClick={onOpen}
+      className="me-1 hidden sm:text-xs @lg/header-actions:inline-flex"
+    >
+      <FileIcon aria-hidden className="size-3.5" />
+      {count === 0
+        ? "No changes yet"
+        : `Changes so far · ${count} ${count === 1 ? "file" : "files"}`}
+    </Button>
+  );
+}
+
 export function shouldShowOpenInPicker(input: {
   readonly activeProjectName: string | undefined;
   readonly activeThreadEnvironmentId: EnvironmentId;
@@ -280,6 +307,8 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   rightPanelOpen,
+  changedFileCount,
+  onOpenChanges,
   gitCwd,
   onOpenPullRequest,
   onNewThreadInProject,
@@ -613,6 +642,9 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
+        {changedFileCount !== null ? (
+          <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
+        ) : null}
         {/* Scripts, Open in and Git sit in one quiet menu. It stays mounted while closed, so
             their keybindings, command palette entries and open dialogs keep working. */}
         <Menu open={actionsOpen} onOpenChange={setActionsOpen}>

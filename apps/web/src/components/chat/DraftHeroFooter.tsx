@@ -50,7 +50,6 @@ import {
   attentionCueVerb,
   formatAttentionCue,
   needsYouHeading,
-  planSegments,
   reviewCaption,
   selectStaleSetupThread,
   selectWorkingThreads,
@@ -58,6 +57,7 @@ import {
   type UnpushedCommits,
   type WorkingThread,
 } from "./DraftHeroFooter.logic";
+import { PlanStepMeter } from "./PlanStepMeter";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
@@ -369,7 +369,6 @@ const WorkingRow = memo(function WorkingRow({
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const { thread } = row;
   const progress = thread.agentState ? null : thread.planProgress;
-  const segments = progress ? planSegments(progress) : [];
   const caption = workingCaption(thread, (resetsAt) =>
     formatUpcomingTimestamp(resetsAt, timestampFormat),
   );
@@ -390,29 +389,7 @@ const WorkingRow = memo(function WorkingRow({
         <span className="min-w-0 shrink truncate text-[13px] leading-[18px] font-medium text-foreground">
           {thread.title}
         </span>
-        {segments.length > 0 && progress ? (
-          <span
-            role="img"
-            aria-label={`Step ${Math.min(progress.completedSteps + 1, progress.totalSteps)} of ${progress.totalSteps}`}
-            className="flex shrink-0 gap-[3px]"
-          >
-            {segments.map((segment, index) => (
-              <span
-                // Segments have no identity beyond their position.
-                // oxlint-disable-next-line react/no-array-index-key
-                key={index}
-                className={cn(
-                  "h-1.5 w-3.5 rounded-full",
-                  segment === "done"
-                    ? "bg-success"
-                    : segment === "live"
-                      ? "bg-primary"
-                      : "ring-1 ring-muted-foreground ring-inset",
-                )}
-              />
-            ))}
-          </span>
-        ) : null}
+        {progress ? <PlanStepMeter progress={progress} /> : null}
         <span className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
           {caption}
         </span>
