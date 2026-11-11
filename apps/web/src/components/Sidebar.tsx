@@ -322,7 +322,15 @@ const rowStatusToneClassName: Record<SidebarRowStatus["tone"], string> = {
   failed: "text-destructive-foreground",
 };
 
-/** The status line's leading mark. Always paired with words, never alone. */
+/** Blocked on you (approval): a rotated square in `warning-foreground`. */
+function BlockedDiamond() {
+  return (
+    <span aria-hidden className="size-1.5 shrink-0 rotate-45 rounded-[1px] bg-warning-foreground" />
+  );
+}
+
+/** The status line's leading mark. Always paired with words, never alone.
+    Glyphs take the tone's `*-foreground` role through `currentColor`. */
 function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
   switch (status.marker) {
     case "live":
@@ -332,13 +340,15 @@ function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
           className="size-1.5 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
         />
       );
+    case "diamond":
+      return <BlockedDiamond />;
     case "dot":
-      return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />;
+      return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current" />;
     case "ring":
       return (
         <span
           aria-hidden
-          className="size-1.5 shrink-0 rounded-full border-[1.5px] border-warning"
+          className="size-1.5 shrink-0 rounded-full border-[1.5px] border-current"
         />
       );
     case "check":
@@ -863,7 +873,7 @@ function SidebarProjectGroupHeader(props: {
             className="inline-flex shrink-0 items-center gap-1 font-medium text-warning-foreground tabular-nums"
             aria-label={`${group.attentionCount} waiting on you`}
           >
-            <span aria-hidden className="size-1.5 rounded-full bg-warning" />
+            <BlockedDiamond />
             {group.attentionCount}
           </span>
         ) : null}

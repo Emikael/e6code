@@ -79,7 +79,8 @@ const STATUS_LABEL_BY_STATUS: Partial<
     accessibilityLabel: "Needs your answer",
     className: "text-warning-foreground",
   },
-  paused: { label: "Paused", className: "text-warning-foreground" },
+  // A usage-limit pause waits on the clock, not on you, so it stays neutral.
+  paused: { label: "Paused", className: "text-foreground-muted" },
   working: { label: "Working", className: "text-primary-text" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };

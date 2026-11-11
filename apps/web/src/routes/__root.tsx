@@ -48,7 +48,7 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { applyStockAccent } from "~/stockAccent";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useClientSettingsHydrationStatus } from "../hooks/useSettings";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -271,14 +271,22 @@ function ContrastAppearanceSync() {
     document.documentElement.dataset.chatWidth = chatWidth;
   }, [chatWidth]);
 
+  // Until stored settings load, the snapshot holds the defaults. Applying
+  // them would wipe the stored accent and contrast the boot script in
+  // index.html already painted, so wait until loading settles (a failed load
+  // still applies, so later changes show).
+  const hydrationStatus = useClientSettingsHydrationStatus();
+  const settingsHydrated = hydrationStatus === "ready" || hydrationStatus === "failed";
   useEffect(() => {
+    if (!settingsHydrated) return;
     applyAppearanceContrast(document.documentElement, appearanceContrast);
-  }, [appearanceContrast]);
+  }, [appearanceContrast, settingsHydrated]);
 
   const stockAccent = useClientSettings((settings) => settings.stockAccent);
   useEffect(() => {
+    if (!settingsHydrated) return;
     applyStockAccent(document.documentElement, stockAccent);
-  }, [stockAccent]);
+  }, [stockAccent, settingsHydrated]);
 
   return null;
 }

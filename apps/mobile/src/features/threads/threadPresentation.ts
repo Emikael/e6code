@@ -56,8 +56,9 @@ export function resolveThreadStatus(
     return {
       kind: "paused",
       label: "Paused",
-      pillClassName: "bg-warning",
-      textClassName: "text-warning-foreground",
+      // Waiting on the clock, not on the user: neutral, never amber.
+      pillClassName: "bg-subtle",
+      textClassName: "text-foreground-muted",
     };
   }
 
@@ -65,7 +66,7 @@ export function resolveThreadStatus(
     return {
       kind: "working",
       label: "Working",
-      // Iris marks a live agent, matching the web sidebar.
+      // The accent marks a live agent, matching the web sidebar.
       pillClassName: "bg-primary/10",
       textClassName: "text-primary-text",
     };

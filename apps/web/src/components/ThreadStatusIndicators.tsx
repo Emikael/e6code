@@ -425,7 +425,7 @@ export function ThreadStatusLabel({
             />
           }
         >
-          <span className={`size-[9px] rounded-full ${status.dotClass}`} />
+          <span className={`size-[9px] ${status.dotClass}`} />
         </TooltipTrigger>
         <TooltipPopup side="top">{status.label}</TooltipPopup>
       </Tooltip>
@@ -442,7 +442,7 @@ export function ThreadStatusLabel({
           />
         }
       >
-        <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
+        <span className={`h-1.5 w-1.5 ${status.dotClass}`} />
         <span className="hidden md:inline">{status.label}</span>
       </TooltipTrigger>
       <TooltipPopup side="top">{status.label}</TooltipPopup>

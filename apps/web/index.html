@@ -221,9 +221,13 @@
         // the defaults. A stored profile with another accent or contrast
         // writes the same inline variables stockAccent.ts and
         // appearanceContrast.ts write, before first paint, so it does not
-        // flash the default. Desktop keeps settings in a file the page cannot
-        // read this early, so it may show the default for a frame.
+        // flash the default. The app mirrors both values into
+        // BOOT_APPEARANCE_STORAGE_KEY on every settings load and save
+        // (clientPersistenceStorage.ts), which also covers desktop, whose
+        // settings live in a file; web profiles saved before the mirror
+        // existed fall back to the full settings key.
         // Keep this copy in sync with STOCK_ACCENT_PALETTES (themeBoot.test.ts).
+        const BOOT_APPEARANCE_STORAGE_KEY = "e6code:boot-appearance:v1";
         const CLIENT_SETTINGS_STORAGE_KEY = "e6code:client-settings:v1";
         const STOCK_ACCENT_BOOT_PALETTES = {
           iris: {
@@ -256,7 +260,9 @@
         };
         try {
           const storedSettings = JSON.parse(
-            window.localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY) ?? "null",
+            window.localStorage.getItem(BOOT_APPEARANCE_STORAGE_KEY) ??
+              window.localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY) ??
+              "null",
           );
           if (isRecord(storedSettings)) {
             const rootStyle = document.documentElement.style;
