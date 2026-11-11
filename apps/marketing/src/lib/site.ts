@@ -11,6 +11,9 @@ export const IOS_APP_STORE_URL =
 export const ANDROID_PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.e6tools.e6code";
 
+/** What a phone visitor shares to their computer: the page with every desktop build. */
+export const DESKTOP_LINK_URL = "https://e6code.com/download";
+
 export const INSTALL_COMMANDS = {
   unix: "curl -fsSL https://e6code.com/install.sh | sh",
   windows: "irm https://e6code.com/install.ps1 | iex",

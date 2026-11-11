@@ -108,8 +108,44 @@ import "../styles/landing.css";
     }
   }
 
+  /**
+   * The phone hero's "Share the desktop link". The share sheet needs the click's
+   * user gesture and is missing in some browsers, so it falls back to copying
+   * the link and says so on the button. Nothing is collected or sent anywhere.
+   */
+  function initShare(button: HTMLButtonElement) {
+    const label = button.querySelector("span")!;
+    const idle = label.textContent;
+    const url = button.dataset.share!;
+    const data = { title: "E6 Code", text: "Download E6 Code on your computer.", url };
+    let reset: number | undefined;
+    const say = (text: string) => {
+      label.textContent = text;
+      window.clearTimeout(reset);
+      reset = window.setTimeout(() => (label.textContent = idle), 4000);
+    };
+    button.addEventListener("click", async () => {
+      if (navigator.share && (!navigator.canShare || navigator.canShare(data))) {
+        try {
+          await navigator.share(data);
+          return;
+        } catch (error) {
+          // The visitor closed the sheet.
+          if (error instanceof DOMException && error.name === "AbortError") return;
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        say("Link copied");
+      } catch {
+        say(`Go to ${url.replace("https://", "")}`);
+      }
+    });
+  }
+
   // Set by the inline head script.
   const platform = document.documentElement.dataset.platform;
   if (platform === "mac" || platform === "win" || platform === "linux") void initDownload();
   for (const block of document.querySelectorAll<HTMLElement>("[data-install]")) initInstall(block, platform);
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-share]")) initShare(button);
 </script>
