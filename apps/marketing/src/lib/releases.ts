@@ -59,12 +59,19 @@ export interface ReleaseSummary {
   publishedAt: Date;
 }
 
+let buildRelease: Promise<ReleaseSummary | null> | undefined;
+
 /**
- * The latest stable release, read once when the site is built. Returns null when
- * GitHub cannot be reached so a build without network still succeeds; callers
- * leave the version out in that case.
+ * The latest stable release, read once when the site is built and shared by
+ * every page that asks. Returns null when GitHub cannot be reached so a build
+ * without network still succeeds; callers leave the version out in that case.
  */
-export async function fetchLatestReleaseAtBuild(): Promise<ReleaseSummary | null> {
+export function fetchLatestReleaseAtBuild(): Promise<ReleaseSummary | null> {
+  buildRelease ??= readLatestRelease();
+  return buildRelease;
+}
+
+async function readLatestRelease(): Promise<ReleaseSummary | null> {
   try {
     const response = await fetch(LATEST_API_URL);
     if (!response.ok) return null;

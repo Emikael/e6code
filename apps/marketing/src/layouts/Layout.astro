@@ -1,11 +1,11 @@
 ---
 import { getImage, Image } from "astro:assets";
 import appIcon from "../assets/icon.webp";
-import desktopScreenshot from "../assets/app-thread-dark.webp";
+import socialCard from "../assets/social-card.png";
 import geistLatinUrl from "../assets/fonts/geist-latin.woff2?url";
 import "../styles/fonts.css";
 import { shipped, showHowItWorks } from "../lib/shipped";
-import { ANDROID_PLAY_STORE_URL, GITHUB_REPOSITORY_URL, IOS_APP_STORE_URL } from "../lib/site";
+import { ANDROID_PLAY_STORE_URL, GITHUB_REPOSITORY_URL, IOS_APP_STORE_URL, SITE_DESCRIPTION } from "../lib/site";
 
 interface Props {
   title?: string;
@@ -16,24 +16,18 @@ interface Props {
 }
 
 const {
-  title = "E6 Code",
-  description = "E6 Code is the open-source control room for coding agents. Run Claude Code, Codex, Cursor, Grok, OpenCode, and Antigravity with the subscriptions you already have, from desktop, web, or your phone.",
+  title = "E6 Code: run coding agents in parallel, open source",
+  description = SITE_DESCRIPTION,
   pageClass,
   noindex = false,
 } = Astro.props;
 
 // Social preview card. Link unfurlers (Instagram, iMessage, X, Slack) want a
-// 1200x630 jpg or png at an absolute URL. Built from the hero screenshot so it
-// stays in sync with the homepage.
-const socialImage = await getImage({
-  src: desktopScreenshot,
-  width: 1200,
-  height: 630,
-  fit: "cover",
-  position: "top",
-  format: "jpg",
-  quality: 90,
-});
+// 1200x630 jpg or png at an absolute URL. src/assets/social-card.png is the
+// landing headline over the top of src/assets/app-thread-dark.webp; recompose
+// it when either changes. It never names ADHD, so sharing a link discloses
+// nothing about the person sharing it.
+const socialImage = await getImage({ src: socialCard, width: 1200, height: 630, format: "jpg", quality: 90 });
 const socialImageUrl = new URL(socialImage.src, Astro.site);
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
@@ -63,7 +57,7 @@ const navLinks = [
     <meta property="og:image" content={socialImageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="An E6 Code thread with four subagents and the run details panel." />
+    <meta property="og:image:alt" content="E6 Code. Run your agents in parallel. Know which one needs you. Above the desktop app running a thread with four subagents." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />

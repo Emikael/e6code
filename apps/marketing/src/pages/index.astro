@@ -8,7 +8,25 @@ import Product from "../components/landing/Product.astro";
 import RemoteOpen from "../components/landing/RemoteOpen.astro";
 import Review from "../components/landing/Review.astro";
 import Layout from "../layouts/Layout.astro";
+import { fetchLatestReleaseAtBuild } from "../lib/releases";
+import { DESKTOP_LINK_URL, SITE_DESCRIPTION } from "../lib/site";
 import "../styles/landing.css";
+
+const release = await fetchLatestReleaseAtBuild();
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "E6 Code",
+  description: SITE_DESCRIPTION,
+  url: Astro.site?.href,
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Windows, Linux, iOS, Android",
+  downloadUrl: DESKTOP_LINK_URL,
+  license: "https://opensource.org/licenses/MIT",
+  isAccessibleForFree: true,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  ...(release && { softwareVersion: release.version.replace(/^v/, "") }),
+};
 ---
 
 <Layout pageClass="lp">
@@ -31,6 +49,7 @@ import "../styles/landing.css";
       if (os) document.documentElement.dataset.platform = os;
     })();
   </script>
+  <script is:inline type="application/ld+json" slot="head" set:html={JSON.stringify(structuredData)} />
   <Hero />
   <Product />
   <Agents />

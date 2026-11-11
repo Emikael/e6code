@@ -1,5 +1,9 @@
 export const GITHUB_REPOSITORY_URL = "https://github.com/Emikael/e6code";
 
+/** The page description, social card text and structured data share it. No ADHD wording. */
+export const SITE_DESCRIPTION =
+  "Open-source app for running coding agents in parallel. Use Claude Code, Codex, Cursor, Grok Build, OpenCode and Antigravity with the subscriptions you already have.";
+
 /** Proposals go to Ideas discussions, per CONTRIBUTING.md. */
 export const IDEAS_DISCUSSIONS_URL = `${GITHUB_REPOSITORY_URL}/discussions/categories/ideas`;
 
