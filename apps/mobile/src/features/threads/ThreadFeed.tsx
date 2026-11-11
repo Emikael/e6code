@@ -1,3 +1,4 @@
+import { splitMermaidMarkdown } from "@e6tools/client-runtime/mermaid-markdown";
 import type { HtmlRenderReference } from "@e6tools/shared/htmlRender";
 import {
   WorktreeWorkingHeader,
@@ -160,6 +161,7 @@ import {
   type ThreadFeedLatestTurn,
 } from "../../lib/threadActivity";
 import { HtmlRenderArtifact } from "./HtmlRenderArtifact";
+import { MermaidCodeBlock } from "./MermaidCodeBlock";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import {
   resolveThreadFeedLiveFollow,
@@ -813,29 +815,59 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     }
     if (segment.markdown.trim().length === 0) return null;
 
-    const markdown = renderCodexFileCitationsAsMarkdown(segment.markdown);
-    return hasNativeSelectableMarkdownText() ? (
-      <SelectableMarkdownText
-        key={`markdown:${segment.sourceOffset}`}
-        markdown={markdown}
-        skills={props.skills}
-        textStyle={props.markdownStyles.nativeTextStyle}
-        {...props.linkHandlers}
-        renderImage={props.renderImage}
-      />
-    ) : (
-      <Markdown
-        key={`markdown:${segment.sourceOffset}`}
-        options={{ gfm: true }}
-        renderers={props.markdownStyles.renderers}
-        styles={props.markdownStyles.styles}
-        theme={props.markdownStyles.theme}
-      >
-        {markdown}
-      </Markdown>
-    );
+    return splitMermaidMarkdown(segment.markdown).map((part) => {
+      const key = `${segment.sourceOffset + part.sourceOffset}`;
+      if (part.kind === "mermaid") {
+        return (
+          <MermaidCodeBlock
+            key={`mermaid:${key}`}
+            code={part.code}
+            textStyle={props.markdownStyles.nativeTextStyle}
+          />
+        );
+      }
+      if (part.markdown.trim().length === 0) return null;
+      return (
+        <AssistantMarkdownSegment
+          key={`markdown:${key}`}
+          markdown={part.markdown}
+          markdownStyles={props.markdownStyles}
+          linkHandlers={props.linkHandlers}
+          renderImage={props.renderImage}
+          skills={props.skills}
+        />
+      );
+    });
   });
 });
+
+function AssistantMarkdownSegment(props: {
+  readonly markdown: string;
+  readonly markdownStyles: MarkdownStyleSet;
+  readonly linkHandlers: MarkdownLinkHandlers;
+  readonly renderImage: MarkdownImageRenderer;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
+}) {
+  const markdown = renderCodexFileCitationsAsMarkdown(props.markdown);
+  return hasNativeSelectableMarkdownText() ? (
+    <SelectableMarkdownText
+      markdown={markdown}
+      skills={props.skills}
+      textStyle={props.markdownStyles.nativeTextStyle}
+      {...props.linkHandlers}
+      renderImage={props.renderImage}
+    />
+  ) : (
+    <Markdown
+      options={{ gfm: true }}
+      renderers={props.markdownStyles.renderers}
+      styles={props.markdownStyles.styles}
+      theme={props.markdownStyles.theme}
+    >
+      {markdown}
+    </Markdown>
+  );
+}
 
 function MarkdownCodeBlock(props: {
   readonly backgroundColor: string;

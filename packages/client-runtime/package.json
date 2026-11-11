@@ -83,6 +83,10 @@
       "types": "./src/codexArtifactTemplates.ts",
       "default": "./src/codexArtifactTemplates.ts"
     },
+    "./mermaid-markdown": {
+      "types": "./src/mermaidMarkdown.ts",
+      "default": "./src/mermaidMarkdown.ts"
+    },
     "./codex-markdown-directives": {
       "types": "./src/codexMarkdownDirectives.ts",
       "default": "./src/codexMarkdownDirectives.ts"

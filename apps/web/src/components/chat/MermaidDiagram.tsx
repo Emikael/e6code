@@ -49,15 +49,7 @@ function detectDiagramType(pele: Pele, source: string): DiagramType | null {
   }
 }
 
-// Pele lays out DOM before sanitizing its SVG. Refuse resource and config syntax before that pass
-// so untrusted sources (agent output, pull request descriptions, files) cannot initiate requests.
-// Node metadata is YAML, whose escaped or aliased image keys cannot be checked lexically.
-const UNSAFE_DIAGRAM_SOURCE =
-  /%%\s*\{|^\s*---|<\/?[A-Za-z]|<[!?]|@\s*\{|\b(?:img|image)\s*:|url\s*\(|@import|(?:https?|data|blob|file):/im;
-
-export function isUnsafeMermaidSource(text: string): boolean {
-  return UNSAFE_DIAGRAM_SOURCE.test(text);
-}
+export { isUnsafeMermaidSource } from "@e6tools/client-runtime/mermaid-markdown";
 
 let mathLoad: Promise<MathResolver | null> | null = null;
 
