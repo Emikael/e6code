@@ -49,9 +49,10 @@ import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./Dif
 import { DiffStat } from "./DiffStat";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPanel";
-import { DiffFileTree } from "./diffs/DiffFileTree";
+import { DIFF_FILE_RAIL_CLASS_NAME, DiffFileRail, DiffFileRailHeader } from "./diffs/DiffFileRail";
+import { diffRailRows, FILE_RAIL_OPEN_MIN_WIDTH, isFileRailOpen } from "./diffs/diffFileRail.logic";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
-import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
+import { observeResize } from "~/lib/observeResize";
 import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
@@ -90,8 +91,10 @@ import { DiffFileStatus } from "./diffs/DiffFileStatus";
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
-const DIFF_FILE_TREE_STORAGE_KEY = "e6code.diffFileTreeOpen";
-const DIFF_CHANGES_PANEL_STORAGE_KEY = "e6code.diffChangesPanelOpen";
+// The file rail's open state on this device; absent until the user opens or hides it. It keeps
+// the key the file tree it replaced used, so an earlier choice carries over.
+const DIFF_FILE_RAIL_STORAGE_KEY = "e6code.diffFileTreeOpen";
+const DIFF_FILE_RAIL_STORAGE_SCHEMA = Schema.NullOr(Schema.Boolean);
 const GIT_SCOPE_LABELS: Record<DiffPanelGitScope, string> = {
   uncommitted: "Uncommitted",
   staged: "Staged",
@@ -148,16 +151,15 @@ export default function DiffPanel({
   // Saved settings, not panel state: Wrap also drives file previews, so one choice holds everywhere.
   const wordWrap = settings.wordWrap;
   const diffIgnoreWhitespace = settings.diffIgnoreWhitespace;
-  const [fileTreeOpen, setFileTreeOpen] = useLocalStorage(
-    DIFF_FILE_TREE_STORAGE_KEY,
-    false,
-    Schema.Boolean,
+  const [storedRailOpen, setRailOpen] = useLocalStorage(
+    DIFF_FILE_RAIL_STORAGE_KEY,
+    null,
+    DIFF_FILE_RAIL_STORAGE_SCHEMA,
   );
-  const [changesPanelOpen, setChangesPanelOpen] = useLocalStorage(
-    DIFF_CHANGES_PANEL_STORAGE_KEY,
-    true,
-    Schema.Boolean,
-  );
+  // Only crossing the open-by-default width matters, so a resize re-renders at most once.
+  const [panelWidth, setPanelWidth] = useState(0);
+  const railOpen = isFileRailOpen(storedRailOpen, panelWidth);
+  const [railCurrentPath, setRailCurrentPath] = useState<string | null>(null);
   const [changedFileReveal, setChangedFileReveal] = useState<{
     readonly path: string;
     readonly section: DiffChangesSection;
@@ -251,8 +253,8 @@ export default function DiffPanel({
     workingTreeFiles !== undefined &&
     (workingTreeFiles.length === 0 ||
       workingTreeFiles.some((file) => file.staged !== undefined || file.unstaged !== undefined));
-  const showChangesPanel =
-    isWorkingTreeScope && stagingSupported && changesPanelOpen && activeCwd != null;
+  // Working-tree scopes with staging list their files with stage controls and the commit box.
+  const railHostsChanges = isWorkingTreeScope && stagingSupported && activeCwd != null;
   const agentRunning = derivePhase(activeThread?.session ?? null) === "running";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
@@ -572,7 +574,19 @@ export default function DiffPanel({
     }
     return getDiffLineStat(renderableFiles);
   }, [renderableFiles, selectedGitSource, selectedTurn]);
-  const fileTreeEntries = useMemo(() => diffFileTreeEntries(renderableFiles), [renderableFiles]);
+  // In the body's order, so the rail and the diff read the same way down.
+  const railRows = useMemo(
+    () =>
+      diffRailRows(
+        renderableFiles.map((fileDiff) => {
+          const path = resolveFileDiffPath(fileDiff);
+          const stat = fileStats.get(path) ?? getDiffLineStat([fileDiff]);
+          return { path, additions: stat.additions, deletions: stat.deletions };
+        }),
+      ),
+    [fileStats, renderableFiles],
+  );
+  const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
   const selectedDiffFileKey = selectedFilePath
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
@@ -738,7 +752,7 @@ export default function DiffPanel({
     if (!focusRequest || !routeThreadRef) return;
     useDiffPanelStore.getState().consumeFocusRequest(routeThreadRef);
     if (focusRequest.kind === "commit") {
-      setChangesPanelOpen(true);
+      setRailOpen(true);
       setCommitFocusRequest((current) => current + 1);
       return;
     }
@@ -747,7 +761,7 @@ export default function DiffPanel({
       focusRequest.path,
       file?.staged !== undefined && file.unstaged === undefined ? "staged" : "unstaged",
     );
-  }, [focusRequest, routeThreadRef, selectChangedFile, setChangesPanelOpen, workingTreeFiles]);
+  }, [focusRequest, routeThreadRef, selectChangedFile, setRailOpen, workingTreeFiles]);
 
   // Reveal once per click, as soon as the file is in the diff (possibly after a scope switch).
   useEffect(() => {
@@ -761,6 +775,23 @@ export default function DiffPanel({
       revealDiffFile(changedFileReveal.path);
     }
   }, [changedFileReveal, renderableFileEntries, revealDiffFile]);
+
+  const selectRailFile = useCallback(
+    (filePath: string) => {
+      setRailCurrentPath(filePath);
+      revealDiffFile(filePath);
+    },
+    [revealDiffFile],
+  );
+  const attachDiffBody = useCallback((element: HTMLDivElement | null) => {
+    if (!element) return;
+    return observeResize(element, (entries) => {
+      const width = entries.at(-1)?.contentRect.width ?? 0;
+      setPanelWidth((current) =>
+        current >= FILE_RAIL_OPEN_MIN_WIDTH === width >= FILE_RAIL_OPEN_MIN_WIDTH ? current : width,
+      );
+    });
+  }, []);
 
   const headerRow = (
     <>
@@ -1007,28 +1038,13 @@ export default function DiffPanel({
           onRefresh={canRefreshGitDiff ? refreshDiffFromUserAction : undefined}
           refreshing={isRefreshingDiff}
         >
-          {/* The side panes move into the file rail later; until then they toggle here. */}
-          {isWorkingTreeScope && stagingSupported ? (
-            <>
-              <MenuSeparator />
-              <MenuCheckboxItem
-                checked={changesPanelOpen}
-                onCheckedChange={(checked) => setChangesPanelOpen(Boolean(checked))}
-              >
-                Changes and commit
-              </MenuCheckboxItem>
-            </>
-          ) : diffFileKeys.length > 0 ? (
-            <>
-              <MenuSeparator />
-              <MenuCheckboxItem
-                checked={fileTreeOpen}
-                onCheckedChange={(checked) => setFileTreeOpen(Boolean(checked))}
-              >
-                File tree
-              </MenuCheckboxItem>
-            </>
-          ) : null}
+          <MenuSeparator />
+          <MenuCheckboxItem
+            checked={railOpen}
+            onCheckedChange={(checked) => setRailOpen(Boolean(checked))}
+          >
+            File list
+          </MenuCheckboxItem>
         </DiffViewMenu>
       </div>
     </>
@@ -1049,7 +1065,33 @@ export default function DiffPanel({
           No completed turns yet.
         </div>
       ) : (
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden" ref={attachDiffBody}>
+          {railOpen ? (
+            railHostsChanges && activeThread && activeCwd ? (
+              <nav aria-label="Changed files" className={DIFF_FILE_RAIL_CLASS_NAME}>
+                <DiffFileRailHeader
+                  fileCount={workingTreeFiles?.length ?? null}
+                  onHide={() => setRailOpen(false)}
+                />
+                <DiffChangesPanel
+                  environmentId={activeThread.environmentId}
+                  cwd={activeCwd}
+                  files={workingTreeFiles ?? []}
+                  agentRunning={agentRunning}
+                  selected={changedFileReveal}
+                  onSelectFile={selectChangedFile}
+                  consumeCommitFocusRequest={consumeCommitFocusRequest}
+                />
+              </nav>
+            ) : (
+              <DiffFileRail
+                rows={railRowsReady ? railRows : null}
+                currentPath={railCurrentPath ?? selectedFilePath}
+                onSelect={selectRailFile}
+                onHide={() => setRailOpen(false)}
+              />
+            )
+          ) : null}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
             {isSelectedPatchTruncated && !lazySource && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
@@ -1226,17 +1268,6 @@ export default function DiffPanel({
                     }}
                   />
                 </div>
-                {fileTreeOpen && !(isWorkingTreeScope && stagingSupported) ? (
-                  <aside className="flex w-[min(16rem,40%)] min-w-40 shrink-0 border-l border-border/60">
-                    <DiffFileTree
-                      ariaLabel={`${reviewSectionTitle} files`}
-                      entries={fileTreeEntries}
-                      selectedPath={selectedFilePath}
-                      revealRequestId={selectedFileRevealRequestId}
-                      onSelectFile={revealDiffFile}
-                    />
-                  </aside>
-                ) : null}
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -1258,19 +1289,6 @@ export default function DiffPanel({
               </div>
             )}
           </div>
-          {showChangesPanel && activeThread && activeCwd ? (
-            <aside className="flex w-[min(19rem,45%)] min-w-48 shrink-0 flex-col border-l border-border/60 bg-background">
-              <DiffChangesPanel
-                environmentId={activeThread.environmentId}
-                cwd={activeCwd}
-                files={workingTreeFiles ?? []}
-                agentRunning={agentRunning}
-                selected={changedFileReveal}
-                onSelectFile={selectChangedFile}
-                consumeCommitFocusRequest={consumeCommitFocusRequest}
-              />
-            </aside>
-          ) : null}
         </div>
       )}
     </DiffPanelShell>

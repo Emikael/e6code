@@ -270,47 +270,6 @@ export function DiffChangesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" aria-busy={busy}>
-      <div
-        ref={commitBoxRef}
-        className="flex shrink-0 flex-col gap-1.5 border-b border-border/60 p-2"
-      >
-        <Textarea
-          size="sm"
-          rows={2}
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              void commit();
-            }
-          }}
-          placeholder="Commit message (empty to generate)"
-          aria-label="Commit message"
-          className="text-xs"
-        />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="xs"
-                className="w-full"
-                disabled={commitDisabledReason !== null || busy}
-                onClick={() => void commit()}
-              />
-            }
-          >
-            {commitAction.isPending ? <Spinner className="size-3.5" /> : null}
-            {commitLabel}
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">
-            {commitDisabledReason ??
-              (stagedCount > 0
-                ? "Commits only staged changes. ⌘↵"
-                : "Stages every change, then commits. ⌘↵")}
-          </TooltipPopup>
-        </Tooltip>
-      </div>
       <div className="min-h-0 flex-1 overflow-y-auto py-1" aria-label="Changes">
         {sections.conflicts.length > 0 ? (
           <ChangeSection
@@ -401,6 +360,45 @@ export function DiffChangesPanel({
           onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
           onToggle={commitPendingReason ? undefined : (entry) => stagePaths([entry.path])}
         />
+      </div>
+      {/* The commit box sits at the foot of the list it commits. */}
+      <div ref={commitBoxRef} className="flex shrink-0 flex-col gap-1.5 border-t border-border p-2">
+        <Textarea
+          size="sm"
+          rows={2}
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void commit();
+            }
+          }}
+          placeholder="Commit message (empty to generate)"
+          aria-label="Commit message"
+          className="text-xs"
+        />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="xs"
+                className="w-full"
+                disabled={commitDisabledReason !== null || busy}
+                onClick={() => void commit()}
+              />
+            }
+          >
+            {commitAction.isPending ? <Spinner className="size-3.5" /> : null}
+            {commitLabel}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {commitDisabledReason ??
+              (stagedCount > 0
+                ? "Commits only staged changes. ⌘↵"
+                : "Stages every change, then commits. ⌘↵")}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     </div>
   );
