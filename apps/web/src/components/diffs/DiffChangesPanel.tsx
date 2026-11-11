@@ -12,7 +12,16 @@ import {
 } from "@e6tools/client-runtime/state/vcs";
 import type { EnvironmentId, VcsFileChangeKind, VcsWorkingTreeFile } from "@e6tools/contracts";
 import { EllipsisIcon, MinusIcon, PlusIcon, Trash2Icon, Undo2Icon } from "lucide-react";
-import { memo, useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { readLocalApi } from "~/localApi";
 import { cn, randomUUID } from "~/lib/utils";
@@ -38,6 +47,8 @@ interface DiffChangesPanelProps {
   readonly agentRunning: boolean;
   readonly selected: { readonly path: string; readonly section: DiffChangesSection } | null;
   readonly onSelectFile: (path: string, section: DiffChangesSection) => void;
+  /** Bumped to move focus into the commit message box, as Run details' Commit does. */
+  readonly commitFocusRequest?: number;
 }
 
 const KIND_TONE: Record<VcsFileChangeKind, string> = {
@@ -81,7 +92,13 @@ export function DiffChangesPanel({
   agentRunning,
   selected,
   onSelectFile,
+  commitFocusRequest = 0,
 }: DiffChangesPanelProps) {
+  const commitBoxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (commitFocusRequest === 0) return;
+    commitBoxRef.current?.querySelector("textarea")?.focus();
+  }, [commitFocusRequest]);
   const selectedIn = (section: DiffChangesSection) =>
     selected?.section === section ? selected.path : null;
   const sections = useMemo(() => deriveVcsChangeSections(files), [files]);
@@ -250,7 +267,10 @@ export function DiffChangesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" aria-busy={busy}>
-      <div className="flex shrink-0 flex-col gap-1.5 border-b border-border/60 p-2">
+      <div
+        ref={commitBoxRef}
+        className="flex shrink-0 flex-col gap-1.5 border-b border-border/60 p-2"
+      >
         <Textarea
           size="sm"
           rows={2}

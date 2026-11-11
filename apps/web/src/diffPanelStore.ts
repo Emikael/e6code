@@ -17,9 +17,21 @@ export type DiffPanelGitScope = "uncommitted" | "staged" | "unstaged" | "branch"
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 
+/**
+ * Where the Diff panel should land when it next renders for a thread: one working-tree file, or
+ * the commit box. Run details sets it before opening Diff; the panel consumes it once.
+ */
+export type DiffPanelFocusTarget =
+  | { readonly kind: "file"; readonly path: string }
+  | { readonly kind: "commit" };
+
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  /** Not persisted: a request outlives neither the page nor its first handling. */
+  focusRequestByThreadKey: Record<string, DiffPanelFocusTarget>;
+  requestFocus: (ref: ScopedThreadRef, target: DiffPanelFocusTarget) => void;
+  consumeFocusRequest: (ref: ScopedThreadRef) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: DiffPanelGitScope) => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
@@ -37,6 +49,22 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      focusRequestByThreadKey: {},
+      requestFocus: (ref, target) =>
+        set((state) => ({
+          focusRequestByThreadKey: {
+            ...state.focusRequestByThreadKey,
+            [scopedThreadKey(ref)]: target,
+          },
+        })),
+      consumeFocusRequest: (ref) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (!(threadKey in state.focusRequestByThreadKey)) return state;
+          const { [threadKey]: _consumed, ...focusRequestByThreadKey } =
+            state.focusRequestByThreadKey;
+          return { focusRequestByThreadKey };
+        }),
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);

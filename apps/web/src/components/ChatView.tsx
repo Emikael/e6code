@@ -139,7 +139,7 @@ import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { useDiffPanelStore } from "../diffPanelStore";
+import { type DiffPanelFocusTarget, useDiffPanelStore } from "../diffPanelStore";
 import {
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
@@ -444,6 +444,7 @@ import { ComposerSurface } from "./chat/ComposerSurface";
 import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
+  resolveContextWindowModelDisplayName,
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
 import {
@@ -9999,6 +10000,40 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadShell !== null &&
     isWorktreeSetupStale(activeThreadShell, activeProjectScripts);
   const inspectorCanOpenDiff = isServerThread && isGitRepo;
+  // Run details' file rows and Commit land on the working tree, at the file or the commit box.
+  const focusDiff = useCallback(
+    (target: DiffPanelFocusTarget) => {
+      if (!activeThreadRef) return;
+      useDiffPanelStore.getState().requestFocus(activeThreadRef, target);
+      addDiffSurface();
+    },
+    [activeThreadRef, addDiffSurface],
+  );
+  const inspectorModelSelection = activeThread?.modelSelection ?? null;
+  const inspectorModelLabel = useMemo(
+    () =>
+      inspectorModelSelection
+        ? resolveContextWindowModelDisplayName(
+            inspectorModelSelection,
+            getCustomModelOptionsByInstance(
+              settings,
+              providerStatuses,
+              inspectorModelSelection.instanceId,
+              inspectorModelSelection.model,
+            ),
+          )
+        : null,
+    [inspectorModelSelection, providerStatuses, settings],
+  );
+  const inspectorLatestTurnStartedAt = activeThread?.latestTurn?.startedAt ?? null;
+  const inspectorLatestTurnCompletedAt = activeThread?.latestTurn?.completedAt ?? null;
+  const inspectorLatestTurnDurationMs =
+    inspectorLatestTurnStartedAt && inspectorLatestTurnCompletedAt
+      ? Math.max(
+          0,
+          Date.parse(inspectorLatestTurnCompletedAt) - Date.parse(inspectorLatestTurnStartedAt),
+        ) || null
+      : null;
   const inspectorWorkspace = useMemo(
     (): InspectorWorkspace | null =>
       inspectorEnvironmentId !== null && inspectorThreadId !== null
@@ -10011,11 +10046,13 @@ export default function ChatView(props: ChatViewProps) {
               : null,
             onRunProjectScript: onInspectorRunProjectScript,
             onOpenDiff: inspectorCanOpenDiff ? addDiffSurface : null,
+            onFocusDiff: inspectorCanOpenDiff ? focusDiff : null,
             onOpenTurnDiff: inspectorCanOpenDiff ? onOpenTurnDiff : null,
           }
         : null,
     [
       addDiffSurface,
+      focusDiff,
       gitCwd,
       inspectorCanOpenDiff,
       inspectorEnvironmentId,
@@ -10225,13 +10262,15 @@ export default function ChatView(props: ChatViewProps) {
       <InspectorOverview
         model={agentPanelModel}
         threadKey={activeThreadRef ? scopedThreadKey(activeThreadRef) : null}
-        providerKind={selectedProvider ?? null}
         workspace={inspectorWorkspace}
         subagentStop={inspectorSubagentStop}
         plan={activePlan}
         contextWindow={activeContextWindow}
         usageTotal={activeThreadShell?.usageTotal ?? null}
         planLimits={inspectorPlanLimits}
+        latestTurnDurationMs={inspectorLatestTurnDurationMs}
+        modelLabel={inspectorModelLabel}
+        reviewShortcutLabel={shortcutLabelForCommand(keybindings, "diff.toggle")}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>

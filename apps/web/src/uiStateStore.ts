@@ -31,6 +31,7 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  runDetailsSectionOpen?: Record<string, boolean>;
 }
 
 export interface UiProjectState {
@@ -55,8 +56,17 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
+/** The collapsible sections of Run details, in the order they render. */
+export const RUN_DETAILS_SECTIONS = ["plan", "changes", "subagents", "usage"] as const;
+export type RunDetailsSectionId = (typeof RUN_DETAILS_SECTIONS)[number];
+
+export interface UiRunDetailsState {
+  /** Sections the user opened or closed on this device; absent ones use their default. */
+  runDetailsSectionOpen: Partial<Record<RunDetailsSectionId, boolean>>;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiRunDetailsState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -66,6 +76,7 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
+  runDetailsSectionOpen: {},
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -117,6 +128,19 @@ function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   );
 }
 
+function sanitizeRunDetailsSectionOpen(
+  value: unknown,
+): Partial<Record<RunDetailsSectionId, boolean>> {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  const next: Partial<Record<RunDetailsSectionId, boolean>> = {};
+  for (const section of RUN_DETAILS_SECTIONS) {
+    const open = record[section];
+    if (typeof open === "boolean") next[section] = open;
+  }
+  return next;
+}
+
 function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMethod {
   return value === "merge" || value === "squash" || value === "rebase";
 }
@@ -158,6 +182,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    runDetailsSectionOpen: sanitizeRunDetailsSectionOpen(parsed.runDetailsSectionOpen),
   };
 }
 
@@ -232,6 +257,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        runDetailsSectionOpen: state.runDetailsSectionOpen,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -340,6 +366,18 @@ export function setSidebarProjectScopeKey(state: UiState, projectKey: string | n
   };
 }
 
+export function setRunDetailsSectionOpen(
+  state: UiState,
+  section: RunDetailsSectionId,
+  open: boolean,
+): UiState {
+  if (state.runDetailsSectionOpen[section] === open) return state;
+  return {
+    ...state,
+    runDetailsSectionOpen: { ...state.runDetailsSectionOpen, [section]: open },
+  };
+}
+
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
   return state.pullRequestMergeMethod === method
     ? state
@@ -430,6 +468,7 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  setRunDetailsSectionOpen: (section: RunDetailsSectionId, open: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -451,6 +490,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  setRunDetailsSectionOpen: (section, open) =>
+    set((state) => setRunDetailsSectionOpen(state, section, open)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>

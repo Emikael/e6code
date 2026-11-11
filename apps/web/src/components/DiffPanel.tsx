@@ -1,4 +1,3 @@
-import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
 import { useParams } from "@tanstack/react-router";
@@ -7,21 +6,9 @@ import {
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@e6tools/client-runtime/errors";
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
 import type { ScopedThreadRef, TurnId } from "@e6tools/contracts";
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
-  Columns2Icon,
-  FolderTreeIcon,
-  ListChecksIcon,
-  PilcrowIcon,
-  Rows3Icon,
-  TextWrapIcon,
-} from "lucide-react";
+import { ArrowRightIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -50,7 +37,7 @@ import {
   resolveFileDiffPath,
 } from "../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
-import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
+import { areAllDiffFilesCollapsed } from "../lib/diffCollapse";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThread } from "../state/entities";
@@ -63,6 +50,7 @@ import { DiffStat } from "./DiffStat";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPanel";
 import { DiffFileTree } from "./diffs/DiffFileTree";
+import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
 import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -84,6 +72,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  MenuCheckboxItem,
+  MenuSeparator,
 } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useEnvironmentQuery } from "../state/query";
@@ -108,6 +98,8 @@ const GIT_SCOPE_LABELS: Record<DiffPanelGitScope, string> = {
   unstaged: "Unstaged",
   branch: "Branch changes",
 };
+const SEGMENT_SELECTED_CLASS_NAME =
+  "data-pressed:ring-1 data-pressed:ring-inset data-pressed:ring-primary-edge";
 const GIT_SCOPE_SOURCE_KINDS = {
   uncommitted: "working-tree",
   staged: "staged",
@@ -153,8 +145,9 @@ export default function DiffPanel({
   const settings = useClientSettings();
   const diffLayout = settings.diffLayout;
   const updateClientSettings = useUpdateClientSettings();
-  const [wordWrap, setWordWrap] = useState(settings.wordWrap);
-  const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
+  // Saved settings, not panel state: Wrap also drives file previews, so one choice holds everywhere.
+  const wordWrap = settings.wordWrap;
+  const diffIgnoreWhitespace = settings.diffIgnoreWhitespace;
   const [fileTreeOpen, setFileTreeOpen] = useLocalStorage(
     DIFF_FILE_TREE_STORAGE_KEY,
     false,
@@ -566,6 +559,7 @@ export default function DiffPanel({
     [renderableFileEntries],
   );
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
+  const noDiffFilesCollapsed = !diffFileKeys.some((fileKey) => collapsedDiffFileKeys.has(fileKey));
   const diffLineStat = useMemo(() => {
     if (!selectedTurn && selectedGitSource?.files) {
       return selectedGitSource.files.reduce(
@@ -685,18 +679,16 @@ export default function DiffPanel({
     [collapseScopeKey, defaultCollapsedDiffFileKeys],
   );
 
-  const toggleDiffFileCollapse = useCallback(() => {
-    setCodeViewRevision((current) => current + 1);
-    setCollapsedDiffFiles((current) => {
-      const currentKeys =
-        current.scopeKey === collapseScopeKey ? current.fileKeys : defaultCollapsedDiffFileKeys;
-
-      return {
+  const setAllDiffFilesCollapsed = useCallback(
+    (collapsed: boolean) => {
+      setCodeViewRevision((current) => current + 1);
+      setCollapsedDiffFiles({
         scopeKey: collapseScopeKey,
-        fileKeys: toggleAllDiffFiles(diffFileKeys, currentKeys),
-      };
-    });
-  }, [collapseScopeKey, defaultCollapsedDiffFileKeys, diffFileKeys]);
+        fileKeys: collapsed ? new Set(diffFileKeys) : EMPTY_COLLAPSED_DIFF_FILE_KEYS,
+      });
+    },
+    [collapseScopeKey, diffFileKeys],
+  );
 
   const selectTurn = (turnId: TurnId) => {
     if (!routeThreadRef) return;
@@ -728,6 +720,28 @@ export default function DiffPanel({
     },
     [renderableFileEntries, selectGitScope, selectedGitScope],
   );
+  // Run details asks to land on a working-tree file or on the commit box; handle it once.
+  const focusRequest = useDiffPanelStore((state) =>
+    routeThreadRef
+      ? (state.focusRequestByThreadKey[scopedThreadKey(routeThreadRef)] ?? null)
+      : null,
+  );
+  const [commitFocusRequest, setCommitFocusRequest] = useState(0);
+  useEffect(() => {
+    if (!focusRequest || !routeThreadRef) return;
+    useDiffPanelStore.getState().consumeFocusRequest(routeThreadRef);
+    if (focusRequest.kind === "commit") {
+      setChangesPanelOpen(true);
+      setCommitFocusRequest((current) => current + 1);
+      return;
+    }
+    const file = workingTreeFiles?.find((candidate) => candidate.path === focusRequest.path);
+    selectChangedFile(
+      focusRequest.path,
+      file?.staged !== undefined && file.unstaged === undefined ? "staged" : "unstaged",
+    );
+  }, [focusRequest, routeThreadRef, selectChangedFile, setChangesPanelOpen, workingTreeFiles]);
+
   // Reveal once per click, as soon as the file is in the diff (possibly after a scope switch).
   useEffect(() => {
     if (!changedFileReveal || handledChangedFileRevealRef.current === changedFileReveal.id) return;
@@ -743,14 +757,21 @@ export default function DiffPanel({
 
   const headerRow = (
     <>
-      <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
+      <div className="flex min-w-0 flex-1 items-center gap-2 [-webkit-app-region:no-drag]">
+        <span className="shrink-0 text-xs text-muted-foreground">Showing</span>
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-accent-foreground outline-none transition-colors hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`Diff scope: ${selectedScopeLabel}`}
+            render={
+              <Button
+                size="sm"
+                variant="outline"
+                className="min-w-0 max-w-full"
+                aria-label={`Diff scope: ${selectedScopeLabel}`}
+              />
+            }
           >
             <span className="truncate">{selectedScopeLabel}</span>
-            <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
+            <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-60">
             {(
@@ -936,59 +957,16 @@ export default function DiffPanel({
             </Combobox>
           </div>
         )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         {codeViewFiles.length > 0 || (!selectedTurn && selectedGitSource?.files?.length) ? (
           <DiffStat
+            tone="neutral"
             additions={diffLineStat.additions}
             deletions={diffLineStat.deletions}
-            className="mr-1 text-[11px]"
+            className="shrink-0 text-[11px] text-muted-foreground"
           />
         ) : null}
-        {canRefreshGitDiff && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={isRefreshingDiff ? "Refreshing diff" : "Refresh diff"}
-                  onClick={refreshDiffFromUserAction}
-                />
-              }
-            >
-              <RefreshIcon className="size-3.5" refreshing={isRefreshingDiff} />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {isRefreshingDiff ? "Refreshing diff…" : "Refresh diff"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        {diffFileKeys.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={allDiffFilesCollapsed ? "Expand all files" : "Collapse all files"}
-                  onClick={toggleDiffFileCollapse}
-                />
-              }
-            >
-              {allDiffFilesCollapsed ? (
-                <ChevronsUpDownIcon className="size-3.5" />
-              ) : (
-                <ChevronsDownUpIcon className="size-3.5" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allDiffFilesCollapsed ? "Expand all files" : "Collapse all files"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <ToggleGroup
           aria-label="Diff layout"
           className="shrink-0"
@@ -1001,94 +979,50 @@ export default function DiffPanel({
             }
           }}
         >
-          <Toggle aria-label="Stacked diff view" value="stacked">
-            <Rows3Icon className="size-3.5" />
+          {/* The chosen segment takes the selected edge; a fill change alone is too faint. */}
+          <Toggle value="stacked" className={SEGMENT_SELECTED_CLASS_NAME}>
+            Stacked
           </Toggle>
-          <Toggle aria-label="Split diff view" value="split">
-            <Columns2Icon className="size-3.5" />
+          <Toggle value="split" className={SEGMENT_SELECTED_CLASS_NAME}>
+            Split
           </Toggle>
         </ToggleGroup>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
-                variant="ghost"
-                size="sm"
-                pressed={wordWrap}
-                onPressedChange={(pressed) => {
-                  setWordWrap(Boolean(pressed));
-                }}
-              />
-            }
-          >
-            <TextWrapIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={
-                  diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"
-                }
-                variant="ghost"
-                size="sm"
-                pressed={diffIgnoreWhitespace}
-                onPressedChange={(pressed) => {
-                  setDiffIgnoreWhitespace(Boolean(pressed));
-                }}
-              />
-            }
-          >
-            <PilcrowIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
-          </TooltipPopup>
-        </Tooltip>
-        {isWorkingTreeScope && stagingSupported ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={changesPanelOpen ? "Hide changes" : "Show changes"}
-                  variant="ghost"
-                  size="sm"
-                  pressed={changesPanelOpen}
-                  onPressedChange={(pressed) => setChangesPanelOpen(Boolean(pressed))}
-                />
-              }
-            >
-              <ListChecksIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {changesPanelOpen ? "Hide changes" : "Show changes and commit"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : diffFileKeys.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={fileTreeOpen ? "Hide file tree" : "Show file tree"}
-                  variant="ghost"
-                  size="sm"
-                  pressed={fileTreeOpen}
-                  onPressedChange={(pressed) => setFileTreeOpen(Boolean(pressed))}
-                />
-              }
-            >
-              <FolderTreeIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {fileTreeOpen ? "Hide file tree" : "Show file tree"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+        <DiffViewMenu
+          wordWrap={wordWrap}
+          onWordWrapChange={(next) => updateClientSettings({ wordWrap: next })}
+          ignoreWhitespace={diffIgnoreWhitespace}
+          onIgnoreWhitespaceChange={(next) => updateClientSettings({ diffIgnoreWhitespace: next })}
+          fileCount={diffFileKeys.length}
+          allCollapsed={allDiffFilesCollapsed}
+          noneCollapsed={noDiffFilesCollapsed}
+          onExpandAll={() => setAllDiffFilesCollapsed(false)}
+          onCollapseAll={() => setAllDiffFilesCollapsed(true)}
+          onRefresh={canRefreshGitDiff ? refreshDiffFromUserAction : undefined}
+          refreshing={isRefreshingDiff}
+        >
+          {/* The side panes move into the file rail later; until then they toggle here. */}
+          {isWorkingTreeScope && stagingSupported ? (
+            <>
+              <MenuSeparator />
+              <MenuCheckboxItem
+                checked={changesPanelOpen}
+                onCheckedChange={(checked) => setChangesPanelOpen(Boolean(checked))}
+              >
+                Changes and commit
+              </MenuCheckboxItem>
+            </>
+          ) : diffFileKeys.length > 0 ? (
+            <>
+              <MenuSeparator />
+              <MenuCheckboxItem
+                checked={fileTreeOpen}
+                onCheckedChange={(checked) => setFileTreeOpen(Boolean(checked))}
+              >
+                File tree
+              </MenuCheckboxItem>
+            </>
+          ) : null}
+        </DiffViewMenu>
       </div>
     </>
   );
@@ -1326,6 +1260,7 @@ export default function DiffPanel({
                 agentRunning={agentRunning}
                 selected={changedFileReveal}
                 onSelectFile={selectChangedFile}
+                commitFocusRequest={commitFocusRequest}
               />
             </aside>
           ) : null}
