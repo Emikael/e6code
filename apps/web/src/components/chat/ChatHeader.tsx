@@ -175,7 +175,7 @@ export function resolveThreadHeaderStatus(
 }
 
 // Each state takes the semantic tone its sidebar row status uses (resolveSidebarRowStatus), on a
-// matching wash: paused and approval read as warning, failed as destructive, done as success. A
+// matching wash: paused, approval and answer read as warning, failed as destructive, done as success. A
 // working agent reads as the live accent with a dot; every other state shows a glyph, and the
 // label always names the state.
 const THREAD_HEADER_STATUS_STYLE: Record<
@@ -183,7 +183,10 @@ const THREAD_HEADER_STATUS_STYLE: Record<
   { icon: LucideIcon | null; className: string }
 > = {
   approval: { icon: ShieldQuestionIcon, className: "bg-warning-surface text-warning-foreground" },
-  input: { icon: MessageCircleQuestionIcon, className: "bg-primary-surface text-primary-text" },
+  input: {
+    icon: MessageCircleQuestionIcon,
+    className: "bg-warning-surface text-warning-foreground",
+  },
   paused: { icon: CirclePauseIcon, className: "bg-warning-surface text-warning-foreground" },
   working: { icon: null, className: "bg-primary-surface text-primary-text" },
   monitoring: { icon: EyeIcon, className: "bg-muted text-foreground" },

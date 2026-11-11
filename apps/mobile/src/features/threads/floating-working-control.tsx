@@ -356,13 +356,8 @@ function FloatingStatusLabel(props: {
         onLayout={props.onLayout}
         onPress={props.status.onPress}
       >
-        <View
-          className={
-            props.status.tone === "approval"
-              ? "h-2 w-2 rounded-full bg-warning-foreground"
-              : "h-2 w-2 rounded-full bg-primary"
-          }
-        />
+        {/* Approval and answer are both blocked on you: one warning dot, told apart by the words. */}
+        <View className="h-2 w-2 rounded-full bg-warning-foreground" />
         <Text
           className="max-w-[260px] shrink font-e6-medium text-xs text-foreground"
           numberOfLines={1}

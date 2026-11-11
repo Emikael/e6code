@@ -47,8 +47,8 @@ export function resolveThreadStatus(
     return {
       kind: "awaiting-input",
       label: "Needs your answer",
-      pillClassName: "bg-primary/10",
-      textClassName: "text-primary-text",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
     };
   }
 
@@ -97,8 +97,8 @@ export function resolveThreadStatus(
     return {
       kind: "plan-ready",
       label: "Plan Ready",
-      pillClassName: "bg-primary/10",
-      textClassName: "text-primary-text",
+      pillClassName: "bg-subtle",
+      textClassName: "text-foreground-muted",
     };
   }
 

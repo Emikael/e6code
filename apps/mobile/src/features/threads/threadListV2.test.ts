@@ -193,13 +193,18 @@ describe("resolveThreadListV2Status", () => {
 
     // The legacy list says the same, between input and working.
     expect(resolveThreadStatus(paused)).toMatchObject({ kind: "paused", label: "Paused" });
+    // Answer and approval are both blocked on you, so they share the warning roles.
     expect(resolveThreadStatus({ ...paused, hasPendingUserInput: true })).toMatchObject({
       kind: "awaiting-input",
       label: "Needs your answer",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
     });
     expect(resolveThreadStatus({ ...paused, hasPendingApprovals: true })).toMatchObject({
       kind: "pending-approval",
       label: "Needs approval",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
     });
     expect(resolveThreadStatus({ ...paused, agentState: undefined })?.kind).toBe("working");
   });

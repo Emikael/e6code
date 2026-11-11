@@ -818,10 +818,12 @@ export function resolveThreadRowClassName(input: {
 }
 
 // ── Sidebar thread status model ─────────────────────────────────────
-// Five visual states, three colors: color is reserved for "act now"
-// (approval), "in motion" (working), and "broken" (failed). Ready is the
-// unlabeled resting state — the agent stopped and is waiting on the user,
-// whether it finished, asked a question, or proposed a plan.
+// Color means one of three things: blocked on you (approval and answer, both
+// `warning`), in motion (working, the accent) or broken (failed, `error`).
+// Done takes `success`; everything else, plan ready included, is neutral.
+// Shapes differ as well as hues (diamond or dot for approval, question bubble
+// for answer, circled exclamation for failed, haloed dot for working, tick for
+// done), and every marker keeps a word beside it.
 // Unread completion is tracked separately: it describes whether a ready
 // thread needs attention, not what the thread is currently doing.
 export type SidebarThreadStatus =
@@ -930,7 +932,7 @@ export interface SidebarRowStatus {
   /** `live` is the primary dot with a wash, `ring` a hollow warning dot. */
   readonly marker: "live" | "dot" | "ring" | "check" | "icon";
   /** Semantic role for the words; the marker takes the matching fill. */
-  readonly tone: "live" | "warning" | "muted" | "success" | "input" | "failed";
+  readonly tone: "live" | "warning" | "muted" | "success" | "failed";
 }
 
 /**
@@ -989,7 +991,7 @@ export function resolveSidebarRowStatus(input: {
         label: "Needs your answer",
         detail: null,
         marker: "icon",
-        tone: "input",
+        tone: "warning",
       };
     case "failed":
       return { kind: "failed", label: "Failed", detail: null, marker: "icon", tone: "failed" };
@@ -1179,10 +1181,10 @@ export function formatWorkingDurationLabel(elapsedMs: number): string {
 const LIVE_STATUS_DOT_CLASS = "bg-primary ring-2 ring-primary-surface";
 
 /** Legacy sidebar pill. Colors go through semantic roles so themes recolor
-    them, matching the newer sidebar's status hues: warning for approval and
-    pauses, primary for input and plan ready, primary with a static ring for
-    a live agent, info for connecting, muted for monitoring, success for an
-    unseen completion. */
+    them, matching the newer sidebar's status hues: warning for approval,
+    answer and pauses, primary with a static ring for a live agent, info for
+    connecting, muted for plan ready and monitoring, success for an unseen
+    completion. */
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
@@ -1199,8 +1201,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingUserInput) {
     return {
       label: "Needs your answer",
-      colorClass: "text-primary-text",
-      dotClass: "bg-primary",
+      colorClass: "text-warning-foreground",
+      dotClass: "bg-warning",
     };
   }
 
@@ -1238,8 +1240,8 @@ export function resolveThreadStatusPill(input: {
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
-      colorClass: "text-primary-text",
-      dotClass: "bg-primary",
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
     };
   }
 
