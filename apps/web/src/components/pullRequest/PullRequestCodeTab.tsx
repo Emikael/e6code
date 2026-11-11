@@ -233,8 +233,9 @@ function PullRequestCodeTab({
     foldOverride ?? (settings.diffFilesCollapsed ? "folded" : "expanded");
   const diffLayout = settings.diffLayout;
   const updateClientSettings = useUpdateClientSettings();
-  const [wordWrap, setWordWrap] = useState(settings.wordWrap);
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
+  // Saved settings, shared with the Diff panel and file previews.
+  const wordWrap = settings.wordWrap;
+  const ignoreWhitespace = settings.diffIgnoreWhitespace;
   const [fileTreeOpen, setFileTreeOpen] = useLocalStorage(
     PULL_REQUEST_FILE_TREE_STORAGE_KEY,
     false,
@@ -1291,7 +1292,7 @@ function PullRequestCodeTab({
                 size="sm"
                 pressed={ignoreWhitespace}
                 onPressedChange={(pressed) => {
-                  setIgnoreWhitespace(Boolean(pressed));
+                  updateClientSettings({ diffIgnoreWhitespace: Boolean(pressed) });
                   setDraft(null);
                   setSelectedLines(null);
                 }}
@@ -1356,7 +1357,7 @@ function PullRequestCodeTab({
                 size="sm"
                 pressed={wordWrap}
                 onPressedChange={(pressed) => {
-                  setWordWrap(Boolean(pressed));
+                  updateClientSettings({ wordWrap: Boolean(pressed) });
                 }}
               />
             }
