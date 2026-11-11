@@ -10,12 +10,15 @@ interface Props {
   title?: string;
   description?: string;
   pageClass?: string;
+  /** Keeps the page out of search: no canonical link and no og:url. */
+  noindex?: boolean;
 }
 
 const {
   title = "E6 Code",
   description = "E6 Code is the open-source control room for coding agents. Run Claude Code, Codex, Cursor, Grok, OpenCode, and Antigravity with the subscriptions you already have, from desktop, web, or your phone.",
   pageClass,
+  noindex = false,
 } = Astro.props;
 
 // Social preview card. Link unfurlers (Instagram, iMessage, X, Slack) want a
@@ -40,10 +43,10 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <slot name="head" />
     <meta name="description" content={description} />
-    <link rel="canonical" href={canonicalUrl} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonicalUrl} />}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="E6 Code" />
-    <meta property="og:url" content={canonicalUrl} />
+    {!noindex && <meta property="og:url" content={canonicalUrl} />}
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={socialImageUrl} />
@@ -339,7 +342,8 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
   :focus-visible {
     outline: 2px solid var(--ring);
-    outline-offset: 1px;
+    /* The ring is the primary fill's color, so it needs a gap to read as a ring. */
+    outline-offset: 2px;
     border-radius: 4px;
   }
 
