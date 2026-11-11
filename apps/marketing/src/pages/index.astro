@@ -165,35 +165,31 @@ const devices = [
     </div>
   </section>
 
-  <!-- ── Harness marquee ────────────────────────────────────────── -->
+  <!-- ── Agents ─────────────────────────────────────────────────── -->
   <section class="logos" aria-labelledby="logos-title">
     <h2 id="logos-title" class="container">Sign in where you already do. E6 Code drives the CLI you have.</h2>
-    <div class="marquee" data-motion>
-      {[0, 1].map((copy) => (
-        <ul class="marquee-track" aria-hidden={copy === 1 ? "true" : undefined}>
-          {agents.map((agent) => (
-            <li class="logo-chip">
-              {agent.fullColor ? (
-                <img class="logo-img" src={agent.icon} alt="" width="26" height="26" loading="lazy" />
-              ) : (
-                <span class="logo-mark" style={`--logo: url(${agent.icon})`} aria-hidden="true"></span>
-              )}
-              <span class="logo-text">
-                <span class="logo-name">{agent.name}</span>
-                <span class="mono logo-cmd">{agent.command}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
+    <ul class="container logo-list">
+      {agents.map((agent) => (
+        <li class="logo-chip">
+          {agent.fullColor ? (
+            <img class="logo-img" src={agent.icon} alt="" width="26" height="26" loading="lazy" />
+          ) : (
+            <span class="logo-mark" style={`--logo: url(${agent.icon})`} aria-hidden="true"></span>
+          )}
+          <span class="logo-text">
+            <span class="logo-name">{agent.name}</span>
+            <span class="mono logo-cmd">{agent.command}</span>
+          </span>
+        </li>
       ))}
-    </div>
+    </ul>
   </section>
 
   <!-- ── Stats ──────────────────────────────────────────────────── -->
   <section class="container stats reveal" aria-label="E6 Code in numbers">
     {stats.map((stat) => (
       <div class="stat">
-        <span class="stat-value gradient-text" data-count={stat.value}>{stat.value}</span>
+        <span class="stat-value gradient-text">{stat.value}</span>
         <span class="stat-label">{stat.label}</span>
       </div>
     ))}
@@ -271,16 +267,12 @@ const devices = [
           <h3>Jev routing, if you want it</h3>
           <p>Each turn is classified first. Small talk never wakes your provider.</p>
         </div>
-        <div class="router" data-motion>
+        <div class="router">
           <svg class="router-svg" viewBox="0 0 300 150" aria-hidden="true">
             <path class="wire" d="M10 75 H120" />
             <path class="wire" d="M180 75 C 220 75, 225 25, 290 25" />
             <path class="wire" d="M180 75 H 290" />
             <path class="wire" d="M180 75 C 220 75, 225 125, 290 125" />
-            <path class="pulse" d="M10 75 H120" />
-            <path class="pulse pulse--b" d="M180 75 C 220 75, 225 25, 290 25" />
-            <path class="pulse pulse--c" d="M180 75 H 290" />
-            <path class="pulse pulse--d" d="M180 75 C 220 75, 225 125, 290 125" />
             <rect class="router-node" x="120" y="55" width="60" height="40" rx="10" />
             <text class="router-label" x="150" y="80" text-anchor="middle">Jev</text>
           </svg>
@@ -346,13 +338,10 @@ const devices = [
           </button>
         ))}
       </div>
-      <div class="beams" data-motion>
+      <div class="beams">
         <svg viewBox="0 0 400 260" preserveAspectRatio="none" aria-hidden="true">
           {devices.map((device) => (
-            <>
-              <path class="wire" d={`M120 130 C 220 130, 220 ${device.y}, 300 ${device.y}`} />
-              <path class="pulse" style={`--delay:${device.y * 6}ms`} d={`M120 130 C 220 130, 220 ${device.y}, 300 ${device.y}`} />
-            </>
+            <path class="wire" d={`M120 130 C 220 130, 220 ${device.y}, 300 ${device.y}`} />
           ))}
         </svg>
         <div class="node node--host">
@@ -512,7 +501,6 @@ const devices = [
 
   const byId = <T extends HTMLElement = HTMLElement>(id: string) =>
     document.getElementById(id) as T | null;
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   async function initDownload(platform: Platform) {
     const buttons = [byId<HTMLAnchorElement>("download-btn"), byId<HTMLAnchorElement>("cta-download-btn")];
@@ -601,53 +589,6 @@ const devices = [
     }
   }
 
-  /** Looping decorations ([data-motion]) play only while on screen and motion is allowed. */
-  function initMotion() {
-    const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-motion]"));
-    if (typeof IntersectionObserver === "undefined") return;
-    const visible = new Set<Element>();
-    const update = () => {
-      const allowed = document.visibilityState === "visible" && !reducedMotion.matches;
-      for (const element of elements) {
-        element.toggleAttribute("data-playing", allowed && visible.has(element));
-      }
-    };
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) visible.add(entry.target);
-        else visible.delete(entry.target);
-      }
-      update();
-    });
-    for (const element of elements) observer.observe(element);
-    document.addEventListener("visibilitychange", update);
-    reducedMotion.addEventListener("change", update);
-  }
-
-  /** Stat numbers count up once, the first time they scroll into view. */
-  function initCounters() {
-    const counters = Array.from(document.querySelectorAll<HTMLElement>("[data-count]"));
-    if (reducedMotion.matches || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        observer.unobserve(entry.target);
-        const element = entry.target as HTMLElement;
-        const target = Number(element.dataset.count);
-        if (target === 0) continue;
-        const start = performance.now();
-        const tick = (now: number) => {
-          const t = Math.min(1, (now - start) / 900);
-          element.textContent = String(Math.round(target * (1 - Math.pow(1 - t, 3))));
-          if (t < 1) requestAnimationFrame(tick);
-        };
-        element.textContent = "0";
-        requestAnimationFrame(tick);
-      }
-    }, { threshold: 0.6 });
-    for (const counter of counters) observer.observe(counter);
-  }
-
   function initCompare() {
     const compare = byId("compare");
     const range = compare?.querySelector<HTMLInputElement>(".compare-range");
@@ -663,8 +604,6 @@ const devices = [
   initInstall(platform);
   initRemote();
   initSpotlight();
-  initMotion();
-  initCounters();
   initCompare();
 </script>
 
@@ -1002,7 +941,7 @@ const devices = [
     }
   }
 
-  /* ── Marquee ──────────────────────────────────────────────── */
+  /* ── Agents ───────────────────────────────────────────────── */
   .logos {
     padding: 64px 0 40px;
     display: flex;
@@ -1018,35 +957,12 @@ const devices = [
     color: var(--fg-muted);
   }
 
-  .marquee {
-    display: flex;
-    overflow: hidden;
-    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-  }
-
-  .marquee-track {
+  .logo-list {
     list-style: none;
     display: flex;
-    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 14px;
-    padding-right: 14px;
-    animation: marquee 42s linear infinite;
-    animation-play-state: paused;
-  }
-
-  .marquee[data-playing] .marquee-track {
-    animation-play-state: running;
-  }
-
-  .marquee:hover .marquee-track {
-    animation-play-state: paused;
-  }
-
-  @keyframes marquee {
-    to {
-      transform: translateX(-100%);
-    }
   }
 
   .logo-chip {
@@ -1471,42 +1387,6 @@ const devices = [
     stroke-width: 1.5;
   }
 
-  .pulse {
-    fill: none;
-    stroke: var(--primary);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-dasharray: 18 400;
-    stroke-dashoffset: 18;
-    animation: pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-    animation-delay: var(--delay, 0ms);
-    animation-play-state: paused;
-    opacity: 0;
-  }
-
-  [data-playing] .pulse {
-    animation-play-state: running;
-    opacity: 1;
-  }
-
-  .pulse--b {
-    animation-delay: 0.6s;
-  }
-
-  .pulse--c {
-    animation-delay: 1.2s;
-  }
-
-  .pulse--d {
-    animation-delay: 1.8s;
-  }
-
-  @keyframes pulse {
-    to {
-      stroke-dashoffset: -400;
-    }
-  }
-
   .router-node {
     fill: var(--accent-dim);
     stroke: var(--primary);
@@ -1624,11 +1504,6 @@ const devices = [
     inset: 0;
     width: 100%;
     height: 100%;
-  }
-
-  .beams .pulse {
-    stroke-dasharray: 26 600;
-    animation-duration: 2.8s;
   }
 
   .node {
