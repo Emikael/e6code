@@ -22,6 +22,7 @@ import { readLocalApi } from "~/localApi";
 import { E6_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
@@ -487,10 +488,7 @@ export default function FileBrowserPanel({
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
-      <div
-        className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
-        data-surface-subheader
-      >
+      <PanelSurfaceHeader>
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
         <FileSearchField
           name="project-files-search"
@@ -527,7 +525,7 @@ export default function FileBrowserPanel({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-      </div>
+      </PanelSurfaceHeader>
       {error || pathSearch.error ? (
         <button
           type="button"

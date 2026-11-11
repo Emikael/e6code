@@ -21,6 +21,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/in
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
+
 interface Props {
   url: string;
   loading: boolean;
@@ -113,207 +115,206 @@ export function PreviewChromeRow({
 
   return (
     <div className="relative">
-      <form
-        onSubmit={submit}
-        className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
-        data-surface-subheader
-      >
-        <div className="flex items-center gap-0.5" role="group" aria-label="Navigation">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={canGoBack ? onBack : NOOP}
-                  disabled={!canGoBack}
-                  aria-label="Back"
-                  type="button"
-                />
-              }
-            >
-              <ArrowLeft />
-            </TooltipTrigger>
-            <TooltipPopup>Back</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={canGoForward ? onForward : NOOP}
-                  disabled={!canGoForward}
-                  aria-label="Forward"
-                  type="button"
-                />
-              }
-            >
-              <ArrowRight />
-            </TooltipTrigger>
-            <TooltipPopup>Forward</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={refreshDisabled ? NOOP : onRefresh}
-                  disabled={refreshDisabled}
-                  aria-label={loading ? "Stop" : "Refresh"}
-                  type="button"
-                />
-              }
-            >
-              <RefreshIcon refreshing={loading} />
-            </TooltipTrigger>
-            <TooltipPopup>{loading ? "Loading…" : "Refresh"}</TooltipPopup>
-          </Tooltip>
-        </div>
+      <PanelSurfaceHeader>
+        {/* `contents` lets the form's controls sit in the header's own row. */}
+        <form onSubmit={submit} className="contents">
+          <div className="flex items-center gap-0.5" role="group" aria-label="Navigation">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={canGoBack ? onBack : NOOP}
+                    disabled={!canGoBack}
+                    aria-label="Back"
+                    type="button"
+                  />
+                }
+              >
+                <ArrowLeft />
+              </TooltipTrigger>
+              <TooltipPopup>Back</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={canGoForward ? onForward : NOOP}
+                    disabled={!canGoForward}
+                    aria-label="Forward"
+                    type="button"
+                  />
+                }
+              >
+                <ArrowRight />
+              </TooltipTrigger>
+              <TooltipPopup>Forward</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={refreshDisabled ? NOOP : onRefresh}
+                    disabled={refreshDisabled}
+                    aria-label={loading ? "Stop" : "Refresh"}
+                    type="button"
+                  />
+                }
+              >
+                <RefreshIcon refreshing={loading} />
+              </TooltipTrigger>
+              <TooltipPopup>{loading ? "Loading…" : "Refresh"}</TooltipPopup>
+            </Tooltip>
+          </div>
 
-        {leadingActions}
+          {leadingActions}
 
-        <InputGroup variant="ghost" className="group/address h-7 flex-1">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <InputGroupInput
-                  ref={inputRef}
-                  value={inputFocused ? draft : url}
-                  className={cn(
-                    onOpenInBrowser &&
-                      !inputFocused &&
-                      "group-hover/address:pe-7 transition-[padding]",
-                  )}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onFocus={() => {
-                    setDraft(url);
-                    setInputFocused(true);
-                    queueMicrotask(() => inputRef.current?.select());
-                  }}
-                  onBlur={() => {
-                    setInputFocused(false);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") submit(event);
-                    if (event.key === "Escape") {
-                      event.preventDefault();
+          <InputGroup variant="ghost" className="group/address h-7 flex-1">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <InputGroupInput
+                    ref={inputRef}
+                    value={inputFocused ? draft : url}
+                    className={cn(
+                      onOpenInBrowser &&
+                        !inputFocused &&
+                        "group-hover/address:pe-7 transition-[padding]",
+                    )}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onFocus={() => {
                       setDraft(url);
-                      inputRef.current?.blur();
+                      setInputFocused(true);
+                      queueMicrotask(() => inputRef.current?.select());
+                    }}
+                    onBlur={() => {
+                      setInputFocused(false);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") submit(event);
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setDraft(url);
+                        inputRef.current?.blur();
+                      }
+                    }}
+                    placeholder="Search or enter URL"
+                    spellCheck={false}
+                    disabled={inputDisabled}
+                    data-preview-url-input
+                    size="sm"
+                  />
+                }
+              />
+            </Tooltip>
+            {onOpenInBrowser && !inputFocused ? (
+              <InputGroupAddon
+                align="inline-end"
+                className="pointer-events-none absolute inset-y-0 right-0 opacity-0 transition-opacity group-hover/address:pointer-events-auto group-hover/address:opacity-100"
+              >
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={onOpenInBrowser}
+                        aria-label="Open in system browser"
+                        type="button"
+                      />
                     }
-                  }}
-                  placeholder="Search or enter URL"
-                  spellCheck={false}
-                  disabled={inputDisabled}
-                  data-preview-url-input
-                  size="sm"
-                />
-              }
-            />
-          </Tooltip>
-          {onOpenInBrowser && !inputFocused ? (
-            <InputGroupAddon
-              align="inline-end"
-              className="pointer-events-none absolute inset-y-0 right-0 opacity-0 transition-opacity group-hover/address:pointer-events-auto group-hover/address:opacity-100"
-            >
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={onOpenInBrowser}
-                      aria-label="Open in system browser"
-                      type="button"
-                    />
-                  }
-                >
-                  <ExternalLink />
-                </TooltipTrigger>
-                <TooltipPopup>Open in system browser</TooltipPopup>
-              </Tooltip>
-            </InputGroupAddon>
-          ) : null}
-        </InputGroup>
+                  >
+                    <ExternalLink />
+                  </TooltipTrigger>
+                  <TooltipPopup>Open in system browser</TooltipPopup>
+                </Tooltip>
+              </InputGroupAddon>
+            ) : null}
+          </InputGroup>
 
-        {onPickElement ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant={pickActive ? "secondary" : "ghost"}
-                  size="icon-xs"
-                  onClick={onPickElement}
-                  disabled={pickDisabled}
-                  aria-label={pickActive ? "Cancel annotation" : "Annotate preview"}
-                  aria-pressed={pickActive ? "true" : "false"}
-                  type="button"
-                />
-              }
-            >
-              <MousePointerClick className={cn(pickActive && "text-primary-text")} />
-            </TooltipTrigger>
-            <TooltipPopup>
-              {pickDisabled && pickDisabledReason
-                ? pickDisabledReason
-                : pickActive
-                  ? "Cancel annotation (Esc)"
-                  : "Annotate elements, regions, and drawings"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {onCapture ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant={recording ? "secondary" : "ghost"}
-                  size="icon-xs"
-                  onClick={(event) => onCapture(event.shiftKey)}
-                  aria-label={recording ? "Stop recording" : "Capture screenshot"}
-                  type="button"
-                  className="relative"
-                  disabled={captureDisabled}
-                />
-              }
-            >
-              <Camera className={cn(recording && "text-destructive")} />
-              {recording ? (
-                <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />
-              ) : null}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {recording ? "Stop recording" : "Screenshot · Shift-click to record"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {onPictureInPicture ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant={pictureInPicture ? "secondary" : "ghost"}
-                  size="icon-xs"
-                  onClick={onPictureInPicture}
-                  aria-label={
-                    pictureInPicture ? "Close floating preview" : "Float preview over chat"
-                  }
-                  aria-pressed={pictureInPicture ? "true" : "false"}
-                  type="button"
-                  disabled={pictureInPictureDisabled}
-                />
-              }
-            >
-              <PictureInPicture2 className={cn(pictureInPicture && "text-primary-text")} />
-            </TooltipTrigger>
-            <TooltipPopup>
-              {pictureInPicture ? "Close floating preview" : "Float preview over chat"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {trailingActions}
-      </form>
+          {onPickElement ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={pickActive ? "secondary" : "ghost"}
+                    size="icon-xs"
+                    onClick={onPickElement}
+                    disabled={pickDisabled}
+                    aria-label={pickActive ? "Cancel annotation" : "Annotate preview"}
+                    aria-pressed={pickActive ? "true" : "false"}
+                    type="button"
+                  />
+                }
+              >
+                <MousePointerClick className={cn(pickActive && "text-primary-text")} />
+              </TooltipTrigger>
+              <TooltipPopup>
+                {pickDisabled && pickDisabledReason
+                  ? pickDisabledReason
+                  : pickActive
+                    ? "Cancel annotation (Esc)"
+                    : "Annotate elements, regions, and drawings"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {onCapture ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={recording ? "secondary" : "ghost"}
+                    size="icon-xs"
+                    onClick={(event) => onCapture(event.shiftKey)}
+                    aria-label={recording ? "Stop recording" : "Capture screenshot"}
+                    type="button"
+                    className="relative"
+                    disabled={captureDisabled}
+                  />
+                }
+              >
+                <Camera className={cn(recording && "text-destructive")} />
+                {recording ? (
+                  <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />
+                ) : null}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {recording ? "Stop recording" : "Screenshot · Shift-click to record"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {onPictureInPicture ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={pictureInPicture ? "secondary" : "ghost"}
+                    size="icon-xs"
+                    onClick={onPictureInPicture}
+                    aria-label={
+                      pictureInPicture ? "Close floating preview" : "Float preview over chat"
+                    }
+                    aria-pressed={pictureInPicture ? "true" : "false"}
+                    type="button"
+                    disabled={pictureInPictureDisabled}
+                  />
+                }
+              >
+                <PictureInPicture2 className={cn(pictureInPicture && "text-primary-text")} />
+              </TooltipTrigger>
+              <TooltipPopup>
+                {pictureInPicture ? "Close floating preview" : "Float preview over chat"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {trailingActions}
+        </form>
+      </PanelSurfaceHeader>
       <div
         aria-hidden
         data-loading={loading}

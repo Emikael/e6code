@@ -70,11 +70,11 @@ import { installFileEditorDismissal } from "./fileEditorDismissal";
 import {
   FILE_LINK_REVEAL_ATTRIBUTE,
   FILE_LINK_REVEAL_UNSAFE_CSS,
-  FILE_SURFACE_SUBHEADER_CLASS,
   FileSurfaceAction,
   FileSurfaceFailure,
   FileSurfaceLoading,
 } from "./fileSurfaceChrome";
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 import SourceFilePreview from "./ReadOnlySourcePreview";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
@@ -1088,7 +1088,7 @@ export default function FilePreviewPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {relativePath && attachment === undefined ? (
-        <div className={FILE_SURFACE_SUBHEADER_CLASS} data-surface-subheader>
+        <PanelSurfaceHeader>
           <ScrollArea
             ref={breadcrumbRef}
             hideScrollbars
@@ -1164,7 +1164,7 @@ export default function FilePreviewPanel({
               <FolderTree className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
-        </div>
+        </PanelSurfaceHeader>
       ) : null}
       {previewPath &&
       attachment === undefined &&

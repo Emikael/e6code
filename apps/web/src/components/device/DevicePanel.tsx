@@ -35,7 +35,7 @@ import { DeviceStreamView, type DeviceStreamHandle } from "./DeviceStreamView";
 import { DeviceLoadingView } from "./DeviceLoadingView";
 import { DeviceSetup } from "./DeviceSetup";
 import { DeviceToolsPanel } from "./DeviceToolsPanel";
-import { PreviewPanelShell, type PreviewPanelMode } from "../preview/PreviewPanelShell";
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 
 const platformLabel = (platform: DevicePlatform) =>
   platform === "ios" ? "iOS Simulators" : "Android Emulators";
@@ -45,7 +45,6 @@ const deviceKey = (device: Pick<DeviceSummary, "hostId" | "id">) =>
 
 /** Each surface owns one host/device; only the visible surface streams. */
 export function DevicePanel(props: {
-  readonly mode: PreviewPanelMode;
   readonly threadRef: ScopedThreadRef;
   readonly surface: Extract<RightPanelSurface, { kind: "device" }>;
   readonly visible: boolean;
@@ -183,69 +182,72 @@ export function DevicePanel(props: {
   }
 
   return (
-    <PreviewPanelShell mode={props.mode}>
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b px-2">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-background">
+      <PanelSurfaceHeader
+        actions={
+          activeDevice ? (
+            <>
+              <DeviceButton
+                label="Home"
+                onClick={() => handle?.pressButton("home")}
+                disabled={!handle?.inputConnected}
+              >
+                <Home />
+              </DeviceButton>
+              {activeDevice.platform === "android" ? (
+                <>
+                  <DeviceButton
+                    label="Back"
+                    onClick={() => handle?.pressButton("back")}
+                    disabled={!handle?.inputConnected}
+                  >
+                    <ChevronLeft />
+                  </DeviceButton>
+                  <DeviceButton
+                    label="Recents"
+                    onClick={() => handle?.pressButton("recents")}
+                    disabled={!handle?.inputConnected}
+                  >
+                    <Square />
+                  </DeviceButton>
+                </>
+              ) : (
+                <DeviceButton
+                  label="Rotate"
+                  onClick={() => handle?.rotate()}
+                  disabled={!handle?.inputConnected}
+                >
+                  <RotateCcw />
+                </DeviceButton>
+              )}
+              <Toggle
+                aria-label="Tools"
+                variant="ghost"
+                size="xs"
+                pressed={toolsOpen}
+                onPressedChange={(pressed) => setToolsOpen(Boolean(pressed))}
+              >
+                <SlidersHorizontal />
+              </Toggle>
+              <DeviceButton label="Float device over chat" onClick={floatActive}>
+                <PictureInPicture2 />
+              </DeviceButton>
+              <DeviceButton label="Power off" onClick={() => closeActive(true)}>
+                <Power />
+              </DeviceButton>
+              <DeviceButton label="Close" onClick={() => closeActive(false)}>
+                <X />
+              </DeviceButton>
+            </>
+          ) : null
+        }
+      >
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {props.surface.target
             ? `${state.hosts.find((host) => host.id === props.surface.target?.hostId)?.label ?? "Device host"} · ${activeDevice?.version ?? props.surface.target.platform}`
             : (pendingDevice?.name ?? "Choose a device")}
         </span>
-        {activeDevice ? (
-          <>
-            <DeviceButton
-              label="Home"
-              onClick={() => handle?.pressButton("home")}
-              disabled={!handle?.inputConnected}
-            >
-              <Home />
-            </DeviceButton>
-            {activeDevice.platform === "android" ? (
-              <>
-                <DeviceButton
-                  label="Back"
-                  onClick={() => handle?.pressButton("back")}
-                  disabled={!handle?.inputConnected}
-                >
-                  <ChevronLeft />
-                </DeviceButton>
-                <DeviceButton
-                  label="Recents"
-                  onClick={() => handle?.pressButton("recents")}
-                  disabled={!handle?.inputConnected}
-                >
-                  <Square />
-                </DeviceButton>
-              </>
-            ) : (
-              <DeviceButton
-                label="Rotate"
-                onClick={() => handle?.rotate()}
-                disabled={!handle?.inputConnected}
-              >
-                <RotateCcw />
-              </DeviceButton>
-            )}
-            <Toggle
-              aria-label="Tools"
-              variant="ghost"
-              size="xs"
-              pressed={toolsOpen}
-              onPressedChange={(pressed) => setToolsOpen(Boolean(pressed))}
-            >
-              <SlidersHorizontal />
-            </Toggle>
-            <DeviceButton label="Float device over chat" onClick={floatActive}>
-              <PictureInPicture2 />
-            </DeviceButton>
-            <DeviceButton label="Power off" onClick={() => closeActive(true)}>
-              <Power />
-            </DeviceButton>
-            <DeviceButton label="Close" onClick={() => closeActive(false)}>
-              <X />
-            </DeviceButton>
-          </>
-        ) : null}
-      </div>
+      </PanelSurfaceHeader>
       {hostReady && state.hostStatusDetail ? (
         <div
           role="status"
@@ -403,7 +405,7 @@ export function DevicePanel(props: {
           </div>
         )}
       </div>
-    </PreviewPanelShell>
+    </div>
   );
 }
 

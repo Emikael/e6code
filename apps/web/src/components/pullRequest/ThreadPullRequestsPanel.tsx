@@ -172,50 +172,35 @@ function LinkRow({
           updatedAt={snapshot?.updatedAt}
         />
       </a>
-      {/* Out of the row's flow, so no row reserves a column for a button only the hovered one
-          shows. It sits over the right end of the second line on the row's own hover color,
-          fading in from the left, so it covers the time and leaves the diff counts alone. */}
-      <span
-        className={cn(
-          "absolute right-0 bottom-0.5 flex items-center rounded-r-md bg-background pr-1 pl-5",
-          "[mask-image:linear-gradient(to_right,transparent,black_1rem)]",
-          // Hidden means untouchable too: on a touch screen there is no hover, and an invisible
-          // layer over the right of the row would otherwise swallow the tap meant for the link.
-          "pointer-events-none opacity-0 group-hover/pr-row:pointer-events-auto group-hover/pr-row:opacity-100",
-          "has-[[data-popup-open]]:pointer-events-auto has-[[data-popup-open]]:opacity-100",
-          "has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100",
-        )}
-      >
-        <span aria-hidden className="absolute inset-0 bg-accent/60" />
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-micro"
-                aria-label={`Actions for #${link.number}`}
-                className="relative"
-              >
-                <MoreHorizontalIcon className="size-3.5" />
-              </Button>
-            }
-          />
-          <MenuPopup align="end" side="bottom">
-            <MenuItem onClick={() => void writeTextToClipboard(link.url, "link")}>
-              <LinkIcon className="size-3.5" />
-              Copy link
-            </MenuItem>
-            <MenuItem onClick={(event) => openPrLink(event, link.url, threadRef)}>
-              <ArrowUpRightIcon className="size-3.5" />
-              Open
-            </MenuItem>
-            <MenuItem onClick={() => onUnlink(link)}>
-              <PullRequestGlyph.unlink className="size-3.5" />
-              {link.source === "stack" ? "Dismiss from thread" : "Unlink from thread"}
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
-      </span>
+      {/* Always in view, so copy, open and unlink are never reachable by hover alone. */}
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Actions for #${link.number}`}
+              className="shrink-0 self-center"
+            >
+              <MoreHorizontalIcon className="size-3.5" />
+            </Button>
+          }
+        />
+        <MenuPopup align="end" side="bottom">
+          <MenuItem onClick={() => void writeTextToClipboard(link.url, "link")}>
+            <LinkIcon className="size-3.5" />
+            Copy link
+          </MenuItem>
+          <MenuItem onClick={(event) => openPrLink(event, link.url, threadRef)}>
+            <ArrowUpRightIcon className="size-3.5" />
+            Open
+          </MenuItem>
+          <MenuItem onClick={() => onUnlink(link)}>
+            <PullRequestGlyph.unlink className="size-3.5" />
+            {link.source === "stack" ? "Dismiss from thread" : "Unlink from thread"}
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
     </div>
   );
 }
