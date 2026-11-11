@@ -2,9 +2,14 @@
 interface Props {
   /** The "Approval needed" notification above the list. */
   notification?: boolean;
+  /** "phone" is board 21's art: four short rows, no notification and no motion. */
+  variant?: "desktop" | "phone";
+  class?: string;
 }
 
-const { notification = true } = Astro.props;
+const { notification: wantsNotification = true, variant = "desktop", class: className } = Astro.props;
+const phone = variant === "phone";
+const notification = wantsNotification && !phone;
 
 type Row = {
   who: string;
@@ -22,16 +27,22 @@ const rows: Row[] = [
   { who: "Grok Build", what: "Sidebar drag reorder", state: "done" },
 ];
 
-const label =
-  "Six agents in an ordered list. Three are working and two are done. One, Fix tunnel reconnect loop on Codex, is marked Needs approval" +
-  (notification ? ", and a notification says Approval needed." : ".");
+const shownRows = phone ? rows.slice(0, 4) : rows;
+const label = phone
+  ? "Four agents in an ordered list. One, Fix tunnel reconnect loop, is marked Needs approval."
+  : "Six agents in an ordered list. Three are working and two are done. One, Fix tunnel reconnect loop on Codex, is marked Needs approval" +
+    (notification ? ", and a notification says Approval needed." : ".");
 ---
 
 <!-- The page's one motion (board 20). The CSS base state is the final frame;
      the keyframes only run from the start state, once, 300ms to 900ms after
      first paint, with animation-fill-mode: backwards. Opacity and transform
      only, no script. Reduced motion shows the final frame as a still. -->
-<div class:list={["heroart", { "heroart--quiet": !notification }]} role="img" aria-label={label}>
+<div
+  class:list={["heroart", { "heroart--quiet": !notification, "heroart--phone": phone }, className]}
+  role="img"
+  aria-label={label}
+>
   {
     notification && (
       <div class="toast floating" aria-hidden="true">
@@ -46,7 +57,7 @@ const label =
   }
   <div class="hlist" aria-hidden="true">
     {
-      rows.map((row) => (
+      shownRows.map((row) => (
         <div class:list={["hrow", { "hrow--needs": row.state === "needs" }]}>
           <span class="who">{row.who}</span>
           <span class="what">{row.what}</span>
@@ -197,17 +208,33 @@ const label =
     }
   }
 
+  /* Board 21: a still at phone size, shown in its final frame. */
+  .heroart--phone .hrow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .heroart--phone .who,
+  .heroart--phone .step {
+    display: none;
+  }
+
+  .heroart--phone .what {
+    font-size: 13px;
+  }
+
   @media (prefers-reduced-motion: no-preference) {
-    .hrow--needs {
+    .heroart:not(.heroart--phone) .hrow--needs {
       animation: lp-lift 400ms cubic-bezier(0.16, 1, 0.3, 1) 300ms backwards;
     }
 
-    .hrow--needs::after,
-    .hrow--needs .now {
+    .heroart:not(.heroart--phone) .hrow--needs::after,
+    .heroart:not(.heroart--phone) .hrow--needs .now {
       animation: lp-in 400ms ease-out 300ms backwards;
     }
 
-    .hrow--needs .was {
+    .heroart:not(.heroart--phone) .hrow--needs .was {
       animation: lp-out 400ms ease-out 300ms backwards;
     }
 

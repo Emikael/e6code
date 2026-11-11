@@ -6,7 +6,7 @@ import threadLight from "../../assets/app-thread-light.webp";
 // Screenshots are 2x captures of the desktop app at 1440x900. The page column
 // is at most 1072px wide.
 const widths = [960, 1440, 2160];
-const sizes = "(max-width: 1120px) calc(100vw - 48px), 1072px";
+const sizes = "(max-width: 480px) calc(100vw - 32px), (max-width: 1120px) calc(100vw - 48px), 1072px";
 const [dark, light] = await Promise.all(
   [threadDark, threadLight].map((src) => getImage({ src, widths, format: "webp", quality: 86 })),
 );
@@ -34,5 +34,11 @@ const [dark, light] = await Promise.all(
 <style>
   .product {
     padding-bottom: 72px;
+  }
+
+  @media (max-width: 700px) {
+    .product {
+      padding-bottom: 48px;
+    }
   }
 </style>

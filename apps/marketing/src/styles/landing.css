@@ -226,6 +226,13 @@ svg.i18 {
   font-size: 15px;
 }
 
+.lp-btn--touch {
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
 .lp-btn--sm {
   height: 28px;
   padding: 0 8px;
@@ -251,6 +258,18 @@ html[data-platform="android"] a.dl--android {
 
 html[data-platform]:not([data-platform="mac"]) a.dl--mac {
   display: none;
+}
+
+/* A phone visitor (board 21) gets its own hero copy and actions: the app runs
+   on a computer and the phone connects to it. .for-phone shows on iOS and
+   Android, .for-desktop everywhere else, including when scripts are off.
+   .on-ios and .on-android narrow a phone part to one store. Important because
+   scoped component styles that set display outrank a global class. */
+html:not([data-platform="ios"], [data-platform="android"]) .for-phone,
+html:is([data-platform="ios"], [data-platform="android"]) .for-desktop,
+html:not([data-platform="ios"]) .on-ios,
+html:not([data-platform="android"]) .on-android {
+  display: none !important;
 }
 
 /* ── Install command. Both commands are rendered; the platform picks one in
@@ -347,6 +366,7 @@ html[data-platform="win"] .install:not([data-choice]) .cmd[data-os="windows"],
 }
 
 .fact svg.i {
+  /* Centers the 16px icon on the first 20px text line. */
   margin-top: 2px;
 }
 
@@ -461,5 +481,12 @@ html[data-platform="win"] .install:not([data-choice]) .cmd[data-os="windows"],
 
   .band {
     padding: 48px 0;
+  }
+}
+
+/* ── Phone width: the 16px gutter of board 21. ── */
+@media (max-width: 480px) {
+  .wrap {
+    padding: 0 16px;
   }
 }
