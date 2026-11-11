@@ -87,6 +87,7 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   createModelSelection,
+  getProviderOptionDescriptors,
   resolvePromptInjectedEffort,
 } from "@e6tools/shared/model";
 import {
@@ -238,7 +239,8 @@ import { pullRequestPanelContext } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
-import { RightPanelTabs } from "./RightPanelTabs";
+import { focusedPanelTabSurfaceId, RightPanelTabs } from "./RightPanelTabs";
+import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -7274,10 +7276,16 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "rightPanel.close") {
         // Nothing open: leave the event alone so the shortcut keeps its
         // native meaning (close window on desktop, close tab in a browser).
-        if (!activeRightPanelSurface) return;
+        // While focus is in the tab strip, the focused tab closes rather than the selected one.
+        const focusedTabId = focusedPanelTabSurfaceId(event.target);
+        const surface =
+          (focusedTabId !== null
+            ? rightPanelState.surfaces.find((entry) => entry.id === focusedTabId)
+            : undefined) ?? activeRightPanelSurface;
+        if (!surface) return;
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
+        if (!event.repeat) closeRightPanelSurface(surface);
         return;
       }
 
@@ -7427,6 +7435,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeProject,
     activeRightPanelSurface,
+    rightPanelState.surfaces,
     activeProjectScripts,
     addTerminalSurface,
     activeThreadRef,
@@ -10036,21 +10045,35 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadRef, addDiffSurface],
   );
   const inspectorModelSelection = activeThread?.modelSelection ?? null;
-  const inspectorModelLabel = useMemo(
-    () =>
-      inspectorModelSelection
-        ? resolveContextWindowModelDisplayName(
-            inspectorModelSelection,
-            getCustomModelOptionsByInstance(
-              settings,
-              providerStatuses,
-              inspectorModelSelection.instanceId,
+  // "<model> · Balanced": the effort word follows the model when its provider has one.
+  const inspectorModelLabel = useMemo(() => {
+    if (!inspectorModelSelection) return null;
+    const name = resolveContextWindowModelDisplayName(
+      inspectorModelSelection,
+      getCustomModelOptionsByInstance(
+        settings,
+        providerStatuses,
+        inspectorModelSelection.instanceId,
+        inspectorModelSelection.model,
+      ),
+    );
+    const provider = providerStatuses.find(
+      (status) => status.instanceId === inspectorModelSelection.instanceId,
+    );
+    const effort = provider
+      ? modelEffortLabel(
+          getProviderOptionDescriptors({
+            caps: getProviderModelCapabilities(
+              provider.models,
               inspectorModelSelection.model,
+              provider.driver,
             ),
-          )
-        : null,
-    [inspectorModelSelection, providerStatuses, settings],
-  );
+            selections: inspectorModelSelection.options,
+          }).find((descriptor) => descriptor.type === "select"),
+        )
+      : null;
+    return effort ? `${name} · ${effort}` : name;
+  }, [inspectorModelSelection, providerStatuses, settings]);
   const inspectorLatestTurnStartedAt = activeThread?.latestTurn?.startedAt ?? null;
   const inspectorLatestTurnCompletedAt = activeThread?.latestTurn?.completedAt ?? null;
   const inspectorLatestTurnDurationMs =
@@ -10296,6 +10319,7 @@ export default function ChatView(props: ChatViewProps) {
         planLimits={inspectorPlanLimits}
         latestTurnDurationMs={inspectorLatestTurnDurationMs}
         modelLabel={inspectorModelLabel}
+        latestTurnId={activeThread?.latestTurn?.turnId ?? null}
         reviewShortcutLabel={shortcutLabelForCommand(keybindings, "diff.toggle")}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (

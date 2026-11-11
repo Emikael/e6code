@@ -27,7 +27,9 @@ import type {
   ThreadUsageTotal,
   TurnId,
   UsageLimitsReport,
+  VcsWorkingTreeFile,
 } from "@e6tools/contracts";
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
 import { mostConstrainedLimit } from "@e6tools/shared/usageLimits";
 import { formatDuration } from "@e6tools/shared/orchestrationTiming";
 import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
@@ -84,12 +86,15 @@ import { type DiffPanelFocusTarget } from "~/diffPanelStore";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
+import { diffReviewFingerprint, reviewedCountLabel, useDiffReviewView } from "~/diffReviewStore";
 import { useSubagentSelectionStore } from "~/subagentSelectionStore";
 import { type RunDetailsSectionId, useUiStateStore } from "~/uiStateStore";
 import type { ActivePlanState } from "~/session-logic";
 import { DiffStat } from "./DiffStat";
+import { DiffReviewTick } from "./diffs/DiffReviewTick";
 import {
   isRunDetailsSectionOpen,
+  planLimitReading,
   planLimitUsedPercent,
   planPositionLabel,
   planStepWords,
@@ -149,14 +154,44 @@ const METER_TRACK_CLASS_NAME =
   "h-1.5 overflow-hidden rounded-full bg-surface-well ring-1 ring-inset ring-sidebar-muted-foreground";
 
 /** A section's open state: the user's choice on this device, else the section's default. */
-function useRunDetailsSection(
-  section: RunDetailsSectionId,
-  context: { readonly subagentWorking: boolean } = { subagentWorking: false },
-) {
+function useRunDetailsSection(section: Exclude<RunDetailsSectionId, "subagents">) {
   const stored = useUiStateStore((state) => state.runDetailsSectionOpen[section]);
   const setOpen = useUiStateStore((state) => state.setRunDetailsSectionOpen);
-  const open = isRunDetailsSectionOpen(section, stored, context);
+  const open = isRunDetailsSectionOpen(section, stored);
   const toggle = useCallback(() => setOpen(section, !open), [open, section, setOpen]);
+  return [open, toggle] as const;
+}
+
+// Live subagent work before the read model names its turn still counts as one turn.
+const LIVE_WITHOUT_TURN = "live";
+// The turn in which the user closed Subagents, per thread, so it stays closed for the rest of
+// that turn across remounts. Not persisted: a turn does not outlive the session that shows it.
+const subagentsClosedInTurnByThreadKey = new Map<string, string>();
+
+/**
+ * Subagents' open state: it opens when a subagent starts working in a turn and stays closed for
+ * the rest of a turn the user closed it in. Opening for live work is stored, so the results stay
+ * in view when the work ends; outside live work the stored choice applies.
+ */
+function useSubagentsSection(threadKey: string | null, liveTurnId: string | null) {
+  const stored = useUiStateStore((state) => state.runDetailsSectionOpen.subagents);
+  const setOpen = useUiStateStore((state) => state.setRunDetailsSectionOpen);
+  const [closedInTurnId, setClosedInTurnId] = useState(() =>
+    threadKey ? (subagentsClosedInTurnByThreadKey.get(threadKey) ?? null) : null,
+  );
+  const open = isRunDetailsSectionOpen("subagents", stored, { liveTurnId, closedInTurnId });
+  useEffect(() => {
+    if (liveTurnId !== null && open && stored !== true) setOpen("subagents", true);
+  }, [liveTurnId, open, setOpen, stored]);
+  const toggle = useCallback(() => {
+    const closedIn = open ? liveTurnId : null;
+    if (threadKey) {
+      if (closedIn) subagentsClosedInTurnByThreadKey.set(threadKey, closedIn);
+      else subagentsClosedInTurnByThreadKey.delete(threadKey);
+    }
+    setClosedInTurnId(closedIn);
+    setOpen("subagents", !open);
+  }, [liveTurnId, open, setOpen, threadKey]);
   return [open, toggle] as const;
 }
 
@@ -299,6 +334,8 @@ function PlanSection({ plan }: { plan: ActivePlanState }) {
   );
 }
 
+const EMPTY_WORKING_TREE_FILES: ReadonlyArray<VcsWorkingTreeFile> = [];
+
 /**
  * The working tree: its files, then Review changes (Diff), Commit (Diff at its commit box) and
  * Push. Space is reserved while status loads; hidden outside Git repositories.
@@ -326,9 +363,28 @@ function ChangesSection({
     activeThreadRef: threadRef,
     gitStatus: status ?? null,
   });
+  const files = status?.workingTree.files ?? EMPTY_WORKING_TREE_FILES;
+  // Marks made in the Diff tab's Uncommitted scope, matched by each file's counts.
+  const reviewFiles = useMemo(
+    () =>
+      files.map((file) => ({
+        path: file.path,
+        fingerprint: diffReviewFingerprint({
+          fileDiff: null,
+          additions: file.insertions,
+          deletions: file.deletions,
+          ignoreWhitespace: false,
+        }),
+      })),
+    [files],
+  );
+  const review = useDiffReviewView({
+    threadKey: scopedThreadKey(threadRef),
+    scope: "uncommitted",
+    files: reviewFiles,
+  });
   if (status && !status.isRepo) return null;
 
-  const files = status?.workingTree.files ?? [];
   const ahead = status?.aheadCount ?? 0;
   const behind = status?.behindCount ?? 0;
   const visibleFiles = showAll ? files : files.slice(0, RUN_DETAILS_CHANGES_PREVIEW_LIMIT);
@@ -343,11 +399,14 @@ function ChangesSection({
       onToggle={toggle}
       meta={
         status && files.length > 0 ? (
-          <DiffStat
-            tone="neutral"
-            additions={status.workingTree.insertions}
-            deletions={status.workingTree.deletions}
-          />
+          <>
+            <DiffStat
+              tone="neutral"
+              additions={status.workingTree.insertions}
+              deletions={status.workingTree.deletions}
+            />
+            {` · ${reviewedCountLabel(review.viewedCount, files.length)}`}
+          </>
         ) : null
       }
     >
@@ -359,9 +418,16 @@ function ChangesSection({
         <div className={cn(CARD_CLASS_NAME, "flex flex-col p-1")}>
           <ul className="flex flex-col">
             {visibleFiles.map((file) => {
+              const reviewStatus = review.statusOf(file.path);
               const content = (
                 <>
-                  <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
+                  <DiffReviewTick status={reviewStatus} />
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left font-mono text-xs",
+                      reviewStatus === "reviewed" && MUTED,
+                    )}
+                  >
                     {file.path}
                   </span>
                   <DiffStat
@@ -377,7 +443,7 @@ function ChangesSection({
                   {onFocusDiff ? (
                     <button
                       type="button"
-                      aria-label={`Open diff of ${file.path}`}
+                      aria-label={`Open diff of ${file.path}, ${reviewStatus === "reviewed" ? "reviewed" : reviewStatus === "changed" ? "changed since review" : "not reviewed"}`}
                       onClick={() => onFocusDiff({ kind: "file", path: file.path })}
                       className="flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                     >
@@ -516,29 +582,23 @@ function UsageMeter({
  */
 function PlanLimitMeter({ planLimits }: { planLimits: InspectorPlanLimits }) {
   const nowMinute = useNowMinute();
+  const now = Date.parse(`${nowMinute}:00.000Z`);
   const limit = useMemo(
-    () =>
-      mostConstrainedLimit(
-        planLimits.report,
-        planLimits.providerLabel,
-        Date.parse(`${nowMinute}:00.000Z`),
-      ),
-    [nowMinute, planLimits],
+    () => mostConstrainedLimit(planLimits.report, planLimits.providerLabel, now),
+    [now, planLimits],
   );
   if (!limit) return null;
   const used = planLimitUsedPercent(limit.remainingPercent);
+  // The card already belongs to this thread's provider, so the label is the window alone.
+  const reading = planLimitReading(used, limit.resetsAt, now);
   return (
     <div className="border-t border-border pt-3">
       <UsageMeter
-        label={limit.title}
-        reading={[`${used}% used`, limit.detail || null].filter(Boolean).join(" · ")}
+        label={limit.windowName}
+        reading={reading}
         percent={used}
-        accessibilityLabel={limit.accessibilityLabel}
-        note={
-          limit.warning ? (
-            <p className="text-xs text-warning-foreground">Close to the limit</p>
-          ) : null
-        }
+        accessibilityLabel={reading}
+        note={limit.warning ? <p className="text-xs text-foreground">Close to the limit</p> : null}
       />
     </div>
   );
@@ -606,7 +666,7 @@ function UsageSection({
             accessibilityLabel={context.label}
             note={
               context.warning || context.compactionNote ? (
-                <p className={cn("text-xs", context.warning ? "text-warning-foreground" : MUTED)}>
+                <p className={cn("text-xs", context.warning ? "text-foreground" : MUTED)}>
                   {[context.warning ? "Nearly full" : null, context.compactionNote]
                     .filter(Boolean)
                     .join(" · ")}
@@ -717,8 +777,6 @@ const PHASE_STATE_WORD: Readonly<Record<LineagePhase["state"], string>> = {
   running: "Working",
   done: "Done",
 };
-
-/**
 
 /**
  * One subagent in the lineage: its glyph, title, status word and elapsed time. Selecting it
@@ -1111,11 +1169,12 @@ function SubagentDetail({
 
 /**
  * Every subagent this thread spawned, in spawn order. Selecting a row opens its detail under
- * it; selecting it again closes it. The section opens by itself while a subagent works.
+ * it; selecting it again closes it. The section opens by itself when a subagent starts working.
  */
 function SubagentsSection({
   model,
   threadKey,
+  latestTurnId,
   environmentId,
   threadId,
   workspaceRoot,
@@ -1124,17 +1183,17 @@ function SubagentsSection({
 }: {
   model: AgentPanelModel;
   threadKey: string | null;
+  latestTurnId: string | null;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
   workspaceRoot: string | null;
   onOpenTurnDiff: ((turnId: TurnId, filePath?: string) => void) | null;
   stopControl: InspectorSubagentStop | null;
 }) {
-  // Once open for live work, the section stays open when that work ends, so the
-  // result is still there; only the user's own choice closes it.
-  const [sawWork, setSawWork] = useState(model.liveCount > 0);
-  if (model.liveCount > 0 && !sawWork) setSawWork(true);
-  const [open, toggle] = useRunDetailsSection("subagents", { subagentWorking: sawWork });
+  const [open, toggle] = useSubagentsSection(
+    threadKey,
+    model.liveCount > 0 ? (latestTurnId ?? LIVE_WITHOUT_TURN) : null,
+  );
   const [showFolded, setShowFolded] = useState(false);
   // The selected row's detail is open unless the user closed it; picking another row, or a
   // reveal from the thread, opens it again.
@@ -1331,8 +1390,10 @@ interface InspectorOverviewProps {
   planLimits: InspectorPlanLimits | null;
   /** How long the latest turn ran, once it finished; the read model keeps no earlier timings. */
   latestTurnDurationMs: number | null;
-  /** The thread's model, from `thread.modelSelection`, as the composer names it. */
+  /** The thread's model, from `thread.modelSelection`, as the composer names it, with its effort. */
   modelLabel: string | null;
+  /** The thread's latest turn, so Subagents can tell one turn's live work from the next. */
+  latestTurnId: string | null;
   /** The Diff shortcut, shown on Review changes. */
   reviewShortcutLabel: string | null;
 }
@@ -1348,6 +1409,7 @@ function InspectorOverviewView({
   planLimits,
   latestTurnDurationMs,
   modelLabel,
+  latestTurnId,
   reviewShortcutLabel,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
@@ -1383,6 +1445,7 @@ function InspectorOverviewView({
             <SubagentsSection
               model={model}
               threadKey={threadKey}
+              latestTurnId={latestTurnId}
               environmentId={workspace?.environmentId ?? null}
               threadId={workspace?.threadId ?? null}
               workspaceRoot={gitCwd}
@@ -1480,6 +1543,7 @@ export const InspectorOverview = memo(
     previous.planLimits === next.planLimits &&
     previous.latestTurnDurationMs === next.latestTurnDurationMs &&
     previous.modelLabel === next.modelLabel &&
+    previous.latestTurnId === next.latestTurnId &&
     previous.reviewShortcutLabel === next.reviewShortcutLabel &&
     shallowEqualWorkspace(previous.workspace, next.workspace),
 );

@@ -49,7 +49,7 @@ export function DiffViewMenu({
       <MenuTrigger
         render={
           <Button
-            size="sm"
+            size="compact"
             variant="ghost"
             aria-label="View options: wrap, whitespace, expand all, refresh"
           />

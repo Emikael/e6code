@@ -18,7 +18,6 @@ import {
 import {
   BotIcon,
   CircleCheckIcon,
-  CircleDashedIcon,
   CirclePauseIcon,
   CircleXIcon,
   MessageCircleQuestionIcon,
@@ -68,7 +67,11 @@ export function SubagentStatusGlyph({
     case "question":
       return <MessageCircleQuestionIcon {...props} />;
     case "working":
-      return <CircleDashedIcon {...props} />;
+      return (
+        <span {...props} className={cn("flex items-center justify-center", props.className)}>
+          <WorkingDot className="size-2" />
+        </span>
+      );
     case "idle":
       return <CirclePauseIcon {...props} />;
     case "done":
@@ -81,9 +84,20 @@ export function SubagentStatusGlyph({
 }
 
 /**
- * Status word with its shape-distinct glyph. The solid dot is reserved for the
- * turn's own accent live signal, so a working subagent uses the dashed circle.
+ * A working agent: the solid accent dot with its halo, the same mark the turn and the sidebar use
+ * for live work. The dashed circle means starting and is not used for a working agent. Always
+ * placed beside its word.
  */
+function WorkingDot({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn("shrink-0 rounded-full bg-primary ring-2 ring-primary-surface", className)}
+    />
+  );
+}
+
+/** Status word with its shape-distinct glyph. */
 export function SubagentStatusWord({
   tone,
   className,
@@ -104,7 +118,9 @@ export function SubagentStatusWord({
       ) : tone === "question" ? (
         <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "working" ? (
-        <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
+        <span aria-hidden className="flex size-3 shrink-0 items-center justify-center">
+          <WorkingDot className="size-1.5" />
+        </span>
       ) : tone === "done" ? (
         <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "failed" ? (

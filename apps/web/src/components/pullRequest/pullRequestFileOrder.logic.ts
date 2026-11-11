@@ -31,7 +31,8 @@ const GENERATED_DIRECTORIES = new Set([
 const TEST_DIRECTORIES = new Set(["__tests__", "tests", "test"]);
 const MODULE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
-function diffFileTier(path: string): DiffFileTier {
+/** Which reading pass a path belongs to, by its name and folders alone. */
+export function diffFileTier(path: string): DiffFileTier {
   const segments = path.split("/");
   const name = segments.at(-1) ?? "";
   if (

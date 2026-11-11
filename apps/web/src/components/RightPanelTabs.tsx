@@ -43,6 +43,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -53,7 +54,11 @@ import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
 import type { RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
-import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
+import {
+  effectiveShortcutsForCommand,
+  resolveShortcutCommand,
+  type ShortcutMatchContext,
+} from "~/keybindings";
 import { readLocalApi } from "~/localApi";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { Button } from "~/components/ui/button";
@@ -92,6 +97,7 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import {
+  closeTabKeyShortcuts,
   overflowMenuLabel,
   runningTerminalCount,
   surfaceTitle,
@@ -798,6 +804,10 @@ type RightPanelTabProps = RightPanelTabHandlers & {
   renaming: boolean;
   canRename: boolean;
   ownsDesktopTitleBar: boolean;
+  /** The id of the tab panel every tab controls. */
+  panelId: string;
+  /** The keys that close this tab, for `aria-keyshortcuts`. */
+  closeKeyShortcuts: string;
 };
 
 const NO_PREVIEW_SESSIONS: Readonly<Record<string, PreviewSessionSnapshot>> = {};
@@ -880,7 +890,9 @@ function RightPanelTab(props: RightPanelTabProps) {
       ) : null}
     </>
   );
-  // Close buttons stay out of the Tab order: the strip is one stop, and Delete or Mod+W closes.
+  // Close and mute buttons stay out of the Tab order and the accessibility tree, so the tablist
+  // holds only tabs: Delete, Backspace or Mod+W close (announced by `aria-keyshortcuts`), and the
+  // context menu mutes.
   const content = (
     <>
       {props.active ? (
@@ -891,7 +903,11 @@ function RightPanelTab(props: RightPanelTabProps) {
         <button
           type="button"
           tabIndex={-1}
-          className="cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted"
+          aria-hidden
+          className={cn(
+            "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted",
+            TAB_BUTTON_HIT_AREA_CLASS,
+          )}
           aria-label={`Close ${title}`}
           onClick={() => onClose(surface)}
         >
@@ -908,7 +924,11 @@ function RightPanelTab(props: RightPanelTabProps) {
               <button
                 type="button"
                 tabIndex={-1}
-                className="cursor-pointer flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted"
+                aria-hidden
+                className={cn(
+                  "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted",
+                  TAB_BUTTON_HIT_AREA_CLASS,
+                )}
                 aria-label={audio === "muted" ? `Unmute ${title}` : `Mute ${title}`}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -951,6 +971,8 @@ function RightPanelTab(props: RightPanelTabProps) {
                 type="button"
                 role="tab"
                 aria-selected={props.active}
+                aria-controls={props.panelId}
+                aria-keyshortcuts={props.closeKeyShortcuts}
                 tabIndex={props.focusable ? 0 : -1}
                 data-panel-tab-trigger
                 onDoubleClick={() => {
@@ -959,7 +981,8 @@ function RightPanelTab(props: RightPanelTabProps) {
                 className="cursor-pointer flex min-w-0 items-center outline-none"
                 onClick={() => onActivate(surface)}
                 onKeyDown={(event) => {
-                  if (event.key !== "Delete") return;
+                  // Backspace is the delete key on a Mac laptop.
+                  if (event.key !== "Delete" && event.key !== "Backspace") return;
                   event.preventDefault();
                   onClose(surface);
                 }}
@@ -985,7 +1008,11 @@ function RightPanelTab(props: RightPanelTabProps) {
         <button
           type="button"
           tabIndex={-1}
-          className="cursor-pointer flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-hidden
+          className={cn(
+            "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground",
+            TAB_BUTTON_HIT_AREA_CLASS,
+          )}
           aria-label={`Close ${title}`}
           onClick={() => onClose(surface)}
         >
@@ -996,6 +1023,7 @@ function RightPanelTab(props: RightPanelTabProps) {
   );
   return (
     <div
+      role="presentation"
       data-active-tab={props.active}
       data-panel-tab-id={surface.id}
       onMouseDown={preventTabMiddleButtonDefault}
@@ -1010,7 +1038,7 @@ function RightPanelTab(props: RightPanelTabProps) {
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
         props.active ? PANEL_TAB_ACTIVE_CLASS : PANEL_TAB_IDLE_CLASS,
         // The focus ring sits inside the tab, which the track would otherwise clip.
-        "has-[[data-panel-tab-trigger]:focus-visible]:ring-2 has-[[data-panel-tab-trigger]:focus-visible]:ring-ring",
+        "has-[[data-panel-tab-trigger]:focus-visible]:ring-2 has-[[data-panel-tab-trigger]:focus-visible]:ring-ring has-[[data-panel-tab-trigger]:focus-visible]:ring-inset",
         isDragging && "relative z-10",
       )}
     >
@@ -1023,6 +1051,18 @@ const PANEL_TAB_ACTIVE_CLASS =
   "bg-card font-semibold text-foreground ring-1 ring-inset ring-primary-edge";
 const PANEL_TAB_IDLE_CLASS = "text-muted-foreground hover:bg-card/60 hover:text-foreground";
 const RUN_DETAILS_TAB_ID = "run-details";
+// A 16px glyph button that still takes a 24px hit, without widening the tab around it.
+const TAB_BUTTON_HIT_AREA_CLASS = "before:absolute before:-inset-1 before:content-['']";
+
+/**
+ * The surface id of the panel tab `target` is, or null when it is not a closable tab. A close
+ * shortcut uses it so Mod+W closes the tab that has focus in the strip, not only the selected one.
+ */
+export function focusedPanelTabSurfaceId(target: EventTarget | null): string | null {
+  if (!(target instanceof HTMLElement) || target.getAttribute("role") !== "tab") return null;
+  const id = target.closest<HTMLElement>("[data-panel-tab-id]")?.dataset.panelTabId ?? null;
+  return id === RUN_DETAILS_TAB_ID ? null : id;
+}
 
 /** A tab the strip cannot show, as the "N more" menu lists it. Run details has no surface. */
 interface HiddenPanelTab {
@@ -1071,6 +1111,7 @@ function handleTabListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
 function RunDetailsTab(props: {
   active: boolean;
   focusable: boolean;
+  panelId: string;
   ownsDesktopTitleBar: boolean;
   onShow: () => void;
 }) {
@@ -1079,6 +1120,7 @@ function RunDetailsTab(props: {
       type="button"
       role="tab"
       aria-selected={props.active}
+      aria-controls={props.panelId}
       tabIndex={props.focusable ? 0 : -1}
       data-active-tab={props.active}
       data-panel-tab-id={RUN_DETAILS_TAB_ID}
@@ -1111,6 +1153,32 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     [props.runningTerminalIds],
   );
   const titleState = { changedFileCount: props.changedFileCount ?? 0, runningTerminalIds };
+  const panelId = useId();
+  const closeKeyShortcuts = useMemo(
+    () =>
+      closeTabKeyShortcuts(
+        effectiveShortcutsForCommand(props.keybindings, "rightPanel.close", {
+          context: { terminalFocus: false },
+        })[0] ?? null,
+        navigator.platform,
+      ),
+    [props.keybindings],
+  );
+  // Whether focus was last in the strip, so closing the focused tab can hand focus to the tab
+  // that becomes selected instead of dropping it to the page.
+  const stripHadFocusRef = useRef(false);
+  useEffect(() => {
+    if (!stripHadFocusRef.current) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && focused.isConnected) return;
+    const selectedId = props.activeSurfaceId ?? RUN_DETAILS_TAB_ID;
+    const tab = Array.from(
+      tabListRef.current?.querySelectorAll<HTMLElement>("[data-panel-tab-id]") ?? [],
+    ).find((element) => element.dataset.panelTabId === selectedId);
+    const trigger =
+      tab?.getAttribute("role") === "tab" ? tab : tab?.querySelector<HTMLElement>('[role="tab"]');
+    trigger?.focus();
+  }, [props.surfaces, props.activeSurfaceId]);
 
   if (props.open === false && addSurfaceMenuOpen) setAddSurfaceMenuOpen(false);
 
@@ -1472,6 +1540,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
               role="tablist"
               aria-label="Panel tabs"
               onKeyDown={handleTabListKeyDown}
+              onFocus={() => {
+                stripHadFocusRef.current = true;
+              }}
+              onBlur={(event) => {
+                // A removed tab blurs with no related target; focus that moved elsewhere has one.
+                if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+                  stripHadFocusRef.current = false;
+                }
+              }}
               className={cn(
                 // One track at every tab count, so the bar never changes shape as tabs come and go.
                 "flex h-8 items-center gap-0.5 rounded-lg bg-surface-well p-0.5",
@@ -1482,6 +1559,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 <RunDetailsTab
                   active={props.activeSurfaceId === null}
                   focusable={focusableTabId === RUN_DETAILS_TAB_ID}
+                  panelId={panelId}
                   ownsDesktopTitleBar={ownsDesktopTitleBar}
                   onShow={props.onShowRunDetails}
                 />
@@ -1514,6 +1592,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     renaming: renamingDevice === surface.id,
                     canRename: props.onRenameDevice !== undefined,
                     ownsDesktopTitleBar,
+                    panelId,
+                    closeKeyShortcuts,
                     onActivate: onActivateTab,
                     onClose: onCloseTab,
                     onAuxClick: onTabAuxClick,
@@ -1674,7 +1754,19 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           />
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        data-right-panel-surface-content
+        id={panelId}
+        {...(props.activeSurfaceId === null && !props.onShowRunDetails
+          ? {}
+          : {
+              role: "tabpanel",
+              "aria-label": focusedSurface
+                ? surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById)
+                : "Run details",
+            })}
+      >
         {props.activeSurfaceId === null && !props.onShowRunDetails ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}

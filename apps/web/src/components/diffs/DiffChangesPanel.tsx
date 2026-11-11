@@ -23,6 +23,7 @@ import {
   type ReactNode,
 } from "react";
 
+import type { DiffReviewStatus } from "~/diffReviewStore";
 import { readLocalApi } from "~/localApi";
 import { cn, randomUUID } from "~/lib/utils";
 import { useGitStackedAction } from "~/state/sourceControlActions";
@@ -36,6 +37,7 @@ import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { DiffReviewTick } from "./DiffReviewTick";
 
 export type DiffChangesSection = "staged" | "unstaged";
 
@@ -47,8 +49,13 @@ interface DiffChangesPanelProps {
   readonly agentRunning: boolean;
   readonly selected: { readonly path: string; readonly section: DiffChangesSection } | null;
   readonly onSelectFile: (path: string, section: DiffChangesSection) => void;
-  /** Bumped to move focus into the commit message box, as Run details' Commit does. */
-  readonly commitFocusRequest?: number;
+  /**
+   * True once per request to move focus into the commit message box, as Run details' Commit
+   * makes. The owner remembers handled requests, so remounting this panel never refocuses.
+   */
+  readonly consumeCommitFocusRequest?: () => boolean;
+  /** Each file's review mark, when the Diff tab keeps them for this scope. */
+  readonly reviewStatusOf?: ((path: string) => DiffReviewStatus) | null;
 }
 
 const KIND_TONE: Record<VcsFileChangeKind, string> = {
@@ -92,13 +99,14 @@ export function DiffChangesPanel({
   agentRunning,
   selected,
   onSelectFile,
-  commitFocusRequest = 0,
+  consumeCommitFocusRequest,
+  reviewStatusOf = null,
 }: DiffChangesPanelProps) {
   const commitBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (commitFocusRequest === 0) return;
+    if (!consumeCommitFocusRequest?.()) return;
     commitBoxRef.current?.querySelector("textarea")?.focus();
-  }, [commitFocusRequest]);
+  }, [consumeCommitFocusRequest]);
   const selectedIn = (section: DiffChangesSection) =>
     selected?.section === section ? selected.path : null;
   const sections = useMemo(() => deriveVcsChangeSections(files), [files]);
@@ -267,47 +275,6 @@ export function DiffChangesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" aria-busy={busy}>
-      <div
-        ref={commitBoxRef}
-        className="flex shrink-0 flex-col gap-1.5 border-b border-border/60 p-2"
-      >
-        <Textarea
-          size="sm"
-          rows={2}
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              void commit();
-            }
-          }}
-          placeholder="Commit message (empty to generate)"
-          aria-label="Commit message"
-          className="text-xs"
-        />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="xs"
-                className="w-full"
-                disabled={commitDisabledReason !== null || busy}
-                onClick={() => void commit()}
-              />
-            }
-          >
-            {commitAction.isPending ? <Spinner className="size-3.5" /> : null}
-            {commitLabel}
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">
-            {commitDisabledReason ??
-              (stagedCount > 0
-                ? "Commits only staged changes. ⌘↵"
-                : "Stages every change, then commits. ⌘↵")}
-          </TooltipPopup>
-        </Tooltip>
-      </div>
       <div className="min-h-0 flex-1 overflow-y-auto py-1" aria-label="Changes">
         {sections.conflicts.length > 0 ? (
           <ChangeSection
@@ -324,6 +291,7 @@ export function DiffChangesPanel({
               },
             ]}
             onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
+            reviewStatusOf={reviewStatusOf}
           />
         ) : null}
         <ChangeSection
@@ -353,6 +321,7 @@ export function DiffChangesPanel({
             },
           ]}
           onSelect={(entry) => onSelectFile(entry.path, "staged")}
+          reviewStatusOf={reviewStatusOf}
           onToggle={commitPendingReason ? undefined : (entry) => unstageEntries([entry])}
         />
         <ChangeSection
@@ -396,8 +365,48 @@ export function DiffChangesPanel({
             },
           ]}
           onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
+          reviewStatusOf={reviewStatusOf}
           onToggle={commitPendingReason ? undefined : (entry) => stagePaths([entry.path])}
         />
+      </div>
+      {/* The commit box sits at the foot of the list it commits. */}
+      <div ref={commitBoxRef} className="flex shrink-0 flex-col gap-1.5 border-t border-border p-2">
+        <Textarea
+          size="sm"
+          rows={2}
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void commit();
+            }
+          }}
+          placeholder="Commit message (empty to generate)"
+          aria-label="Commit message"
+          className="text-xs"
+        />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="xs"
+                className="w-full"
+                disabled={commitDisabledReason !== null || busy}
+                onClick={() => void commit()}
+              />
+            }
+          >
+            {commitAction.isPending ? <Spinner className="size-3.5" /> : null}
+            {commitLabel}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {commitDisabledReason ??
+              (stagedCount > 0
+                ? "Commits only staged changes. ⌘↵"
+                : "Stages every change, then commits. ⌘↵")}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     </div>
   );
@@ -421,6 +430,7 @@ function ChangeSection(props: {
   readonly actions: ReactNode;
   readonly renderRowActions: (entry: VcsChangeEntry) => ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
+  readonly reviewStatusOf: ((path: string) => DiffReviewStatus) | null;
   /** Space on a focused row moves it to the other section. */
   readonly onToggle?: ((entry: VcsChangeEntry) => void) | undefined;
 }) {
@@ -440,6 +450,7 @@ function ChangeSection(props: {
             key={entry.path}
             entry={entry}
             selected={entry.path === props.selectedPath}
+            reviewStatus={props.reviewStatusOf?.(entry.path) ?? null}
             actions={props.renderRowActions(entry)}
             onSelect={props.onSelect}
             onToggle={props.onToggle}
@@ -450,9 +461,16 @@ function ChangeSection(props: {
   );
 }
 
+const REVIEW_STATUS_WORDS: Record<DiffReviewStatus, string> = {
+  reviewed: "reviewed",
+  changed: "changed since review",
+  unreviewed: "not reviewed",
+};
+
 const ChangeRow = memo(function ChangeRow(props: {
   readonly entry: VcsChangeEntry;
   readonly selected: boolean;
+  readonly reviewStatus: DiffReviewStatus | null;
   readonly actions: ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
   readonly onToggle: ((entry: VcsChangeEntry) => void) | undefined;
@@ -476,10 +494,13 @@ const ChangeRow = memo(function ChangeRow(props: {
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`${entry.previousPath ? `${entry.previousPath} renamed to ${entry.path}` : entry.path}, ${vcsChangeKindLabel(entry.kind)}${entry.mixed ? ", also in the other section" : ""}`}
+        aria-label={`${entry.previousPath ? `${entry.previousPath} renamed to ${entry.path}` : entry.path}, ${vcsChangeKindLabel(entry.kind)}${entry.mixed ? ", also in the other section" : ""}${props.reviewStatus ? `, ${REVIEW_STATUS_WORDS[props.reviewStatus]}` : ""}`}
         onClick={() => props.onSelect(entry)}
         onKeyDown={onKeyDown}
       >
+        {props.reviewStatus ? (
+          <DiffReviewTick status={props.reviewStatus} decorative className="size-3.5" />
+        ) : null}
         <span className="min-w-0 shrink truncate text-foreground">{name}</span>
         {directory ? (
           <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
@@ -537,7 +558,7 @@ const ChangeRow = memo(function ChangeRow(props: {
               size="icon-micro"
               variant="ghost"
               aria-label={`More for ${entry.path}`}
-              className="shrink-0"
+              className="size-6 shrink-0"
             />
           }
         >
@@ -552,7 +573,14 @@ const ChangeRow = memo(function ChangeRow(props: {
               onClick={action.onClick}
             >
               {action.icon}
-              {action.label}
+              {action.disabledReason ? (
+                <span className="flex min-w-0 flex-col">
+                  <span>{action.label}</span>
+                  <span className="text-muted-foreground text-xs">{action.disabledReason}</span>
+                </span>
+              ) : (
+                action.label
+              )}
             </MenuItem>
           ))}
         </MenuPopup>

@@ -1053,6 +1053,8 @@ describe("mostConstrainedLimit", () => {
     );
     expect(headline).toMatchObject({
       title: "Claude · 5-hour limit",
+      windowName: "5-hour limit",
+      resetsAt: now + 2 * 60 * 60 * 1000,
       remainingLabel: "64% left",
       detail: "resets in 2h 0m · under pace",
       pace: "under",
