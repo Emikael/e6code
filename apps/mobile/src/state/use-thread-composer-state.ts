@@ -1,3 +1,4 @@
+import { htmlRenderPlaceholderMessages } from "../lib/htmlRenderPlaceholders";
 import { htmlRendersByTurnId } from "@e6tools/shared/htmlRender";
 import type { ComposerTextPaste } from "../native/E6ComposerEditor.types";
 import { useAtomValue } from "@effect/atom-react";
@@ -208,7 +209,13 @@ export function useThreadComposerState() {
     [selectedThreadActivities],
   );
   const selectedThreadFeed = useMemo(() => {
-    const loadedMessages = selectedThreadMessages ?? [];
+    const serverMessages = selectedThreadMessages ?? [];
+    const placeholders = htmlRenderPlaceholderMessages(
+      serverMessages,
+      selectedThreadActivities ?? [],
+    );
+    const loadedMessages =
+      placeholders.length > 0 ? [...serverMessages, ...placeholders] : serverMessages;
     const feed =
       (selectedThreadMessages && selectedThreadActivities) || pendingCreationMessage !== null
         ? buildThreadFeed({
