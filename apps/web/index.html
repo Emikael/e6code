@@ -217,6 +217,85 @@
           }
         };
 
+        // The stylesheet's stock accent literals are Graphite at contrast 120,
+        // the defaults. A stored profile with another accent or contrast
+        // writes the same inline variables stockAccent.ts and
+        // appearanceContrast.ts write, before first paint, so it does not
+        // flash the default. Desktop keeps settings in a file the page cannot
+        // read this early, so it may show the default for a frame.
+        // Keep this copy in sync with STOCK_ACCENT_PALETTES (themeBoot.test.ts).
+        const CLIENT_SETTINGS_STORAGE_KEY = "e6code:client-settings:v1";
+        const STOCK_ACCENT_BOOT_PALETTES = {
+          iris: {
+            light: ["#5b4ae0", "#ffffff", "#4c3bd1", "#4a3ad0", "#4a3ad0", "#c026d3", "#a21caf"],
+            dark: ["#9b8cff", "#14102e", "#ada0ff", "#9b8cff", "#b9afff", "#e879f9", "#f39be6"],
+          },
+          cobalt: {
+            light: ["#0d47a1", "#ffffff", "#0b3d8f", "#0d47a1", "#0d47a1", "#c026d3", "#a21caf"],
+            dark: ["#6387f6", "#0a1433", "#7d9bf8", "#6387f6", "#9db4fa", "#e879f9", "#f39be6"],
+          },
+          rose: {
+            light: ["#d0246f", "#ffffff", "#b81d61", "#b81d61", "#b81d61", "#7c3aed", "#6d28d9"],
+            dark: ["#f472b6", "#2e0a1c", "#f78fc6", "#f472b6", "#f9a8d4", "#a78bfa", "#c4b5fd"],
+          },
+        };
+        const STOCK_ACCENT_BOOT_ROLES = [
+          "--stock-primary",
+          "--stock-primary-foreground",
+          "--stock-primary-hover",
+          "--stock-primary-edge",
+          "--stock-primary-text",
+          "--stock-merged",
+          "--stock-merged-foreground",
+        ];
+        const translucentHex = (hex, alphaPercent) => {
+          const [r, g, b] = [1, 3, 5].map((index) =>
+            Number.parseInt(hex.slice(index, index + 2), 16),
+          );
+          return `rgb(${r} ${g} ${b} / ${alphaPercent}%)`;
+        };
+        try {
+          const storedSettings = JSON.parse(
+            window.localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY) ?? "null",
+          );
+          if (isRecord(storedSettings)) {
+            const rootStyle = document.documentElement.style;
+            const accent = storedSettings.stockAccent;
+            const palette = Object.hasOwn(STOCK_ACCENT_BOOT_PALETTES, accent)
+              ? STOCK_ACCENT_BOOT_PALETTES[accent]
+              : null;
+            if (palette) {
+              STOCK_ACCENT_BOOT_ROLES.forEach((name, index) => {
+                rootStyle.setProperty(name, palette.light[index]);
+                rootStyle.setProperty(`${name}-dark`, palette.dark[index]);
+              });
+              rootStyle.setProperty(
+                "--stock-terminal-selection",
+                translucentHex(palette.light[0], 18),
+              );
+              rootStyle.setProperty(
+                "--stock-terminal-selection-dark",
+                translucentHex(palette.dark[0], 22),
+              );
+              rootStyle.setProperty("--stock-terminal-cursor-dark", palette.dark[0]);
+            }
+            const contrast = storedSettings.appearanceContrast;
+            if (Number.isInteger(contrast) && contrast >= 50 && contrast <= 200) {
+              rootStyle.setProperty("--appearance-contrast-base", `${Math.min(contrast, 100)}%`);
+              rootStyle.setProperty(
+                "--appearance-contrast-boost",
+                `${Math.max(contrast - 100, 0)}%`,
+              );
+              rootStyle.setProperty(
+                "--appearance-contrast-border-boost",
+                `${Math.max(contrast - 100, 0) / 4}%`,
+              );
+            }
+          }
+        } catch {
+          // Unreadable settings leave the stylesheet defaults in place.
+        }
+
         try {
           const storedTheme = window.localStorage.getItem("e6code:theme");
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;

@@ -1,4 +1,4 @@
-import { StockAccent } from "@e6tools/contracts/settings";
+import { DEFAULT_STOCK_ACCENT, StockAccent } from "@e6tools/contracts/settings";
 import { STOCK_ACCENT_PALETTES } from "@e6tools/shared/themePalettes";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -32,6 +32,23 @@ describe("getStockAccentVariableOverrides", () => {
       // Material You brings the system accent.
       expect(getStockAccentVariableOverrides("material-you", "rose", appearance)).toEqual({});
     }
+  });
+
+  it.each(APPEARANCES)("draws the default accent over the Iris palette in %s", (appearance) => {
+    // The default is Graphite while the generated palette is Iris, so a fresh
+    // profile must get Graphite overrides rather than the palette's own accent.
+    const accent = STOCK_ACCENT_PALETTES[DEFAULT_STOCK_ACCENT][appearance];
+    expect(DEFAULT_STOCK_ACCENT).toBe("graphite");
+    expect(
+      getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, DEFAULT_STOCK_ACCENT, appearance),
+    ).toMatchObject({
+      "--color-primary": accent.primary,
+      "--color-primary-text": accent.primaryText,
+      "--color-merged-foreground": accent.mergedForeground,
+    });
+    expect(
+      getStockAccentTerminalCursor(DEFAULT_MOBILE_THEME_ID, DEFAULT_STOCK_ACCENT, "dark"),
+    ).toBe(STOCK_ACCENT_PALETTES.graphite.dark.primary);
   });
 
   it.each(APPEARANCES)(
