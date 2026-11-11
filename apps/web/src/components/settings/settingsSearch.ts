@@ -175,6 +175,32 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "attention-notifications",
+    title: "Notify me",
+    to: "/settings/attention",
+    searchTerms: [
+      "notifications thread notifications desktop system alert blocked approval question failed every update off in-app toast",
+    ],
+  },
+  {
+    id: "notify-watched-threads",
+    title: "Tell me when my thread finishes",
+    to: "/settings/attention",
+    searchTerms: ["notification watched waiting completion finished done turn"],
+  },
+  {
+    id: "hold-finished-threads",
+    title: "Hold other finished threads until a pause",
+    to: "/settings/attention",
+    searchTerms: ["notification digest batch breakpoint pause typing interrupt finished"],
+  },
+  {
+    id: "attention-sound",
+    title: "Sound",
+    to: "/settings/attention",
+    searchTerms: ["notification sound audio chime alert blocked"],
+  },
+  {
     id: "needs-you-section",
     title: "Needs you at the top of the sidebar",
     to: "/settings/attention",
@@ -332,18 +358,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
-  },
-  {
-    id: "thread-notifications",
-    title: "Thread notifications",
-    to: "/settings/general",
-    searchTerms: ["notification sound alert completion input approval desktop"],
-  },
-  {
-    id: "in-app-notifications",
-    title: "In-app notifications",
-    to: "/settings/general",
-    searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
     id: "time-format",

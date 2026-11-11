@@ -223,13 +223,13 @@ const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
   kind: "both-shift-keys",
 };
 
-export const NotificationMode = Schema.Literals([
-  "off",
-  "notifications",
-  "sound",
-  "notifications-and-sound",
-]);
-export type NotificationMode = typeof NotificationMode.Type;
+/**
+ * Which thread events notify you: only when an agent is blocked on you
+ * (approval, question, failure), every update, or nothing. With "off" the
+ * sidebar section and tab title still update.
+ */
+export const AttentionNotifications = Schema.Literals(["blocked", "all", "off"]);
+export type AttentionNotifications = typeof AttentionNotifications.Type;
 
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
@@ -317,10 +317,21 @@ export type StockAccent = typeof StockAccent.Type;
 export const DEFAULT_STOCK_ACCENT: StockAccent = "graphite";
 
 export const ClientSettingsSchema = Schema.Struct({
-  notificationMode: NotificationMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("off" as const)),
+  // Attention page, Notifications. Deliberately fresh keys (were
+  // `notificationMode` and `inAppNotificationsEnabled`): decoding drops the
+  // old keys, so everyone, including prior opt-outs, starts at "notify when
+  // an agent is blocked".
+  attentionNotifications: AttentionNotifications.pipe(
+    Schema.withDecodingDefault(Effect.succeed("blocked" as const)),
   ),
-  inAppNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** A thread you sent a message to notifies when that turn finishes. */
+  notifyWatchedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Other finished threads wait for a pause and arrive as one digest. */
+  holdFinishedUntilBreakpoint: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  /** One short sound when an agent is blocked. */
+  attentionSoundEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   diffColorScheme: DiffColorScheme.pipe(
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
@@ -1629,8 +1640,10 @@ export const ServerSettingsPatch = Schema.Struct({
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
-  notificationMode: Schema.optionalKey(NotificationMode),
-  inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
+  attentionNotifications: Schema.optionalKey(AttentionNotifications),
+  notifyWatchedThreads: Schema.optionalKey(Schema.Boolean),
+  holdFinishedUntilBreakpoint: Schema.optionalKey(Schema.Boolean),
+  attentionSoundEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   effortDisplay: Schema.optionalKey(EffortDisplay),

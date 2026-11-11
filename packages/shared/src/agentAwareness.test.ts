@@ -173,7 +173,7 @@ describe("projectThreadAwareness", () => {
 
     expect(state).toMatchObject({
       phase: "failed",
-      headline: "Agent failed",
+      headline: "Thread failed",
       detail: "Provider process exited.",
     });
   });

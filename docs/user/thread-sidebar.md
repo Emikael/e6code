@@ -171,3 +171,19 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
+## Get notified
+
+On web and desktop, E6 Code tells you when an agent is blocked on you: it needs
+an approval, asks a question, or fails. While you work in another thread you
+get a notice in the app; while E6 Code is in the background you get a system
+notification. The thread you sent a message to also tells you when it finishes.
+Other finished threads wait until you pause (you send, switch thread, return to
+the window, or stop typing for 20 seconds) and arrive together.
+
+The first time an agent works in a browser, a card in the thread offers to turn
+system notifications on. Browsers keep this permission per address, so a new
+address or tunnel asks again. Change what notifies you, holding, and sound in
+**Settings → Attention → Notifications**. With notifications off, the sidebar's
+Needs you section and the tab title still show what is waiting. For phones, see
+[Mobile notifications](mobile-notifications.md).

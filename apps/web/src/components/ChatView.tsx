@@ -9,6 +9,7 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
+import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
 import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
@@ -52,6 +53,7 @@ import {
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
+  PROVIDER_DISPLAY_NAMES,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderInteractionMode,
   ProviderDriverKind,
@@ -174,6 +176,7 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
+import { noteThreadTurnSent } from "../threadWatchStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
   latestWorkspaceMutationId,
@@ -1573,7 +1576,17 @@ export default function ChatView(props: ChatViewProps) {
   const setThreadInteractionMode = useAtomCommand(threadEnvironment.setInteractionMode, {
     reportFailure: false,
   });
-  const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const startThreadTurnCommand = useAtomCommand(threadEnvironment.startTurn, {
+    reportFailure: false,
+  });
+  // Every send is a notification breakpoint and watches its thread.
+  const startThreadTurn = useCallback(
+    (args: Parameters<typeof startThreadTurnCommand>[0]) => {
+      noteThreadTurnSent(args.environmentId, args.input.threadId);
+      return startThreadTurnCommand(args);
+    },
+    [startThreadTurnCommand],
+  );
   const createAttachmentAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
     refresh: true,
@@ -6947,7 +6960,17 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     providerStatuses,
   ]);
+  const notificationPermissionBannerItem = useNotificationPermissionBannerItem({
+    working: phase === "running",
+    providerLabel: activeThread?.session?.providerName
+      ? ((PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[
+          activeThread.session.providerName
+        ] ?? null)
+      : null,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const notificationPermissionItems =
+      notificationPermissionBannerItem === null ? [] : [notificationPermissionBannerItem];
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -6966,6 +6989,7 @@ export default function ChatView(props: ChatViewProps) {
         ...resumeCompactionItems,
         ...wokeThreadItems,
         ...parkedThreadItems,
+        ...notificationPermissionItems,
       ];
     }
     return [
@@ -7015,9 +7039,11 @@ export default function ChatView(props: ChatViewProps) {
         },
       },
       ...parkedThreadItems,
+      ...notificationPermissionItems,
     ];
   }, [
     activeBranchMismatchKey,
+    notificationPermissionBannerItem,
     feedbackBannerItems,
     handoffBanner,
     handleRestoreThreadBranch,

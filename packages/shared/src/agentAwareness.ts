@@ -116,6 +116,8 @@ function resolveThreadAwarenessPhase(
   return null;
 }
 
+// Blocked, failed and finished read like the web and desktop notifications,
+// so a push and a desktop alert for one event say the same thing.
 function headlineForPhase(phase: AgentAwarenessPhase): string {
   switch (phase) {
     case "starting":
@@ -125,11 +127,11 @@ function headlineForPhase(phase: AgentAwarenessPhase): string {
     case "waiting_for_approval":
       return "Approval needed";
     case "waiting_for_input":
-      return "Waiting for input";
+      return "Input needed";
     case "completed":
-      return "Agent finished";
+      return "Thread completed";
     case "failed":
-      return "Agent failed";
+      return "Thread failed";
     case "stale":
       return "Update delayed";
   }
