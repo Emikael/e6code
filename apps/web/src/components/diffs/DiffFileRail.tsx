@@ -1,6 +1,7 @@
 import { ChevronDownIcon, ChevronRightIcon, PanelLeftCloseIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import type { DiffReviewStatus } from "~/diffReviewStore";
 import { cn } from "~/lib/utils";
 
 import { DiffStat } from "../DiffStat";
@@ -12,6 +13,7 @@ import {
   visibleRailRows,
   type DiffRailRow,
 } from "./diffFileRail.logic";
+import { DiffReviewTick } from "./DiffReviewTick";
 
 /** The rail's width at every scope, so switching scope never moves the diff beside it. */
 export const DIFF_FILE_RAIL_CLASS_NAME =
@@ -53,6 +55,9 @@ export function DiffFileRailHeader(props: {
  */
 export function DiffFileRail(props: {
   readonly rows: readonly DiffRailRow[] | null;
+  /** Each file's review mark, when review marks are kept here. */
+  readonly reviewStatusOf: ((path: string) => DiffReviewStatus) | null;
+  readonly reviewedCount: number;
   readonly currentPath: string | null;
   readonly onSelect: (path: string) => void;
   readonly onHide: () => void;
@@ -61,7 +66,11 @@ export function DiffFileRail(props: {
   const view = props.rows ? visibleRailRows(props.rows, showGenerated) : null;
   return (
     <nav aria-label="Changed files" className={DIFF_FILE_RAIL_CLASS_NAME}>
-      <DiffFileRailHeader fileCount={props.rows?.length ?? null} onHide={props.onHide} />
+      <DiffFileRailHeader
+        fileCount={props.rows?.length ?? null}
+        meta={props.rows && props.reviewStatusOf ? `${props.reviewedCount} reviewed` : null}
+        onHide={props.onHide}
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2.5">
         {view === null ? (
           // The rows' space is held while the diff loads, so nothing jumps when it arrives.
@@ -79,6 +88,7 @@ export function DiffFileRail(props: {
               <DiffFileRailRow
                 key={row.path}
                 row={row}
+                status={props.reviewStatusOf?.(row.path) ?? null}
                 current={row.path === props.currentPath}
                 onSelect={props.onSelect}
               />
@@ -109,10 +119,14 @@ export function DiffFileRail(props: {
 
 function DiffFileRailRow(props: {
   readonly row: DiffRailRow;
+  readonly status: DiffReviewStatus | null;
   readonly current: boolean;
   readonly onSelect: (path: string) => void;
 }) {
-  const { row } = props;
+  const { row, status } = props;
+  const caption = [row.folder, status === "changed" ? "changed since review" : null]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <button
       type="button"
@@ -120,17 +134,23 @@ function DiffFileRailRow(props: {
       onClick={() => props.onSelect(row.path)}
       className={cn(
         "flex w-full shrink-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        row.folder ? "min-h-[46px]" : "min-h-8",
+        caption ? "min-h-[46px]" : "min-h-8",
         props.current
           ? "bg-sidebar-row-selected ring-1 ring-inset ring-primary-edge"
           : "hover:bg-accent",
       )}
     >
+      {status ? <DiffReviewTick status={status} /> : null}
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-mono text-xs">{row.name}</span>
-        {row.folder ? (
-          <span className="truncate text-muted-foreground text-xs">{row.folder}</span>
-        ) : null}
+        <span
+          className={cn(
+            "truncate font-mono text-xs",
+            status === "reviewed" && "text-muted-foreground",
+          )}
+        >
+          {row.name}
+        </span>
+        {caption ? <span className="truncate text-muted-foreground text-xs">{caption}</span> : null}
       </span>
       <DiffStat
         tone="neutral"

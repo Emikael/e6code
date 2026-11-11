@@ -23,6 +23,7 @@ import {
   type ReactNode,
 } from "react";
 
+import type { DiffReviewStatus } from "~/diffReviewStore";
 import { readLocalApi } from "~/localApi";
 import { cn, randomUUID } from "~/lib/utils";
 import { useGitStackedAction } from "~/state/sourceControlActions";
@@ -36,6 +37,7 @@ import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { DiffReviewTick } from "./DiffReviewTick";
 
 export type DiffChangesSection = "staged" | "unstaged";
 
@@ -52,6 +54,8 @@ interface DiffChangesPanelProps {
    * makes. The owner remembers handled requests, so remounting this panel never refocuses.
    */
   readonly consumeCommitFocusRequest?: () => boolean;
+  /** Each file's review mark, when the Diff tab keeps them for this scope. */
+  readonly reviewStatusOf?: ((path: string) => DiffReviewStatus) | null;
 }
 
 const KIND_TONE: Record<VcsFileChangeKind, string> = {
@@ -96,6 +100,7 @@ export function DiffChangesPanel({
   selected,
   onSelectFile,
   consumeCommitFocusRequest,
+  reviewStatusOf = null,
 }: DiffChangesPanelProps) {
   const commitBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -286,6 +291,7 @@ export function DiffChangesPanel({
               },
             ]}
             onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
+            reviewStatusOf={reviewStatusOf}
           />
         ) : null}
         <ChangeSection
@@ -315,6 +321,7 @@ export function DiffChangesPanel({
             },
           ]}
           onSelect={(entry) => onSelectFile(entry.path, "staged")}
+          reviewStatusOf={reviewStatusOf}
           onToggle={commitPendingReason ? undefined : (entry) => unstageEntries([entry])}
         />
         <ChangeSection
@@ -358,6 +365,7 @@ export function DiffChangesPanel({
             },
           ]}
           onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
+          reviewStatusOf={reviewStatusOf}
           onToggle={commitPendingReason ? undefined : (entry) => stagePaths([entry.path])}
         />
       </div>
@@ -422,6 +430,7 @@ function ChangeSection(props: {
   readonly actions: ReactNode;
   readonly renderRowActions: (entry: VcsChangeEntry) => ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
+  readonly reviewStatusOf: ((path: string) => DiffReviewStatus) | null;
   /** Space on a focused row moves it to the other section. */
   readonly onToggle?: ((entry: VcsChangeEntry) => void) | undefined;
 }) {
@@ -441,6 +450,7 @@ function ChangeSection(props: {
             key={entry.path}
             entry={entry}
             selected={entry.path === props.selectedPath}
+            reviewStatus={props.reviewStatusOf?.(entry.path) ?? null}
             actions={props.renderRowActions(entry)}
             onSelect={props.onSelect}
             onToggle={props.onToggle}
@@ -451,9 +461,16 @@ function ChangeSection(props: {
   );
 }
 
+const REVIEW_STATUS_WORDS: Record<DiffReviewStatus, string> = {
+  reviewed: "reviewed",
+  changed: "changed since review",
+  unreviewed: "not reviewed",
+};
+
 const ChangeRow = memo(function ChangeRow(props: {
   readonly entry: VcsChangeEntry;
   readonly selected: boolean;
+  readonly reviewStatus: DiffReviewStatus | null;
   readonly actions: ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
   readonly onToggle: ((entry: VcsChangeEntry) => void) | undefined;
@@ -477,10 +494,13 @@ const ChangeRow = memo(function ChangeRow(props: {
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`${entry.previousPath ? `${entry.previousPath} renamed to ${entry.path}` : entry.path}, ${vcsChangeKindLabel(entry.kind)}${entry.mixed ? ", also in the other section" : ""}`}
+        aria-label={`${entry.previousPath ? `${entry.previousPath} renamed to ${entry.path}` : entry.path}, ${vcsChangeKindLabel(entry.kind)}${entry.mixed ? ", also in the other section" : ""}${props.reviewStatus ? `, ${REVIEW_STATUS_WORDS[props.reviewStatus]}` : ""}`}
         onClick={() => props.onSelect(entry)}
         onKeyDown={onKeyDown}
       >
+        {props.reviewStatus ? (
+          <DiffReviewTick status={props.reviewStatus} decorative className="size-3.5" />
+        ) : null}
         <span className="min-w-0 shrink truncate text-foreground">{name}</span>
         {directory ? (
           <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">

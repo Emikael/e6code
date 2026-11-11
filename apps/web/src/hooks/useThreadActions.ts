@@ -46,6 +46,7 @@ import { useClientSettings } from "./useSettings";
 import * as ThreadUndo from "./threadUndo";
 import { showUndoToast } from "./showUndoToast";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useDiffReviewStore } from "../diffReviewStore";
 
 export class ThreadArchiveBlockedError extends Schema.TaggedError<ThreadArchiveBlockedError>()(
   "ThreadArchiveBlockedError",
@@ -313,6 +314,8 @@ export function useThreadActions() {
         markThreadVisited(scopedThreadKey(threadRef), wokeAt);
       }
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+      // Review marks are per device and advisory; an archived thread's are not kept.
+      useDiffReviewStore.getState().forgetThread(scopedThreadKey(threadRef));
       opts.onArchived?.();
       if (opts.silent) {
         action.finish();
@@ -456,6 +459,7 @@ export function useThreadActions() {
         threadRef,
       );
       clearTerminalUiState(threadRef);
+      useDiffReviewStore.getState().forgetThread(scopedThreadKey(threadRef));
 
       if (shouldNavigateToFallback) {
         const fallbackThread = fallbackThreadId

@@ -51,7 +51,9 @@ import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/Ann
 import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPanel";
 import { DIFF_FILE_RAIL_CLASS_NAME, DiffFileRail, DiffFileRailHeader } from "./diffs/DiffFileRail";
 import { diffRailRows, FILE_RAIL_OPEN_MIN_WIDTH, isFileRailOpen } from "./diffs/diffFileRail.logic";
+import { DiffReviewToggle } from "./diffs/DiffReviewTick";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
+import { diffReviewFingerprint, useDiffReviewView } from "../diffReviewStore";
 import {
   diffPinState,
   newerChangeCount,
@@ -621,6 +623,28 @@ export default function DiffPanel({
     [fileStats, renderableFiles],
   );
   const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
+  // Review marks: per thread and scope, keyed by what each file looks like now.
+  const reviewFiles = useMemo(
+    () =>
+      renderableFiles.map((fileDiff, index) => {
+        const row = railRows[index]!;
+        return {
+          path: row.path,
+          fingerprint: diffReviewFingerprint({
+            fileDiff: fileDiff.cacheKey?.endsWith(":pending") === true ? null : fileDiff,
+            additions: row.additions,
+            deletions: row.deletions,
+            ignoreWhitespace: diffIgnoreWhitespace,
+          }),
+        };
+      }),
+    [diffIgnoreWhitespace, railRows, renderableFiles],
+  );
+  const review = useDiffReviewView({
+    threadKey: routeThreadRef ? scopedThreadKey(routeThreadRef) : null,
+    scope: reviewSectionId,
+    files: reviewFiles,
+  });
   const selectedDiffFileKey = selectedFilePath
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
@@ -725,6 +749,27 @@ export default function DiffPanel({
       });
     },
     [collapseScopeKey, defaultCollapsedDiffFileKeys],
+  );
+
+  // Marking a file reviewed folds it, so the next one comes up; unmarking leaves it as it is.
+  const setReviewViewed = review.setViewed;
+  const setFileReviewed = useCallback(
+    (filePath: string, reviewed: boolean) => {
+      setReviewViewed(filePath, reviewed);
+      if (!reviewed) return;
+      const file = renderableFileEntries.find(
+        (candidate) => resolveFileDiffPath(candidate.fileDiff) === filePath,
+      );
+      if (!file) return;
+      setCollapsedDiffFiles((current) => {
+        const next = new Set(
+          current.scopeKey === collapseScopeKey ? current.fileKeys : defaultCollapsedDiffFileKeys,
+        );
+        next.add(file.fileKey);
+        return { scopeKey: collapseScopeKey, fileKeys: next };
+      });
+    },
+    [collapseScopeKey, defaultCollapsedDiffFileKeys, renderableFileEntries, setReviewViewed],
   );
 
   const setAllDiffFilesCollapsed = useCallback(
@@ -1123,6 +1168,7 @@ export default function DiffPanel({
                 <nav aria-label="Changed files" className={DIFF_FILE_RAIL_CLASS_NAME}>
                   <DiffFileRailHeader
                     fileCount={workingTreeFiles?.length ?? null}
+                    meta={review.enabled ? `${review.viewedCount} reviewed` : null}
                     onHide={() => setRailOpen(false)}
                   />
                   <DiffChangesPanel
@@ -1133,11 +1179,14 @@ export default function DiffPanel({
                     selected={changedFileReveal}
                     onSelectFile={selectChangedFile}
                     consumeCommitFocusRequest={consumeCommitFocusRequest}
+                    reviewStatusOf={review.enabled ? review.statusOf : null}
                   />
                 </nav>
               ) : (
                 <DiffFileRail
                   rows={railRowsReady ? railRows : null}
+                  reviewStatusOf={review.enabled ? review.statusOf : null}
+                  reviewedCount={review.viewedCount}
                   currentPath={railCurrentPath ?? selectedFilePath}
                   onSelect={selectRailFile}
                   onHide={() => setRailOpen(false)}
@@ -1260,18 +1309,30 @@ export default function DiffPanel({
                         ? {
                             unsafeCSSExtra:
                               "[data-additions-count], [data-deletions-count] { display: none; }",
-                            renderHeaderMetadata: (fileDiff: FileDiffMetadata) => {
-                              const stat = fileStats.get(resolveFileDiffPath(fileDiff));
-                              return stat ? (
-                                <DiffStat
-                                  additions={stat.additions}
-                                  deletions={stat.deletions}
-                                  layout="aligned"
-                                />
-                              ) : null;
-                            },
                           }
                         : {})}
+                      renderHeaderMetadata={(fileDiff: FileDiffMetadata) => {
+                        const path = resolveFileDiffPath(fileDiff);
+                        const stat = lazySource ? fileStats.get(path) : undefined;
+                        return (
+                          <span className="flex items-center gap-2">
+                            {stat ? (
+                              <DiffStat
+                                additions={stat.additions}
+                                deletions={stat.deletions}
+                                layout="aligned"
+                              />
+                            ) : null}
+                            {review.enabled ? (
+                              <DiffReviewToggle
+                                path={path}
+                                status={review.statusOf(path)}
+                                onToggle={setFileReviewed}
+                              />
+                            ) : null}
+                          </span>
+                        );
+                      }}
                       renderHeaderPrefix={(fileDiff, fileKey) => {
                         const unavailable = fileDiff.cacheKey?.endsWith(":pending") === true;
                         const collapsed = unavailable || collapsedDiffFileKeys.has(fileKey);

@@ -27,7 +27,9 @@ import type {
   ThreadUsageTotal,
   TurnId,
   UsageLimitsReport,
+  VcsWorkingTreeFile,
 } from "@e6tools/contracts";
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
 import { mostConstrainedLimit } from "@e6tools/shared/usageLimits";
 import { formatDuration } from "@e6tools/shared/orchestrationTiming";
 import { describeThreadUsage } from "@e6tools/client-runtime/work-log/turn-usage";
@@ -84,10 +86,12 @@ import { type DiffPanelFocusTarget } from "~/diffPanelStore";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
+import { diffReviewFingerprint, reviewedCountLabel, useDiffReviewView } from "~/diffReviewStore";
 import { useSubagentSelectionStore } from "~/subagentSelectionStore";
 import { type RunDetailsSectionId, useUiStateStore } from "~/uiStateStore";
 import type { ActivePlanState } from "~/session-logic";
 import { DiffStat } from "./DiffStat";
+import { DiffReviewTick } from "./diffs/DiffReviewTick";
 import {
   isRunDetailsSectionOpen,
   planLimitReading,
@@ -330,6 +334,8 @@ function PlanSection({ plan }: { plan: ActivePlanState }) {
   );
 }
 
+const EMPTY_WORKING_TREE_FILES: ReadonlyArray<VcsWorkingTreeFile> = [];
+
 /**
  * The working tree: its files, then Review changes (Diff), Commit (Diff at its commit box) and
  * Push. Space is reserved while status loads; hidden outside Git repositories.
@@ -357,9 +363,28 @@ function ChangesSection({
     activeThreadRef: threadRef,
     gitStatus: status ?? null,
   });
+  const files = status?.workingTree.files ?? EMPTY_WORKING_TREE_FILES;
+  // Marks made in the Diff tab's Uncommitted scope, matched by each file's counts.
+  const reviewFiles = useMemo(
+    () =>
+      files.map((file) => ({
+        path: file.path,
+        fingerprint: diffReviewFingerprint({
+          fileDiff: null,
+          additions: file.insertions,
+          deletions: file.deletions,
+          ignoreWhitespace: false,
+        }),
+      })),
+    [files],
+  );
+  const review = useDiffReviewView({
+    threadKey: scopedThreadKey(threadRef),
+    scope: "uncommitted",
+    files: reviewFiles,
+  });
   if (status && !status.isRepo) return null;
 
-  const files = status?.workingTree.files ?? [];
   const ahead = status?.aheadCount ?? 0;
   const behind = status?.behindCount ?? 0;
   const visibleFiles = showAll ? files : files.slice(0, RUN_DETAILS_CHANGES_PREVIEW_LIMIT);
@@ -374,11 +399,14 @@ function ChangesSection({
       onToggle={toggle}
       meta={
         status && files.length > 0 ? (
-          <DiffStat
-            tone="neutral"
-            additions={status.workingTree.insertions}
-            deletions={status.workingTree.deletions}
-          />
+          <>
+            <DiffStat
+              tone="neutral"
+              additions={status.workingTree.insertions}
+              deletions={status.workingTree.deletions}
+            />
+            {` · ${reviewedCountLabel(review.viewedCount, files.length)}`}
+          </>
         ) : null
       }
     >
@@ -390,9 +418,16 @@ function ChangesSection({
         <div className={cn(CARD_CLASS_NAME, "flex flex-col p-1")}>
           <ul className="flex flex-col">
             {visibleFiles.map((file) => {
+              const reviewStatus = review.statusOf(file.path);
               const content = (
                 <>
-                  <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
+                  <DiffReviewTick status={reviewStatus} />
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left font-mono text-xs",
+                      reviewStatus === "reviewed" && MUTED,
+                    )}
+                  >
                     {file.path}
                   </span>
                   <DiffStat
@@ -408,7 +443,7 @@ function ChangesSection({
                   {onFocusDiff ? (
                     <button
                       type="button"
-                      aria-label={`Open diff of ${file.path}`}
+                      aria-label={`Open diff of ${file.path}, ${reviewStatus === "reviewed" ? "reviewed" : reviewStatus === "changed" ? "changed since review" : "not reviewed"}`}
                       onClick={() => onFocusDiff({ kind: "file", path: file.path })}
                       className="flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                     >
