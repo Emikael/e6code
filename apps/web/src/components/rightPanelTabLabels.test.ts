@@ -5,6 +5,7 @@ import {
   overflowMenuLabel,
   runningTerminalCount,
   surfaceTitle,
+  surfaceTitleParts,
   tabsOutOfView,
 } from "./rightPanelTabLabels";
 
@@ -73,6 +74,22 @@ describe("surfaceTitle", () => {
     expect(
       surfaceTitle({ id: "pull-requests", kind: "pull-requests" }, NO_SESSIONS, NO_LABELS),
     ).toBe("Pull requests");
+  });
+});
+
+describe("surfaceTitleParts", () => {
+  it("keeps the state apart from the name, so truncating the name never drops it", () => {
+    expect(
+      surfaceTitleParts(terminal, NO_SESSIONS, new Map([["term-1", "a very long dev server"]]), {
+        runningTerminalIds: new Set(["term-1"]),
+      }),
+    ).toEqual({ name: "a very long dev server", state: "1 running" });
+    expect(
+      surfaceTitleParts(pullRequest, NO_SESSIONS, NO_LABELS, {
+        pullRequestStatus: { state: "open", isDraft: false },
+      }),
+    ).toEqual({ name: "#412", state: "Open" });
+    expect(surfaceTitleParts(diff, NO_SESSIONS, NO_LABELS)).toEqual({ name: "Diff", state: null });
   });
 });
 

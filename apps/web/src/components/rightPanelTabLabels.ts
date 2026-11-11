@@ -28,6 +28,74 @@ export function runningTerminalCount(
   return surface.terminalIds.filter((terminalId) => runningTerminalIds.has(terminalId)).length;
 }
 
+/** A tab's name and, apart, its state in words, so a strip can truncate the name alone. */
+export interface SurfaceTitleParts {
+  readonly name: string;
+  /** "5 files", "Open", "1 running"; null when the tab has nothing to say. */
+  readonly state: string | null;
+}
+
+/** The parts of `surfaceTitle`, for a label that must keep its state visible when space runs out. */
+export function surfaceTitleParts(
+  surface: RightPanelSurface,
+  sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
+  terminalLabelsById: ReadonlyMap<string, string>,
+  state: SurfaceTitleState = {},
+): SurfaceTitleParts {
+  switch (surface.kind) {
+    case "diff": {
+      const count = state.changedFileCount ?? 0;
+      return {
+        name: "Diff",
+        state: count > 0 ? `${count} ${count === 1 ? "file" : "files"}` : null,
+      };
+    }
+    case "files":
+      return { name: "Files", state: null };
+    case "file":
+      return {
+        name: surface.relativePath.slice(
+          Math.max(surface.relativePath.lastIndexOf("/"), surface.relativePath.lastIndexOf("\\")) +
+            1,
+        ),
+        state: null,
+      };
+    case "terminal": {
+      const label =
+        terminalLabelsById.get(surface.activeTerminalId) ??
+        getTerminalLabel(surface.activeTerminalId);
+      const running = runningTerminalCount(surface, state.runningTerminalIds);
+      return { name: label, state: running > 0 ? `${running} running` : null };
+    }
+    case "pull-request": {
+      const status = state.pullRequestStatus;
+      if (!status) return { name: `#${surface.number}`, state: null };
+      const key = status.state === "open" && status.isDraft ? "draft" : status.state;
+      return { name: `#${surface.number}`, state: PULL_REQUEST_STATE_PRESENTATION[key].label };
+    }
+    case "pull-requests":
+      return { name: "Pull requests", state: null };
+    case "device":
+      return { name: surface.title ?? surface.target?.name ?? "Device", state: null };
+    case "preview":
+      return { name: previewTitle(surface, sessions), state: null };
+  }
+}
+
+function previewTitle(
+  surface: Extract<RightPanelSurface, { kind: "preview" }>,
+  sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
+): string {
+  const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
+  if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
+  if (snapshot.navStatus.title.trim().length > 0) return snapshot.navStatus.title;
+  try {
+    return new URL(snapshot.navStatus.url).host || "Browser";
+  } catch {
+    return "Browser";
+  }
+}
+
 /**
  * A tab's name, followed by its state in words when `state` carries it: "Diff · 5 files",
  * "#412 · Open", "Terminal 1 · 1 running". Without `state` it is the bare name, used where the
@@ -39,45 +107,8 @@ export function surfaceTitle(
   terminalLabelsById: ReadonlyMap<string, string>,
   state: SurfaceTitleState = {},
 ): string {
-  switch (surface.kind) {
-    case "diff": {
-      const count = state.changedFileCount ?? 0;
-      return count > 0 ? `Diff · ${count} ${count === 1 ? "file" : "files"}` : "Diff";
-    }
-    case "files":
-      return "Files";
-    case "file":
-      return surface.relativePath.slice(
-        Math.max(surface.relativePath.lastIndexOf("/"), surface.relativePath.lastIndexOf("\\")) + 1,
-      );
-    case "terminal": {
-      const label =
-        terminalLabelsById.get(surface.activeTerminalId) ??
-        getTerminalLabel(surface.activeTerminalId);
-      const running = runningTerminalCount(surface, state.runningTerminalIds);
-      return running > 0 ? `${label} · ${running} running` : label;
-    }
-    case "pull-request": {
-      const status = state.pullRequestStatus;
-      if (!status) return `#${surface.number}`;
-      const key = status.state === "open" && status.isDraft ? "draft" : status.state;
-      return `#${surface.number} · ${PULL_REQUEST_STATE_PRESENTATION[key].label}`;
-    }
-    case "pull-requests":
-      return "Pull requests";
-    case "device":
-      return surface.title ?? surface.target?.name ?? "Device";
-    case "preview": {
-      const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
-      if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
-      if (snapshot.navStatus.title.trim().length > 0) return snapshot.navStatus.title;
-      try {
-        return new URL(snapshot.navStatus.url).host || "Browser";
-      } catch {
-        return "Browser";
-      }
-    }
-  }
+  const parts = surfaceTitleParts(surface, sessions, terminalLabelsById, state);
+  return parts.state ? `${parts.name} · ${parts.state}` : parts.name;
 }
 
 /** A tab's horizontal extent, in the same coordinates as the strip that shows it. */
