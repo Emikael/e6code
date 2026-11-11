@@ -545,7 +545,8 @@ const LineageRow = memo(function LineageRow({
       }),
   });
   return (
-    <div className="group/lineage relative flex min-w-0">
+    // The More button stays in view so its actions are never reachable by hover alone.
+    <div className="group/lineage relative flex min-w-0 items-center gap-0.5">
       <button
         type="button"
         data-lineage-row
@@ -554,7 +555,7 @@ const LineageRow = memo(function LineageRow({
         aria-label={`${agent.title}, ${SUBAGENT_STATUS_LABEL[tone]}`}
         onClick={() => onSelect(agent.id)}
         className={cn(
-          "flex h-7 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "flex h-7 min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
           // Selection takes the primary edge, the system's selected-outline role.
           selected
             ? "bg-accent ring-1 ring-inset ring-primary-edge"
@@ -566,17 +567,14 @@ const LineageRow = memo(function LineageRow({
         <SubagentStatusGlyph tone={tone} decorative />
         <SubagentElapsed
           agent={agent}
-          className={cn(
-            "min-w-14 shrink-0 text-right text-xs group-focus-within/lineage:invisible group-hover/lineage:invisible group-has-[[data-popup-open]]/lineage:invisible",
-            MUTED,
-          )}
+          className={cn("min-w-14 shrink-0 text-right text-xs", MUTED)}
         />
       </button>
       <Menu>
         <MenuTrigger
           aria-label={`More for ${agent.title}`}
           className={cn(
-            "absolute inset-y-0.5 end-0.5 inline-flex w-7 items-center justify-center rounded-[5px] opacity-0 outline-none transition-colors hover:bg-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-focus-within/lineage:opacity-100 group-hover/lineage:opacity-100 data-popup-open:bg-accent data-popup-open:opacity-100 pointer-coarse:opacity-100",
+            "inline-flex size-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-accent",
             MUTED,
           )}
         >

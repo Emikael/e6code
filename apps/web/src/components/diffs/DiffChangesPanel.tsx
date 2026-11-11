@@ -11,7 +11,7 @@ import {
   type VcsChangeEntry,
 } from "@e6tools/client-runtime/state/vcs";
 import type { EnvironmentId, VcsFileChangeKind, VcsWorkingTreeFile } from "@e6tools/contracts";
-import { MinusIcon, PlusIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import { EllipsisIcon, MinusIcon, PlusIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import { memo, useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { readLocalApi } from "~/localApi";
@@ -22,6 +22,7 @@ import { vcsEnvironment } from "~/state/vcs";
 
 import { DiffStat, hasNonZeroStat } from "../DiffStat";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -294,15 +295,14 @@ export function DiffChangesPanel({
             entries={sections.conflicts}
             selectedPath={selectedIn("unstaged")}
             actions={null}
-            renderRowActions={(entry) => (
-              <RowAction
-                label={`Mark ${entry.path} resolved`}
-                disabledReason={commitPendingReason}
-                onClick={() => stagePaths([entry.path])}
-              >
-                <PlusIcon />
-              </RowAction>
-            )}
+            renderRowActions={(entry) => [
+              {
+                label: "Mark resolved",
+                icon: <PlusIcon />,
+                disabledReason: commitPendingReason,
+                onClick: () => stagePaths([entry.path]),
+              },
+            ]}
             onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
           />
         ) : null}
@@ -324,15 +324,14 @@ export function DiffChangesPanel({
               </RowAction>
             ) : null
           }
-          renderRowActions={(entry) => (
-            <RowAction
-              label={`Unstage ${entry.path}`}
-              disabledReason={commitPendingReason}
-              onClick={() => unstageEntries([entry])}
-            >
-              <MinusIcon />
-            </RowAction>
-          )}
+          renderRowActions={(entry) => [
+            {
+              label: "Unstage",
+              icon: <MinusIcon />,
+              disabledReason: commitPendingReason,
+              onClick: () => unstageEntries([entry]),
+            },
+          ]}
           onSelect={(entry) => onSelectFile(entry.path, "staged")}
           onToggle={commitPendingReason ? undefined : (entry) => unstageEntries([entry])}
         />
@@ -361,26 +360,21 @@ export function DiffChangesPanel({
               </>
             ) : null
           }
-          renderRowActions={(entry) => (
-            <>
-              <RowAction
-                label={
-                  entry.kind === "untracked" ? `Delete ${entry.path}` : `Discard ${entry.path}`
-                }
-                disabledReason={discardDisabledReason}
-                onClick={() => void discardEntries([entry])}
-              >
-                {entry.kind === "untracked" ? <Trash2Icon /> : <Undo2Icon />}
-              </RowAction>
-              <RowAction
-                label={`Stage ${entry.path}`}
-                disabledReason={commitPendingReason}
-                onClick={() => stagePaths([entry.path])}
-              >
-                <PlusIcon />
-              </RowAction>
-            </>
-          )}
+          renderRowActions={(entry) => [
+            {
+              label: entry.kind === "untracked" ? "Delete" : "Discard",
+              icon: entry.kind === "untracked" ? <Trash2Icon /> : <Undo2Icon />,
+              disabledReason: discardDisabledReason,
+              destructive: true,
+              onClick: () => void discardEntries([entry]),
+            },
+            {
+              label: "Stage",
+              icon: <PlusIcon />,
+              disabledReason: commitPendingReason,
+              onClick: () => stagePaths([entry.path]),
+            },
+          ]}
           onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
           onToggle={commitPendingReason ? undefined : (entry) => stagePaths([entry.path])}
         />
@@ -389,13 +383,23 @@ export function DiffChangesPanel({
   );
 }
 
+/** One action on a change row, shown as a hover button and always listed in the row's More menu. */
+interface ChangeRowAction {
+  /** The verb alone, such as "Stage"; the hover button adds the path to its accessible name. */
+  readonly label: string;
+  readonly icon: ReactNode;
+  readonly disabledReason?: string | null;
+  readonly destructive?: boolean;
+  readonly onClick: () => void;
+}
+
 function ChangeSection(props: {
   readonly title: string;
   readonly entries: ReadonlyArray<VcsChangeEntry>;
   readonly selectedPath: string | null;
   readonly emptyHint?: string | null;
   readonly actions: ReactNode;
-  readonly renderRowActions: (entry: VcsChangeEntry) => ReactNode;
+  readonly renderRowActions: (entry: VcsChangeEntry) => ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
   /** Space on a focused row moves it to the other section. */
   readonly onToggle?: ((entry: VcsChangeEntry) => void) | undefined;
@@ -429,7 +433,7 @@ function ChangeSection(props: {
 const ChangeRow = memo(function ChangeRow(props: {
   readonly entry: VcsChangeEntry;
   readonly selected: boolean;
-  readonly actions: ReactNode;
+  readonly actions: ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
   readonly onToggle: ((entry: VcsChangeEntry) => void) | undefined;
 }) {
@@ -466,7 +470,16 @@ const ChangeRow = memo(function ChangeRow(props: {
         )}
       </button>
       <div className="hidden items-center group-focus-within/row:flex group-hover/row:flex pointer-coarse:flex">
-        {props.actions}
+        {props.actions.map((action) => (
+          <RowAction
+            key={action.label}
+            label={`${action.label} ${entry.path}`}
+            disabledReason={action.disabledReason ?? null}
+            onClick={action.onClick}
+          >
+            {action.icon}
+          </RowAction>
+        ))}
       </div>
       {entry.stat &&
       hasNonZeroStat({ additions: entry.stat.insertions, deletions: entry.stat.deletions }) ? (
@@ -495,6 +508,35 @@ const ChangeRow = memo(function ChangeRow(props: {
       >
         {vcsChangeKindLetter(entry.kind)}
       </span>
+      {/* Always in view, so the row's actions never depend on hover. */}
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              type="button"
+              size="icon-micro"
+              variant="ghost"
+              aria-label={`More for ${entry.path}`}
+              className="shrink-0"
+            />
+          }
+        >
+          <EllipsisIcon />
+        </MenuTrigger>
+        <MenuPopup align="end" className="min-w-40">
+          {props.actions.map((action) => (
+            <MenuItem
+              key={action.label}
+              disabled={Boolean(action.disabledReason)}
+              {...(action.destructive ? { variant: "destructive" as const } : {})}
+              onClick={action.onClick}
+            >
+              {action.icon}
+              {action.label}
+            </MenuItem>
+          ))}
+        </MenuPopup>
+      </Menu>
     </div>
   );
 });

@@ -43,6 +43,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
 import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
+import { PanelSurfaceHeader } from "~/components/panel/PanelSurfaceHeader";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { readTextFromClipboard, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
@@ -1019,6 +1020,10 @@ interface ThreadTerminalDrawerProps {
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
 }
 
+/** A terminal action in the panel's shared header: a 24px icon target. */
+const PANEL_HEADER_ACTION_CLASS =
+  "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-foreground/90 transition-colors hover:bg-accent";
+
 interface TerminalActionButtonProps {
   label: string;
   className: string;
@@ -1409,7 +1414,11 @@ export default function ThreadTerminalDrawer({
             onPointerUp={handleResizePointerEnd}
             onPointerCancel={handleResizePointerEnd}
           />
-        ) : null}
+        ) : (
+          <PanelSurfaceHeader>
+            <span className="text-xs text-muted-foreground">Terminal</span>
+          </PanelSurfaceHeader>
+        )}
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-6 text-center text-sm text-muted-foreground">
           <p>No terminal sessions for this thread yet.</p>
           <Button size="xs" variant="outline" onClick={onNewTerminalAction}>
@@ -1442,7 +1451,59 @@ export default function ThreadTerminalDrawer({
         />
       ) : null}
 
-      {!hasTerminalSidebar && (
+      {isPanel ? (
+        <PanelSurfaceHeader
+          actions={
+            hasTerminalSidebar ? null : (
+              <>
+                <TerminalActionButton
+                  className={cn(
+                    PANEL_HEADER_ACTION_CLASS,
+                    hasReachedSplitLimit && "cursor-not-allowed opacity-45 hover:bg-transparent",
+                  )}
+                  onClick={onSplitTerminalAction}
+                  label={splitTerminalActionLabel}
+                >
+                  <SquareSplitHorizontal className="size-3.5" />
+                </TerminalActionButton>
+                <TerminalActionButton
+                  className={cn(
+                    PANEL_HEADER_ACTION_CLASS,
+                    hasReachedSplitLimit && "cursor-not-allowed opacity-45 hover:bg-transparent",
+                  )}
+                  onClick={onSplitTerminalVerticalAction}
+                  label={splitTerminalVerticalActionLabel}
+                >
+                  <SquareSplitVertical className="size-3.5" />
+                </TerminalActionButton>
+                <TerminalActionButton
+                  className={PANEL_HEADER_ACTION_CLASS}
+                  onClick={onNewTerminalAction}
+                  label={newTerminalActionLabel}
+                >
+                  <Plus className="size-3.5" />
+                </TerminalActionButton>
+                <TerminalActionButton
+                  className={cn(
+                    PANEL_HEADER_ACTION_CLASS,
+                    "text-muted-foreground hover:bg-destructive/15 hover:text-destructive",
+                  )}
+                  onClick={() => confirmCloseTerminal(resolvedActiveTerminalId)}
+                  label={closeTerminalActionLabel}
+                >
+                  <Trash2 className="size-3.5" />
+                </TerminalActionButton>
+              </>
+            )
+          }
+        >
+          <span className="min-w-0 truncate font-mono text-xs text-foreground">
+            {terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
+          </span>
+        </PanelSurfaceHeader>
+      ) : null}
+
+      {!isPanel && !hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
           <div className="pointer-events-auto inline-flex items-center gap-1.5">
             <div className="inline-flex h-7 items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">

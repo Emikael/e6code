@@ -10236,7 +10236,6 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
         <DevicePanel
-          mode="embedded"
           threadRef={activeThreadRef}
           key={renderedRightPanelSurface.id}
           surface={renderedRightPanelSurface}
