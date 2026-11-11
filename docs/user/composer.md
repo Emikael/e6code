@@ -241,11 +241,11 @@ Android opens a compatible installed file viewer.
 Ask an agent for a chart, diagram, mockup, or small page and it can show the result
 in the thread, above its reply. Any provider can do this through E6 Code's built-in
 tools. Hover a page to open it full screen, open it in the side panel, or download its
-HTML. On mobile, tap **Full screen**. Pages run in a sandbox: they cannot access your
+HTML. On mobile, tap **Full screen**; Mermaid diagrams render on mobile too. Pages run in a sandbox: they cannot access your
 E6 Code session, and links open in your browser.
 
-To find everything a thread produced, choose **Artifacts** from the side panel's **+**
-menu or run **Show artifacts** from the command palette. The list includes rendered
+To find everything a thread produced, press `mod+shift+u`, choose **Artifacts** from
+the side panel's **+** menu, or run **Show artifacts** from the command palette. The list includes rendered
 pages and the pages, images, PDFs, and Mermaid files the agent changed.
 
 Fenced `mermaid` code blocks render as diagrams once the reply finishes; use the code

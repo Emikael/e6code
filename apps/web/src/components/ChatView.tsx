@@ -7329,6 +7329,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "artifacts.toggle") {
+        if (!activeThreadRef) return;
+        event.preventDefault();
+        event.stopPropagation();
+        useRightPanelStore.getState().toggle(activeThreadRef, "artifacts");
+        return;
+      }
+
       if (command === "modelPicker.toggle") {
         event.preventDefault();
         event.stopPropagation();

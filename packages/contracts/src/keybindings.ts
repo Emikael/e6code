@@ -73,6 +73,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "pullRequest.copyNumber",
   "pullRequest.merge",
   "diff.toggle",
+  "artifacts.toggle",
   "preview.toggle",
   "preview.refresh",
   "preview.focusUrl",

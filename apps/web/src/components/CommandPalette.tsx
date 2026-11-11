@@ -1919,6 +1919,7 @@ function OpenCommandPaletteDialog(props: {
       searchTerms: ["artifacts", "rendered page", "html", "chart", "diagram", "output"],
       title: "Show artifacts",
       icon: <AppWindowIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "artifacts.toggle",
       run: async () => {
         useRightPanelStore.getState().open(artifactsThreadRef, "artifacts");
       },
