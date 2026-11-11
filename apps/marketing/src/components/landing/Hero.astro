@@ -1,4 +1,5 @@
 ---
+import { shipped } from "../../lib/shipped";
 import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../../lib/site";
 import DownloadButtons from "./DownloadButtons.astro";
 import HeroArt from "./HeroArt.astro";
@@ -12,7 +13,10 @@ import InstallCommand from "./InstallCommand.astro";
       <h1 class="h1">Run your agents in parallel. Know which one needs you.</h1>
       <p class="lead hero-lead">
         Run Claude Code, Codex, Cursor, Grok Build, OpenCode and Antigravity side by side on your machine, with the
-        subscriptions you already have.
+        subscriptions you already have.{
+          shipped.heroSecondSentence &&
+            " E6 Code notifies you when one is blocked and shows what changed while you were away."
+        }
       </p>
       <DownloadButtons />
       <InstallCommand>
@@ -23,7 +27,7 @@ import InstallCommand from "./InstallCommand.astro";
       </p>
     </div>
     <div class="stack hero-art">
-      <HeroArt />
+      <HeroArt notification={shipped.heroNotification} />
     </div>
   </div>
 </section>

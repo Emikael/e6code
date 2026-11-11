@@ -4,6 +4,7 @@ import appIcon from "../assets/icon.webp";
 import desktopScreenshot from "../assets/app-thread-dark.webp";
 import geistLatinUrl from "../assets/fonts/geist-latin.woff2?url";
 import "../styles/fonts.css";
+import { shipped, showHowItWorks } from "../lib/shipped";
 import { ANDROID_PLAY_STORE_URL, GITHUB_REPOSITORY_URL, IOS_APP_STORE_URL } from "../lib/site";
 
 interface Props {
@@ -41,6 +42,8 @@ const isHome = Astro.url.pathname === "/";
 const navLinks = [
   { label: "Remote", href: "/#remote" },
   { label: "Open source", href: "/#open" },
+  ...(showHowItWorks ? [{ label: "How it works", href: "/#how" }] : []),
+  ...(shipped.calmByDesign ? [{ label: "Calm by design", href: "/#calm" }] : []),
   { label: "GitHub", href: GITHUB_REPOSITORY_URL },
 ];
 ---

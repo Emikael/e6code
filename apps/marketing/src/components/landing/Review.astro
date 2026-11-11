@@ -1,18 +1,75 @@
 ---
+import { shipped } from "../../lib/shipped";
+
 const hosts = "GitHub, GitLab, Bitbucket, Azure DevOps, Forgejo and Gitea";
+const pullRequest =
+  (shipped.prCardNextStep ? "The pull request card shows the next step: checks, review or merge. " : "") +
+  `Works with ${hosts}.`;
+const checkpoint = "A hidden git ref after each turn. Diff it, or rewind when it wanders.";
+const files = [
+  { name: "index.css", change: "+42 −7", reviewed: true },
+  { name: "themeBoot.test.ts", change: "+9 −0", reviewed: true },
+  { name: "themePalettes.ts", change: "+18 −4", current: true },
+  { name: "mobileTheme.ts", change: "+6 −2" },
+];
 ---
 
 <section class="band">
   <div class="wrap grid2">
     <div class="stack review">
       <p class="eyebrow">Review and recover</p>
-      <h2 class="h2">Every turn is a checkpoint.</h2>
-      <p class="copy measure">A hidden git ref after each turn. Diff it, or rewind when it wanders.</p>
+      {
+        shipped.reviewDiff ? (
+          <>
+            <h2 class="h2">Review a diff file by file.</h2>
+            <p class="copy measure">Tick off files as you read them. The diff holds still while the agent keeps working.</p>
+            <div class="stack point">
+              <h3 class="h3">Every turn is a checkpoint</h3>
+              <p class="copy measure">{checkpoint}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 class="h2">Every turn is a checkpoint.</h2>
+            <p class="copy measure">{checkpoint}</p>
+          </>
+        )
+      }
       <div class="stack point">
         <h3 class="h3">Every thread can be a pull request</h3>
-        <p class="copy measure">Works with {hosts}.</p>
+        <p class="copy measure">{pullRequest}</p>
       </div>
     </div>
+    {
+      shipped.reviewDiff && (
+        <div class="vig">
+          <div
+            class="ill-card"
+            role="img"
+            aria-label="A list of 4 changed files. Two are ticked as reviewed. themePalettes.ts is the current file."
+          >
+            <div class="row files-head" aria-hidden="true">
+              <span class="t-label grow">4 files</span>
+              <span class="t-meta muted">2 reviewed</span>
+            </div>
+            {files.map((file) => (
+              <div class:list={["frow", { "frow--current": file.current }]} aria-hidden="true">
+                <span class:list={["cb", { "cb--on": file.reviewed }]}>
+                  {file.reviewed && (
+                    <svg viewBox="0 0 24 24">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
+                </span>
+                <span class:list={["t-code grow clip", { muted: file.reviewed }]}>{file.name}</span>
+                <span class="t-meta muted">{file.change}</span>
+              </div>
+            ))}
+          </div>
+          <span class="t-caption muted">File 3 of 4 · 1 more change in this file</span>
+        </div>
+      )
+    }
   </div>
 </section>
 
@@ -27,5 +84,51 @@ const hosts = "GitHub, GitLab, Bitbucket, Azure DevOps, Forgejo and Gitea";
 
   .measure {
     max-width: 48ch;
+  }
+
+  .files-head {
+    padding: 4px 8px;
+  }
+
+  .frow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 0 8px;
+    border-radius: 6px;
+  }
+
+  .frow--current {
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--primary-edge);
+  }
+
+  .cb {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1.5px solid var(--fg-muted);
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+  }
+
+  .cb--on {
+    background: var(--fg);
+    border-color: var(--fg);
+    color: var(--bg);
+  }
+
+  .cb svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 </style>
