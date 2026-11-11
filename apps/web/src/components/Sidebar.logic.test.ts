@@ -2081,7 +2081,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({
       label: "Needs your answer",
       colorClass: "text-warning-foreground",
-      dotClass: "bg-warning",
+      dotClass: "rounded-[1px] rotate-45 scale-[0.8] bg-warning-foreground",
     });
   });
 
@@ -2110,7 +2110,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({
       label: "Plan Ready",
       colorClass: "text-muted-foreground",
-      dotClass: "bg-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
     });
   });
 
@@ -2773,7 +2773,7 @@ describe("resolveSidebarRowStatus", () => {
     ).toEqual({ text: "Retrying · attempt 2 of 10", marker: "ring", tone: "muted" });
     expect(
       line({ status: "paused", agentState: { kind: "rate-limited", resetsAt: "later" } }),
-    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "warning" });
+    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "muted" });
     expect(line({ status: "working", agentState: { kind: "compacting" } })).toMatchObject({
       text: "Compacting",
       marker: "live",
@@ -2783,7 +2783,7 @@ describe("resolveSidebarRowStatus", () => {
   it("asks for the user's action in the header's words", () => {
     expect(line({ status: "approval" })).toEqual({
       text: "Needs approval",
-      marker: "dot",
+      marker: "diamond",
       tone: "warning",
     });
     expect(line({ status: "input" })).toMatchObject({ text: "Needs your answer", tone: "warning" });

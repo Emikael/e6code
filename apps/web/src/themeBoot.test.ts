@@ -565,4 +565,17 @@ describe("index.html boot accent and contrast", () => {
       }).bootVariables,
     ).toEqual({});
   });
+
+  // Desktop keeps settings in a file; the app mirrors accent and contrast
+  // into a small key the boot script reads first.
+  it("prefers the mirrored appearance over the full settings key", () => {
+    const variables = runBootScript({
+      storage: {
+        "e6code:boot-appearance:v1": JSON.stringify({ stockAccent: "iris" }),
+        [CLIENT_SETTINGS_STORAGE_KEY]: JSON.stringify({ stockAccent: "rose" }),
+      },
+      prefersDark: false,
+    }).bootVariables;
+    expect(stockVariablesOf(variables)).toEqual(stockAccentVariables("iris"));
+  });
 });

@@ -21,6 +21,7 @@ import {
   KeyboardIcon,
   Link2Icon,
   PaletteIcon,
+  BellDotIcon,
   SearchIcon,
   Settings2Icon,
   XIcon,
@@ -91,6 +92,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
 > = {
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
+  "/settings/attention": BellDotIcon,
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,

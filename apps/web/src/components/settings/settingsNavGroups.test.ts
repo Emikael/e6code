@@ -26,6 +26,7 @@ describe("groupSettingsNavItems", () => {
         [
           "/settings/general",
           "/settings/appearance",
+          "/settings/attention",
           "/settings/keybindings",
           "/settings/snap-shot",
         ],

@@ -48,7 +48,9 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { applyStockAccent } from "~/stockAccent";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useClientSettingsHydrationStatus } from "../hooks/useSettings";
+import { useBlockedThreadCount } from "../hooks/useThreadAttention";
+import { documentTitleWithBlockedCount } from "../lib/needsYouNavigation";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -211,7 +213,7 @@ function RootRouteView() {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
-        <DocumentTitleSync />
+        <AttentionDocumentTitleSync />
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
@@ -271,14 +273,22 @@ function ContrastAppearanceSync() {
     document.documentElement.dataset.chatWidth = chatWidth;
   }, [chatWidth]);
 
+  // Until stored settings load, the snapshot holds the defaults. Applying
+  // them would wipe the stored accent and contrast the boot script in
+  // index.html already painted, so wait until loading settles (a failed load
+  // still applies, so later changes show).
+  const hydrationStatus = useClientSettingsHydrationStatus();
+  const settingsHydrated = hydrationStatus === "ready" || hydrationStatus === "failed";
   useEffect(() => {
+    if (!settingsHydrated) return;
     applyAppearanceContrast(document.documentElement, appearanceContrast);
-  }, [appearanceContrast]);
+  }, [appearanceContrast, settingsHydrated]);
 
   const stockAccent = useClientSettings((settings) => settings.stockAccent);
   useEffect(() => {
+    if (!settingsHydrated) return;
     applyStockAccent(document.documentElement, stockAccent);
-  }, [stockAccent]);
+  }, [stockAccent, settingsHydrated]);
 
   return null;
 }
@@ -331,7 +341,12 @@ function FontAppearanceSync() {
   return null;
 }
 
-function DocumentTitleSync() {
+/** The tab title with the blocked count, inside the signed-in app only. */
+function AttentionDocumentTitleSync() {
+  return <DocumentTitleSync blockedCount={useBlockedThreadCount()} />;
+}
+
+function DocumentTitleSync({ blockedCount = 0 }: { blockedCount?: number }) {
   const primaryServerVersion =
     useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
   const title = resolveServerBackedAppDisplayName({
@@ -341,9 +356,10 @@ function DocumentTitleSync() {
     primaryServerVersion,
   });
 
+  const fullTitle = documentTitleWithBlockedCount(title, blockedCount);
   useEffect(() => {
-    document.title = title;
-  }, [title]);
+    document.title = fullTitle;
+  }, [fullTitle]);
 
   return null;
 }

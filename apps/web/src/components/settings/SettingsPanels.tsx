@@ -694,6 +694,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
         ? ["In-app notifications"]
         : []),
+      ...(settings.needsYouSectionEnabled !== DEFAULT_UNIFIED_SETTINGS.needsYouSectionEnabled
+        ? ["Needs you section"]
+        : []),
+      ...(settings.sidebarElapsedTimeEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled
+        ? ["Elapsed time in the thread list"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -830,6 +836,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadOrganization,
       settings.sidebarThreadPreviewCount,
+      settings.needsYouSectionEnabled,
+      settings.sidebarElapsedTimeEnabled,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.notificationMode,
@@ -927,6 +935,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      needsYouSectionEnabled: DEFAULT_UNIFIED_SETTINGS.needsYouSectionEnabled,
+      sidebarElapsedTimeEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,

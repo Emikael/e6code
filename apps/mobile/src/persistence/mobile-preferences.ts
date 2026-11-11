@@ -151,7 +151,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   ) {
     preferences.themeMode = parsed.themeMode;
   }
-  // An accent this build does not know is dropped and reads back as Iris.
+  // An accent this build does not know is dropped and reads back as the default.
   if (isStockAccent(parsed.stockAccent)) preferences.stockAccent = parsed.stockAccent;
   if (typeof parsed.baseFontSize === "number") preferences.baseFontSize = parsed.baseFontSize;
   if (typeof parsed.terminalFontSize === "number" || parsed.terminalFontSize === null) {

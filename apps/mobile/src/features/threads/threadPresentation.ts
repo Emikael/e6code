@@ -2,6 +2,7 @@ import type { StatusTone } from "../../components/StatusPill";
 import type { OrchestrationLatestTurn, OrchestrationSession } from "@e6tools/contracts";
 import { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
+import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
 
 export type ThreadStatusKind =
   | "pending-approval"
@@ -56,8 +57,9 @@ export function resolveThreadStatus(
     return {
       kind: "paused",
       label: "Paused",
-      pillClassName: "bg-warning",
-      textClassName: "text-warning-foreground",
+      // Waiting on the clock, not on the user: neutral, never amber.
+      pillClassName: "bg-subtle",
+      textClassName: "text-foreground-muted",
     };
   }
 
@@ -65,7 +67,7 @@ export function resolveThreadStatus(
     return {
       kind: "working",
       label: "Working",
-      // Iris marks a live agent, matching the web sidebar.
+      // The accent marks a live agent, matching the web sidebar.
       pillClassName: "bg-primary/10",
       textClassName: "text-primary-text",
     };
@@ -80,7 +82,7 @@ export function resolveThreadStatus(
     };
   }
 
-  if (thread.session?.status === "error" || thread.latestTurn?.state === "error") {
+  if (isThreadFailed(thread)) {
     return {
       kind: "error",
       label: "Error",

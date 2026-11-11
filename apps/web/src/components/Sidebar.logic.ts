@@ -1,3 +1,4 @@
+import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
 import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -821,7 +822,7 @@ export function resolveThreadRowClassName(input: {
 // Color means one of three things: blocked on you (approval and answer, both
 // `warning`), in motion (working, the accent) or broken (failed, `error`).
 // Done takes `success`; everything else, plan ready included, is neutral.
-// Shapes differ as well as hues (diamond or dot for approval, question bubble
+// Shapes differ as well as hues (diamond for approval, question bubble
 // for answer, circled exclamation for failed, haloed dot for working, tick for
 // done), and every marker keeps a word beside it.
 // Unread completion is tracked separately: it describes whether a ready
@@ -878,7 +879,7 @@ export function resolveSidebarThreadTitleTone(input: {
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
   "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "agentState"
->;
+> & { readonly latestTurn?: SidebarThreadSummary["latestTurn"] };
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   if (thread.hasPendingApprovals) {
@@ -893,9 +894,9 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
-  // A failed session outranks lingering background liveness: the user must
-  // see the failure, not a stale Working (review finding).
-  if (thread.session?.status === "error") {
+  // A failure outranks lingering background liveness: the user must see the
+  // failure, not a stale Working (review finding). The one shared failed rule.
+  if (isThreadFailed(thread)) {
     return "failed";
   }
   // Background work outlives the turn: fleets read as working; monitoring
@@ -929,8 +930,9 @@ export interface SidebarRowStatus {
   readonly label: string;
   readonly detail: string | null;
   readonly fullLabel?: string;
-  /** `live` is the primary dot with a wash, `ring` a hollow warning dot. */
-  readonly marker: "live" | "dot" | "ring" | "check" | "icon";
+  /** `live` is the primary dot with a halo, `diamond` the blocked-on-you
+      square, `ring` a hollow dot; plain marks take the tone's colour. */
+  readonly marker: "live" | "diamond" | "dot" | "ring" | "check" | "icon";
   /** Semantic role for the words; the marker takes the matching fill. */
   readonly tone: "live" | "warning" | "muted" | "success" | "failed";
 }
@@ -962,7 +964,8 @@ export function resolveSidebarRowStatus(input: {
         formatResetTime: input.formatResetTime,
       });
       if (input.status === "paused") {
-        return { kind: "paused", ...running, marker: "dot", tone: "warning" };
+        // Waiting on the clock, not on you: neutral, never amber.
+        return { kind: "paused", ...running, marker: "dot", tone: "muted" };
       }
       if (input.agentState?.kind === "retrying") {
         return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
@@ -982,7 +985,7 @@ export function resolveSidebarRowStatus(input: {
         kind: "approval",
         label: "Needs approval",
         detail: null,
-        marker: "dot",
+        marker: "diamond",
         tone: "warning",
       };
     case "input":
@@ -1178,13 +1181,16 @@ export function formatWorkingDurationLabel(elapsedMs: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-const LIVE_STATUS_DOT_CLASS = "bg-primary ring-2 ring-primary-surface";
+const LIVE_STATUS_DOT_CLASS = "rounded-full bg-primary ring-2 ring-primary-surface";
+/** Blocked on you: a small rotated square, as on the newer sidebar. */
+const BLOCKED_STATUS_DOT_CLASS = "rounded-[1px] rotate-45 scale-[0.8] bg-warning-foreground";
 
 /** Legacy sidebar pill. Colors go through semantic roles so themes recolor
-    them, matching the newer sidebar's status hues: warning for approval,
-    answer and pauses, primary with a static ring for a live agent, info for
-    connecting, muted for plan ready and monitoring, success for an unseen
-    completion. */
+    them, matching the newer sidebar's status hues: a warning diamond for
+    approval and answer, primary with a static ring for a live agent, info for
+    connecting, muted for pauses, plan ready and monitoring, success for an
+    unseen completion. Glyphs take the `*-foreground` roles, which stay legible
+    on every sidebar ground; `dotClass` carries the shape as well as the fill. */
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
@@ -1194,7 +1200,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Needs approval",
       colorClass: "text-warning-foreground",
-      dotClass: "bg-warning",
+      dotClass: BLOCKED_STATUS_DOT_CLASS,
     };
   }
 
@@ -1202,15 +1208,15 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Needs your answer",
       colorClass: "text-warning-foreground",
-      dotClass: "bg-warning",
+      dotClass: BLOCKED_STATUS_DOT_CLASS,
     };
   }
 
   if (isPausedForUsageLimit(thread)) {
     return {
       label: "Paused",
-      colorClass: "text-warning-foreground",
-      dotClass: "bg-warning",
+      colorClass: "text-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
     };
   }
 
@@ -1226,7 +1232,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Connecting",
       colorClass: "text-info-foreground",
-      dotClass: "bg-info",
+      dotClass: "rounded-full bg-info-foreground",
     };
   }
 
@@ -1241,7 +1247,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Plan Ready",
       colorClass: "text-muted-foreground",
-      dotClass: "bg-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
     };
   }
 
@@ -1261,7 +1267,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Monitoring",
       colorClass: "text-muted-foreground",
-      dotClass: "bg-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
     };
   }
 
@@ -1269,7 +1275,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Completed",
       colorClass: "text-success-foreground",
-      dotClass: "bg-success",
+      dotClass: "rounded-full bg-success-foreground",
     };
   }
 

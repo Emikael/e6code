@@ -15,6 +15,7 @@ export type SettingsPath =
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
+  | "/settings/attention"
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
@@ -84,6 +85,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/projects": "Project",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
+  "/settings/attention": "Attention",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -171,6 +173,20 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [
       "new thread default runtime mode supervised approvals auto accept edits full access",
     ],
+  },
+  {
+    id: "needs-you-section",
+    title: "Needs you at the top of the sidebar",
+    to: "/settings/attention",
+    searchTerms: [
+      "attention blocked waiting approval question failed review sidebar section badge count",
+    ],
+  },
+  {
+    id: "sidebar-elapsed-time",
+    title: "Elapsed time in the thread list",
+    to: "/settings/attention",
+    searchTerms: ["attention minutes age working duration sidebar time clock"],
   },
   {
     id: "color-scheme",
@@ -848,6 +864,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/appearance": null,
+  "/settings/attention": null,
   "/settings/snap-shot": null,
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.

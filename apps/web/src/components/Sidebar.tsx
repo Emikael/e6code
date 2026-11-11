@@ -134,6 +134,8 @@ import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
+import { useThreadAttention } from "../hooks/useThreadAttention";
+import { BlockedDiamond, SidebarElapsedTime, SidebarNeedsYou } from "./SidebarNeedsYou";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
   readThreadShell,
@@ -322,7 +324,8 @@ const rowStatusToneClassName: Record<SidebarRowStatus["tone"], string> = {
   failed: "text-destructive-foreground",
 };
 
-/** The status line's leading mark. Always paired with words, never alone. */
+/** The status line's leading mark. Always paired with words, never alone.
+    Glyphs take the tone's `*-foreground` role through `currentColor`. */
 function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
   switch (status.marker) {
     case "live":
@@ -332,13 +335,15 @@ function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
           className="size-1.5 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
         />
       );
+    case "diamond":
+      return <BlockedDiamond />;
     case "dot":
-      return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />;
+      return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current" />;
     case "ring":
       return (
         <span
           aria-hidden
-          className="size-1.5 shrink-0 rounded-full border-[1.5px] border-warning"
+          className="size-1.5 shrink-0 rounded-full border-[1.5px] border-current"
         />
       );
     case "check":
@@ -863,7 +868,7 @@ function SidebarProjectGroupHeader(props: {
             className="inline-flex shrink-0 items-center gap-1 font-medium text-warning-foreground tabular-nums"
             aria-label={`${group.attentionCount} waiting on you`}
           >
-            <span aria-hidden className="size-1.5 rounded-full bg-warning" />
+            <BlockedDiamond />
             {group.attentionCount}
           </span>
         ) : null}
@@ -1356,6 +1361,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     timeLabel: threadTimeLabel(thread),
   });
   const isWokeStatus = topStatus?.kind === "woke";
+  // Whole minutes beside the status: how long it has worked, or how long a
+  // request has waited. Drawn by a leaf on the minute clock.
+  const elapsedSince =
+    topStatus?.kind === "working"
+      ? resolveWorkingStartedAt(thread)
+      : topStatus?.kind === "approval" || topStatus?.kind === "input"
+        ? (thread.pendingRequestSince ?? thread.updatedAt)
+        : null;
   const statusCellRef = useRef<HTMLSpanElement>(null);
   const previousStatusIconRef = useRef(topStatus?.kind);
   const statusIcon = topStatus?.kind;
@@ -2119,6 +2132,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     {formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt)}
                   </span>
                 )}
+                {elapsedSince !== null ? (
+                  <span className="ml-1.5 shrink-0 text-sidebar-muted-foreground">
+                    <SidebarElapsedTime since={elapsedSince} prefix="· " />
+                  </span>
+                ) : null}
               </span>
               <span className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 text-sidebar-muted-foreground">
                 {!nested && props.projectDisplayName ? (
@@ -3963,6 +3981,77 @@ export default function Sidebar() {
     },
     [planForwardNavigation, snoozeThread],
   );
+  // Needs you: blocked threads, then work to review, above the list. Only
+  // failed threads in Earlier can be snoozed; approvals and questions cannot.
+  const needsYouSectionEnabled = useClientSettings((s) => s.needsYouSectionEnabled);
+  const threadAttention = useThreadAttention();
+  const snoozableEarlierRefs = useMemo(() => {
+    const now = new Date().toISOString();
+    return threadAttention.earlier.flatMap(({ thread }) =>
+      serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
+      canSnooze(thread, { now })
+        ? [scopeThreadRef(thread.environmentId, thread.id)]
+        : [],
+    );
+  }, [serverConfigs, threadAttention.earlier]);
+  const openNeedsYouThread = useCallback(
+    (thread: EnvironmentThreadShell) =>
+      void navigateToThread(scopeThreadRef(thread.environmentId, thread.id)),
+    [navigateToThread],
+  );
+  const handleSnoozeEarlier = useCallback(
+    async (position: { x: number; y: number }) => {
+      const api = readLocalApi();
+      if (!api || snoozableEarlierRefs.length === 0) return;
+      const presets = resolveSnoozePresets(new Date(), timestampFormat);
+      const clicked = await settlePromise(() =>
+        api.contextMenu.show(
+          presets.map((preset) => ({
+            id: preset.id,
+            label: `${preset.label} (${preset.whenLabel})`,
+          })),
+          position,
+        ),
+      );
+      if (clicked._tag === "Failure") return;
+      const preset = presets.find((candidate) => candidate.id === clicked.value);
+      if (!preset) return;
+      const coSnoozingKeys = new Set(snoozableEarlierRefs.map((ref) => scopedThreadKey(ref)));
+      const outcomes = await Promise.all(
+        snoozableEarlierRefs.map(async (threadRef) => ({
+          threadRef,
+          outcome: await performSnooze(threadRef, preset, { coSnoozingKeys }),
+        })),
+      );
+      const snoozed = outcomes.flatMap(({ outcome, threadRef }) =>
+        outcome.status === "success" ? [threadRef] : [],
+      );
+      const failedCount = outcomes.filter(({ outcome }) => outcome.status === "failure").length;
+      if (snoozed.length === 0 && failedCount === 0) return;
+      toastManager.add(
+        stackedThreadToast({
+          type: failedCount > 0 ? "warning" : "success",
+          title: `Snoozed ${snoozed.length} thread${snoozed.length === 1 ? "" : "s"}`,
+          description:
+            failedCount > 0
+              ? `${failedCount} thread${failedCount === 1 ? "" : "s"} couldn't be snoozed.`
+              : undefined,
+          timeout: 5_000,
+          ...(snoozed.length > 0
+            ? {
+                actionProps: {
+                  children: "Undo",
+                  onClick: () => {
+                    for (const threadRef of snoozed) attemptUnsnooze(threadRef);
+                  },
+                },
+              }
+            : {}),
+        }),
+      );
+    },
+    [attemptUnsnooze, performSnooze, snoozableEarlierRefs, timestampFormat],
+  );
   const attemptSnooze = useCallback(
     (
       threadRef: ScopedThreadRef,
@@ -4984,6 +5073,19 @@ export default function Sidebar() {
                 {threadSearch.isPending ? "Searching thread messages…" : "No threads found"}
               </p>
             )
+          ) : null}
+          {!isSearchingThreads && needsYouSectionEnabled ? (
+            <SidebarNeedsYou
+              attention={threadAttention}
+              threadsByKey={threadByKey}
+              activeThreadKey={routeThreadKey}
+              onOpen={openNeedsYouThread}
+              onSnoozeEarlier={
+                snoozableEarlierRefs.length > 0
+                  ? (position) => void handleSnoozeEarlier(position)
+                  : null
+              }
+            />
           ) : null}
           {!isSearchingThreads ? (
             <TooltipProvider

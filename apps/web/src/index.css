@@ -993,7 +993,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --update-surface: color-mix(in srgb, var(--update) 12%, transparent);
   /* Merged pull requests pair with the accent (STOCK_ACCENT_PALETTES in
      themePalettes.ts) so they never share the primary's hue; the literals
-     are Iris's fuchsia. */
+     are Graphite's violet, the default accent's pairing. */
   --merged: var(--stock-merged, #7c3aed);
   --merged-foreground: var(--stock-merged-foreground, #6d28d9);
   --merged-surface: color-mix(in srgb, var(--merged) 8%, transparent);

@@ -1,4 +1,5 @@
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
+import type { ThreadAttention } from "@e6tools/client-runtime/state/thread-attention";
 import type { EnvironmentId, ProjectId, ProjectScript, VcsStatusResult } from "@e6tools/contracts";
 import {
   isWorktreeSetupStale,
@@ -14,29 +15,23 @@ export interface PickUpThread {
 }
 
 /**
- * Threads that are blocked on the user, for the new-thread hero's "Pick up
- * where you left off" list: an approval to grant comes before a question to
- * answer, then the most recently updated first. Archived threads and threads
- * snoozed into the future stay out, like they do in the sidebar's inbox.
+ * Threads that are blocked on an approval or a question, for the
+ * new-thread hero's "Pick up where you left off" list, in the shared Needs
+ * you order (approval before answer, oldest request first). Failed threads
+ * stay in the sidebar section; the hero offers only what you can answer.
  */
 export function selectPickUpThreads(
-  threads: ReadonlyArray<EnvironmentThreadShell>,
-  options: { readonly limit: number; readonly nowMs: number },
+  attention: Pick<ThreadAttention<EnvironmentThreadShell>, "blocked" | "earlier">,
+  limit: number,
 ): ReadonlyArray<PickUpThread> {
-  const waiting: PickUpThread[] = [];
-  for (const thread of threads) {
-    if (thread.archivedAt !== null) continue;
-    if (thread.snoozedUntil && Date.parse(thread.snoozedUntil) > options.nowMs) continue;
-    if (thread.hasPendingApprovals) waiting.push({ thread, reason: "approval" });
-    else if (thread.hasPendingUserInput) waiting.push({ thread, reason: "input" });
+  const picked: PickUpThread[] = [];
+  for (const item of [...attention.blocked, ...attention.earlier]) {
+    if (picked.length === limit) break;
+    if (item.kind === "approval" || item.kind === "input") {
+      picked.push({ thread: item.thread, reason: item.kind });
+    }
   }
-  return waiting
-    .sort(
-      (a, b) =>
-        (a.reason === b.reason ? 0 : a.reason === "approval" ? -1 : 1) ||
-        b.thread.updatedAt.localeCompare(a.thread.updatedAt),
-    )
-    .slice(0, options.limit);
+  return picked;
 }
 
 /**
