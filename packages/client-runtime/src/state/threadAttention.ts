@@ -2,7 +2,7 @@
 import type { EnvironmentId, OrchestrationThreadShell } from "@e6tools/contracts";
 
 import { scopedThreadKey, scopeThreadRef } from "../environment/scoped.ts";
-import { effectiveSnoozed } from "./threadSettled.ts";
+import { canSnooze, effectiveSnoozed } from "./threadSettled.ts";
 
 /**
  * "What is waiting on me?" as one derived list, shared by every client.
@@ -226,4 +226,54 @@ export function formatAttentionAge(since: string, now: string): string {
     undefined,
     withinWeek ? { weekday: "short" } : { month: "short", day: "numeric" },
   )}`;
+}
+
+/**
+ * Where "Go to next thread that needs you" lands: Blocked (Earlier
+ * included), then To review, starting after the open thread and wrapping.
+ * The open thread itself is skipped; null when nothing else is waiting.
+ */
+export function nextNeedsYouTarget<T extends ThreadAttentionShell>(
+  attention: Pick<ThreadAttention<T>, "blocked" | "earlier" | "review">,
+  currentKey: string | null,
+): ThreadAttentionItem<T> | null {
+  const order = [...attention.blocked, ...attention.earlier, ...attention.review];
+  const currentIndex =
+    currentKey === null ? -1 : order.findIndex((item) => item.key === currentKey);
+  for (let step = 1; step <= order.length; step += 1) {
+    const item = order[(currentIndex + step) % order.length];
+    if (item && item.key !== currentKey) return item;
+  }
+  return null;
+}
+
+type SnoozeAllShell = ThreadAttentionShell & Pick<OrchestrationThreadShell, "latestUserMessageAt">;
+
+/**
+ * "Snooze everything except this thread": every visible thread that can be
+ * snoozed, other than the one you keep. Threads blocked on you cannot be
+ * snoozed and stay put, so nothing that needs you disappears.
+ */
+export function selectThreadsToSnoozeExcept<T extends SnoozeAllShell>(
+  threads: ReadonlyArray<T>,
+  options: { readonly exceptKey: string | null; readonly now: string },
+): ReadonlyArray<T> {
+  return threads.filter(
+    (thread) =>
+      thread.archivedAt === null &&
+      thread.settledOverride !== "settled" &&
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) !== options.exceptKey &&
+      !effectiveSnoozed(thread, { now: options.now }) &&
+      canSnooze(thread, { now: options.now }),
+  );
+}
+
+/** "Wake all snoozed threads": every thread still asleep. */
+export function selectSnoozedThreads<T extends ThreadAttentionShell>(
+  threads: ReadonlyArray<T>,
+  options: { readonly now: string },
+): ReadonlyArray<T> {
+  return threads.filter(
+    (thread) => thread.archivedAt === null && effectiveSnoozed(thread, { now: options.now }),
+  );
 }

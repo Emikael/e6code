@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { shortcutKeyFromEvent } from "./keybindings.ts";
+import { DEFAULT_KEYBINDINGS, shortcutKeyFromEvent } from "./keybindings.ts";
 
 describe("shortcutKeyFromEvent", () => {
   it("maps every digit row code to its digit", () => {
@@ -16,5 +16,13 @@ describe("shortcutKeyFromEvent", () => {
 
   it("keeps the layout letter", () => {
     expect(shortcutKeyFromEvent({ key: "z", code: "KeyW" })).toBe("z");
+  });
+});
+
+describe("DEFAULT_KEYBINDINGS", () => {
+  it("binds Mod+Alt+N to the next thread that needs you, and nothing else to it", () => {
+    expect(DEFAULT_KEYBINDINGS.filter((binding) => binding.key === "mod+alt+n")).toEqual([
+      { key: "mod+alt+n", command: "thread.nextNeedsYou" },
+    ]);
   });
 });

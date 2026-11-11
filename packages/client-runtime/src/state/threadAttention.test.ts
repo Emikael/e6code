@@ -4,7 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   formatAttentionAge,
   isThreadFailed,
+  nextNeedsYouTarget,
+  selectSnoozedThreads,
   selectThreadAttention,
+  selectThreadsToSnoozeExcept,
   type ThreadAttentionShell,
 } from "./threadAttention.ts";
 
@@ -175,5 +178,60 @@ describe("formatAttentionAge", () => {
     expect(formatAttentionAge("2026-04-10T11:56:00.000Z", NOW)).toBe("4m");
     expect(formatAttentionAge("2026-04-10T10:55:00.000Z", NOW)).toBe("1h 5m");
     expect(formatAttentionAge("2026-04-08T12:00:00.000Z", NOW)).toMatch(/^since /);
+  });
+});
+
+describe("nextNeedsYouTarget", () => {
+  const attention = select([
+    shell("approval", { hasPendingApprovals: true }),
+    shell("failed", { sessionStatus: "error" }),
+    shell("plan", {
+      hasActionableProposedPlan: true,
+      interactionMode: "plan",
+      sessionStatus: "ready",
+      turn: { state: "completed", at: NOW },
+    }),
+  ]);
+  const next = (current: string | null) => nextNeedsYouTarget(attention, current)?.thread.id;
+
+  it("walks Blocked, then To review, and wraps", () => {
+    expect(next(null)).toBe("approval");
+    expect(next("local:approval")).toBe("failed");
+    expect(next("local:failed")).toBe("plan");
+    expect(next("local:plan")).toBe("approval");
+  });
+
+  it("skips the open thread and starts at the top from anywhere else", () => {
+    expect(next("local:idle")).toBe("approval");
+    const onlyOpen = select([shell("approval", { hasPendingApprovals: true })]);
+    expect(nextNeedsYouTarget(onlyOpen, "local:approval")).toBeNull();
+  });
+
+  it("is empty when nothing needs you", () => {
+    expect(nextNeedsYouTarget(select([shell("idle")]), null)).toBeNull();
+  });
+});
+
+describe("snooze everything except this thread", () => {
+  const withMessage = (thread: ThreadAttentionShell) => ({ ...thread, latestUserMessageAt: null });
+
+  it("snoozes the rest, never the kept thread or one blocked on you, and wakes them again", () => {
+    const threads = [
+      withMessage(shell("keep")),
+      withMessage(shell("other", { sessionStatus: "ready" })),
+      withMessage(shell("blocked", { hasPendingApprovals: true })),
+      withMessage(shell("settled", { settledOverride: "settled" })),
+    ];
+    const toSnooze = selectThreadsToSnoozeExcept(threads, { exceptKey: "local:keep", now: NOW });
+    expect(toSnooze.map((thread) => thread.id)).toEqual(["other"]);
+
+    const asleep = threads.map((thread) =>
+      thread.id === "other"
+        ? { ...thread, snoozedAt: NOW, snoozedUntil: "2026-04-11T09:00:00.000Z" }
+        : thread,
+    );
+    expect(selectSnoozedThreads(asleep, { now: NOW }).map((thread) => thread.id)).toEqual([
+      "other",
+    ]);
   });
 });

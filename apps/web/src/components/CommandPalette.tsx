@@ -7,7 +7,15 @@ import {
 import { threadPullRequestLinkMode } from "@e6tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@e6tools/shared/threadPullRequests";
 
-import { scopeProjectRef, scopeThreadRef } from "@e6tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@e6tools/client-runtime/environment";
+import {
+  selectSnoozedThreads,
+  selectThreadsToSnoozeExcept,
+} from "@e6tools/client-runtime/state/thread-attention";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -46,8 +54,11 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  AlarmClockIcon,
+  AlarmClockOffIcon,
   ArchiveIcon,
   ArrowLeftIcon,
+  BellDotIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
   CircleStopIcon,
@@ -91,6 +102,10 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { useThreadActions } from "../hooks/useThreadActions";
+import { useThreadAttention } from "../hooks/useThreadAttention";
+import { goToNextThreadThatNeedsYou } from "../lib/needsYouNavigation";
+import { resolveSnoozePresets } from "./Sidebar.snooze";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -823,7 +838,10 @@ function OpenCommandPaletteDialog(props: {
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
   const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
-  const activeThreadServerConfig = useServerConfigs().get(
+  const serverConfigs = useServerConfigs();
+  const threadAttention = useThreadAttention();
+  const { snoozeThread, unsnoozeThread } = useThreadActions();
+  const activeThreadServerConfig = serverConfigs.get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
   const activeThreadReferenceCopyTarget =
@@ -2191,6 +2209,113 @@ function OpenCommandPaletteDialog(props: {
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+      },
+    });
+  }
+
+  // Needs you: the next-thread command and the snooze-all pair. They work
+  // without a binding (older servers send no default for the new command).
+  const activeThreadKey = activeThread
+    ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
+    : null;
+  actionItems.push({
+    kind: "action",
+    value: "action:next-needs-you",
+    searchTerms: ["next", "needs you", "blocked", "approval", "question", "waiting", "review"],
+    title: "Go to next thread that needs you",
+    icon: <BellDotIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "thread.nextNeedsYou",
+    run: async () => {
+      goToNextThreadThatNeedsYou({
+        attention: threadAttention,
+        currentThreadKey: activeThreadKey,
+        navigate: (options) => navigate(options),
+      });
+    },
+  });
+  const supportsSnooze = (thread: { readonly environmentId: EnvironmentId }) =>
+    serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
+  const paletteNow = new Date();
+  const threadsToSnooze = activeThreadKey
+    ? selectThreadsToSnoozeExcept(threads, {
+        exceptKey: activeThreadKey,
+        now: paletteNow.toISOString(),
+      }).filter(supportsSnooze)
+    : [];
+  const snoozedThreads = selectSnoozedThreads(threads, { now: paletteNow.toISOString() }).filter(
+    supportsSnooze,
+  );
+  if (threadsToSnooze.length > 0) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:snooze-all-except",
+      searchTerms: ["snooze", "everything", "all", "except", "this", "focus", "hide", "quiet"],
+      title: "Snooze everything except this thread",
+      icon: <AlarmClockIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <AlarmClockIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "snooze-until",
+          label: "Snooze until",
+          items: resolveSnoozePresets(paletteNow, clientSettings.timestampFormat).map((preset) => ({
+            kind: "action" as const,
+            value: `snooze-all-except:${preset.id}`,
+            title: `${preset.label} (${preset.whenLabel})`,
+            searchTerms: [preset.label, "snooze"],
+            icon: <AlarmClockIcon className={ITEM_ICON_CLASS} />,
+            run: async () => {
+              const results = await Promise.all(
+                threadsToSnooze.map((thread) =>
+                  snoozeThread(
+                    scopeThreadRef(thread.environmentId, thread.id),
+                    preset.snoozedUntil,
+                    {
+                      undoToast: false,
+                    },
+                  ),
+                ),
+              );
+              const snoozedCount = results.filter((result) => result._tag === "Success").length;
+              toastManager.add(
+                stackedThreadToast({
+                  type: snoozedCount === results.length ? "success" : "warning",
+                  title: `Snoozed ${snoozedCount} thread${snoozedCount === 1 ? "" : "s"}`,
+                  description:
+                    snoozedCount === results.length
+                      ? "Wake them with Wake all snoozed threads."
+                      : `${results.length - snoozedCount} couldn't be snoozed.`,
+                }),
+              );
+            },
+          })),
+        },
+      ],
+    });
+  }
+  if (snoozedThreads.length > 0) {
+    actionItems.push({
+      kind: "action",
+      value: "action:wake-all-snoozed",
+      searchTerms: ["wake", "unsnooze", "snoozed", "all", "bring back"],
+      title: "Wake all snoozed threads",
+      icon: <AlarmClockOffIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        const results = await Promise.all(
+          snoozedThreads.map((thread) =>
+            unsnoozeThread(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+        );
+        const wokeCount = results.filter((result) => result._tag === "Success").length;
+        toastManager.add(
+          stackedThreadToast({
+            type: wokeCount === results.length ? "success" : "warning",
+            title: `Woke ${wokeCount} thread${wokeCount === 1 ? "" : "s"}`,
+            description:
+              wokeCount === results.length
+                ? undefined
+                : `${results.length - wokeCount} couldn't be woken.`,
+          }),
+        );
       },
     });
   }

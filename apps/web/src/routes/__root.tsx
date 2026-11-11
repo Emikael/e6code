@@ -49,6 +49,8 @@ import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { applyStockAccent } from "~/stockAccent";
 import { useClientSettings, useClientSettingsHydrationStatus } from "../hooks/useSettings";
+import { useBlockedThreadCount } from "../hooks/useThreadAttention";
+import { documentTitleWithBlockedCount } from "../lib/needsYouNavigation";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -211,7 +213,7 @@ function RootRouteView() {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
-        <DocumentTitleSync />
+        <AttentionDocumentTitleSync />
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
@@ -339,7 +341,12 @@ function FontAppearanceSync() {
   return null;
 }
 
-function DocumentTitleSync() {
+/** The tab title with the blocked count, inside the signed-in app only. */
+function AttentionDocumentTitleSync() {
+  return <DocumentTitleSync blockedCount={useBlockedThreadCount()} />;
+}
+
+function DocumentTitleSync({ blockedCount = 0 }: { blockedCount?: number }) {
   const primaryServerVersion =
     useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
   const title = resolveServerBackedAppDisplayName({
@@ -349,9 +356,10 @@ function DocumentTitleSync() {
     primaryServerVersion,
   });
 
+  const fullTitle = documentTitleWithBlockedCount(title, blockedCount);
   useEffect(() => {
-    document.title = title;
-  }, [title]);
+    document.title = fullTitle;
+  }, [fullTitle]);
 
   return null;
 }
