@@ -23,18 +23,17 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { toastManager } from "~/components/ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
-import { cn } from "~/lib/utils";
 
 import { AudioPreview } from "./AudioPreview";
 import { BrowserDocumentFrame } from "./BrowserDocumentFrame";
 import { DelimitedTablePreview } from "./DelimitedTablePreview";
 import {
-  FILE_SURFACE_SUBHEADER_CLASS,
   FileSurfaceAction,
   FileSurfaceFailure,
   FileSurfaceLoading,
   FileSurfaceNotice,
 } from "./fileSurfaceChrome";
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 
 const SourcePreview = lazy(() => import("./ReadOnlySourcePreview"));
 
@@ -286,7 +285,7 @@ export function AttachmentFilePreview(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className={cn(FILE_SURFACE_SUBHEADER_CLASS)} data-surface-subheader>
+      <PanelSurfaceHeader>
         <div className="flex min-w-0 flex-1 items-center text-xs">
           <span className="shrink-0 px-0.5 text-muted-foreground">
             {props.origin ?? "Attachment"}
@@ -350,7 +349,7 @@ export function AttachmentFilePreview(props: {
             <XIcon className="size-3.5" />
           </FileSurfaceAction>
         ) : null}
-      </div>
+      </PanelSurfaceHeader>
       {content?.truncated ? (
         <FileSurfaceNotice>
           Preview limited to the first 1 MB of a {props.sizeBytes.toLocaleString()} byte file. Save
