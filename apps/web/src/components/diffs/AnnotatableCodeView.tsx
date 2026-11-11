@@ -132,12 +132,18 @@ export function AnnotatableCodeView({
   const [draftText, setDraftText] = useState("");
 
   const filesByKey = useMemo(() => new Map(files.map((file) => [file.fileKey, file])), [files]);
+  const draftIds = useMemo(
+    () => new Set(draft?.annotation.metadata.entries.map((entry) => entry.id) ?? []),
+    [draft],
+  );
   const items = useMemo<CodeViewDiffItem<DiffCommentAnnotationGroup>[]>(
     () =>
       files.map(({ fileDiff, filePath, fileKey, fileVersion, collapsed }) => {
         const persisted = reviewComments
           .filter(
             (comment) =>
+              // A comment being edited shows as its draft instead.
+              !draftIds.has(comment.id) &&
               comment.sectionId === sectionId &&
               comment.filePath === filePath &&
               (comment.fenceLanguage ?? "diff") === "diff",
@@ -172,7 +178,7 @@ export function AnnotatableCodeView({
           ),
         };
       }),
-    [draft, files, reviewComments, sectionId],
+    [draft, draftIds, files, reviewComments, sectionId],
   );
 
   const removeEntry = useCallback(
@@ -245,6 +251,21 @@ export function AnnotatableCodeView({
     [filesByKey, sectionId, sectionTitle],
   );
 
+  // Edit reopens a saved comment as a draft under the same id; saving it replaces the comment in
+  // the composer, and cancelling leaves the saved one as it was.
+  const editEntry = useCallback((fileKey: string, entry: DiffCommentAnnotationEntry) => {
+    setSelectedLines(null);
+    setDraftText(entry.text);
+    setDraft({
+      fileKey,
+      annotation: {
+        side: annotationSide(entry.range),
+        lineNumber: entry.range.end,
+        metadata: { entries: [{ ...entry, kind: "draft" }] },
+      },
+    });
+  }, []);
+
   const hasOpenComment = draft !== null;
   return (
     <StyledDiffCodeView<DiffCommentAnnotationGroup>
@@ -276,7 +297,7 @@ export function AnnotatableCodeView({
           ? renderHeaderPrefix(item.fileDiff, item.id, item.collapsed === true)
           : null
       }
-      renderAnnotation={(annotation) => {
+      renderAnnotation={(annotation, item) => {
         const hasDraft = annotation.metadata.entries.some((entry) => entry.kind === "draft");
         return (
           <div
@@ -289,9 +310,13 @@ export function AnnotatableCodeView({
                 rangeLabel={entry.rangeLabel}
                 text={entry.kind === "draft" ? draftText : entry.text}
                 onTextChange={setDraftText}
+                // Cancelling an edit drops only the draft; the saved comment stays.
                 onCancel={() => removeEntry(entry.id)}
                 onComment={(text) => submitEntry(entry.id, text)}
                 onDelete={() => removeEntry(entry.id)}
+                {...(entry.kind === "comment" && !hasOpenComment
+                  ? { onEdit: () => editEntry(item.id, entry) }
+                  : {})}
               />
             ))}
           </div>

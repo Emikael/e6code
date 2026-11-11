@@ -30,6 +30,7 @@ import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffContentVersion,
   buildFileDiffIdentityKey,
+  fnv1a32,
   getDiffCollapseIconClassName,
   getDiffLineStat,
   getRenderablePatch,
@@ -52,6 +53,7 @@ import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPa
 import { DIFF_FILE_RAIL_CLASS_NAME, DiffFileRail, DiffFileRailHeader } from "./diffs/DiffFileRail";
 import { diffRailRows, FILE_RAIL_OPEN_MIN_WIDTH, isFileRailOpen } from "./diffs/diffFileRail.logic";
 import { DiffReviewToggle } from "./diffs/DiffReviewTick";
+import { diffSinceReview } from "./diffs/diffSinceReview.logic";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import { diffReviewFingerprint, useDiffReviewView } from "../diffReviewStore";
 import {
@@ -180,6 +182,11 @@ export default function DiffPanel({
     fileKeys: EMPTY_COLLAPSED_DIFF_FILE_KEYS,
   }));
   const [codeViewRevision, setCodeViewRevision] = useState(0);
+  // Files changed since review that show only their new changes, per scope.
+  const [sinceReviewPaths, setSinceReviewPaths] = useState<CollapsedDiffFilesState>(() => ({
+    scopeKey: null,
+    fileKeys: EMPTY_COLLAPSED_DIFF_FILE_KEYS,
+  }));
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
 
   const routeThreadRef = useParams({
@@ -574,24 +581,6 @@ export default function DiffPanel({
       ) : null,
     [settledFileCount, renderableFiles.length, loadNextFiles],
   );
-  const codeViewFiles = useMemo(
-    () =>
-      renderableFileEntries
-        .filter(({ fileDiff }) => !lazySource || readyFilePaths.has(resolveFileDiffPath(fileDiff)))
-        .map(({ fileDiff, fileKey, fileVersion }) => {
-          return {
-            fileDiff,
-            filePath: resolveFileDiffPath(fileDiff),
-            fileKey,
-            fileVersion,
-            // Header-only placeholders use the viewer's collapsed geometry until their patch arrives.
-            collapsed:
-              collapsedDiffFileKeys.has(fileKey) ||
-              fileDiff.cacheKey?.endsWith(":pending") === true,
-          };
-        }),
-    [collapsedDiffFileKeys, renderableFileEntries, lazySource, readyFilePaths],
-  );
   const diffFileKeys = useMemo(
     () => renderableFileEntries.map((file) => file.fileKey),
     [renderableFileEntries],
@@ -622,6 +611,7 @@ export default function DiffPanel({
       ),
     [fileStats, renderableFiles],
   );
+  const railPaths = useMemo(() => railRows.map((row) => row.path), [railRows]);
   const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
   // Review marks: per thread and scope, keyed by what each file looks like now.
   const reviewFiles = useMemo(
@@ -645,6 +635,64 @@ export default function DiffPanel({
     scope: reviewSectionId,
     files: reviewFiles,
   });
+  // For a file the agent changed again since it was reviewed: the file with only its new changes.
+  const reviewedHunksOf = review.reviewedHunksOf;
+  const sinceReview = useMemo(() => {
+    const offers = new Map<string, ReturnType<typeof diffSinceReview>>();
+    for (const fileDiff of renderableFiles) {
+      if (fileDiff.cacheKey?.endsWith(":pending") === true) continue;
+      const path = resolveFileDiffPath(fileDiff);
+      const hunks = reviewedHunksOf(path);
+      if (!hunks) continue;
+      const offer = diffSinceReview(fileDiff, hunks);
+      if (offer) offers.set(path, offer);
+    }
+    return offers;
+  }, [renderableFiles, reviewedHunksOf]);
+  const showingSinceReview =
+    sinceReviewPaths.scopeKey === collapseScopeKey
+      ? sinceReviewPaths.fileKeys
+      : EMPTY_COLLAPSED_DIFF_FILE_KEYS;
+  const toggleSinceReview = useCallback(
+    (path: string) => {
+      setSinceReviewPaths((current) => {
+        const next = new Set(
+          current.scopeKey === collapseScopeKey ? current.fileKeys : EMPTY_COLLAPSED_DIFF_FILE_KEYS,
+        );
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return { scopeKey: collapseScopeKey, fileKeys: next };
+      });
+    },
+    [collapseScopeKey],
+  );
+  const codeViewFiles = useMemo(
+    () =>
+      renderableFileEntries
+        .filter(({ fileDiff }) => !lazySource || readyFilePaths.has(resolveFileDiffPath(fileDiff)))
+        .map(({ fileDiff, fileKey, fileVersion }) => {
+          const filePath = resolveFileDiffPath(fileDiff);
+          const narrowed = showingSinceReview.has(filePath) ? sinceReview.get(filePath) : null;
+          return {
+            fileDiff: narrowed?.fileDiff ?? fileDiff,
+            filePath,
+            fileKey,
+            fileVersion: narrowed ? fnv1a32(`${fileVersion}:since-review`) : fileVersion,
+            // Header-only placeholders use the viewer's collapsed geometry until their patch arrives.
+            collapsed:
+              collapsedDiffFileKeys.has(fileKey) ||
+              fileDiff.cacheKey?.endsWith(":pending") === true,
+          };
+        }),
+    [
+      collapsedDiffFileKeys,
+      renderableFileEntries,
+      lazySource,
+      readyFilePaths,
+      showingSinceReview,
+      sinceReview,
+    ],
+  );
   const selectedDiffFileKey = selectedFilePath
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
@@ -1180,6 +1228,7 @@ export default function DiffPanel({
                     onSelectFile={selectChangedFile}
                     consumeCommitFocusRequest={consumeCommitFocusRequest}
                     reviewStatusOf={review.enabled ? review.statusOf : null}
+                    order={railPaths}
                   />
                 </nav>
               ) : (
@@ -1322,6 +1371,27 @@ export default function DiffPanel({
                                 deletions={stat.deletions}
                                 layout="aligned"
                               />
+                            ) : null}
+                            {sinceReview.has(path) ? (
+                              <Button
+                                type="button"
+                                size="compact"
+                                variant="ghost"
+                                aria-pressed={showingSinceReview.has(path)}
+                                className={cn(
+                                  "shrink-0 font-sans",
+                                  showingSinceReview.has(path) &&
+                                    "ring-1 ring-inset ring-primary-edge",
+                                )}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleSinceReview(path);
+                                }}
+                              >
+                                {showingSinceReview.has(path)
+                                  ? "Show all changes"
+                                  : "Show only what changed"}
+                              </Button>
                             ) : null}
                             {review.enabled ? (
                               <DiffReviewToggle

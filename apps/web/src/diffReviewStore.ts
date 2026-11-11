@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { PullRequestFilesViewedView } from "./components/pullRequest/usePullRequestFilesViewed";
+import { hunkFingerprints } from "./components/diffs/diffSinceReview.logic";
 import { resolveStorage } from "./lib/storage";
 
 /**
@@ -24,6 +25,11 @@ export interface DiffReviewFingerprint {
   /** `additions:deletions`. */
   readonly counts: string;
   readonly ignoreWhitespace: boolean;
+  /**
+   * Each change's fingerprint when the patch had loaded, so a file changed since can show only
+   * the changes it did not have. Marks made before this was kept have none.
+   */
+  readonly hunks?: ReadonlyArray<string> | null;
 }
 
 export interface DiffReviewMark extends DiffReviewFingerprint {
@@ -58,6 +64,7 @@ export function diffReviewFingerprint(input: {
     objects,
     counts: `${input.additions}:${input.deletions}`,
     ignoreWhitespace: input.ignoreWhitespace,
+    hunks: fileDiff ? hunkFingerprints(fileDiff) : null,
   };
 }
 
@@ -149,6 +156,11 @@ export interface DiffReviewFile {
 
 export interface DiffReviewView extends PullRequestFilesViewedView {
   readonly statusOf: (path: string) => DiffReviewStatus;
+  /**
+   * The change fingerprints a file had when it was marked, while it has changed since and they
+   * can be compared under the current whitespace setting; else null.
+   */
+  readonly reviewedHunksOf: (path: string) => ReadonlyArray<string> | null;
 }
 
 /**
@@ -185,6 +197,17 @@ export function useDiffReviewView(options: {
     },
     [fingerprints, scope, threadKey],
   );
+  const reviewedHunksOf = useCallback(
+    (path: string): ReadonlyArray<string> | null => {
+      const fingerprint = fingerprints.get(path);
+      if (!threadKey || !fingerprint) return null;
+      const mark = marks[diffReviewKey(threadKey, scope, path)];
+      if (!mark?.hunks || diffReviewStatus(mark, fingerprint) !== "changed") return null;
+      // Hiding whitespace reshapes the changes, so fingerprints compare only under one setting.
+      return mark.ignoreWhitespace === fingerprint.ignoreWhitespace ? mark.hunks : null;
+    },
+    [fingerprints, marks, scope, threadKey],
+  );
   const viewedCount = useMemo(
     () => files.filter((file) => statusOf(file.path) === "reviewed").length,
     [files, statusOf],
@@ -199,6 +222,7 @@ export function useDiffReviewView(options: {
     error: null,
     refresh: noop,
     statusOf,
+    reviewedHunksOf,
   };
 }
 

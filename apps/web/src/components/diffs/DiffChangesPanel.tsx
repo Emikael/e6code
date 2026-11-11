@@ -10,7 +10,7 @@ import {
   vcsUnstagePaths,
   type VcsChangeEntry,
 } from "@e6tools/client-runtime/state/vcs";
-import type { EnvironmentId, VcsFileChangeKind, VcsWorkingTreeFile } from "@e6tools/contracts";
+import type { EnvironmentId, VcsWorkingTreeFile } from "@e6tools/contracts";
 import { EllipsisIcon, MinusIcon, PlusIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import {
   memo,
@@ -37,6 +37,7 @@ import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { inDiffOrder } from "./diffFileRail.logic";
 import { DiffReviewTick } from "./DiffReviewTick";
 
 export type DiffChangesSection = "staged" | "unstaged";
@@ -56,18 +57,12 @@ interface DiffChangesPanelProps {
   readonly consumeCommitFocusRequest?: () => boolean;
   /** Each file's review mark, when the Diff tab keeps them for this scope. */
   readonly reviewStatusOf?: ((path: string) => DiffReviewStatus) | null;
+  /**
+   * Paths in the order the diff body shows them. Each section lists its files in this order, so
+   * the list and the diff never disagree.
+   */
+  readonly order?: readonly string[];
 }
-
-const KIND_TONE: Record<VcsFileChangeKind, string> = {
-  modified: "text-warning-foreground",
-  added: "text-success-foreground",
-  untracked: "text-success-foreground",
-  deleted: "text-destructive-foreground",
-  renamed: "text-info",
-  copied: "text-info",
-  "type-changed": "text-warning-foreground",
-  conflicted: "text-error",
-};
 
 function describeFailure(result: AtomCommandResult<unknown, unknown>): string {
   if (result._tag !== "Failure") return "";
@@ -101,6 +96,7 @@ export function DiffChangesPanel({
   onSelectFile,
   consumeCommitFocusRequest,
   reviewStatusOf = null,
+  order,
 }: DiffChangesPanelProps) {
   const commitBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -109,7 +105,16 @@ export function DiffChangesPanel({
   }, [consumeCommitFocusRequest]);
   const selectedIn = (section: DiffChangesSection) =>
     selected?.section === section ? selected.path : null;
-  const sections = useMemo(() => deriveVcsChangeSections(files), [files]);
+  const sections = useMemo(() => {
+    const derived = deriveVcsChangeSections(files);
+    if (!order) return derived;
+    return {
+      ...derived,
+      conflicts: inDiffOrder(derived.conflicts, order),
+      staged: inDiffOrder(derived.staged, order),
+      unstaged: inDiffOrder(derived.unstaged, order),
+    };
+  }, [files, order]);
   const stage = useAtomCommand(vcsEnvironment.stage, { reportFailure: false });
   const unstage = useAtomCommand(vcsEnvironment.unstage, { reportFailure: false });
   const discard = useAtomCommand(vcsEnvironment.discard, { reportFailure: false });
@@ -525,6 +530,7 @@ const ChangeRow = memo(function ChangeRow(props: {
       {entry.stat &&
       hasNonZeroStat({ additions: entry.stat.insertions, deletions: entry.stat.deletions }) ? (
         <DiffStat
+          tone="neutral"
           additions={entry.stat.insertions}
           deletions={entry.stat.deletions}
           className="text-[10px] group-focus-within/row:hidden group-hover/row:hidden pointer-coarse:hidden"
@@ -540,11 +546,10 @@ const ChangeRow = memo(function ChangeRow(props: {
           <TooltipPopup side="top">Also has changes in the other section</TooltipPopup>
         </Tooltip>
       ) : null}
+      {/* The letter names the kind of change; the row's label says it in words. Neutral, since
+          it is not a status. */}
       <span
-        className={cn(
-          "w-3 shrink-0 text-center font-mono text-[10px] font-semibold",
-          KIND_TONE[entry.kind],
-        )}
+        className="w-3 shrink-0 text-center font-mono text-[10px] font-semibold text-muted-foreground"
         aria-hidden
       >
         {vcsChangeKindLetter(entry.kind)}

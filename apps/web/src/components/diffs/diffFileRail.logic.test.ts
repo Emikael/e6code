@@ -5,6 +5,7 @@ import {
   diffRailRows,
   fileCountLabel,
   generatedFoldLabel,
+  inDiffOrder,
   isFileRailOpen,
   visibleRailRows,
 } from "./diffFileRail.logic";
@@ -85,5 +86,17 @@ describe("labels", () => {
     expect(fileCountLabel(5)).toBe("5 files");
     expect(generatedFoldLabel(1, false)).toBe("1 generated file hidden");
     expect(generatedFoldLabel(2, true)).toBe("2 generated files shown");
+  });
+});
+
+describe("inDiffOrder", () => {
+  it("lists entries as the diff body does, with the rest after in their own order", () => {
+    const entries = [{ path: "b.ts" }, { path: "z.ts" }, { path: "a.ts" }, { path: "y.ts" }];
+    expect(inDiffOrder(entries, ["a.ts", "b.ts"]).map((entry) => entry.path)).toEqual([
+      "a.ts",
+      "b.ts",
+      "z.ts",
+      "y.ts",
+    ]);
   });
 });

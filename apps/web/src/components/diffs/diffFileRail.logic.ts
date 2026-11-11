@@ -115,3 +115,21 @@ export function fileCountLabel(count: number): string {
 export function generatedFoldLabel(count: number, shown: boolean): string {
   return `${count} generated ${count === 1 ? "file" : "files"} ${shown ? "shown" : "hidden"}`;
 }
+
+/**
+ * Entries in the order the diff body lists their paths, so a list beside the diff never
+ * disagrees with it. Entries the diff does not show keep their own order, after the rest.
+ */
+export function inDiffOrder<T extends { readonly path: string }>(
+  entries: readonly T[],
+  order: readonly string[],
+): T[] {
+  const position = new Map(order.map((path, index) => [path, index]));
+  const rank = (entry: T) => position.get(entry.path) ?? Number.POSITIVE_INFINITY;
+  // A stable sort, so unknown entries stay as they came.
+  return entries.toSorted((left, right) => {
+    const a = rank(left);
+    const b = rank(right);
+    return a === b ? 0 : a < b ? -1 : 1;
+  });
+}
