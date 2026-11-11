@@ -11126,6 +11126,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
           changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
+          runningTerminalIds={runningTerminalIds}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -11193,6 +11194,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={activeThreadRef !== null}
             changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
+            runningTerminalIds={runningTerminalIds}
           >
             {rightPanelContent}
           </RightPanelTabs>
