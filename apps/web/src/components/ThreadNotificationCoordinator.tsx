@@ -11,12 +11,14 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
+import { useBlockedThreadCount } from "../hooks/useThreadAttention";
 import { useEnvironments } from "../state/environments";
 import { environmentShell } from "../state/shell";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
   playNotificationSound,
+  setDockBadge,
   setNotificationBadge,
   unlockNotificationAudio,
 } from "../threadNotifications";
@@ -57,14 +59,20 @@ export function ThreadNotificationCoordinator() {
     };
     clear();
     if (!hasDesktopNotifications(mode)) return;
-    const unsubscribe = window.desktopBridge?.onNotificationBadgeClear?.(clear);
     window.addEventListener("focus", clear);
     return () => {
-      unsubscribe?.();
       window.removeEventListener("focus", clear);
       clear();
     };
   }, [mode]);
+
+  // The dock badge is a standing count of blocked threads, independent of
+  // notification settings and window focus.
+  const blockedCount = useBlockedThreadCount();
+  useEffect(() => {
+    setDockBadge(blockedCount);
+  }, [blockedCount]);
+  useEffect(() => () => setDockBadge(0), []);
 
   useEffect(() => {
     if (!hasNotificationSound(mode)) return;

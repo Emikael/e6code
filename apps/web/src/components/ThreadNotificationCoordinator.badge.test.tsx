@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   sound: vi.fn(),
   badge: vi.fn(),
+  dock: vi.fn(),
+  blockedCount: 0,
   environmentIds: ["one", "two"],
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: (id: string) => state.shells.get(id) }));
@@ -37,6 +39,10 @@ vi.mock("../threadNotifications", async (importOriginal) => ({
   playNotificationSound: state.sound,
   unlockNotificationAudio: vi.fn(),
   setNotificationBadge: state.badge,
+  setDockBadge: state.dock,
+}));
+vi.mock("../hooks/useThreadAttention", () => ({
+  useBlockedThreadCount: () => state.blockedCount,
 }));
 
 import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
@@ -91,6 +97,7 @@ beforeEach(() => {
   state.mode = "notifications";
   state.inApp = false;
   state.environmentIds = ["one", "two"];
+  state.blockedCount = 0;
   state.shells.set("one", shell());
   state.shells.set("two", shell());
   focused = false;
@@ -170,29 +177,21 @@ it("removes alerts only from environments that leave the client", async () => {
   expect(retained!.close).toHaveBeenCalledOnce();
 });
 
-it("starts a fresh count after another native app window gains focus", async () => {
-  let clear: (() => void) | undefined;
-  const unsubscribe = vi.fn();
-  Object.assign(window, {
-    desktopBridge: {
-      onNotificationBadgeClear: (listener: () => void) => {
-        clear = listener;
-        return unsubscribe;
-      },
-    },
-  });
+it("keeps the dock badge at the blocked count through focus, and clears it on unmount", async () => {
+  state.blockedCount = 2;
   await render();
-  complete();
+  expect(state.dock).toHaveBeenLastCalledWith(2);
+  focused = true;
+  window.dispatchEvent(new Event("focus"));
+  expect(state.dock).toHaveBeenLastCalledWith(2);
+  state.blockedCount = 0;
   await render();
-  clear!();
-  expect(state.badge).toHaveBeenLastCalledWith(0);
-  complete("two");
+  expect(state.dock).toHaveBeenLastCalledWith(0);
+  state.blockedCount = 1;
   await render();
-  expect(state.badge).toHaveBeenLastCalledWith(1);
   await act(async () => renderer!.unmount());
   renderer = undefined;
-  expect(unsubscribe).toHaveBeenCalledOnce();
-  expect(state.badge).toHaveBeenLastCalledWith(0);
+  expect(state.dock).toHaveBeenLastCalledWith(0);
 });
 
 it.each(["off", "sound", "focused", "denied", "archived"])(
