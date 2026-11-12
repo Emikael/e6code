@@ -360,20 +360,44 @@ describe("hasUnseenCompletion", () => {
 });
 
 describe("shouldRecedeSidebarThread", () => {
-  it.each(["working", "monitoring", "paused"] as const)(
-    "recedes an inactive %s thread even when it is unread and woke",
+  it("recedes an inactive paused thread even when it is unread and woke", () => {
+    expect(
+      shouldRecedeSidebarThread({
+        status: "paused",
+        isUnread: true,
+        isWoke: true,
+        isActive: false,
+        isSelected: false,
+      }),
+    ).toBe(true);
+  });
+
+  it.each(["working", "monitoring", "approval", "input", "failed"] as const)(
+    "never recedes a %s thread, read or not",
     (status) => {
       expect(
         shouldRecedeSidebarThread({
           status,
-          isUnread: true,
-          isWoke: true,
+          isUnread: false,
+          isWoke: false,
           isActive: false,
           isSelected: false,
         }),
-      ).toBe(true);
+      ).toBe(false);
     },
   );
+
+  it("recedes a read finished thread", () => {
+    expect(
+      shouldRecedeSidebarThread({
+        status: "ready",
+        isUnread: false,
+        isWoke: false,
+        isActive: false,
+        isSelected: false,
+      }),
+    ).toBe(true);
+  });
 
   it.each(["ready", "approval", "input"] as const)(
     "keeps an unread %s thread prominent",
