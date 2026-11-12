@@ -21,6 +21,11 @@ export const FILE_LINK_REVEAL_UNSAFE_CSS = `
     color: var(--code-foreground, var(--foreground)) !important;
   }
 
+  /* Pierre's "modified" blue drives selection and the comment button; selection is neutral. */
+  :host {
+    --diffs-modified-color-override: var(--primary-edge);
+  }
+
   [${FILE_LINK_REVEAL_ATTRIBUTE}][data-line] {
     background-color: light-dark(
       color-mix(

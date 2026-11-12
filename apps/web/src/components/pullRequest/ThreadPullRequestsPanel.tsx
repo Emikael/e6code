@@ -21,6 +21,7 @@ import { cn } from "~/lib/utils";
 import { useProject, useServerConfigs, useThreadShell } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
+import { PanelEmptyCard } from "../panel/PanelEmptyCard";
 import { GitDefaultBranchDialog, useGitActionRunner } from "../useGitActionRunner";
 import { PullRequestsUnavailableState } from "./PullRequestsUnavailableState";
 import { threadEnvironment } from "~/state/threads";
@@ -243,29 +244,30 @@ function EmptyThreadPullRequests({
     ahead > 0;
   return (
     <div className="p-3">
-      <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-raised px-4 py-3.5">
-        <p className="text-[13px] font-medium">No linked {terms.singular}s</p>
-        <p className="text-sm text-muted-foreground">
-          {canCreate
-            ? `This branch has ${ahead} ${ahead === 1 ? "commit" : "commits"} that ${ahead === 1 ? "is" : "are"} not in a ${terms.singular} yet.`
-            : `${terms.singular.charAt(0).toUpperCase()}${terms.singular.slice(1)}s the agent opens from this thread land here.`}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {canCreate ? (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={runner.isRunning}
-              onClick={() => void runner.run({ action: "create_pr" })}
-            >
-              Create {terms.singular}
+      <PanelEmptyCard
+        title={`No linked ${terms.singular}s`}
+        actions={
+          <>
+            {canCreate ? (
+              <Button
+                size="compact"
+                variant="outline"
+                disabled={runner.isRunning}
+                onClick={() => void runner.run({ action: "create_pr" })}
+              >
+                Create {terms.singular}
+              </Button>
+            ) : null}
+            <Button size="compact" variant="ghost" onClick={onLink}>
+              Link an existing one
             </Button>
-          ) : null}
-          <Button size="xs" variant="ghost" onClick={onLink}>
-            Link an existing one
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      >
+        {canCreate
+          ? `This branch has ${ahead} ${ahead === 1 ? "commit" : "commits"} that ${ahead === 1 ? "is" : "are"} not in a ${terms.singular} yet.`
+          : `${terms.singular.charAt(0).toUpperCase()}${terms.singular.slice(1)}s the agent opens from this thread land here.`}
+      </PanelEmptyCard>
       <GitDefaultBranchDialog runner={runner} />
     </div>
   );

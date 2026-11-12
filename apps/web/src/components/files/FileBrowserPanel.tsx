@@ -623,12 +623,15 @@ export default function FileBrowserPanel({
           Loading files…
         </div>
       )}
-      <FileTree
-        model={model}
-        aria-label={`${projectName} files`}
-        className={cn("min-h-0 flex-1 overflow-hidden", showsLists && "hidden")}
-        style={pierreTreeStyle(resolvedTheme)}
-      />
+      {/* The tree sets its own inline display, so a wrapper hides it while the lists show. */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", showsLists && "hidden")}>
+        <FileTree
+          model={model}
+          aria-label={`${projectName} files`}
+          className="min-h-0 flex-1 overflow-hidden"
+          style={pierreTreeStyle(resolvedTheme)}
+        />
+      </div>
     </div>
   );
 }

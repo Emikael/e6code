@@ -12,7 +12,13 @@ import type { Ref } from "react";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 
+// Pierre draws selected lines and the comment button in its "modified" blue. They take the
+// primary edge instead, as every selection in the app does: hue is kept for status.
 const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
+:host {
+  --diffs-modified-color-override: var(--primary-edge);
+}
+
 :is(
   [data-line],
   [data-line-annotation],
