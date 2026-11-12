@@ -5,6 +5,7 @@ import {
   formatParkedWhen,
   localDateKey,
   nextLocalDateKey,
+  parkedHomeLine,
   parkThought,
   removeParkedEntry,
   selectFirstThing,
@@ -150,5 +151,20 @@ describe("firstThingSource", () => {
     expect(firstThingSource("2026-11-12", "2026-11-12")).toBe("from yesterday's wrap up");
     // Pinned for Tuesday 10 Nov, so written on Monday 9 Nov.
     expect(firstThingSource("2026-11-10", "2026-11-12")).toBe("from Monday's wrap up");
+  });
+});
+
+describe("parkedHomeLine", () => {
+  it("says where the list is kept, and stops saying browser once an environment holds it", () => {
+    expect(parkedHomeLine("device", [])).toBe("Kept in this browser for now.");
+    expect(parkedHomeLine("synced", ["Studio Mac"])).toBe(
+      "Saved on Studio Mac, so your other devices see it too.",
+    );
+    expect(parkedHomeLine("synced", ["Studio Mac", "Laptop"])).toBe(
+      "Saved on your environments, so your other devices see it too.",
+    );
+    expect(parkedHomeLine("uploading", ["Studio Mac"])).toBe(
+      "Some are still in this browser, waiting to be saved.",
+    );
   });
 });

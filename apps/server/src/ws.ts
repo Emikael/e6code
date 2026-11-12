@@ -39,6 +39,7 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationParkedStreamItem,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
   OrchestrationGetFullThreadDiffError,
@@ -95,6 +96,7 @@ import {
   projectThreadDetailSnapshot,
 } from "./orchestration/ActivityPayloadProjection.ts";
 import { makeThreadLiveEventCoalescer } from "./orchestration/ThreadLiveEventCoalescer.ts";
+import { parkedStreamItemsForEvent } from "./orchestration/parked.ts";
 import { makeLiveStreamBudget, type RetainedLiveItem } from "./orchestration/LiveStreamBudget.ts";
 import {
   cleanupFailedUploadedAttachments,
@@ -2215,6 +2217,38 @@ const makeWsRpcLayer = (
                   }),
               ),
             ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        // The environment's Parked list: a snapshot, then one item per change.
+        // Live delivery attaches before the snapshot is read so no change is
+        // lost; an item that repeats the snapshot only restates an entry.
+        [ORCHESTRATION_WS_METHODS.subscribeParked]: () =>
+          observeRpcStreamEffect(
+            ORCHESTRATION_WS_METHODS.subscribeParked,
+            Effect.gen(function* () {
+              const live = yield* Queue.unbounded<OrchestrationParkedStreamItem>();
+              yield* Effect.forkScoped(
+                orchestrationEngine.streamDomainEvents.pipe(
+                  Stream.runForEach((event) =>
+                    Queue.offerAll(live, parkedStreamItemsForEvent(event)),
+                  ),
+                ),
+                { startImmediately: true },
+              );
+              const state = yield* projectionSnapshotQuery.getParkedState().pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationGetSnapshotError({
+                      message: "Failed to load the Parked list",
+                      cause,
+                    }),
+                ),
+              );
+              return Stream.concat(
+                Stream.succeed<OrchestrationParkedStreamItem>({ kind: "snapshot", ...state }),
+                Stream.fromQueue(live),
+              );
+            }),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>

@@ -1,8 +1,9 @@
 /**
  * Park it (F7): thoughts parked from the capture bar, listed in the sidebar's
  * Parked popover and as chips on the start screen. They live in
- * `promptStashStore` beside composer drafts, as entries of kind "thought", and
- * stay in this browser until parked thoughts sync through the server.
+ * `promptStashStore` beside composer drafts, as entries of kind "thought".
+ * An environment with `parkedSync` holds them (phase 20); otherwise they stay
+ * on this device.
  */
 import { create } from "zustand";
 
@@ -176,3 +177,24 @@ export const openParkedList = () => useCaptureBarStore.getState().setListOpen(tr
 
 /** The Parked list as a dialog (command palette), reachable without the sidebar. */
 export const openParkedListDialog = () => useCaptureBarStore.getState().setListDialogOpen(true);
+
+/**
+ * The Parked list's footer: where the list is kept, said plainly. While no
+ * environment holds it, it is this browser's (board 4 says "device", but the
+ * desktop app and a browser on one machine keep different lists); once one
+ * does, it names where.
+ */
+export function parkedHomeLine(
+  home: "device" | "synced" | "uploading",
+  environmentLabels: ReadonlyArray<string>,
+): string {
+  const where = environmentLabels.length === 1 ? environmentLabels[0] : "your environments";
+  switch (home) {
+    case "device":
+      return "Kept in this browser for now.";
+    case "synced":
+      return `Saved on ${where}, so your other devices see it too.`;
+    case "uploading":
+      return "Some are still in this browser, waiting to be saved.";
+  }
+}

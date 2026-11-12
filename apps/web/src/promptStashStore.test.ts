@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, MessageId, ThreadId } from "@e6tools/contracts";
+import { EnvironmentId, MessageId, ParkedEntryId, ThreadId } from "@e6tools/contracts";
 import {
   collectAssistantCitations,
   serializeAssistantCitation,
@@ -15,6 +15,7 @@ import {
   selectThreadNote,
   PROMPT_STASH_STORAGE_KEY,
   MAX_STASH_ENTRY_ATTACHMENT_CHARS,
+  selectParkedImport,
   partitionStashAttachments,
   usePromptStashStore,
   writePromptStashStorageForTest,
@@ -517,5 +518,109 @@ describe("prompt stash context records", () => {
     });
     const taken = usePromptStashStore.getState().takeEntry("entry-records");
     expect(taken.entry?.records).toEqual(records);
+  });
+});
+
+describe("Parked list synced with an environment", () => {
+  const ENV = "env-1";
+  const serverThought = (id: string, text = id) => ({
+    id: ParkedEntryId.make(id),
+    kind: "thought" as const,
+    text,
+    projectId: null,
+    threadId: null,
+    pinnedFor: null,
+    createdAt: "2026-11-12T09:00:00.000Z",
+    updatedAt: "2026-11-12T09:00:00.000Z",
+  });
+
+  beforeEach(() => {
+    resetPromptStashStore();
+    usePromptStashStore.getState().setPrimaryEnvironmentId(ENV);
+  });
+
+  afterEach(() => {
+    usePromptStashStore.getState().setPrimaryEnvironmentId(null);
+    resetPromptStashStore();
+  });
+
+  it("uploads what this browser kept, and forgets its copy only once the server holds it", () => {
+    const store = usePromptStashStore.getState();
+    store.stashEntry(thought("old"));
+    store.stashEntry(makeEntry({ id: "draft" }));
+    store.receiveParkedList(ENV, { entries: [], removedEntryIds: [] });
+    const { stored } = usePromptStashStore.getState();
+    expect(selectParkedImport(stored, ENV, ENV).map((entry) => entry.id)).toEqual(["old"]);
+    // Still listed, and still here, while the upload is on its way.
+    expect(usePromptStashStore.getState().entries.map((entry) => entry.id)).toContain("old");
+    store.receiveParkedList(ENV, { entries: [serverThought("old")], removedEntryIds: [] });
+    const after = usePromptStashStore.getState();
+    expect(after.stored.entries.map((entry) => entry.id)).toEqual(["draft"]);
+    expect(after.entries.filter((entry) => entry.id === "old")).toHaveLength(1);
+    expect(after.entries.find((entry) => entry.id === "old")?.environmentId).toBe(ENV);
+  });
+
+  it("queues a thought parked while the server is unreachable and shows it at once", () => {
+    const store = usePromptStashStore.getState();
+    store.receiveParkedList(ENV, { entries: [], removedEntryIds: [] });
+    store.stashEntry(thought("offline"));
+    let state = usePromptStashStore.getState();
+    expect(state.stored.parkedOps).toEqual([
+      expect.objectContaining({ kind: "add", entryId: "offline", environmentId: ENV }),
+    ]);
+    expect(state.entries.map((entry) => entry.id)).toEqual(["offline"]);
+    // The server answered: the op leaves the queue, the server's copy remains.
+    store.settleParkedOp(state.stored.parkedOps[0]!.opId, "accepted");
+    store.receiveParkedList(ENV, { entries: [serverThought("offline")], removedEntryIds: [] });
+    state = usePromptStashStore.getState();
+    expect(state.stored.parkedOps).toEqual([]);
+    expect(state.entries.map((entry) => entry.id)).toEqual(["offline"]);
+  });
+
+  it("keeps a thought here when the server refuses to add it", () => {
+    const store = usePromptStashStore.getState();
+    store.receiveParkedList(ENV, { entries: [], removedEntryIds: [] });
+    store.stashEntry(thought("refused"));
+    const opId = usePromptStashStore.getState().stored.parkedOps[0]!.opId;
+    store.settleParkedOp(opId, "refused");
+    const state = usePromptStashStore.getState();
+    expect(state.stored.parkedOps).toEqual([]);
+    expect(state.stored.entries.map((entry) => entry.id)).toEqual(["refused"]);
+  });
+
+  it("hides a deleted synced thought until the server answers, and Undo sends nothing", () => {
+    const store = usePromptStashStore.getState();
+    store.receiveParkedList(ENV, { entries: [serverThought("a")], removedEntryIds: [] });
+    const index = usePromptStashStore.getState().entries.findIndex((entry) => entry.id === "a");
+    const { entry } = store.takeEntry("a");
+    expect(usePromptStashStore.getState().entries).toEqual([]);
+    store.restoreEntry(entry!, index);
+    const state = usePromptStashStore.getState();
+    expect(state.entries.map((candidate) => candidate.id)).toEqual(["a"]);
+    expect(state.stored.parkedOps).toEqual([
+      expect.objectContaining({ kind: "update", entryId: "a", text: "a" }),
+    ]);
+  });
+
+  it("edits a synced note from the version the server sent", () => {
+    const store = usePromptStashStore.getState();
+    const threadKey = `${ENV}:thread-1`;
+    store.receiveParkedList(ENV, {
+      entries: [
+        {
+          ...serverThought("note:thread-1", "Check Android."),
+          kind: "note",
+          threadId: ThreadId.make("thread-1"),
+          updatedAt: "2026-11-12T09:30:00.000Z",
+        },
+      ],
+      removedEntryIds: [],
+    });
+    store.setThreadNote(threadKey, "Check Android and iOS.");
+    const state = usePromptStashStore.getState();
+    expect(selectThreadNote(state.entries, threadKey)?.prompt).toBe("Check Android and iOS.");
+    expect(state.stored.parkedOps).toEqual([
+      expect.objectContaining({ kind: "note", baseUpdatedAt: "2026-11-12T09:30:00.000Z" }),
+    ]);
   });
 });

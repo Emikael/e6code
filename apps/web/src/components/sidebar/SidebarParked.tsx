@@ -1,13 +1,13 @@
 /**
  * "Parked" in the sidebar footer and its list (board 4, F7). Each thought can
  * start a thread, go into the composer on screen, or be deleted with Undo.
- * Parked thoughts stay in this browser until they sync through the server, and
- * the list says so ("browser", not "device": the desktop app and a browser on
- * one machine hold different lists).
+ * The footer says where the list is kept: this browser, or the environments
+ * that hold it (`parkedHomeLine`).
  */
 import { scopedProjectKey, scopeProjectRef } from "@e6tools/client-runtime/environment";
 import { InboxIcon, TrashIcon, XIcon } from "lucide-react";
 import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useParkedActions } from "../../hooks/useParkedActions";
@@ -16,12 +16,18 @@ import {
   firstThingSource,
   formatParkedWhen,
   localDateKey,
+  parkedHomeLine,
   removeParkedEntry,
   selectFirstThing,
   selectParkedThoughts,
   useCaptureBarStore,
 } from "../../parkedThoughts";
-import { usePromptStashStore, type PromptStashEntry } from "../../promptStashStore";
+import {
+  selectParkedHome,
+  usePromptStashStore,
+  type PromptStashEntry,
+} from "../../promptStashStore";
+import { useEnvironments } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -273,7 +279,24 @@ function ParkedList({
         </ul>
       )}
       <div className="h-px bg-border" />
-      <p className="px-4 py-2.5 text-xs text-muted-foreground">Kept in this browser for now.</p>
+      <ParkedHomeLine />
     </section>
+  );
+}
+
+/** Where the list is kept: this device, or the environments that hold it. */
+function ParkedHomeLine() {
+  const home = usePromptStashStore(selectParkedHome);
+  const syncedIds = usePromptStashStore(
+    useShallow((store) => Object.keys(store.stored.parkedServer)),
+  );
+  const { environments } = useEnvironments();
+  const labels = syncedIds.map(
+    (environmentId) =>
+      environments.find((environment) => environment.environmentId === environmentId)?.label ??
+      "this environment",
+  );
+  return (
+    <p className="px-4 py-2.5 text-xs text-muted-foreground">{parkedHomeLine(home, labels)}</p>
   );
 }

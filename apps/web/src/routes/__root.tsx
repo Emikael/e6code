@@ -31,6 +31,7 @@ import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLa
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { AttentionIntroDecision } from "../components/chat/WhatChangedCard";
+import { ParkedSyncCoordinator } from "../components/ParkedSyncCoordinator";
 import { FocusModeShortcut } from "../components/FocusModeShortcut";
 import { CaptureBarHost } from "../components/CaptureBar";
 import { DoneTodayDialogHost } from "../components/DoneTodayDialog";
@@ -236,6 +237,7 @@ function RootRouteView() {
           <ThreadNotificationCoordinator />
           <ReopenClosedViewShortcut />
           <AttentionIntroDecision />
+          <ParkedSyncCoordinator />
           <FocusModeShortcut />
           <CaptureBarHost />
           <DoneTodayDialogHost />

@@ -26,6 +26,7 @@ import * as Schema from "effect/Schema";
 import * as Predicate from "effect/Predicate";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { parkedStateOf, projectParkedEvent } from "./parked.ts";
 import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
@@ -469,8 +470,24 @@ export function projectEvent(
             deletedAt: payload.deletedAt,
             updatedAt: payload.deletedAt,
           }),
+          // The thread's note to self goes with it.
+          ...(nextBase.parked
+            ? { parked: projectParkedEvent(nextBase.parked, { ...event, payload }) }
+            : {}),
         })),
       );
+
+    // Parked events are new with the `parked` aggregate, so no older payload
+    // shape needs decoding first.
+    case "parked.thought-added":
+    case "parked.thought-updated":
+    case "parked.entry-removed":
+    case "parked.note-set":
+    case "parked.imported":
+      return Effect.succeed({
+        ...nextBase,
+        parked: projectParkedEvent(parkedStateOf(nextBase), event),
+      });
 
     case "thread.archived":
       return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(

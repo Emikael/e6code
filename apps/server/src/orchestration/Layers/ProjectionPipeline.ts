@@ -37,6 +37,7 @@ import {
   ProjectionThreadProposedPlanRepository,
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import * as ProjectionThreadPullRequests from "../../persistence/ProjectionThreadPullRequests.ts";
+import * as ProjectionParkedEntries from "../../persistence/ProjectionParkedEntries.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
   type ProjectionTurn,
@@ -78,6 +79,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  parked: "projection.parked",
 } as const;
 
 type ProjectorName =
@@ -535,6 +537,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+    const projectionParkedEntryRepository =
+      yield* ProjectionParkedEntries.ProjectionParkedEntryRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -2040,6 +2044,32 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    // The environment's Parked list. A thread's deletion takes its note with it.
+    const applyParkedProjection: ProjectorDefinition["apply"] = Effect.fn("applyParkedProjection")(
+      function* (event, _attachmentSideEffects) {
+        switch (event.type) {
+          case "parked.thought-added":
+          case "parked.thought-updated":
+          case "parked.note-set":
+            yield* projectionParkedEntryRepository.upsert(event.payload.entry);
+            return;
+          case "parked.imported":
+            yield* Effect.forEach(event.payload.entries, projectionParkedEntryRepository.upsert, {
+              discard: true,
+            });
+            return;
+          case "parked.entry-removed":
+            yield* projectionParkedEntryRepository.remove(event.payload);
+            return;
+          case "thread.deleted":
+            yield* projectionParkedEntryRepository.removeNoteForThread(event.payload.threadId);
+            return;
+          default:
+            return;
+        }
+      },
+    );
+
     const projectors: ReadonlyArray<ProjectorDefinition> = [
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -2076,6 +2106,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threads,
         apply: applyThreadsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.parked,
+        apply: applyParkedProjection,
       },
     ];
 
@@ -2305,6 +2339,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadPullRequests.layer),
+  Layer.provideMerge(ProjectionParkedEntries.layer),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
