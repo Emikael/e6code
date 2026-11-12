@@ -186,6 +186,7 @@ import {
   getRestingComposerImagePreviewCounts,
   resolveRestingComposerControlsLayout,
   shouldAnimateComposerRestingTransition,
+  resolveComposerFooterSurrender,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
 } from "../composerFooterLayout";
@@ -962,6 +963,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
   FileIcon,
+  InboxIcon,
   BotIcon,
   CircleAlertIcon,
   PlusIcon,
@@ -2176,6 +2178,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
+  const [footerSurrender, setFooterSurrender] = useState(() =>
+    resolveComposerFooterSurrender(null),
+  );
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
   const isMobileViewport = useMediaQuery("max-sm");
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -3335,12 +3340,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return {
         primaryActionsCompact,
         footerCompact,
+        surrender: resolveComposerFooterSurrender(composerFormWidth),
       };
     };
 
     const initialCompactness = measureFooterCompactness();
     setIsComposerPrimaryActionsCompact(initialCompactness.primaryActionsCompact);
     setIsComposerFooterCompact(initialCompactness.footerCompact);
+    setFooterSurrender(initialCompactness.surrender);
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       const nextCompactness = measureFooterCompactness();
@@ -3351,6 +3358,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       );
       setIsComposerFooterCompact((previous) =>
         previous === nextCompactness.footerCompact ? previous : nextCompactness.footerCompact,
+      );
+      setFooterSurrender((previous) =>
+        previous.parkLabel === nextCompactness.surrender.parkLabel &&
+        previous.modeSummary === nextCompactness.surrender.modeSummary
+          ? previous
+          : nextCompactness.surrender,
       );
     });
 
@@ -4950,6 +4963,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? activeContextWindow
       : null;
   const reserveShownContextWindowMeter = reserveContextWindowMeter && !composerControlsCompact;
+  // A narrow footer folds the chip to "…" but never hides a risky permission: Full access
+  // stays spelled out (plan, F-composer: "a risky permission is never hidden").
+  const composerControlsSummaryParts = (() => {
+    if (!composerControlsCompact) return null;
+    const parts = composerControlsSummary({
+      effort: effortSegmentControl,
+      traits: providerNonDefaultTraitLabels(providerTraitsPickerInput),
+      runtimeMode,
+      interactionMode: planModeUiEnabled ? interactionMode : null,
+    });
+    if (footerSurrender.modeSummary) return parts;
+    const risky = parts.filter((part) => part.risky);
+    return risky.length > 0 ? risky : null;
+  })();
   const restingHiddenBlockCount = composerControlsInStrip
     ? restingControlsHiddenBlockCount
     : composerControlsCompact
@@ -5168,16 +5195,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             runtimeMode={runtimeMode}
             size={composerControlsInStrip ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
-            {...(composerControlsCompact
-              ? {
-                  summary: composerControlsSummary({
-                    effort: effortSegmentControl,
-                    traits: providerNonDefaultTraitLabels(providerTraitsPickerInput),
-                    runtimeMode,
-                    interactionMode: planModeUiEnabled ? interactionMode : null,
-                  }),
-                }
-              : {})}
+            {...(composerControlsSummaryParts ? { summary: composerControlsSummaryParts } : {})}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
@@ -7038,12 +7056,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             disabled={!composerSendState.hasSendableContent}
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={parkDraft}
+                            {...(footerSurrender.parkLabel ? {} : { "aria-label": "Park it" })}
                           />
                         }
                       >
-                        Park it
+                        {/* A narrow footer keeps the inbox icon; the label goes first. */}
+                        {footerSurrender.parkLabel ? (
+                          "Park it"
+                        ) : (
+                          <InboxIcon aria-hidden className="size-3.5" />
+                        )}
                         {/* Board 3: focus mode shows the key beside it. */}
-                        {focusModeActive ? <ShortcutKeyCaps label={parkShortcutLabel} /> : null}
+                        {focusModeActive && footerSurrender.parkLabel ? (
+                          <ShortcutKeyCaps label={parkShortcutLabel} />
+                        ) : null}
                       </TooltipTrigger>
                       <TooltipPopup>
                         Keep this draft for later

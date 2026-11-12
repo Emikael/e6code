@@ -23,6 +23,25 @@ export function shouldUseCompactComposerFooter(
   return width !== null && width < breakpoint;
 }
 
+/**
+ * What a narrowing composer footer gives up, in order (a wide right panel can leave the thread
+ * column about 420px): Park it drops its label for its icon first, then the mode chip folds its
+ * values into "…". The model picker keeps at least its icon and the primary action stays.
+ */
+const COMPOSER_FOOTER_PARK_LABEL_MIN_PX = 480;
+const COMPOSER_FOOTER_MODE_SUMMARY_MIN_PX = 400;
+
+export function resolveComposerFooterSurrender(width: number | null): {
+  readonly parkLabel: boolean;
+  readonly modeSummary: boolean;
+} {
+  if (width === null) return { parkLabel: true, modeSummary: true };
+  return {
+    parkLabel: width >= COMPOSER_FOOTER_PARK_LABEL_MIN_PX,
+    modeSummary: width >= COMPOSER_FOOTER_MODE_SUMMARY_MIN_PX,
+  };
+}
+
 export function shouldUseRestingComposerLayout(input: {
   isExistingThread: boolean;
   isMobileViewport: boolean;
