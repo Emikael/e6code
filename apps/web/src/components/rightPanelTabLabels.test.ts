@@ -8,6 +8,7 @@ import {
   surfaceTitle,
   surfaceTitleParts,
   tabsOutOfView,
+  terminalTabNames,
 } from "./rightPanelTabLabels";
 
 const NO_SESSIONS = {};
@@ -163,5 +164,44 @@ describe("closeTabKeyShortcuts", () => {
 
   it("leaves the shortcut out when none is bound", () => {
     expect(closeTabKeyShortcuts(null, "MacIntel")).toBe("Delete Backspace");
+  });
+});
+
+describe("terminal tab names", () => {
+  const second: RightPanelSurface = {
+    id: "terminal:term-3",
+    kind: "terminal",
+    resourceId: "term-3",
+    terminalIds: ["term-3"],
+    activeTerminalId: "term-3",
+  };
+
+  it("leaves a lone terminal tab named Terminal", () => {
+    expect(terminalTabNames([diff, terminal], NO_LABELS).size).toBe(0);
+    expect(surfaceTitle(terminal, NO_SESSIONS, NO_LABELS, {})).toBe("Terminal");
+  });
+
+  it("names several terminal tabs after their first pane", () => {
+    const names = terminalTabNames([terminal, diff, second], new Map([["term-1", "vp run dev"]]));
+    expect(surfaceTitle(second, NO_SESSIONS, NO_LABELS, { terminalTabNames: names })).toBe(
+      "Terminal 3",
+    );
+    expect(
+      surfaceTitle(terminal, NO_SESSIONS, NO_LABELS, {
+        terminalTabNames: names,
+        runningTerminalIds: new Set(["term-1"]),
+      }),
+    ).toBe("vp run dev · 1 running");
+  });
+
+  it("numbers the tabs in order when their panes share a label", () => {
+    const names = terminalTabNames(
+      [terminal, second],
+      new Map([
+        ["term-1", "zsh"],
+        ["term-3", "zsh"],
+      ]),
+    );
+    expect([...names.values()]).toEqual(["Terminal 1", "Terminal 2"]);
   });
 });

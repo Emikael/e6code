@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { findLocalAddress, localAddressLabel, nextFinishedTerminalIds } from "./terminalPaneState";
+import {
+  findLocalAddress,
+  localAddressLabel,
+  nextFinishedTerminalIds,
+  nextTerminalStopState,
+  NO_TERMINAL_STOPS,
+  resumeFinishedTerminalState,
+} from "./terminalPaneState";
 
 describe("local addresses in terminal output", () => {
   it("finds the last local address a dev server printed", () => {
@@ -71,5 +78,56 @@ describe("the Finished cue", () => {
         inView: [],
       }).size,
     ).toBe(0);
+  });
+});
+
+describe("the Finished cue across threads", () => {
+  it("marks a process that stopped while the user was in another thread", () => {
+    const left = { running: ["a", "b"], inView: ["a"], finished: new Set<string>() };
+    const resumed = resumeFinishedTerminalState(left, ["b"], ["a"]);
+    // "a" was on screen when the user left, but it stopped while they were away.
+    expect([...resumed.finished]).toEqual(["a"]);
+    expect(resumed.inView).toEqual(["a"]);
+  });
+
+  it("drops a cue that was on screen when the user left", () => {
+    const left = { running: [], inView: ["a"], finished: new Set(["a", "b"]) };
+    expect([...resumeFinishedTerminalState(left, [], []).finished]).toEqual(["b"]);
+  });
+
+  it("starts empty for a thread it has not seen", () => {
+    expect(resumeFinishedTerminalState(undefined, ["a"], []).finished.size).toBe(0);
+  });
+});
+
+describe("Stop on a process that ignores Ctrl-C", () => {
+  const sent = nextTerminalStopState(NO_TERMINAL_STOPS, { type: "stop-sent", terminalId: "a" });
+
+  it("says nothing when the process stops", () => {
+    const stopped = nextTerminalStopState(sent, { type: "running-changed", running: new Set() });
+    const late = nextTerminalStopState(stopped, { type: "grace-elapsed", terminalId: "a" });
+    expect(late.ignored.size).toBe(0);
+    expect(late.pending.size).toBe(0);
+  });
+
+  it("says the process is still running once the grace period passes", () => {
+    const elapsed = nextTerminalStopState(sent, { type: "grace-elapsed", terminalId: "a" });
+    expect(elapsed.ignored.has("a")).toBe(true);
+    const stillRunning = nextTerminalStopState(elapsed, {
+      type: "running-changed",
+      running: new Set(["a"]),
+    });
+    expect(stillRunning).toBe(elapsed);
+    const stopped = nextTerminalStopState(elapsed, {
+      type: "running-changed",
+      running: new Set(),
+    });
+    expect(stopped.ignored.has("a")).toBe(false);
+  });
+
+  it("ignores a grace period for a pane that was not stopped", () => {
+    expect(
+      nextTerminalStopState(NO_TERMINAL_STOPS, { type: "grace-elapsed", terminalId: "a" }),
+    ).toBe(NO_TERMINAL_STOPS);
   });
 });

@@ -70,6 +70,8 @@ export interface GhosttyTheme {
   readonly cursor: GhosttyColor;
   /** CSS color the renderer overlays on selected cells; not sent to Ghostty. */
   readonly selectionBackground?: string;
+  /** CSS color of the line beside selected rows; not sent to Ghostty. */
+  readonly selectionEdge?: string;
 }
 
 export interface GhosttyCell {

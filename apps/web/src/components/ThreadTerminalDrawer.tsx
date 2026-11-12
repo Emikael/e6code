@@ -39,6 +39,7 @@ import {
   useEffectEvent,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -86,10 +87,16 @@ import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
+import { openLocalAddressInBrowser } from "./preview/openDiscoveredPort";
+import { resolveLocalServerUrl } from "~/browser/browserTargetResolver";
 import {
   findLocalAddress,
   localAddressLabel,
+  nextTerminalStopState,
+  NO_TERMINAL_STOPS,
   TERMINAL_PANE_STATUS_WORD,
+  TERMINAL_STOP_GRACE_MS,
+  TERMINAL_STOP_IGNORED_NOTICE,
   terminalOutputTail,
   terminalPaneStatus,
   type TerminalPaneStatus,
@@ -249,6 +256,11 @@ export function terminalThemeFromApp(mountElement?: HTMLElement | null): Ghostty
       isDark ? { r: 180, g: 203, b: 255 } : { r: 38, g: 56, b: 78 },
     ),
     selectionBackground: terminalSelection,
+    selectionEdge: readThemeColor(
+      themeStyles,
+      "--primary-edge",
+      readThemeColor(rootThemeStyles, "--primary-edge", foreground),
+    ),
   };
 }
 
@@ -806,8 +818,21 @@ export function TerminalViewport({
             writeSystemMessage(latestTerminal, "Opening links is unavailable in this browser.");
             return;
           }
+          // A local address belongs to the environment's machine. This client reaches it at the
+          // environment's host, or, through a tunnel, not at all.
+          const url =
+            findLocalAddress(text) === null
+              ? text
+              : resolveLocalServerUrl(threadRef.environmentId, text);
+          if (url === null) {
+            writeSystemMessage(
+              latestTerminal,
+              "This address is on the environment's machine and cannot be opened from here.",
+            );
+            return;
+          }
           const fallbackToBrowser = () => {
-            void localApi.shell.openExternal(text).catch((error: unknown) => {
+            void localApi.shell.openExternal(url).catch((error: unknown) => {
               writeSystemMessage(
                 latestTerminal,
                 error instanceof Error ? error.message : "Unable to open link",
@@ -815,12 +840,11 @@ export function TerminalViewport({
             });
           };
           void openTerminalLinkInPreview({
-            url: text,
+            url,
             threadRef,
             openPreview,
             fallbackToBrowser,
             forceBrowser: event.metaKey || event.ctrlKey,
-            preferApp: findLocalAddress(text) !== null,
           }).catch((error: unknown) => {
             toastManager.add(
               stackedThreadToast({
@@ -996,16 +1020,16 @@ export function TerminalViewport({
       window.cancelAnimationFrame(frame);
     };
   }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId]);
-  const reportLocalAddress = useEffectEvent((url: string | null) => {
-    onLocalAddressChange?.(terminalId, url);
-  });
   const localAddress = useMemo(
     () => findLocalAddress(terminalOutputTail(terminalOutput.chunks)),
     [terminalOutput],
   );
   useEffect(() => {
-    reportLocalAddress(localAddress);
-  }, [localAddress]);
+    if (!onLocalAddressChange) return;
+    onLocalAddressChange(terminalId, localAddress);
+    // A closed pane's address must not stay on offer.
+    return () => onLocalAddressChange(terminalId, null);
+  }, [localAddress, onLocalAddressChange, terminalId]);
 
   const closeSelectionBar = () => {
     selectionActionRequestIdRef.current += 1;
@@ -1107,6 +1131,8 @@ interface ThreadTerminalDrawerProps {
 }
 
 const NO_TERMINAL_IDS: ReadonlySet<string> = new Set();
+// Board 16 pads a pane's output 10px 12px; the canvas adds 4px of its own on every side.
+const PANEL_PANE_BODY_CLASS = "bg-[var(--terminal-background)] px-2 py-1.5";
 
 /** A terminal action in the panel's shared header: a 24px icon target. */
 const PANEL_HEADER_ACTION_CLASS =
@@ -1183,6 +1209,19 @@ export default function ThreadTerminalDrawer({
   const [localAddresses, setLocalAddresses] = useState<ReadonlyMap<string, string>>(
     () => new Map(),
   );
+  // Stop sends Ctrl-C; a pane whose process ignores it says so after a moment.
+  const [stopState, dispatchStop] = useReducer(nextTerminalStopState, NO_TERMINAL_STOPS);
+  useEffect(() => {
+    dispatchStop({ type: "running-changed", running: runningTerminalIds });
+  }, [runningTerminalIds]);
+  const stopTimersRef = useRef(new Set<number>());
+  useEffect(() => {
+    const timers = stopTimersRef.current;
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
   const onLocalAddressChange = useCallback((terminalId: string, url: string | null) => {
     setLocalAddresses((current) => {
       if ((current.get(terminalId) ?? null) === url) return current;
@@ -1583,7 +1622,19 @@ export default function ThreadTerminalDrawer({
               </Menu>
             ) : null}
             {running ? (
-              <Button size="compact" variant="ghost" onClick={() => sendInput("\u0003")}>
+              <Button
+                size="compact"
+                variant="ghost"
+                onClick={() => {
+                  sendInput("\u0003");
+                  dispatchStop({ type: "stop-sent", terminalId });
+                  const timer = window.setTimeout(() => {
+                    stopTimersRef.current.delete(timer);
+                    dispatchStop({ type: "grace-elapsed", terminalId });
+                  }, TERMINAL_STOP_GRACE_MS);
+                  stopTimersRef.current.add(timer);
+                }}
+              >
                 Stop
               </Button>
             ) : first ? (
@@ -1597,6 +1648,7 @@ export default function ThreadTerminalDrawer({
                   <Button
                     size="icon-xs"
                     variant="ghost"
+                    className="sm:size-7"
                     aria-label={`More for ${label}: clear, close pane`}
                   />
                 }
@@ -1624,20 +1676,32 @@ export default function ThreadTerminalDrawer({
       >
         <span className="min-w-0 truncate font-mono text-xs text-foreground">{label}</span>
         <TerminalPaneStatusWord status={status} />
+        {running && stopState.ignored.has(terminalId) ? (
+          <span role="status" className="min-w-0 truncate text-muted-foreground text-xs">
+            {TERMINAL_STOP_IGNORED_NOTICE}
+          </span>
+        ) : null}
       </PanelSurfaceHeader>
     );
   };
   const footerAddress =
     localAddresses.get(resolvedActiveTerminalId) ?? localAddresses.values().next().value ?? null;
-  const openFooterAddress = (url: string) => {
-    void openTerminalLinkInPreview({
-      url,
-      threadRef,
-      openPreview,
-      fallbackToBrowser: () => void readLocalApi()?.shell.openExternal(url),
-      forceBrowser: false,
-      preferApp: true,
-    });
+  // Where this client reaches that address; null through a tunnel, where the footer hides.
+  const footerResolvedUrl =
+    footerAddress === null ? null : resolveLocalServerUrl(threadRef.environmentId, footerAddress);
+  const openFooterAddress = (url: string, resolvedUrl: string) => {
+    void (async () => {
+      const result = await openLocalAddressInBrowser({ threadRef, url, resolvedUrl, openPreview });
+      if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Unable to open in Browser",
+          description: error instanceof Error ? error.message : "The page could not be opened.",
+        }),
+      );
+    })();
   };
 
   return (
@@ -1754,7 +1818,7 @@ export default function ThreadTerminalDrawer({
                         {isPanel
                           ? paneHeader(terminalId, visibleTerminalIds.indexOf(terminalId))
                           : null}
-                        <div className="min-h-0 flex-1">
+                        <div className={cn("min-h-0 flex-1", isPanel && PANEL_PANE_BODY_CLASS)}>
                           <TerminalViewport
                             advancedTypography={advancedTypography}
                             threadRef={threadRef}
@@ -1787,7 +1851,7 @@ export default function ThreadTerminalDrawer({
             ) : (
               <div className="flex h-full min-h-0 flex-col">
                 {isPanel ? paneHeader(resolvedActiveTerminalId, 0) : null}
-                <div className="min-h-0 flex-1">
+                <div className={cn("min-h-0 flex-1", isPanel && PANEL_PANE_BODY_CLASS)}>
                   <TerminalViewport
                     advancedTypography={advancedTypography}
                     key={resolvedActiveTerminalId}
@@ -1949,11 +2013,11 @@ export default function ThreadTerminalDrawer({
           <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
             Select output to add it to your next message.
           </span>
-          {footerAddress && isPreviewSupportedInRuntime() ? (
+          {footerAddress && footerResolvedUrl && isPreviewSupportedInRuntime() ? (
             <button
               type="button"
               className="text-foreground text-xs underline underline-offset-2"
-              onClick={() => openFooterAddress(footerAddress)}
+              onClick={() => openFooterAddress(footerAddress, footerResolvedUrl)}
             >
               {`Open ${localAddressLabel(footerAddress)} in Browser`}
             </button>

@@ -102,6 +102,7 @@ import {
   runningTerminalCount,
   surfaceTitle,
   surfaceTitleParts,
+  terminalTabNames,
   tabsOutOfView,
   type SurfaceTitleParts,
   type TabExtent,
@@ -1162,10 +1163,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     () => new Set(props.runningTerminalIds ?? []),
     [props.runningTerminalIds],
   );
+  const tabNames = useMemo(
+    () => terminalTabNames(props.surfaces, props.terminalLabelsById),
+    [props.surfaces, props.terminalLabelsById],
+  );
+  const nameState = { terminalTabNames: tabNames };
   const titleState = {
     changedFileCount: props.changedFileCount ?? 0,
     runningTerminalIds,
     ...(props.finishedTerminalIds ? { finishedTerminalIds: props.finishedTerminalIds } : {}),
+    terminalTabNames: tabNames,
   };
   const panelId = useId();
   const closeKeyShortcuts = useMemo(
@@ -1591,7 +1598,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     active: surface.id === props.activeSurfaceId,
                     focusable: surface.id === focusableTabId,
                     pending: isFileSurfacePending(surface, props.pendingSurfaceIds),
-                    title: surfaceTitle(surface, props.previewSessions, props.terminalLabelsById),
+                    title: surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      nameState,
+                    ),
                     running: runningTerminalCount(surface, runningTerminalIds) > 0,
                     audio: tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
@@ -1777,7 +1789,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           : {
               role: "tabpanel",
               "aria-label": focusedSurface
-                ? surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById)
+                ? surfaceTitle(
+                    focusedSurface,
+                    props.previewSessions,
+                    props.terminalLabelsById,
+                    nameState,
+                  )
                 : "Run details",
             })}
       >

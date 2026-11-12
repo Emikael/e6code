@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /** How much of a pane's output is searched for a local address after each update. */
 const LOCAL_ADDRESS_SCAN_CHARS = 8_192;
 
 // Escape sequences (colors, cursor moves, OSC titles and hyperlinks) sit between the words a dev
 // server prints, so they are dropped before matching.
-// oxlint-disable-next-line no-control-regex
 const ANSI_SEQUENCE =
+  // oxlint-disable-next-line no-control-regex
   /\u001b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[@-_])/g;
 const LOCAL_ADDRESS =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?![\w-]|\.\w)(?::\d{1,5})?(?:\/[^\s"'<>`]*)?/gi;
@@ -96,6 +96,37 @@ export function nextFinishedTerminalIds(input: {
 const NO_TERMINALS: ReadonlyArray<string> = [];
 const NO_FINISHED: ReadonlySet<string> = new Set();
 
+export interface FinishedTerminalState {
+  readonly running: ReadonlyArray<string>;
+  readonly inView: ReadonlyArray<string>;
+  readonly finished: ReadonlySet<string>;
+}
+
+/**
+ * The Finished cue for a thread the user comes back to. While they were in another thread none
+ * of its panes was in view, so a process that stopped meanwhile stopped out of view, and a cue
+ * that was on screen when they left has been looked at.
+ */
+export function resumeFinishedTerminalState(
+  stored: FinishedTerminalState | undefined,
+  running: ReadonlyArray<string>,
+  inView: ReadonlyArray<string>,
+): FinishedTerminalState {
+  if (!stored) return { running, inView, finished: NO_FINISHED };
+  const finished = nextFinishedTerminalIds({
+    finished: stored.finished,
+    previousRunning: stored.running,
+    running,
+    previousInView: stored.inView,
+    inView: NO_TERMINALS,
+  });
+  return { running, inView, finished };
+}
+
+// The cue outlives the view that computed it, so a process that ends while the user is in
+// another thread still reads Finished when they return. Keyed by scoped thread key.
+const finishedStateByThread = new Map<string, FinishedTerminalState>();
+
 /**
  * The thread's terminals showing the Finished cue. `running` must keep its identity while it
  * does not change (`useThreadRunningTerminalIds` does); `inView` is compared by contents.
@@ -107,16 +138,20 @@ export function useFinishedTerminalIds(
   inViewOrNull: ReadonlyArray<string> | null,
 ): ReadonlySet<string> {
   const inView = inViewOrNull ?? NO_TERMINALS;
-  const [state, setState] = useState({
+  const [state, setState] = useState(() => ({
     threadKey,
-    running,
-    inView,
-    finished: NO_FINISHED,
-  });
+    ...resumeFinishedTerminalState(finishedStateByThread.get(threadKey), running, inView),
+  }));
+  useEffect(() => {
+    finishedStateByThread.set(state.threadKey, state);
+  }, [state]);
   const current =
     state.threadKey === threadKey
       ? state
-      : { threadKey, running: NO_TERMINALS, inView: NO_TERMINALS, finished: NO_FINISHED };
+      : {
+          threadKey,
+          ...resumeFinishedTerminalState(finishedStateByThread.get(threadKey), running, inView),
+        };
   const sameInView =
     current.inView.length === inView.length &&
     current.inView.every((terminalId, index) => inView[index] === terminalId);
@@ -133,4 +168,53 @@ export function useFinishedTerminalIds(
     return finished;
   }
   return state.finished;
+}
+
+/**
+ * Stop sends Ctrl-C, which a background job or a REPL can ignore. A pane whose process is still
+ * running a moment after Stop says so instead of reading "Running" as if nothing happened.
+ */
+export type TerminalStopEvent =
+  | { readonly type: "stop-sent"; readonly terminalId: string }
+  | { readonly type: "grace-elapsed"; readonly terminalId: string }
+  | { readonly type: "running-changed"; readonly running: ReadonlySet<string> };
+
+export interface TerminalStopState {
+  /** Stop was pressed and the process has not stopped yet. */
+  readonly pending: ReadonlySet<string>;
+  /** Still running after the grace period. */
+  readonly ignored: ReadonlySet<string>;
+}
+
+export const NO_TERMINAL_STOPS: TerminalStopState = { pending: NO_FINISHED, ignored: NO_FINISHED };
+
+/** How long after Ctrl-C a process may take to stop before the pane says it is still running. */
+export const TERMINAL_STOP_GRACE_MS = 3_000;
+
+export const TERMINAL_STOP_IGNORED_NOTICE = "Sent Ctrl-C. The process is still running.";
+
+export function nextTerminalStopState(
+  state: TerminalStopState,
+  event: TerminalStopEvent,
+): TerminalStopState {
+  switch (event.type) {
+    case "stop-sent": {
+      if (state.pending.has(event.terminalId)) return state;
+      return { ...state, pending: new Set(state.pending).add(event.terminalId) };
+    }
+    case "grace-elapsed": {
+      if (!state.pending.has(event.terminalId) || state.ignored.has(event.terminalId)) return state;
+      return { ...state, ignored: new Set(state.ignored).add(event.terminalId) };
+    }
+    case "running-changed": {
+      const running = event.running;
+      const keep = (ids: ReadonlySet<string>) => {
+        const kept = [...ids].filter((terminalId) => running.has(terminalId));
+        return kept.length === ids.size ? ids : new Set(kept);
+      };
+      const pending = keep(state.pending);
+      const ignored = keep(state.ignored);
+      return pending === state.pending && ignored === state.ignored ? state : { pending, ignored };
+    }
+  }
 }
