@@ -30,7 +30,7 @@ const {
 const socialImage = await getImage({ src: socialCard, width: 1200, height: 630, format: "jpg", quality: 90 });
 const socialImageUrl = new URL(socialImage.src, Astro.site);
 const socialImageAlt =
-  "E6 Code, with the eyebrow Open-source app for coding agents and the headline Run your agents in parallel. Know which one needs you. Below them, a screenshot of the E6 Code desktop app with a thread running four subagents.";
+  "E6 Code, with the eyebrow Open-source app for coding agents and the headline Run your agents in parallel. Know which one needs you. Below them, a screenshot of the E6 Code desktop app with a thread running two subagents.";
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
 const isHome = Astro.url.pathname === "/";
