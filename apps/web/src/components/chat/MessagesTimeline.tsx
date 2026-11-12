@@ -2733,7 +2733,7 @@ function EarlierTurnsTimelineRow({
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={ctx.onToggleEarlierTurns}
-        className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-xs leading-4 text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-xs leading-4 text-muted-foreground tabular-nums hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Icon aria-hidden className="size-3.5" />
         Earlier in this thread · {row.turnCount} {row.turnCount === 1 ? "turn" : "turns"}
@@ -4076,7 +4076,7 @@ function WorkGroupToggleTimelineRow({
       <ChevronRightIcon
         aria-hidden
         className={cn(
-          "size-3.5 shrink-0 transition-transform duration-200",
+          "size-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none",
           row.expanded && "rotate-90",
         )}
       />
