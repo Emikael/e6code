@@ -26,3 +26,14 @@ describe("DEFAULT_KEYBINDINGS", () => {
     ]);
   });
 });
+
+describe("Diff review keys", () => {
+  it("answer V, J and K only while the Diff tab has focus and no field does", () => {
+    expect(
+      DEFAULT_KEYBINDINGS.filter((binding) => binding.command.startsWith("diff.next")),
+    ).toEqual([
+      { key: "v", command: "diff.nextChange", when: "diffFocus && !editableFocus" },
+      { key: "j", command: "diff.nextFile", when: "diffFocus && !editableFocus" },
+    ]);
+  });
+});

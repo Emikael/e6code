@@ -123,10 +123,10 @@ export function withoutDiffReviewMark(marks: DiffReviewMarks, key: string): Diff
 }
 
 /** Every mark of one thread removed, for when the thread is archived. */
-export function withoutDiffReviewThread(
-  marks: DiffReviewMarks,
+export function withoutDiffReviewThread<T>(
+  marks: Readonly<Record<string, T>>,
   threadKey: string,
-): DiffReviewMarks {
+): Readonly<Record<string, T>> {
   const prefix = `${threadKey}${KEY_SEPARATOR}`;
   const keys = Object.keys(marks).filter((key) => key.startsWith(prefix));
   if (keys.length === 0) return marks;
@@ -135,8 +135,41 @@ export function withoutDiffReviewThread(
   return next;
 }
 
+/** The last change the reader paged to in one thread and scope, for "You stopped here". */
+export interface DiffLastSeen {
+  readonly path: string;
+  /** The change's index in the file. */
+  readonly change: number;
+  /** ISO time. */
+  readonly at: string;
+}
+
+/** Positions kept on this device; past this, the oldest are dropped. */
+export const MAX_DIFF_LAST_SEEN = 400;
+
+export function diffLastSeenKey(threadKey: string, scope: string): string {
+  return [threadKey, scope].join(KEY_SEPARATOR);
+}
+
+/** Records a position, dropping the oldest past `limit`. */
+export function withDiffLastSeen(
+  positions: Readonly<Record<string, DiffLastSeen>>,
+  key: string,
+  position: DiffLastSeen,
+  limit = MAX_DIFF_LAST_SEEN,
+): Readonly<Record<string, DiffLastSeen>> {
+  const next: Record<string, DiffLastSeen> = { ...positions, [key]: position };
+  const keys = Object.keys(next);
+  if (keys.length <= limit) return next;
+  const oldestFirst = keys.toSorted((left, right) => next[left]!.at.localeCompare(next[right]!.at));
+  for (const stale of oldestFirst.slice(0, keys.length - limit)) delete next[stale];
+  return next;
+}
+
 interface DiffReviewStoreState {
   readonly marks: DiffReviewMarks;
+  readonly lastSeen: Readonly<Record<string, DiffLastSeen>>;
+  setLastSeen: (key: string, position: DiffLastSeen) => void;
   mark: (key: string, fingerprint: DiffReviewFingerprint) => void;
   unmark: (key: string) => void;
   forgetThread: (threadKey: string) => void;
@@ -146,13 +179,23 @@ export const useDiffReviewStore = create<DiffReviewStoreState>()(
   persist(
     (set) => ({
       marks: {},
+      lastSeen: {},
+      setLastSeen: (key, position) =>
+        set((state) => {
+          const current = state.lastSeen[key];
+          if (current?.path === position.path && current.change === position.change) return state;
+          return { lastSeen: withDiffLastSeen(state.lastSeen, key, position) };
+        }),
       mark: (key, fingerprint) =>
         set((state) => ({
           marks: withDiffReviewMark(state.marks, key, { ...fingerprint, at: Date.now() }),
         })),
       unmark: (key) => set((state) => ({ marks: withoutDiffReviewMark(state.marks, key) })),
       forgetThread: (threadKey) =>
-        set((state) => ({ marks: withoutDiffReviewThread(state.marks, threadKey) })),
+        set((state) => ({
+          marks: withoutDiffReviewThread(state.marks, threadKey),
+          lastSeen: withoutDiffReviewThread(state.lastSeen, threadKey),
+        })),
     }),
     {
       name: "e6code:diff-review:v1",
@@ -160,7 +203,7 @@ export const useDiffReviewStore = create<DiffReviewStoreState>()(
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
-      partialize: (state) => ({ marks: state.marks }),
+      partialize: (state) => ({ marks: state.marks, lastSeen: state.lastSeen }),
     },
   ),
 );

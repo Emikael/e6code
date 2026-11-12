@@ -3,6 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   diffReviewKey,
   diffReviewStatus,
+  diffLastSeenKey,
+  withDiffLastSeen,
   withDiffReviewMark,
   withoutDiffReviewThread,
   type DiffReviewFingerprint,
@@ -97,6 +99,27 @@ describe("marks", () => {
     };
     expect(Object.keys(withoutDiffReviewThread(marks, "env:t1"))).toEqual([
       diffReviewKey("env:t10", "uncommitted", "a.ts"),
+    ]);
+  });
+});
+
+describe("last seen", () => {
+  it("keeps the newest positions past the cap and forgets an archived thread's", () => {
+    let positions = {};
+    for (let index = 0; index < 3; index += 1) {
+      positions = withDiffLastSeen(
+        positions,
+        diffLastSeenKey(`env:t${index}`, "uncommitted"),
+        { path: "a.ts", change: 0, at: `2026-11-11T10:0${index}:00.000Z` },
+        2,
+      );
+    }
+    expect(Object.keys(positions)).toEqual([
+      diffLastSeenKey("env:t1", "uncommitted"),
+      diffLastSeenKey("env:t2", "uncommitted"),
+    ]);
+    expect(Object.keys(withoutDiffReviewThread(positions, "env:t1"))).toEqual([
+      diffLastSeenKey("env:t2", "uncommitted"),
     ]);
   });
 });

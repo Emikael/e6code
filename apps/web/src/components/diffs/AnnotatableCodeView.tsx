@@ -32,6 +32,40 @@ interface DiffCommentAnnotationEntry {
 
 interface DiffCommentAnnotationGroup {
   entries: DiffCommentAnnotationEntry[];
+  /** "You stopped here at 14:06", drawn as a hairline under the line. */
+  marker?: string;
+}
+
+/** A hairline with words under one line of one file, such as where the reader stopped. */
+export interface DiffLineMarker {
+  readonly fileKey: string;
+  readonly side: AnnotationSide;
+  readonly lineNumber: number;
+  readonly label: string;
+}
+
+function withMarker(
+  annotations: ReadonlyArray<DiffCommentLineAnnotation>,
+  marker: DiffLineMarker,
+): DiffCommentLineAnnotation[] {
+  const index = annotations.findIndex(
+    (annotation) => annotation.side === marker.side && annotation.lineNumber === marker.lineNumber,
+  );
+  if (index < 0) {
+    return [
+      ...annotations,
+      {
+        side: marker.side,
+        lineNumber: marker.lineNumber,
+        metadata: { entries: [], marker: marker.label },
+      },
+    ];
+  }
+  return annotations.map((annotation, at) =>
+    at === index
+      ? { ...annotation, metadata: { ...annotation.metadata, marker: marker.label } }
+      : annotation,
+  );
 }
 
 type DiffCommentLineAnnotation = DiffLineAnnotation<DiffCommentAnnotationGroup>;
@@ -95,6 +129,11 @@ interface AnnotatableCodeViewProps {
     fileKey: string,
     collapsed: boolean,
   ) => ReactNode;
+  marker?: DiffLineMarker | null;
+  onScroll?: (
+    scrollTop: number,
+    viewer: NonNullable<ReturnType<AnnotatableCodeViewHandle["getInstance"]>>,
+  ) => void;
 }
 
 interface DiffSelectionContext {
@@ -115,6 +154,8 @@ export function AnnotatableCodeView({
   renderHeaderMetadata,
   renderHeaderFilenameSuffix,
   renderHeaderPrefix,
+  marker = null,
+  onScroll,
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -159,8 +200,8 @@ export function AnnotatableCodeView({
               text: comment.text,
             });
           }, []);
-        const annotations =
-          draft?.fileKey === fileKey ? [...persisted, draft.annotation] : persisted;
+        const withDraft = draft?.fileKey === fileKey ? [...persisted, draft.annotation] : persisted;
+        const annotations = marker?.fileKey === fileKey ? withMarker(withDraft, marker) : withDraft;
         return {
           id: fileKey,
           type: "diff",
@@ -168,7 +209,7 @@ export function AnnotatableCodeView({
           annotations,
           collapsed,
           version: fnv1a32(
-            `${fileVersion}:${collapsed ? "1" : "0"}:${annotations
+            `${fileVersion}:${collapsed ? "1" : "0"}:${marker?.fileKey === fileKey ? `${marker.side}${marker.lineNumber}${marker.label}` : ""}:${annotations
               .flatMap((annotation) =>
                 annotation.metadata.entries.map(
                   (entry) => `${entry.id}:${entry.rangeLabel}:${entry.text}`,
@@ -178,7 +219,7 @@ export function AnnotatableCodeView({
           ),
         };
       }),
-    [draft, draftIds, files, reviewComments, sectionId],
+    [draft, draftIds, files, marker, reviewComments, sectionId],
   );
 
   const removeEntry = useCallback(
@@ -280,6 +321,7 @@ export function AnnotatableCodeView({
           }
         : {})}
       {...(renderCodeViewFooter ? { renderCodeViewFooter } : {})}
+      {...(onScroll ? { onScroll } : {})}
       items={items}
       selectedLines={selectedLines}
       onSelectedLinesChange={setSelectedLines}
@@ -300,9 +342,7 @@ export function AnnotatableCodeView({
       renderAnnotation={(annotation, item) => {
         const hasDraft = annotation.metadata.entries.some((entry) => entry.kind === "draft");
         return (
-          <div
-            className={hasDraft ? "py-1" : "divide-y divide-border/30 border-y border-border/30"}
-          >
+          <div className={hasDraft ? "py-1" : "flex flex-col"}>
             {annotation.metadata.entries.map((entry) => (
               <DiffCommentAnnotation
                 key={entry.id}
@@ -319,6 +359,15 @@ export function AnnotatableCodeView({
                   : {})}
               />
             ))}
+            {annotation.metadata.marker ? (
+              <div className="flex items-center gap-2.5 px-3 py-2 font-sans">
+                <span aria-hidden className="h-px flex-1 bg-border" />
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  {annotation.metadata.marker}
+                </span>
+                <span aria-hidden className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
           </div>
         );
       }}

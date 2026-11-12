@@ -49,6 +49,10 @@ export function DiffFileRail(props: {
   readonly reviewedCount: number;
   readonly currentPath: string | null;
   readonly onSelect: (path: string) => void;
+  /** Said under the current row's name, as "change 1 of 2". */
+  readonly currentCaption?: string | null;
+  /** Below the rows, at the rail's foot. */
+  readonly footer?: ReactNode;
 }) {
   const [showGenerated, setShowGenerated] = useState(false);
   const view = props.rows ? visibleRailRows(props.rows, showGenerated) : null;
@@ -77,6 +81,7 @@ export function DiffFileRail(props: {
                 row={row}
                 status={props.reviewStatusOf?.(row.path) ?? null}
                 current={row.path === props.currentPath}
+                currentCaption={row.path === props.currentPath ? props.currentCaption : null}
                 onSelect={props.onSelect}
               />
             ))}
@@ -100,6 +105,7 @@ export function DiffFileRail(props: {
           </>
         )}
       </div>
+      {props.footer}
     </nav>
   );
 }
@@ -108,10 +114,15 @@ const DiffFileRailRow = memo(function DiffFileRailRow(props: {
   readonly row: DiffRailRow;
   readonly status: DiffReviewStatus | null;
   readonly current: boolean;
+  readonly currentCaption?: string | null | undefined;
   readonly onSelect: (path: string) => void;
 }) {
   const { row, status } = props;
-  const caption = [row.folder, status === "changed" ? "changed since review" : null]
+  const caption = [
+    row.folder,
+    status === "changed" ? "changed since review" : null,
+    props.currentCaption ?? null,
+  ]
     .filter(Boolean)
     .join(" · ");
   return (
