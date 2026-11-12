@@ -2,7 +2,8 @@ import type { LineAnnotation, SelectedLineRange } from "@pierre/diffs";
 
 export interface FileCommentAnnotationEntry {
   id: string;
-  kind: "draft" | "comment";
+  /** "selection" is the bar under freshly selected lines: Copy, then Comment for the agent. */
+  kind: "draft" | "comment" | "selection";
   startLine: number;
   endLine: number;
   text: string;
@@ -58,4 +59,44 @@ export function remapFileCommentAnnotations(
       }),
     },
   }));
+}
+
+/** The text of lines `startLine` to `endLine` (1-based, inclusive), for Copy on a selection. */
+export function fileLinesText(contents: string, startLine: number, endLine: number): string {
+  return contents
+    .split("\n")
+    .slice(Math.max(0, startLine - 1), Math.max(0, endLine))
+    .join("\n");
+}
+
+/** The annotations with the selection bar placed under the selection's last line. */
+export function withFileSelectionBar(
+  annotations: ReadonlyArray<FileCommentLineAnnotation>,
+  startLine: number,
+  endLine: number,
+): FileCommentLineAnnotation[] {
+  const entry: FileCommentAnnotationEntry = {
+    id: "file-selection-bar",
+    kind: "selection",
+    startLine,
+    endLine,
+    text: "",
+  };
+  const index = annotations.findIndex((annotation) => annotation.lineNumber === endLine);
+  if (index < 0) return [...annotations, { lineNumber: endLine, metadata: { entries: [entry] } }];
+  return annotations.map((annotation, at) =>
+    at === index
+      ? { ...annotation, metadata: { entries: [...annotation.metadata.entries, entry] } }
+      : annotation,
+  );
+}
+
+/** Drops the selection bar, which is never saved with the file's comments. */
+export function withoutFileSelectionBar(
+  annotations: ReadonlyArray<FileCommentLineAnnotation>,
+): FileCommentLineAnnotation[] {
+  return annotations.flatMap((annotation) => {
+    const entries = annotation.metadata.entries.filter((entry) => entry.kind !== "selection");
+    return entries.length > 0 ? [{ ...annotation, metadata: { entries } }] : [];
+  });
 }

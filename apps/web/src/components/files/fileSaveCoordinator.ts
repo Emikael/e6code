@@ -5,6 +5,11 @@ export interface FileSaveCoordinatorOptions<A, E> {
   readonly persist: (contents: string) => Promise<AtomCommandResult<A, E>>;
   readonly onPendingChange: (pending: boolean) => void;
   readonly onConfirmed: (contents: string) => void;
+  /**
+   * Runs before each write. Resolving false holds the save, and every later one, until
+   * `release` or `discard`: the file changed on disk under an edit that was not saved yet.
+   */
+  readonly check?: ((contents: string) => Promise<boolean>) | undefined;
 }
 
 export class FileSaveCoordinator<A = unknown, E = unknown> {
@@ -15,6 +20,8 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
+  private held = false;
+  private skipCheck = false;
 
   constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {}
 
@@ -24,13 +31,32 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.latestRevision += 1;
     this.lastChangeAt = Date.now();
     this.options.onPendingChange(true);
-    this.schedule(this.options.debounceMs);
+    if (!this.held) this.schedule(this.options.debounceMs);
+  }
+
+  /** Save the held contents over the file as it is now. */
+  release(): void {
+    if (!this.held || this.disposed) return;
+    this.held = false;
+    this.skipCheck = true;
+    this.schedule(0);
+  }
+
+  /** Drop the held contents: the file on disk wins. False when nothing was held. */
+  discard(): boolean {
+    if (!this.held) return false;
+    this.held = false;
+    this.clearTimer();
+    this.confirmedRevision = this.latestRevision;
+    this.options.onPendingChange(false);
+    return true;
   }
 
   dispose(): void {
     this.disposed = true;
     this.clearTimer();
-    if (this.latestRevision > 0) void this.persistLatest();
+    // A held save stays unwritten: writing it now would overwrite the change it was held for.
+    if (this.latestRevision > 0 && !this.held) void this.persistLatest();
   }
 
   private schedule(delay: number): void {
@@ -48,11 +74,18 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   }
 
   private async persistLatest(): Promise<void> {
-    if (this.saving || this.latestRevision === this.confirmedRevision) return;
+    if (this.saving || this.held || this.latestRevision === this.confirmedRevision) return;
 
     this.saving = true;
     const contents = this.latestContents;
     const revision = this.latestRevision;
+    const skipCheck = this.skipCheck;
+    this.skipCheck = false;
+    if (!skipCheck && this.options.check && !(await this.options.check(contents))) {
+      this.saving = false;
+      this.held = true;
+      return;
+    }
     const result = await this.options.persist(contents);
     const succeeded = result._tag === "Success";
     if (succeeded) {

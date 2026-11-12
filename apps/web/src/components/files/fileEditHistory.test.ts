@@ -66,4 +66,26 @@ describe("the reader's edits to a file", () => {
       reduceFileEditHistory(EMPTY_FILE_EDIT_HISTORY, { type: "read", contents: "theirs" }),
     ).toBe(EMPTY_FILE_EDIT_HISTORY);
   });
+
+  it("keeps an unsaved edit and the agent's change both in view until the reader picks", () => {
+    const editing = run([{ type: "edit", before: "v0" }]);
+    // A read while the edit is unsaved neither raises nor clears the notice.
+    expect(reduceFileEditHistory(editing, { type: "read", contents: "theirs" })).toBe(editing);
+    const held = reduceFileEditHistory(editing, {
+      type: "changed-underneath",
+      contents: "theirs",
+    });
+    expect(held.conflict).toBe("theirs");
+    expect(reduceFileEditHistory(held, { type: "read", contents: "theirs" }).conflict).toBe(
+      "theirs",
+    );
+    // Keep mine: the held save lands as the reader's own edit, with Undo.
+    const keep: ReadonlyArray<FileEditEvent> = [
+      { type: "keep-mine" },
+      { type: "saved", contents: "mine", restore: false },
+    ];
+    const kept = keep.reduce(reduceFileEditHistory, held);
+    expect(kept.conflict).toBeNull();
+    expect(canUndoFileEdit(kept)).toBe(true);
+  });
 });

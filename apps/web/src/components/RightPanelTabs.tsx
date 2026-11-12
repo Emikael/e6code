@@ -29,7 +29,7 @@ import {
   Smartphone,
   ChevronDown,
   FileDiff,
-  Files,
+  Folder,
   Globe2,
   Plus,
   TerminalSquare,
@@ -360,7 +360,7 @@ function RightPanelEmptyState(props: {
     },
     {
       label: "Files",
-      icon: Files,
+      icon: Folder,
       shortcut: "F",
       available: props.filesAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
@@ -609,7 +609,7 @@ function SurfaceIcon({
     case "diff":
       return <FileDiff className="size-3.5 shrink-0" />;
     case "files":
-      return <Files className="size-3.5 shrink-0" />;
+      return <Folder className="size-3.5 shrink-0" />;
     case "file":
       return (
         <PierreEntryIcon
@@ -1282,7 +1282,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     },
     {
       label: "Files",
-      icon: Files,
+      icon: Folder,
       shortcut: "F",
       available: props.filesAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.files,

@@ -50,6 +50,14 @@ export const FILE_LINK_REVEAL_UNSAFE_CSS = `
     ) !important;
     color: var(--diffs-selection-number-fg) !important;
   }
+
+  /* Selected lines carry a primary-edge line, not a wash alone (a wash measured 1.15:1). */
+  :is([data-line], [data-column-number])[data-selected-line] {
+    --diffs-line-bg: color-mix(in srgb, var(--code-background) 88%, var(--primary-edge)) !important;
+  }
+  [data-column-number][data-selected-line] {
+    box-shadow: inset 2px 0 0 var(--primary-edge) !important;
+  }
 `;
 
 /**
