@@ -113,6 +113,20 @@ export function confirmProjectFileQueryData(
   return true;
 }
 
+/** Reads the file from disk now, past any cached read. Null when the read fails. */
+export async function readProjectFileFromDisk(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+): Promise<string | null> {
+  const result = await executeAtomQuery(
+    appAtomRegistry,
+    getProjectFileQueryAtom(environmentId, cwd, relativePath),
+    { refresh: true, reportDefect: false, reportFailure: false },
+  );
+  return result._tag === "Success" && !result.value.truncated ? result.value.contents : null;
+}
+
 export function resolveProjectFileQueryData(
   environmentId: EnvironmentId,
   cwd: string,

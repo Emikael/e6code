@@ -62,10 +62,13 @@ import {
   type FileCommentAnnotationGroup,
   type FileCommentLineAnnotation,
   formatFileCommentLines,
+  fileLinesText,
   formatFileCommentRange,
   nextFileCommentId,
   normalizeFileCommentRange,
   remapFileCommentAnnotations,
+  withFileSelectionBar,
+  withoutFileSelectionBar,
 } from "./fileCommentAnnotations";
 import { installFileEditorDismissal } from "./fileEditorDismissal";
 import {
@@ -665,8 +668,8 @@ function EditableFileSurface({
         onChange: (file, nextLineAnnotations) => {
           onEdit(file.contents);
           if (nextLineAnnotations) {
-            const remapped = remapFileCommentAnnotations(
-              nextLineAnnotations as FileCommentLineAnnotation[],
+            const remapped = withoutFileSelectionBar(
+              remapFileCommentAnnotations(nextLineAnnotations as FileCommentLineAnnotation[]),
             );
             setLineAnnotations(remapped);
             for (const annotation of remapped) {
@@ -850,6 +853,12 @@ function EditableFileSurface({
   const hasOpenCommentForm = lineAnnotations.some((annotation) =>
     annotation.metadata.entries.some((entry) => entry.kind === "draft"),
   );
+  // Board 15: a finished selection first offers Copy and "Comment for the agent" in a bar under
+  // its last line, so a selection made to copy does not open a comment form.
+  const [selectionBar, setSelectionBar] = useState<{
+    readonly startLine: number;
+    readonly endLine: number;
+  } | null>(null);
   useEffect(() => {
     const root = surfaceRef.current;
     if (!root) return;
@@ -857,17 +866,56 @@ function EditableFileSurface({
       root,
       editor,
       isBlocked: () => hasOpenCommentForm,
-      onDismiss: () => setSelectedRange(null),
+      onDismiss: () => {
+        setSelectedRange(null);
+        setSelectionBar(null);
+      },
     });
   }, [editor, hasOpenCommentForm, setSelectedRange]);
+  const handleLineSelectionChange = useCallback(
+    (range: SelectedLineRange | null) => {
+      setSelectedRange(range);
+      setSelectionBar((current) => {
+        if (current === null || range === null) return null;
+        const next = normalizeFileCommentRange(range);
+        return next.startLine === current.startLine && next.endLine === current.endLine
+          ? current
+          : null;
+      });
+    },
+    [setSelectedRange],
+  );
   const handleLineSelectionEnd = useCallback(
     (range: SelectedLineRange | null) => {
       setSelectedRange(range);
-      if (range) {
-        beginComment(range);
-      }
+      setSelectionBar(range ? normalizeFileCommentRange(range) : null);
     },
-    [beginComment, setSelectedRange],
+    [setSelectedRange],
+  );
+  const shownAnnotations = useMemo(
+    () =>
+      selectionBar && !hasOpenCommentForm
+        ? withFileSelectionBar(lineAnnotations, selectionBar.startLine, selectionBar.endLine)
+        : lineAnnotations,
+    [hasOpenCommentForm, lineAnnotations, selectionBar],
+  );
+  const copySelection = useCallback(
+    (startLine: number, endLine: number) => {
+      void writeTextToClipboard(fileLinesText(contents, startLine, endLine), "selection").then(
+        () =>
+          toastManager.add({
+            type: "success",
+            title: `Copied ${formatFileCommentLines(startLine, endLine)}`,
+          }),
+        (error: unknown) =>
+          toastManager.add({
+            type: "error",
+            title: "Failed to copy",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+      );
+    },
+    [contents],
   );
 
   const handlePostRender = useCallback<FilePostRender>(
@@ -917,7 +965,7 @@ function EditableFileSurface({
               enableGutterUtility: !hasOpenCommentForm,
               enableLineSelection: !hasOpenCommentForm,
               onGutterUtilityClick: setSelectedRange,
-              onLineSelectionChange: setSelectedRange,
+              onLineSelectionChange: handleLineSelectionChange,
               onLineSelectionEnd: handleLineSelectionEnd,
               overflow: wordWrap ? "wrap" : "scroll",
               theme: resolveDiffThemeName(resolvedTheme),
@@ -927,25 +975,59 @@ function EditableFileSurface({
               onPostRender: handlePostRender,
             }}
             selectedLines={selectedRange}
-            lineAnnotations={lineAnnotations}
+            lineAnnotations={shownAnnotations}
             renderAnnotation={(annotation) => (
               <div className="py-1">
-                {annotation.metadata.entries.map((entry) => (
-                  <DiffCommentAnnotation
-                    // Remounted on Edit, so the draft starts from the saved words.
-                    key={`${entry.id}:${entry.kind}`}
-                    kind={entry.kind}
-                    rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
-                    heading={`Your comment · ${formatFileCommentLines(entry.startLine, entry.endLine)}`}
-                    text={entry.text}
-                    onCancel={() => cancelAnnotationEntry(entry)}
-                    onComment={(text) => submitAnnotationEntry(entry.id, text)}
-                    onDelete={() => removeAnnotationEntry(entry.id)}
-                    {...(entry.kind === "comment" && !hasOpenCommentForm
-                      ? { onEdit: () => editAnnotationEntry(entry.id) }
-                      : {})}
-                  />
-                ))}
+                {annotation.metadata.entries.map((entry) =>
+                  entry.kind === "selection" ? (
+                    <div
+                      key={entry.id}
+                      className="flex justify-end px-3 font-sans"
+                      contentEditable={false}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {/* Neither is filled: most selections are for copying. */}
+                      <div
+                        role="toolbar"
+                        aria-label={`Selected ${formatFileCommentLines(entry.startLine, entry.endLine)}`}
+                        className="flex gap-0.5 rounded-xl border border-border bg-surface-floating p-1 shadow-lg"
+                      >
+                        <Button
+                          size="compact"
+                          variant="ghost"
+                          onClick={() => copySelection(entry.startLine, entry.endLine)}
+                        >
+                          Copy
+                        </Button>
+                        <Button
+                          size="compact"
+                          variant="ghost"
+                          onClick={() => {
+                            setSelectionBar(null);
+                            beginComment({ start: entry.startLine, end: entry.endLine });
+                          }}
+                        >
+                          Comment for the agent
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <DiffCommentAnnotation
+                      // Remounted on Edit, so the draft starts from the saved words.
+                      key={`${entry.id}:${entry.kind}`}
+                      kind={entry.kind}
+                      rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
+                      heading={`Your comment · ${formatFileCommentLines(entry.startLine, entry.endLine)}`}
+                      text={entry.text}
+                      onCancel={() => cancelAnnotationEntry(entry)}
+                      onComment={(text) => submitAnnotationEntry(entry.id, text)}
+                      onDelete={() => removeAnnotationEntry(entry.id)}
+                      {...(entry.kind === "comment" && !hasOpenCommentForm
+                        ? { onEdit: () => editAnnotationEntry(entry.id) }
+                        : {})}
+                    />
+                  ),
+                )}
               </div>
             )}
             className="min-h-full"

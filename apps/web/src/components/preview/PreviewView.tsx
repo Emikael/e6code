@@ -60,6 +60,7 @@ import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Kbd } from "~/components/ui/kbd";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { usePreviewSession } from "./usePreviewSession";
@@ -667,6 +668,26 @@ export function PreviewView({
     })();
   }, [addImage, addPreviewAnnotation, onSendAnnotation, runtimeTabId, threadRef]);
 
+  // Annotating is a mode (F20), so it is easy to leave: Finish on its banner, Escape, closing the
+  // panel, or switching tabs (which unmounts this view; see the cleanup below).
+  const finishAnnotating = useCallback(() => {
+    if (!pickActiveRef.current || !previewBridge || !runtimeTabId) return;
+    void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
+  }, [runtimeTabId]);
+  useEffect(() => {
+    if (!visible) finishAnnotating();
+  }, [finishAnnotating, visible]);
+  useEffect(() => {
+    if (!pickActive) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      finishAnnotating();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [finishAnnotating, pickActive]);
+
   // If the active tab changes mid-pick (close, thread switch, hot restart),
   // tell main to tear down the in-flight session AND reset our local toggle
   // state so the button doesn't get stuck pressed against a stale tab id.
@@ -724,13 +745,6 @@ export function PreviewView({
         onForward={handleForward}
         onRefresh={handleRefresh}
         onSubmit={(next) => void handleSubmitUrl(next)}
-        onOpenInBrowser={tabId ? handleOpenInBrowser : undefined}
-        onCapture={previewBridge && tabId ? handleCapture : undefined}
-        captureDisabled={!desktopOverlay || isUnreachable}
-        recording={recordingRuntimeTabId !== null}
-        onPictureInPicture={previewBridge && tabId ? handlePictureInPicture : undefined}
-        pictureInPicture={miniPlayerTabId === tabId}
-        pictureInPictureDisabled={!desktopOverlay?.hasWebContents || isUnreachable}
         onPickElement={previewBridge && tabId ? handlePickElement : undefined}
         pickActive={pickActive}
         // Disable when there's no tab (nothing to pick on) OR the page
@@ -761,23 +775,43 @@ export function PreviewView({
           ) : null
         }
         trailingActions={
-          previewBridge ? (
-            <PreviewMoreMenu
-              environmentId={threadRef.environmentId}
-              profileId={activeProfileId}
-              profileName={activeProfileName}
-              tabId={runtimeTabId}
-              hasWebContents={desktopOverlay?.hasWebContents ?? false}
-              zoomFactor={desktopOverlay?.zoomFactor ?? 1}
-              colorScheme={desktopOverlay?.colorScheme ?? "system"}
-              deviceToolbarVisible={viewport._tag !== "fill"}
-              onToggleDeviceToolbar={handleToggleDeviceToolbar}
-              nativePictureInPicture={desktopOverlay?.pictureInPicture ?? false}
-              onNativePictureInPicture={handleNativePictureInPicture}
-            />
-          ) : null
+          <PreviewMoreMenu
+            onOpenInBrowser={tabId ? handleOpenInBrowser : undefined}
+            onCapture={previewBridge && tabId ? handleCapture : undefined}
+            captureDisabled={!desktopOverlay || isUnreachable}
+            recording={recordingRuntimeTabId !== null}
+            onPictureInPicture={previewBridge && tabId ? handlePictureInPicture : undefined}
+            pictureInPicture={miniPlayerTabId === tabId}
+            pictureInPictureDisabled={!desktopOverlay?.hasWebContents || isUnreachable}
+            environmentId={threadRef.environmentId}
+            profileId={activeProfileId}
+            profileName={activeProfileName}
+            tabId={runtimeTabId}
+            hasWebContents={desktopOverlay?.hasWebContents ?? false}
+            zoomFactor={desktopOverlay?.zoomFactor ?? 1}
+            colorScheme={desktopOverlay?.colorScheme ?? "system"}
+            deviceToolbarVisible={viewport._tag !== "fill"}
+            onToggleDeviceToolbar={handleToggleDeviceToolbar}
+            nativePictureInPicture={desktopOverlay?.pictureInPicture ?? false}
+            onNativePictureInPicture={handleNativePictureInPicture}
+          />
         }
       />
+
+      {pickActive ? (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2.5 border-b border-border bg-surface-raised py-1 pe-1.5 ps-3"
+        >
+          <span className="min-w-0 flex-1 font-medium text-[13px] text-foreground">
+            Annotating. Click an element or drag a region.
+          </span>
+          <Button size="compact" variant="ghost" onClick={finishAnnotating}>
+            Finish
+            <Kbd className="h-[18px] min-w-[18px] border border-border bg-transparent">Esc</Kbd>
+          </Button>
+        </div>
+      ) : null}
 
       {desktopOverlay?.importedCookieGrant ? (
         <div className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-foreground">

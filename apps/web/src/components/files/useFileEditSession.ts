@@ -10,7 +10,9 @@ import {
   reduceFileEditHistory,
 } from "./fileEditHistory";
 import {
+  clearProjectFileQueryData,
   getOptimisticProjectFileQueryData,
+  readProjectFileFromDisk,
   setProjectFileQueryData,
 } from "./projectFilesQueryState";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
@@ -63,13 +65,43 @@ export function useFileEditSession(input: {
   );
   // Contents written back by Undo, Revert or Keep mine, so their save is not counted as an edit.
   const restoringRef = useRef<string | null>(null);
-  const onConfirmed = useCallback(
-    (contents: string) => {
-      const restore = restoringRef.current === contents;
-      if (restore) restoringRef.current = null;
-      dispatch({ type: "saved", contents, restore });
+  // What the reader's unsaved edit started from, and their last save: a file on disk that is
+  // neither changed under them, and their save is held rather than written over it.
+  const baseRef = useRef<string | null>(null);
+  const lastSavedRef = useRef<string | null>(null);
+  const contentsRef = useRef(input.contents);
+  const serverContentsRef = useRef(input.serverContents);
+  const editingRef = useRef(history.editing);
+  // Read through a ref so `edit` stays stable across turns: the editor is built around it.
+  const dispatchRef = useRef(dispatch);
+  useEffect(() => {
+    contentsRef.current = input.contents;
+    serverContentsRef.current = input.serverContents;
+    editingRef.current = history.editing;
+    dispatchRef.current = dispatch;
+  });
+  const onConfirmed = useCallback((contents: string) => {
+    const restore = restoringRef.current === contents;
+    if (restore) restoringRef.current = null;
+    lastSavedRef.current = contents;
+    dispatchRef.current({ type: "saved", contents, restore });
+  }, []);
+  const check = useCallback(
+    async (contents: string) => {
+      if (relativePath === null) return true;
+      const disk = await readProjectFileFromDisk(environmentId, cwd, relativePath);
+      if (
+        disk === null ||
+        disk === contents ||
+        disk === baseRef.current ||
+        disk === lastSavedRef.current
+      ) {
+        return true;
+      }
+      dispatchRef.current({ type: "changed-underneath", contents: disk });
+      return false;
     },
-    [dispatch],
+    [cwd, environmentId, relativePath],
   );
   const coordinator = useFileSaveCoordinator({
     environmentId,
@@ -77,13 +109,7 @@ export function useFileEditSession(input: {
     relativePath,
     onPendingChange: input.onPendingChange,
     onConfirmed,
-  });
-  const contentsRef = useRef(input.contents);
-  // Read through a ref so `edit` stays stable across turns: the editor is built around it.
-  const dispatchRef = useRef(dispatch);
-  useEffect(() => {
-    contentsRef.current = input.contents;
-    dispatchRef.current = dispatch;
+    check,
   });
 
   const edit = useCallback(
@@ -92,6 +118,10 @@ export function useFileEditSession(input: {
       const before =
         getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
         contentsRef.current;
+      if (!editingRef.current) {
+        baseRef.current = serverContentsRef.current;
+        editingRef.current = true;
+      }
       if (before !== null) dispatchRef.current({ type: "edit", before });
       setProjectFileQueryData(environmentId, cwd, relativePath, contents);
       coordinator.change(contents);
@@ -119,8 +149,15 @@ export function useFileEditSession(input: {
     revert: () => write(history.original),
     keepMine: () => {
       dispatch({ type: "keep-mine" });
-      write(history.saved);
+      // An unsaved edit was held: save it now. Otherwise put the reader's last save back.
+      if (history.editing) coordinator.release();
+      else write(history.saved);
     },
-    takeTheirs: () => dispatch({ type: "reset" }),
+    takeTheirs: () => {
+      if (coordinator.discard() && relativePath !== null) {
+        clearProjectFileQueryData(environmentId, cwd, relativePath);
+      }
+      dispatch({ type: "reset" });
+    },
   };
 }

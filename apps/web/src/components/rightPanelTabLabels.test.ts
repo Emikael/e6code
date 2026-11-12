@@ -60,15 +60,26 @@ describe("surfaceTitle", () => {
     ).toBe("#412 · Merged");
   });
 
-  it("says how many of a terminal tab's panes are running", () => {
+  it("says how many of a terminal tab's panes are running, or that one finished", () => {
     const labels = new Map([["term-1", "dev server"]]);
-    expect(surfaceTitle(terminal, NO_SESSIONS, labels)).toBe("dev server");
+    expect(surfaceTitle(terminal, NO_SESSIONS, labels)).toBe("Terminal");
     expect(
       surfaceTitle(terminal, NO_SESSIONS, labels, {
         runningTerminalIds: new Set(["term-2", "term-9"]),
       }),
-    ).toBe("dev server · 1 running");
-    expect(surfaceTitle(terminal, NO_SESSIONS, NO_LABELS)).toBe("Terminal 1");
+    ).toBe("Terminal · 1 running");
+    expect(
+      surfaceTitle(terminal, NO_SESSIONS, labels, {
+        finishedTerminalIds: new Set(["term-1"]),
+      }),
+    ).toBe("Terminal · Finished");
+    // Running wins: the tab keeps the process that still needs watching in view.
+    expect(
+      surfaceTitle(terminal, NO_SESSIONS, labels, {
+        runningTerminalIds: new Set(["term-2"]),
+        finishedTerminalIds: new Set(["term-1"]),
+      }),
+    ).toBe("Terminal · 1 running");
   });
 
   it("calls the pull request list Pull requests", () => {
@@ -84,7 +95,7 @@ describe("surfaceTitleParts", () => {
       surfaceTitleParts(terminal, NO_SESSIONS, new Map([["term-1", "a very long dev server"]]), {
         runningTerminalIds: new Set(["term-1"]),
       }),
-    ).toEqual({ name: "a very long dev server", state: "1 running" });
+    ).toEqual({ name: "Terminal", state: "1 running" });
     expect(
       surfaceTitleParts(pullRequest, NO_SESSIONS, NO_LABELS, {
         pullRequestStatus: { state: "open", isDraft: false },

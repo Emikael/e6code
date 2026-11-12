@@ -1,12 +1,5 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Camera,
-  ExternalLink,
-  MousePointerClick,
-  PictureInPicture2,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -17,7 +10,7 @@ import {
 } from "react";
 
 import { Button } from "~/components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
+import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
@@ -36,14 +29,6 @@ interface Props {
   onForward: () => void;
   onRefresh: () => void;
   onSubmit: (url: string) => void;
-  /** When provided, renders an "Open in browser" affordance to the right. */
-  onOpenInBrowser?: (() => void) | undefined;
-  onCapture?: ((record: boolean) => void) | undefined;
-  captureDisabled?: boolean | undefined;
-  recording?: boolean | undefined;
-  onPictureInPicture?: (() => void) | undefined;
-  pictureInPicture?: boolean | undefined;
-  pictureInPictureDisabled?: boolean | undefined;
   /**
    * When provided, renders an annotation-mode toggle button to the right of
    * the URL input. Pressed while annotation mode is active (button shows in `pressed`
@@ -55,8 +40,8 @@ interface Props {
   /** Optional reason string surfaced in the disabled tooltip. */
   pickDisabledReason?: string | undefined;
   /**
-   * Trailing slot rendered after the URL input. Used by the preview view
-   * to mount the three-dot menu (hard reload, devtools, zoom, clear data).
+   * Trailing slot after Annotate: the More menu (screenshot, record, float over chat, open in
+   * system browser, DevTools, device size, appearance, zoom, clear cookies).
    */
   trailingActions?: ReactNode;
   /**
@@ -80,13 +65,6 @@ export function PreviewChromeRow({
   onForward,
   onRefresh,
   onSubmit,
-  onOpenInBrowser,
-  onCapture,
-  captureDisabled,
-  recording,
-  onPictureInPicture,
-  pictureInPicture,
-  pictureInPictureDisabled,
   onPickElement,
   pickActive,
   pickDisabled,
@@ -174,18 +152,15 @@ export function PreviewChromeRow({
 
           {leadingActions}
 
-          <InputGroup variant="ghost" className="group/address h-7 flex-1">
+          {/* Board 17: the address field keeps a visible muted-foreground hairline. */}
+          <InputGroup className="h-7 flex-1 border-muted-foreground bg-card shadow-none">
             <Tooltip>
               <TooltipTrigger
                 render={
                   <InputGroupInput
                     ref={inputRef}
                     value={inputFocused ? draft : url}
-                    className={cn(
-                      onOpenInBrowser &&
-                        !inputFocused &&
-                        "group-hover/address:pe-7 transition-[padding]",
-                    )}
+                    className="font-mono text-xs sm:text-xs"
                     onChange={(event) => setDraft(event.target.value)}
                     onFocus={() => {
                       setDraft(url);
@@ -212,103 +187,35 @@ export function PreviewChromeRow({
                 }
               />
             </Tooltip>
-            {onOpenInBrowser && !inputFocused ? (
-              <InputGroupAddon
-                align="inline-end"
-                className="pointer-events-none absolute inset-y-0 right-0 opacity-0 transition-opacity group-hover/address:pointer-events-auto group-hover/address:opacity-100"
-              >
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={onOpenInBrowser}
-                        aria-label="Open in system browser"
-                        type="button"
-                      />
-                    }
-                  >
-                    <ExternalLink />
-                  </TooltipTrigger>
-                  <TooltipPopup>Open in system browser</TooltipPopup>
-                </Tooltip>
-              </InputGroupAddon>
-            ) : null}
           </InputGroup>
 
           {onPickElement ? (
             <Tooltip>
               <TooltipTrigger
                 render={
+                  // A pressed toggle carries a primary-edge line, not a wash alone.
                   <Button
-                    variant={pickActive ? "secondary" : "ghost"}
-                    size="icon-xs"
+                    variant="outline"
+                    size="compact"
                     onClick={onPickElement}
                     disabled={pickDisabled}
-                    aria-label={pickActive ? "Cancel annotation" : "Annotate preview"}
                     aria-pressed={pickActive ? "true" : "false"}
                     type="button"
+                    className={cn(
+                      pickActive &&
+                        "border-primary-edge shadow-[inset_0_0_0_1px_var(--primary-edge)]",
+                    )}
                   />
                 }
               >
-                <MousePointerClick className={cn(pickActive && "text-primary-text")} />
+                Annotate
               </TooltipTrigger>
               <TooltipPopup>
                 {pickDisabled && pickDisabledReason
                   ? pickDisabledReason
                   : pickActive
-                    ? "Cancel annotation (Esc)"
-                    : "Annotate elements, regions, and drawings"}
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {onCapture ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant={recording ? "secondary" : "ghost"}
-                    size="icon-xs"
-                    onClick={(event) => onCapture(event.shiftKey)}
-                    aria-label={recording ? "Stop recording" : "Capture screenshot"}
-                    type="button"
-                    className="relative"
-                    disabled={captureDisabled}
-                  />
-                }
-              >
-                <Camera className={cn(recording && "text-destructive")} />
-                {recording ? (
-                  <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />
-                ) : null}
-              </TooltipTrigger>
-              <TooltipPopup>
-                {recording ? "Stop recording" : "Screenshot · Shift-click to record"}
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {onPictureInPicture ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant={pictureInPicture ? "secondary" : "ghost"}
-                    size="icon-xs"
-                    onClick={onPictureInPicture}
-                    aria-label={
-                      pictureInPicture ? "Close floating preview" : "Float preview over chat"
-                    }
-                    aria-pressed={pictureInPicture ? "true" : "false"}
-                    type="button"
-                    disabled={pictureInPictureDisabled}
-                  />
-                }
-              >
-                <PictureInPicture2 className={cn(pictureInPicture && "text-primary-text")} />
-              </TooltipTrigger>
-              <TooltipPopup>
-                {pictureInPicture ? "Close floating preview" : "Float preview over chat"}
+                    ? "Finish annotating (Esc)"
+                    : "Click an element or drag a region to note it for the agent"}
               </TooltipPopup>
             </Tooltip>
           ) : null}

@@ -219,18 +219,21 @@ vi.mock("./PreviewChromeRow", () => ({
   PreviewChromeRow: (props: {
     onSubmit: (url: string) => void;
     onPickElement?: () => void;
-    onPictureInPicture?: () => void;
-    pictureInPicture?: boolean;
+    // Float over chat lives in the More menu, the header's trailing action.
     trailingActions?: {
-      props: { onNativePictureInPicture?: () => void };
+      props: {
+        onNativePictureInPicture?: () => void;
+        onPictureInPicture?: () => void;
+        pictureInPicture?: boolean;
+      };
     };
   }) => {
     mocks.submittedUrl = props.onSubmit;
     mocks.toggleAnnotation = props.onPickElement ?? null;
-    mocks.togglePictureInPicture = props.onPictureInPicture ?? null;
+    mocks.togglePictureInPicture = props.trailingActions?.props.onPictureInPicture ?? null;
     mocks.toggleNativePictureInPicture =
       props.trailingActions?.props.onNativePictureInPicture ?? null;
-    mocks.pictureInPicturePressed = props.pictureInPicture ?? false;
+    mocks.pictureInPicturePressed = props.trailingActions?.props.pictureInPicture ?? false;
     return null;
   },
 }));

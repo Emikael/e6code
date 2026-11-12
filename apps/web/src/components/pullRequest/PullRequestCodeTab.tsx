@@ -219,6 +219,7 @@ function PullRequestCodeTab({
   onAddToAgentSelection,
   onRefresh,
   refreshToken = 0,
+  composerHasText = false,
 }: {
   environmentId: EnvironmentId;
   reference: PullRequestRef;
@@ -235,6 +236,8 @@ function PullRequestCodeTab({
   onRefresh: () => void;
   /** Bumped by the panel's refresh button: drop the accumulated pages and re-read the diff. */
   refreshToken?: number;
+  /** The thread's composer holds text: Send owns the one fill, so the footer's turns outline. */
+  composerHasText?: boolean;
 }) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -1770,7 +1773,7 @@ function PullRequestCodeTab({
                   })
                 : ""
           }
-          primaryOutline={false}
+          primaryOutline={composerHasText}
           // Comments here go into the pull request review, which the Review button sends.
           reply={null}
           primary={

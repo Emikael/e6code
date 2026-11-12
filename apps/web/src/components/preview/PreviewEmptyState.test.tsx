@@ -18,9 +18,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./useDiscoveredLocalServers", () => ({
   useDiscoveredLocalServers: () => mocks.servers,
 }));
-vi.mock("./PreviewFaviconIcon", () => ({
-  PreviewFaviconIcon: () => <span data-favicon-icon />,
-}));
 
 import { PreviewEmptyState } from "./PreviewEmptyState";
 
@@ -53,31 +50,21 @@ function render(recentEntries: Array<{ url: string; lastVisitedAt: number; title
 }
 
 describe("PreviewEmptyState", () => {
-  it("renders a history entry in both groups when its host:port matches a live server", () => {
+  it("lists running servers before recent addresses", () => {
     mocks.servers = [server(5173)];
     const html = render([
       { url: "https://myapp.test/admin#users", lastVisitedAt: Date.now(), title: "Admin" },
-      { url: "http://localhost:5173/", lastVisitedAt: Date.now(), title: "Recent Local" },
     ]);
-    expect(html).toContain("Recently used");
-    expect(html).toContain("Local servers");
-    expect(html).toContain("myapp.test/admin#users");
-    expect(html).toContain("Admin");
-    expect(html).toContain("Recent Local");
-    expect(html).toContain("node");
+    expect(html).toContain("Nothing open");
+    expect(html.indexOf("localhost:5173")).toBeLessThan(html.indexOf("myapp.test/admin#users"));
+    expect(html).toContain("Running");
   });
 
-  it("renders only the recents group when no servers are found", () => {
-    mocks.servers = [];
-    const html = render([{ url: "https://myapp.test/", lastVisitedAt: 0 }]);
-    expect(html).toContain("Recently used");
-    expect(html).not.toContain("Local servers");
-  });
-
-  it("keeps the original empty state when both groups are empty", () => {
+  it("says how to start when there is nothing to pick", () => {
     mocks.servers = [];
     const html = render([]);
-    expect(html).toContain("No preview yet");
+    expect(html).toContain("Nothing open");
+    expect(html).toContain("Running local servers show up here.");
   });
 
   it("renders an out-of-range lastVisitedAt entry without throwing", () => {

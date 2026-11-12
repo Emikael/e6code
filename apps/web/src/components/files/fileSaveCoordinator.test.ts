@@ -228,4 +228,45 @@ describe("FileSaveCoordinator", () => {
 
     expect(persist).toHaveBeenCalledTimes(2);
   });
+
+  it("holds a save when the file changed under it, until released or discarded", async () => {
+    vi.useFakeTimers();
+    const persist = vi
+      .fn<(contents: string) => Promise<AtomCommandResult<void, never>>>()
+      .mockResolvedValue(AsyncResult.success(undefined));
+    const check = vi.fn<(contents: string) => Promise<boolean>>().mockResolvedValue(false);
+    const onPendingChange = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      persist,
+      onPendingChange,
+      onConfirmed: vi.fn(),
+      check,
+    });
+
+    coordinator.change("mine");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(check).toHaveBeenCalledWith("mine");
+    expect(persist).not.toHaveBeenCalled();
+
+    // Typing on while held, and leaving the file, still writes nothing over the change.
+    coordinator.change("mine, more");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(persist).not.toHaveBeenCalled();
+    expect(onPendingChange).not.toHaveBeenCalledWith(false);
+
+    coordinator.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(check).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledExactlyOnceWith("mine, more");
+    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+
+    coordinator.change("again");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(coordinator.discard()).toBe(true);
+    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+    coordinator.dispose();
+    await vi.runAllTimersAsync();
+    expect(persist).toHaveBeenCalledOnce();
+  });
 });

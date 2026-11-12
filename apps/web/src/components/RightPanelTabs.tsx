@@ -29,7 +29,7 @@ import {
   Smartphone,
   ChevronDown,
   FileDiff,
-  Files,
+  Folder,
   Globe2,
   Plus,
   TerminalSquare,
@@ -159,6 +159,8 @@ export interface RightPanelTabsProps {
   changedFileCount?: number;
   /** The thread's terminals with a running process; named on their tabs. */
   runningTerminalIds?: ReadonlyArray<string> | undefined;
+  /** Terminals showing the Finished cue (see useFinishedTerminalIds). */
+  finishedTerminalIds?: ReadonlySet<string> | undefined;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -360,7 +362,7 @@ function RightPanelEmptyState(props: {
     },
     {
       label: "Files",
-      icon: Files,
+      icon: Folder,
       shortcut: "F",
       available: props.filesAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
@@ -609,7 +611,7 @@ function SurfaceIcon({
     case "diff":
       return <FileDiff className="size-3.5 shrink-0" />;
     case "files":
-      return <Files className="size-3.5 shrink-0" />;
+      return <Folder className="size-3.5 shrink-0" />;
     case "file":
       return (
         <PierreEntryIcon
@@ -1160,7 +1162,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     () => new Set(props.runningTerminalIds ?? []),
     [props.runningTerminalIds],
   );
-  const titleState = { changedFileCount: props.changedFileCount ?? 0, runningTerminalIds };
+  const titleState = {
+    changedFileCount: props.changedFileCount ?? 0,
+    runningTerminalIds,
+    ...(props.finishedTerminalIds ? { finishedTerminalIds: props.finishedTerminalIds } : {}),
+  };
   const panelId = useId();
   const closeKeyShortcuts = useMemo(
     () =>
@@ -1282,7 +1288,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     },
     {
       label: "Files",
-      icon: Files,
+      icon: Folder,
       shortcut: "F",
       available: props.filesAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.files,

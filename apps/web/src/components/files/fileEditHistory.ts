@@ -37,6 +37,8 @@ export type FileEditEvent =
   | { readonly type: "reset" }
   /** The file was read from disk again. */
   | { readonly type: "read"; readonly contents: string }
+  /** A save was held: the file on disk is now `contents`, which the reader did not write. */
+  | { readonly type: "changed-underneath"; readonly contents: string }
   | { readonly type: "keep-mine" };
 
 export function reduceFileEditHistory(
@@ -65,12 +67,17 @@ export function reduceFileEditHistory(
     case "reset":
       return EMPTY_FILE_EDIT_HISTORY;
     case "read":
+      // An unsaved edit is guarded by the save itself (see "changed-underneath"); a read now
+      // neither raises nor settles the notice.
+      if (state.editing) return state;
       // Only a file the reader has edited can be overwritten under them, and only by contents
       // they did not write. A read that matches their save is their own edit coming back.
-      if (state.saved === null || state.editing || event.contents === state.saved) {
+      if (state.saved === null || event.contents === state.saved) {
         return state.conflict === null ? state : { ...state, conflict: null };
       }
       if (event.contents === state.original || event.contents === state.undoTo) return state;
+      return { ...state, conflict: event.contents, showSaved: false };
+    case "changed-underneath":
       return { ...state, conflict: event.contents, showSaved: false };
     case "keep-mine":
       return { ...state, conflict: null };

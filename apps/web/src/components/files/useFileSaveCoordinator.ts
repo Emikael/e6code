@@ -17,6 +17,8 @@ interface FileSaveOptions {
   onPendingChange: (relativePath: string, pending: boolean) => void;
   /** A save landed with these contents. */
   onConfirmed?: ((contents: string) => void) | undefined;
+  /** See FileSaveCoordinatorOptions.check. */
+  check?: ((contents: string) => Promise<boolean>) | undefined;
 }
 
 export function useFileSaveCoordinator({
@@ -25,12 +27,15 @@ export function useFileSaveCoordinator({
   relativePath,
   onPendingChange,
   onConfirmed,
-}: FileSaveOptions): Pick<FileSaveCoordinator, "change"> {
+  check,
+}: FileSaveOptions): Pick<FileSaveCoordinator, "change" | "release" | "discard"> {
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const session = useMemo(() => {
     const coordinatorRef = createRef<FileSaveCoordinator>();
     return {
       change: (contents: string) => coordinatorRef.current?.change(contents),
+      release: () => coordinatorRef.current?.release(),
+      discard: () => coordinatorRef.current?.discard() ?? false,
       setup: () => {
         if (relativePath === null) return;
         const coordinator = new FileSaveCoordinator({
@@ -45,6 +50,7 @@ export function useFileSaveCoordinator({
             confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
             onConfirmed?.(confirmedContents);
           },
+          check,
         });
         coordinatorRef.current = coordinator;
         return () => {
@@ -53,7 +59,7 @@ export function useFileSaveCoordinator({
         };
       },
     };
-  }, [cwd, environmentId, onConfirmed, onPendingChange, relativePath, writeFile]);
+  }, [check, cwd, environmentId, onConfirmed, onPendingChange, relativePath, writeFile]);
 
   // StrictMode replays effect setup. Retired file sessions stay inert, while the
   // replay gets a fresh coordinator instead of reusing a disposed one.

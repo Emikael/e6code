@@ -2689,6 +2689,7 @@ export function PullRequestDetailPanel({
                     onFixFinding={startFixFinding}
                     onRefresh={refreshDetail}
                     refreshToken={codeRefreshToken}
+                    composerHasText={composerHasText}
                   />
                 </Suspense>
               </div>

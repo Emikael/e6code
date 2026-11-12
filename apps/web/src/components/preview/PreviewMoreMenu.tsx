@@ -1,7 +1,7 @@
 "use client";
 
 import type { DesktopPreviewColorScheme, EnvironmentId } from "@e6tools/contracts";
-import { Minus, MoreVertical, Plus as PlusIcon, RotateCcw } from "lucide-react";
+import { Minus, MoreHorizontal, Plus as PlusIcon, RotateCcw } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -63,12 +63,21 @@ interface Props {
   profileId: string;
   /** Profile display name, shown so the menu says which data is being cleared. */
   profileName: string | undefined;
+  /** Screenshot (false) or start/stop a recording (true). */
+  onCapture?: ((record: boolean) => void) | undefined;
+  captureDisabled?: boolean | undefined;
+  recording?: boolean | undefined;
+  /** Float the page over the chat. */
+  onPictureInPicture?: (() => void) | undefined;
+  pictureInPicture?: boolean | undefined;
+  pictureInPictureDisabled?: boolean | undefined;
+  onOpenInBrowser?: (() => void) | undefined;
 }
 
 /**
- * Three-dot menu in the chrome row. Wires Hard reload, DevTools, zoom
- * controls, and storage-clearing actions. Only mounted by `PreviewView`
- * when the desktop bridge is present, so we can call it unconditionally.
+ * The Browser header's More menu (board 17): Screenshot, Record, Float over chat and Open in
+ * system browser, then the desktop page tools (Hard reload, DevTools, device size, Appearance,
+ * Zoom, clearing data). Without the desktop bridge only Open in system browser applies.
  */
 export function PreviewMoreMenu({
   tabId,
@@ -82,9 +91,70 @@ export function PreviewMoreMenu({
   environmentId,
   profileId,
   profileName,
+  onCapture,
+  captureDisabled,
+  recording,
+  onPictureInPicture,
+  pictureInPicture,
+  pictureInPictureDisabled,
+  onOpenInBrowser,
 }: Props) {
-  if (!previewBridge) return null;
   const bridge = previewBridge;
+  const pageActions =
+    onCapture || onPictureInPicture || onOpenInBrowser ? (
+      <>
+        {onCapture ? (
+          <>
+            <MenuItem onClick={() => onCapture(false)} disabled={captureDisabled || recording}>
+              Screenshot
+            </MenuItem>
+            <MenuItem onClick={() => onCapture(true)} disabled={captureDisabled}>
+              {recording ? "Stop recording" : "Record"}
+            </MenuItem>
+          </>
+        ) : null}
+        {onPictureInPicture ? (
+          <MenuItem onClick={onPictureInPicture} disabled={pictureInPictureDisabled}>
+            {pictureInPicture ? "Stop floating over chat" : "Float over chat"}
+          </MenuItem>
+        ) : null}
+        {onOpenInBrowser ? (
+          <MenuItem onClick={onOpenInBrowser}>Open in system browser</MenuItem>
+        ) : null}
+      </>
+    ) : null;
+  const trigger = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <MenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                type="button"
+                aria-label="More: screenshot, record, float over chat, open in system browser, DevTools, device size, zoom"
+              />
+            }
+          />
+        }
+      >
+        <MoreHorizontal />
+      </TooltipTrigger>
+      <TooltipPopup>More</TooltipPopup>
+    </Tooltip>
+  );
+  if (!bridge) {
+    if (!pageActions) return null;
+    return (
+      <Menu>
+        {trigger}
+        <MenuPopup align="end" sideOffset={6} className="min-w-56">
+          {pageActions}
+        </MenuPopup>
+      </Menu>
+    );
+  }
   const tabDisabled = !tabId || !hasWebContents;
   const callTab = (op: (tabId: string) => Promise<void>) => () => {
     if (!tabId) return;
@@ -94,21 +164,14 @@ export function PreviewMoreMenu({
   const zoomLabel = `${Math.round(zoomFactor * 100)}%`;
   return (
     <Menu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger
-              render={
-                <Button variant="ghost" size="icon-xs" type="button" aria-label="Preview menu" />
-              }
-            />
-          }
-        >
-          <MoreVertical />
-        </TooltipTrigger>
-        <TooltipPopup>More</TooltipPopup>
-      </Tooltip>
+      {trigger}
       <MenuPopup align="end" sideOffset={6} className="min-w-56">
+        {pageActions ? (
+          <>
+            {pageActions}
+            <MenuSeparator />
+          </>
+        ) : null}
         <MenuItem onClick={callTab(bridge.hardReload)} disabled={tabDisabled}>
           Hard reload
         </MenuItem>
@@ -121,7 +184,7 @@ export function PreviewMoreMenu({
             : "Open separate preview window"}
         </MenuItem>
         <MenuItem onClick={onToggleDeviceToolbar} disabled={tabDisabled}>
-          {deviceToolbarVisible ? "Hide device toolbar" : "Show device toolbar"}
+          {deviceToolbarVisible ? "Fill the panel" : "Device size"}
         </MenuItem>
         <MenuSub>
           <MenuSubTrigger disabled={tabDisabled}>Appearance</MenuSubTrigger>
