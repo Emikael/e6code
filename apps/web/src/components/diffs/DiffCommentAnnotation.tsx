@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { ATTACHED_SENTENCE } from "~/lib/attachedForAgent";
 import { cn } from "~/lib/utils";
 
 import { isCommentSubmitShortcut } from "./commentSubmitShortcut";
@@ -36,9 +37,6 @@ interface DiffCommentAnnotationProps {
    */
   surface?: "diff" | "file";
 }
-
-/** Said on every surface that attaches context to the next message. */
-export const ATTACHED_SENTENCE = "Attached. Goes with your next message in this thread.";
 
 /** The shared inline comment treatment for file previews, thread diffs, and pull-request diffs. */
 export function DiffCommentAnnotation({

@@ -98,6 +98,9 @@ import {
   resolveFileExplorerLayout,
   setMarkdownTaskChecked,
 } from "./filePreviewMode";
+import { fileCommentCount } from "~/lib/attachedForAgent";
+
+import { AttachedCountButton } from "../attached/AttachedCountButton";
 import { FileMoreMenu } from "./FileMoreMenu";
 import { heldFilePaths, useFileEditStore } from "./fileEditStore";
 import { useFileEditSession } from "./useFileEditSession";
@@ -1295,6 +1298,15 @@ export default function FilePreviewPanel({
       : threadFiles.latestTurnPaths.has(previewPath)
         ? `Changed by ${threadFiles.agentName} in the latest turn.`
         : "Changed in this thread.";
+  // Comments on the open file wait in the composer; the footer counts them and leads there.
+  const attachedComments = useComposerDraftStore((store) =>
+    workspaceFile && previewPath !== null
+      ? fileCommentCount(
+          store.getComposerDraft(composerDraftTarget)?.reviewComments ?? [],
+          previewPath,
+        )
+      : 0,
+  );
   const editable =
     workspaceFile && !isMedia && !isPdf && file.data !== null && !file.data.truncated;
   const editSession = useFileEditSession({
@@ -1690,11 +1702,12 @@ export default function FilePreviewPanel({
             </aside>
           ) : null}
         </div>
-        {footerCaption !== null ? (
+        {footerCaption !== null || attachedComments > 0 ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
             <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
               {footerCaption}
             </span>
+            <AttachedCountButton count={attachedComments} kind="comment" />
           </div>
         ) : null}
       </div>

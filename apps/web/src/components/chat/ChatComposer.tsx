@@ -7,6 +7,7 @@ import {
   runtimeModeOptions,
 } from "./runtimeModeConfig";
 import { ComposerPermissionsMenuSection } from "./ComposerPermissionsMenuSection";
+import { ComposerAttachedItems } from "./ComposerAttachedItems";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { AttachmentFilePreview } from "../files/AttachmentFilePreview";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -6762,6 +6763,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </div>
                 )}
 
+              {!isComposerCollapsedMobile && !isComposerApprovalState ? (
+                <ComposerAttachedItems target={composerDraftTarget} />
+              ) : null}
               <div
                 className={cn(
                   "relative",

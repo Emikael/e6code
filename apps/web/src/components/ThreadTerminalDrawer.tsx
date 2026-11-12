@@ -96,6 +96,8 @@ import {
 } from "./terminal/terminalPaneState";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
+import { useComposerDraftStore } from "~/composerDraftStore";
+import { AttachedCountButton } from "./attached/AttachedCountButton";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
 import {
@@ -1171,6 +1173,10 @@ export default function ThreadTerminalDrawer({
   finishedTerminalIds = NO_TERMINAL_IDS,
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
+  // Output added to the message waits in the thread's composer; the footer counts it.
+  const attachedSelections = useComposerDraftStore(
+    (store) => store.getComposerDraft(threadRef)?.terminalContexts.length ?? 0,
+  );
   const runPaneInput = useAtomCommand(terminalEnvironment.write, { reportFailure: false });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   // The last local address each pane printed; the footer offers the active pane's, or any.
@@ -1939,6 +1945,7 @@ export default function ThreadTerminalDrawer({
       </div>
       {isPanel ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+          <AttachedCountButton count={attachedSelections} kind="terminal" />
           <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
             Select output to add it to your next message.
           </span>
