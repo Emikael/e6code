@@ -357,6 +357,8 @@ function FocusNeedsYouPill({
         goToNextThreadThatNeedsYou({
           attention,
           currentThreadKey,
+          // The pill counts blocked threads only; Next walks the same ones.
+          scope: "blocked",
           navigate: (options) => router.navigate(options),
         })
       }

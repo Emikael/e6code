@@ -14,6 +14,7 @@ import {
   finishedDigestTitle,
   groupThreadDeliveries,
   isFocusHoldActive,
+  isThreadWatched,
   nextDigestFlushAtMs,
   resolveThreadNotificationDelivery,
   selectHeldForFlush,
@@ -267,10 +268,13 @@ export function ThreadNotificationCoordinator() {
     let blockedDelivered = false;
     for (const { notice, isOpenThread } of entries) {
       const blocked = notice.kind !== "completion";
-      const isWatched = Boolean(useThreadWatchStore.getState().watched[notice.key]);
+      const isWatched = isThreadWatched(
+        useThreadWatchStore.getState().watched[notice.key],
+        settings,
+      );
       // A turn that ended, either way, ends the watch.
       if (notice.kind === "completion" || notice.kind === "failed") {
-        useThreadWatchStore.getState().setWatched(notice.key, false);
+        useThreadWatchStore.getState().endWatch(notice.key);
       }
       const delivery = resolveThreadNotificationDelivery({
         event: blocked ? "blocked" : "finished",

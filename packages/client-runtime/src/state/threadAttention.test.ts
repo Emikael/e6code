@@ -231,6 +231,23 @@ describe("nextNeedsYouTarget", () => {
   it("is empty when nothing needs you", () => {
     expect(nextNeedsYouTarget(select([shell("idle")]), null)).toBeNull();
   });
+
+  it("walks only blocked threads for a control that counts only those", () => {
+    const blockedOnly = (current: string | null) =>
+      nextNeedsYouTarget(attention, current, { scope: "blocked" })?.thread.id;
+    // From the last blocked thread it wraps to the first, never to the plan waiting for review.
+    expect(blockedOnly("local:failed")).toBe("approval");
+    expect(blockedOnly("local:approval")).toBe("failed");
+    const reviewOnly = select([
+      shell("plan", {
+        hasActionableProposedPlan: true,
+        interactionMode: "plan",
+        sessionStatus: "ready",
+        turn: { state: "completed", at: NOW },
+      }),
+    ]);
+    expect(nextNeedsYouTarget(reviewOnly, null, { scope: "blocked" })).toBeNull();
+  });
 });
 
 describe("snooze everything except this thread", () => {

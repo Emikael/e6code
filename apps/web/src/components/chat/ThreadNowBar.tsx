@@ -12,6 +12,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
+import { isThreadWatched } from "~/threadNotificationPolicy";
 import { useThreadWatchStore } from "~/threadWatchStore";
 import { formatDayAwareTimestamp, formatShortTimestamp } from "~/timestampFormat";
 import { BlockedDiamond } from "../SidebarNeedsYou";
@@ -259,9 +260,17 @@ function AskedCue({ since }: { since: string }) {
   return cue ? <span className={TIME_CUE_CLASS}>{cue}</span> : null;
 }
 
-/** "Notify me when done": watches this thread until its turn settles. */
+/**
+ * "Notify me when done": watches this thread until its turn settles. A press
+ * overrides the "Tell me when my thread finishes" default for this thread.
+ * Hidden while notifications are off, when it could do nothing.
+ */
 function WatchToggle({ watchKey }: { watchKey: string }) {
-  const watched = useThreadWatchStore((store) => Boolean(store.watched[watchKey]));
+  const choice = useThreadWatchStore((store) => store.watched[watchKey]);
+  const attentionNotifications = useClientSettings((settings) => settings.attentionNotifications);
+  const notifyWatchedThreads = useClientSettings((settings) => settings.notifyWatchedThreads);
+  const watched = isThreadWatched(choice, { attentionNotifications, notifyWatchedThreads });
+  if (attentionNotifications === "off") return null;
   return (
     <Button
       size="sm"
@@ -273,7 +282,7 @@ function WatchToggle({ watchKey }: { watchKey: string }) {
         watched &&
           "border-primary-edge bg-secondary text-foreground hover:bg-secondary [--control-icon-color:var(--foreground)]",
       )}
-      onClick={() => useThreadWatchStore.getState().setWatched(watchKey, !watched)}
+      onClick={() => useThreadWatchStore.getState().choose(watchKey, !watched)}
     >
       <BellIcon aria-hidden className="size-3.5" />
       {/* Phones keep the bell alone; the label stays the accessible name. */}

@@ -358,7 +358,7 @@ describe("finished threads", () => {
     grantNotifications();
     state.focused = false;
     await render();
-    useThreadWatchStore.getState().noteSent("one:a", true);
+    useThreadWatchStore.getState().noteSent("one:a");
     setThreads("one", [finished("a"), { id: "b" }]);
     await render();
     expect(TestNotification.sent.map((n) => n.options.body)).toEqual([
@@ -367,13 +367,25 @@ describe("finished threads", () => {
     expect(useThreadWatchStore.getState().watched).toEqual({});
   });
 
+  it("call you back under Quiet when you asked from the now bar", async () => {
+    grantNotifications();
+    state.settings = { ...state.settings, notifyWatchedThreads: false };
+    state.focused = false;
+    await render();
+    useThreadWatchStore.getState().noteSent("one:a");
+    useThreadWatchStore.getState().choose("one:a", true);
+    setThreads("one", [finished("a"), { id: "b" }]);
+    await render();
+    expect(TestNotification.sent.map((n) => n.title)).toEqual(["Thread completed"]);
+  });
+
   it("show the watched thread on its own when you send your next message", async () => {
     await render();
-    await act(async () => useThreadWatchStore.getState().noteSent("one:a", true));
+    await act(async () => useThreadWatchStore.getState().noteSent("one:a"));
     setThreads("one", [finished("a"), finished("b")]);
     await render();
     expect(state.add).not.toHaveBeenCalled();
-    await act(async () => useThreadWatchStore.getState().noteSent("one:b", true));
+    await act(async () => useThreadWatchStore.getState().noteSent("one:b"));
     expect(titles()).toEqual(["Thread completed", "Thread completed"]);
   });
 

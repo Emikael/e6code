@@ -3,11 +3,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   DIGEST_IDLE_BREAKPOINT_MS,
   DIGEST_MAX_HOLD_MS,
+  focusHoldCaption,
   formatWorkedDuration,
   groupThreadDeliveries,
   nextDigestFlushAtMs,
   resolveThreadNotificationDelivery,
   isFocusHoldActive,
+  isThreadWatched,
   selectHeldForFlush,
   threadNotificationBody,
   type ThreadNotificationContext,
@@ -64,13 +66,6 @@ describe("resolveThreadNotificationDelivery", () => {
     expect(deliver({ settings, windowFocused: false })).toBe("none");
     expect(deliver({ event: "finished", watched: true, settings, windowFocused: false })).toBe(
       "none",
-    );
-  });
-
-  it("treats a watched thread as unwatched when the setting is off", () => {
-    const settings = { ...standard, notifyWatchedThreads: false } as const;
-    expect(deliver({ event: "finished", watched: true, settings, windowFocused: false })).toBe(
-      "digest",
     );
   });
 
@@ -337,5 +332,43 @@ describe("threadNotificationBody", () => {
     [3_900_000, "1h 5m"],
   ])("formats %d ms as %s", (ms, text) => {
     expect(formatWorkedDuration(ms)).toBe(text);
+  });
+});
+
+describe("isThreadWatched", () => {
+  const quiet = { attentionNotifications: "blocked", notifyWatchedThreads: false } as const;
+  const standardWatch = { attentionNotifications: "blocked", notifyWatchedThreads: true } as const;
+
+  it("follows the setting for a thread you sent to", () => {
+    expect(isThreadWatched("sent", standardWatch)).toBe(true);
+    expect(isThreadWatched("sent", quiet)).toBe(false);
+    expect(isThreadWatched(undefined, standardWatch)).toBe(false);
+  });
+
+  it("lets the now bar's toggle override the setting for that thread", () => {
+    // Quiet: off by default, but a press turns it on, as Settings promises.
+    expect(isThreadWatched("on", quiet)).toBe(true);
+    expect(isThreadWatched("off", standardWatch)).toBe(false);
+  });
+
+  it("watches nothing while notifications are off", () => {
+    const off = { attentionNotifications: "off", notifyWatchedThreads: true } as const;
+    expect(isThreadWatched("on", off)).toBe(false);
+    expect(isThreadWatched("sent", off)).toBe(false);
+  });
+});
+
+describe("focusHoldCaption", () => {
+  it("says what still comes through only when focus holds something back", () => {
+    expect(focusHoldCaption({ focusHoldsFinished: true, attentionNotifications: "blocked" })).toBe(
+      "Finished threads are held until you exit focus. Blocked agents and failures still come through.",
+    );
+    expect(
+      focusHoldCaption({ focusHoldsFinished: false, attentionNotifications: "all" }),
+    ).toBeNull();
+    // With notifications off nothing comes through, so the caption would not be true.
+    expect(
+      focusHoldCaption({ focusHoldsFinished: true, attentionNotifications: "off" }),
+    ).toBeNull();
   });
 });

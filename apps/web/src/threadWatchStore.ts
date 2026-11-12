@@ -2,46 +2,47 @@ import { scopedThreadKey, scopeThreadRef } from "@e6tools/client-runtime/environ
 import type { EnvironmentId, ThreadId } from "@e6tools/contracts";
 import { create } from "zustand";
 
-import { getClientSettings } from "./hooks/useSettings";
+import type { ThreadWatchChoice } from "./threadNotificationPolicy";
 
 /**
- * Threads you are waiting on, keyed by `scopedThreadKey`. Sending a message
- * watches the thread until that turn settles; the now bar toggles it per
- * thread. Client-local and per window, like the rest of the return cue.
+ * Threads you are waiting on, keyed by `scopedThreadKey`, until their turn
+ * settles. Sending a message records "sent", which follows the "Tell me when
+ * my thread finishes" setting; the now bar's toggle records an explicit "on"
+ * or "off" that overrides it for that thread (`isThreadWatched` decides).
+ * Client-local and per window, like the rest of the return cue.
  */
 interface ThreadWatchState {
-  readonly watched: Readonly<Record<string, true>>;
+  readonly watched: Readonly<Record<string, ThreadWatchChoice>>;
   /** Counts your sends; each one is a breakpoint for held notifications. */
   readonly sendSequence: number;
-  /** Records a send; `watch` follows the "Tell me when my thread finishes" setting. */
-  readonly noteSent: (key: string, watch: boolean) => void;
-  readonly setWatched: (key: string, watched: boolean) => void;
+  /** Records a send. An explicit choice from the now bar stands. */
+  readonly noteSent: (key: string) => void;
+  /** The now bar's toggle: an explicit choice for this thread's turn. */
+  readonly choose: (key: string, watch: boolean) => void;
+  /** The turn ended: the thread is no longer waited on. */
+  readonly endWatch: (key: string) => void;
 }
 
 export const useThreadWatchStore = create<ThreadWatchState>()((set) => ({
   watched: {},
   sendSequence: 0,
-  noteSent: (key, watch) =>
+  noteSent: (key) =>
     set((state) => ({
       sendSequence: state.sendSequence + 1,
-      watched: watch ? { ...state.watched, [key]: true } : state.watched,
+      watched: state.watched[key] ? state.watched : { ...state.watched, [key]: "sent" },
     })),
-  setWatched: (key, watched) =>
+  choose: (key, watch) =>
+    set((state) => ({ watched: { ...state.watched, [key]: watch ? "on" : "off" } })),
+  endWatch: (key) =>
     set((state) => {
-      if (Boolean(state.watched[key]) === watched) return state;
+      if (!state.watched[key]) return state;
       const next = { ...state.watched };
-      if (watched) next[key] = true;
-      else delete next[key];
+      delete next[key];
       return { watched: next };
     }),
 }));
 
-/** Called on every send: a breakpoint, and a watch when the setting asks for one. */
+/** Called on every send: a breakpoint, and a watch that follows the setting. */
 export function noteThreadTurnSent(environmentId: EnvironmentId, threadId: ThreadId) {
-  useThreadWatchStore
-    .getState()
-    .noteSent(
-      scopedThreadKey(scopeThreadRef(environmentId, threadId)),
-      getClientSettings().notifyWatchedThreads,
-    );
+  useThreadWatchStore.getState().noteSent(scopedThreadKey(scopeThreadRef(environmentId, threadId)));
 }
