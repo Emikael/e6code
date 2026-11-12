@@ -14,14 +14,19 @@ import type { SnoozePreset } from "@e6tools/client-runtime/state/thread-settled"
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
-import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
+import {
+  isThreadFailed,
+  selectThreadAttention,
+  type ThreadAttentionItem,
+} from "@e6tools/client-runtime/state/thread-attention";
+import { describePendingApprovalAsk } from "@e6tools/client-runtime/pending-requests";
 import { formatUpcomingTimestamp } from "../../lib/time";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
 } from "@e6tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@e6tools/contracts";
+import { PROVIDER_DISPLAY_NAMES, type EnvironmentId, type ProjectId } from "@e6tools/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
@@ -326,18 +331,121 @@ export interface ThreadListV2SettledShelfListItem {
   readonly expanded: boolean;
 }
 
+/** "Needs you" above the list (F1): its label and the blocked count. */
+export interface ThreadListV2NeedsYouHeaderListItem {
+  readonly type: "v2-needs-you-header";
+  readonly key: "v2-needs-you-header";
+  readonly count: number;
+}
+
+/** One thread blocked on you, in the Needs you section. */
+export interface ThreadListV2NeedsYouListItem {
+  readonly type: "v2-needs-you";
+  readonly key: string;
+  readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+}
+
 export type ThreadListV2ListItem =
+  | ThreadListV2NeedsYouHeaderListItem
+  | ThreadListV2NeedsYouListItem
   | ThreadListV2ThreadListItem
   | ThreadListV2PendingListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem;
 
 /**
- * Builds the shared mobile order: active → pending → snoozed shelf → settled.
+ * The Needs you section (F1, board 8): threads blocked on an approval, an
+ * answer or a failure, from the shared attention selector, so web and mobile
+ * agree on membership and order. Blocked tier only; To review needs visit
+ * state mobile does not keep. Rows older than a day follow the recent ones.
+ * Follows the list's environment and project scope, and steps aside while
+ * searching. A thread keeps its normal row below, so the list stays a stable
+ * map.
+ */
+export function selectThreadListV2NeedsYou(input: {
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly environmentId: EnvironmentId | null;
+  readonly projectRefs?: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }> | null;
+  readonly searchQuery: string;
+  readonly now: string;
+}): ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>> {
+  if (input.searchQuery.trim().length > 0) return [];
+  const projectKeys = input.projectRefs
+    ? new Set(input.projectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`))
+    : null;
+  const scoped = input.threads.filter(
+    (thread) =>
+      (input.environmentId === null || thread.environmentId === input.environmentId) &&
+      (projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+  );
+  const attention = selectThreadAttention(scoped, { now: input.now });
+  return [...attention.blocked, ...attention.earlier];
+}
+
+/**
+ * When a working row's minutes start, by the web sidebar's rule: the open
+ * turn's start (or request), else the session's last change.
+ */
+export function resolveThreadListV2WorkingSince(
+  thread: Pick<EnvironmentThreadShell, "latestTurn" | "session">,
+): string | null {
+  const turn = thread.latestTurn;
+  const candidates =
+    turn && turn.completedAt === null
+      ? [turn.startedAt, turn.requestedAt, thread.session?.updatedAt]
+      : [thread.session?.updatedAt];
+  return candidates.find((value) => value && !Number.isNaN(Date.parse(value))) ?? null;
+}
+
+/** The agent's name for wording ("Codex"), as web's notifications and start screen say it. */
+export function threadAgentName(thread: Pick<EnvironmentThreadShell, "session">): string {
+  const providerName = thread.session?.providerName;
+  return (
+    (providerName &&
+      (PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[providerName]) ||
+    "The agent"
+  );
+}
+
+/**
+ * A Needs you row's caption, board 8's "Needs your answer · keep the spring
+ * animation, or cut to a fade?": the status word, then what is asked. The
+ * question rides on the shell's summary; without one the word stands alone.
+ */
+export function describeThreadListV2NeedsYou(
+  item: Pick<ThreadAttentionItem<EnvironmentThreadShell>, "kind" | "thread">,
+  provider: string,
+): { readonly status: string; readonly detail: string | null } {
+  switch (item.kind) {
+    case "approval":
+      return {
+        status: "Needs approval",
+        detail: describePendingApprovalAsk(provider, item.thread.pendingRequestSummary),
+      };
+    case "input":
+      return {
+        status: "Needs your answer",
+        detail: item.thread.pendingRequestSummary?.question ?? null,
+      };
+    default: {
+      const error = item.thread.session?.lastError?.split("\n", 1)[0]?.trim();
+      return { status: "Failed", detail: error ? error : null };
+    }
+  }
+}
+
+/**
+ * Builds the shared mobile order: needs you → active → pending → snoozed
+ * shelf → settled.
  * Pending tasks are waiting rather than asking, and parked work remains
  * reachable without competing with either the inbox or settled history.
  */
 export function buildThreadListV2ListItems(input: {
+  /** Leads the list under a "Needs you" header; see `selectThreadListV2NeedsYou`. */
+  readonly needsYou?: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
   readonly items: ReadonlyArray<ThreadListV2Item>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly snoozedCount?: number;
@@ -369,7 +477,25 @@ export function buildThreadListV2ListItems(input: {
   const settledShelfHeaderIndex = input.settledShelfHeaderIndex ?? null;
   const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? threadItems.length;
   const snoozedEnd = settledShelfHeaderIndex ?? threadItems.length;
-  const result: ThreadListV2ListItem[] = [...threadItems.slice(0, activeEnd), ...pendingItems];
+  const needsYou = input.needsYou ?? [];
+  const result: ThreadListV2ListItem[] = [
+    ...(needsYou.length > 0
+      ? [
+          {
+            type: "v2-needs-you-header" as const,
+            key: "v2-needs-you-header" as const,
+            count: needsYou.length,
+          },
+          ...needsYou.map((item): ThreadListV2ListItem => ({
+            type: "v2-needs-you",
+            key: `v2-needs-you:${item.key}`,
+            item,
+          })),
+        ]
+      : []),
+    ...threadItems.slice(0, activeEnd),
+    ...pendingItems,
+  ];
   if (snoozedShelfHeaderIndex !== null && snoozedCount > 0) {
     result.push({
       type: "v2-snoozed-shelf",

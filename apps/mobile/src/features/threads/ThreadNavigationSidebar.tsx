@@ -840,7 +840,12 @@ function ThreadNavigationSidebarPane(
       if (previous.type === "v2-settled-shelf" && item.type === "v2-settled-shelf") {
         return previous.count === item.count && previous.expanded === item.expanded;
       }
+      // The iPad sidebar has no Needs you section; those items never reach it.
       if (
+        previous.type === "v2-needs-you-header" ||
+        previous.type === "v2-needs-you" ||
+        item.type === "v2-needs-you-header" ||
+        item.type === "v2-needs-you" ||
         previous.type === "v2-thread" ||
         previous.type === "v2-show-more" ||
         previous.type === "v2-pending" ||
