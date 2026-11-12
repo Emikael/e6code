@@ -760,7 +760,7 @@ export const ChatHeader = memo(function ChatHeader({
     >
       <WorkspaceBreadcrumb
         ariaLabel="Thread breadcrumb"
-        className="flex-1 overflow-clip [overflow-clip-margin:2px]"
+        className="group/crumb flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
         {/* Board 2: "project / title". The project gives way first in narrow headers. */}
         {projectDisplayName ? (
@@ -814,25 +814,6 @@ export const ChatHeader = memo(function ChatHeader({
                 </TooltipTrigger>
                 <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`Rename ${activeThreadTitle}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeMenu();
-                        startRename();
-                      }}
-                      className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/thread-title:opacity-100"
-                    />
-                  }
-                >
-                  <PencilIcon aria-hidden className="size-3" />
-                </TooltipTrigger>
-                <TooltipPopup side="top">Rename thread</TooltipPopup>
-              </Tooltip>
             </div>
           ) : (
             <Tooltip>
@@ -848,6 +829,31 @@ export const ChatHeader = memo(function ChatHeader({
         {renamingTitle === null && headerBranch ? (
           <li className="flex min-w-0 shrink items-center">
             <ThreadHeaderBranch branch={headerBranch} />
+          </li>
+        ) : null}
+        {/* Rename sits after the branch, so it never holds the title apart from it (board 2);
+            it shows on hover and stays reachable by keyboard. */}
+        {renamingTitle === null && isServerThread ? (
+          <li className="-ms-1 flex shrink-0 items-center sm:-ms-2">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={`Rename ${activeThreadTitle}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeMenu();
+                      startRename();
+                    }}
+                    className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/crumb:opacity-100 group-focus-within/crumb:opacity-100"
+                  />
+                }
+              >
+                <PencilIcon aria-hidden className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Rename thread</TooltipPopup>
+            </Tooltip>
           </li>
         ) : null}
         {/* The now bar says the same thing in more words (board 2); the live region below
