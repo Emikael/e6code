@@ -392,7 +392,11 @@ import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useEnvironmentDisconnectDelay } from "../hooks/useEnvironmentDisconnectDelay";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
+import {
+  useKnownTerminalSessions,
+  useTerminalSessionsLoaded,
+  useThreadRunningTerminalIds,
+} from "../state/terminalSessions";
 import { useFinishedTerminalIds } from "./terminal/terminalPaneState";
 import { useEnvironmentQuery } from "../state/query";
 import {
@@ -2186,6 +2190,7 @@ export default function ChatView(props: ChatViewProps) {
   const renderedRightPanelSurface = rightPanelPresence.value?.activeSurface ?? null;
   const renderedRightPanelSurfaces = rightPanelPresence.value?.surfaces ?? [];
   // F19's Finished cue: a terminal whose process stopped while out of view says so on its tab.
+  const terminalSessionsLoaded = useTerminalSessionsLoaded(activeThreadEnvironmentId);
   const finishedTerminalIds = useFinishedTerminalIds(
     activeThreadKey ?? "",
     runningTerminalIds,
@@ -2194,6 +2199,7 @@ export default function ChatView(props: ChatViewProps) {
       : terminalUiState.terminalOpen
         ? terminalUiState.terminalIds
         : null,
+    terminalSessionsLoaded,
   );
   const runningTerminalIdSet = useMemo(() => new Set(runningTerminalIds), [runningTerminalIds]);
   const previewMiniPlayerVisible = shouldRenderPreviewMiniPlayer(

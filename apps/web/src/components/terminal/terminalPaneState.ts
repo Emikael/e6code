@@ -123,6 +123,45 @@ export function resumeFinishedTerminalState(
   return { running, inView, finished };
 }
 
+export interface ThreadFinishedTerminalState extends FinishedTerminalState {
+  readonly threadKey: string;
+}
+
+/**
+ * The Finished state to show for `threadKey` now: `state` itself when nothing changed, or null
+ * while there is none yet. Nothing is derived until the thread's terminal data has loaded: before
+ * it arrives (a thread in another environment, on first render) every terminal looks stopped,
+ * and running ones would read Finished.
+ */
+export function nextThreadFinishedTerminalState(input: {
+  readonly loaded: boolean;
+  readonly state: ThreadFinishedTerminalState | null;
+  readonly stored: FinishedTerminalState | undefined;
+  readonly threadKey: string;
+  readonly running: ReadonlyArray<string>;
+  readonly inView: ReadonlyArray<string>;
+}): ThreadFinishedTerminalState | null {
+  const { loaded, state, threadKey, running, inView } = input;
+  const own = state?.threadKey === threadKey ? state : null;
+  if (!loaded) return own;
+  const current = own ?? {
+    threadKey,
+    ...resumeFinishedTerminalState(input.stored, running, inView),
+  };
+  const sameInView =
+    current.inView.length === inView.length &&
+    current.inView.every((terminalId, index) => inView[index] === terminalId);
+  if (current === state && current.running === running && sameInView) return state;
+  const finished = nextFinishedTerminalIds({
+    finished: current.finished,
+    previousRunning: current.running,
+    running,
+    previousInView: current.inView,
+    inView,
+  });
+  return { threadKey, running, inView: sameInView ? current.inView : inView, finished };
+}
+
 // The cue outlives the view that computed it, so a process that ends while the user is in
 // another thread still reads Finished when they return. Keyed by scoped thread key.
 const finishedStateByThread = new Map<string, FinishedTerminalState>();
@@ -130,44 +169,32 @@ const finishedStateByThread = new Map<string, FinishedTerminalState>();
 /**
  * The thread's terminals showing the Finished cue. `running` must keep its identity while it
  * does not change (`useThreadRunningTerminalIds` does); `inView` is compared by contents.
+ * `loaded` is false until the thread's terminal data has arrived.
  */
 export function useFinishedTerminalIds(
   threadKey: string,
   running: ReadonlyArray<string>,
   /** The terminals on screen; null for none. */
   inViewOrNull: ReadonlyArray<string> | null,
+  loaded: boolean,
 ): ReadonlySet<string> {
   const inView = inViewOrNull ?? NO_TERMINALS;
-  const [state, setState] = useState(() => ({
-    threadKey,
-    ...resumeFinishedTerminalState(finishedStateByThread.get(threadKey), running, inView),
-  }));
+  const [state, setState] = useState<ThreadFinishedTerminalState | null>(null);
   useEffect(() => {
-    finishedStateByThread.set(state.threadKey, state);
+    if (state !== null) finishedStateByThread.set(state.threadKey, state);
   }, [state]);
-  const current =
-    state.threadKey === threadKey
-      ? state
-      : {
-          threadKey,
-          ...resumeFinishedTerminalState(finishedStateByThread.get(threadKey), running, inView),
-        };
-  const sameInView =
-    current.inView.length === inView.length &&
-    current.inView.every((terminalId, index) => inView[index] === terminalId);
-  if (current !== state || current.running !== running || !sameInView) {
-    const finished = nextFinishedTerminalIds({
-      finished: current.finished,
-      previousRunning: current.running,
-      running,
-      previousInView: current.inView,
-      inView,
-    });
-    // Adjusting state while rendering: React re-renders at once with the settled value.
-    setState({ threadKey, running, inView: sameInView ? current.inView : inView, finished });
-    return finished;
-  }
-  return state.finished;
+  const stored = finishedStateByThread.get(threadKey);
+  const next = nextThreadFinishedTerminalState({
+    loaded,
+    state,
+    stored,
+    threadKey,
+    running,
+    inView,
+  });
+  // Adjusting state while rendering: React re-renders at once with the settled value.
+  if (next !== null && next !== state) setState(next);
+  return next?.finished ?? stored?.finished ?? NO_FINISHED;
 }
 
 /**

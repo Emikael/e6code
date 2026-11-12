@@ -175,6 +175,19 @@ export function useKnownTerminalSessions(input: {
   );
 }
 
+/** False until the environment's terminal list has arrived; before then none looks running. */
+export function useTerminalSessionsLoaded(environmentId: EnvironmentId | null): boolean {
+  const metadata = useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : terminalEnvironment.metadata({
+          environmentId,
+          input: null,
+        }),
+  );
+  return metadata.data !== null;
+}
+
 export function useThreadRunningTerminalIds(input: {
   readonly environmentId: EnvironmentId | null;
   readonly threadId: ThreadId | null;
