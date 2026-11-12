@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  formatFileCommentLines,
   formatFileCommentRange,
   normalizeFileCommentRange,
   remapFileCommentAnnotations,
@@ -56,6 +57,13 @@ describe("file comment annotations", () => {
         },
       },
     ]);
+  });
+});
+
+describe("formatFileCommentLines", () => {
+  it("names the lines a saved comment covers", () => {
+    expect(formatFileCommentLines(212, 214)).toBe("lines 212 to 214");
+    expect(formatFileCommentLines(7, 7)).toBe("line 7");
   });
 });
 

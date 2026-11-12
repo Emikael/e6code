@@ -10,7 +10,8 @@ export interface CommandPaletteLinkedThreads {
 const COMMAND_PALETTE_OPEN_EVENT = "e6code:open-command-palette";
 
 export interface CommandPaletteOpenDetail {
-  readonly open?: "add-project" | "new-thread-in";
+  /** "files" opens the file picker (Mod+P). */
+  readonly open?: "add-project" | "new-thread-in" | "files";
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
 }

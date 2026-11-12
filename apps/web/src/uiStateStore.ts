@@ -33,7 +33,29 @@ export interface PersistedUiState {
   pullRequestMergeMethod?: string;
   runDetailsSectionOpen?: Record<string, boolean>;
   focusMode?: boolean;
+  recentFilesByThreadKey?: Record<string, RecentFile[]>;
+  filesFilterByThreadKey?: Record<string, FilesFilterChoice>;
 }
+
+/** A file opened in a thread's Files tab, with the line it was left at. */
+export interface RecentFile {
+  readonly path: string;
+  readonly line: number | null;
+}
+
+export type FilesFilterChoice = "all" | "changed";
+
+/** Files tab state kept per thread on this device (F18). */
+export interface UiFilesState {
+  /** The last files opened in each thread, newest first, at most RECENT_FILES_LIMIT. */
+  recentFilesByThreadKey: Record<string, RecentFile[]>;
+  /** The explorer filter each thread was left on; absent until the reader picks one. */
+  filesFilterByThreadKey: Record<string, FilesFilterChoice>;
+}
+
+export const RECENT_FILES_LIMIT = 5;
+/** Threads whose Files tab state is kept; the oldest are forgotten first. */
+const FILES_STATE_THREAD_LIMIT = 200;
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
@@ -88,7 +110,8 @@ export interface UiState
     UiEndpointState,
     UiPullRequestState,
     UiRunDetailsState,
-    UiFocusState {}
+    UiFocusState,
+    UiFilesState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -101,6 +124,8 @@ const initialState: UiState = {
   runDetailsSectionOpen: {},
   focusMode: false,
   focusPanelPeek: false,
+  recentFilesByThreadKey: {},
+  filesFilterByThreadKey: {},
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -165,6 +190,87 @@ function sanitizeRunDetailsSectionOpen(
   return next;
 }
 
+function sanitizeRecentFiles(value: unknown): Record<string, RecentFile[]> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([threadKey, files]) => {
+      if (!Array.isArray(files)) return [];
+      const valid = files
+        .filter(
+          (file): file is RecentFile =>
+            !!file &&
+            typeof file === "object" &&
+            typeof file.path === "string" &&
+            file.path.length > 0 &&
+            (file.line === null || (Number.isSafeInteger(file.line) && file.line > 0)),
+        )
+        .slice(0, RECENT_FILES_LIMIT)
+        .map((file) => ({ path: file.path, line: file.line }));
+      return valid.length > 0 ? [[threadKey, valid]] : [];
+    }),
+  );
+}
+
+function sanitizeFilesFilters(value: unknown): Record<string, FilesFilterChoice> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, FilesFilterChoice] => entry[1] === "all" || entry[1] === "changed",
+    ),
+  );
+}
+
+/** Keeps the newest `limit` keys of a record whose keys are inserted oldest first. */
+function keepNewestKeys<T>(record: Record<string, T>, limit: number): Record<string, T> {
+  const keys = Object.keys(record);
+  if (keys.length <= limit) return record;
+  return Object.fromEntries(keys.slice(keys.length - limit).map((key) => [key, record[key]!]));
+}
+
+/**
+ * A file was opened (line null) or left at a line in a thread's Files tab. It moves to the front
+ * of that thread's recent files; a known line is kept when the file is opened again without one.
+ */
+export function recordRecentFile(
+  state: UiState,
+  threadKey: string,
+  path: string,
+  line: number | null,
+): UiState {
+  const current = state.recentFilesByThreadKey[threadKey] ?? [];
+  const previous = current.find((file) => file.path === path);
+  const nextLine = line ?? (previous ? previous.line : null);
+  if (current[0]?.path === path && current[0].line === nextLine) return state;
+  const files = [{ path, line: nextLine }, ...current.filter((file) => file.path !== path)].slice(
+    0,
+    RECENT_FILES_LIMIT,
+  );
+  const { [threadKey]: _previous, ...rest } = state.recentFilesByThreadKey;
+  return {
+    ...state,
+    recentFilesByThreadKey: keepNewestKeys(
+      { ...rest, [threadKey]: files },
+      FILES_STATE_THREAD_LIMIT,
+    ),
+  };
+}
+
+export function setFilesFilter(
+  state: UiState,
+  threadKey: string,
+  filter: FilesFilterChoice,
+): UiState {
+  if (state.filesFilterByThreadKey[threadKey] === filter) return state;
+  const { [threadKey]: _previous, ...rest } = state.filesFilterByThreadKey;
+  return {
+    ...state,
+    filesFilterByThreadKey: keepNewestKeys(
+      { ...rest, [threadKey]: filter },
+      FILES_STATE_THREAD_LIMIT,
+    ),
+  };
+}
+
 function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMethod {
   return value === "merge" || value === "squash" || value === "rebase";
 }
@@ -209,6 +315,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     runDetailsSectionOpen: sanitizeRunDetailsSectionOpen(parsed.runDetailsSectionOpen),
     focusMode: parsed.focusMode === true,
     focusPanelPeek: false,
+    recentFilesByThreadKey: sanitizeRecentFiles(parsed.recentFilesByThreadKey),
+    filesFilterByThreadKey: sanitizeFilesFilters(parsed.filesFilterByThreadKey),
   };
 }
 
@@ -285,6 +393,8 @@ export function persistState(state: UiState): void {
         pullRequestMergeMethod: state.pullRequestMergeMethod,
         runDetailsSectionOpen: state.runDetailsSectionOpen,
         focusMode: state.focusMode,
+        recentFilesByThreadKey: state.recentFilesByThreadKey,
+        filesFilterByThreadKey: state.filesFilterByThreadKey,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -511,6 +621,8 @@ interface UiStateStore extends UiState {
   toggleFocusMode: () => void;
   setFocusPanelPeek: (peek: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
+  recordRecentFile: (threadKey: string, path: string, line: number | null) => void;
+  setFilesFilter: (threadKey: string, filter: FilesFilterChoice) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
     draggedProjectIds: readonly string[],
@@ -538,6 +650,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setFocusPanelPeek: (peek) => set((state) => setFocusPanelPeek(state, peek)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
+  recordRecentFile: (threadKey, path, line) =>
+    set((state) => recordRecentFile(state, threadKey, path, line)),
+  setFilesFilter: (threadKey, filter) => set((state) => setFilesFilter(state, threadKey, filter)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),

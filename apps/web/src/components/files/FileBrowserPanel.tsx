@@ -27,6 +27,11 @@ import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTree
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
+import { cn } from "~/lib/utils";
+import type { RecentFile } from "~/uiStateStore";
+
+import { BrowseAllFilesRow, ChangedFileLists, FilesFilterSwitch } from "./FileExplorerLists";
+import type { FilesFilter, ThreadChangedFile } from "./threadChangedFiles";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -39,6 +44,19 @@ interface FileBrowserPanelProps {
   onOpenFile: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
   workspaceMutationId: string | null;
+  /** The Changed filter and its lists, where the explorer sits beside a thread. */
+  lists?: FileExplorerListsProps | undefined;
+}
+
+export interface FileExplorerListsProps {
+  readonly filter: FilesFilter;
+  readonly changed: ReadonlyArray<ThreadChangedFile>;
+  /** Recently opened files outside the changed set. */
+  readonly recent: ReadonlyArray<RecentFile>;
+  readonly onFilterChange: (filter: FilesFilter) => void;
+  readonly onOpenFile: (path: string, line: number | null) => void;
+  readonly browseShortcut: string | null;
+  readonly onBrowseAll: () => void;
 }
 
 function treePath(entry: ProjectEntry): string {
@@ -107,6 +125,7 @@ export default function FileBrowserPanel({
   onOpenFile,
   onRefreshSelectedFile,
   workspaceMutationId,
+  lists,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -350,6 +369,7 @@ export default function FileBrowserPanel({
       controller.abort();
     };
   }, [load, selectedPath]);
+  const showsLists = lists !== undefined && lists.filter === "changed" && query.trim().length === 0;
   const handleSearchValueChange = (value: string) => {
     setQuery(value);
     if (value.trim().length === 0) {
@@ -529,6 +549,28 @@ export default function FileBrowserPanel({
         ) : null}
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
       </div>
+      {lists && lists.changed.length > 0 ? (
+        <div className="flex shrink-0 px-2 pb-2.5">
+          <FilesFilterSwitch
+            filter={lists.filter}
+            changedCount={lists.changed.length}
+            onChange={lists.onFilterChange}
+          />
+        </div>
+      ) : null}
+      {showsLists && lists ? (
+        // Search always covers every file, so a query shows the tree whatever the filter.
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-2 pb-2.5">
+          <ChangedFileLists
+            changed={lists.changed}
+            recent={lists.recent}
+            selectedPath={selectedPath}
+            onOpenFile={lists.onOpenFile}
+          />
+          <span className="flex-1" />
+          <BrowseAllFilesRow shortcut={lists.browseShortcut} onBrowse={lists.onBrowseAll} />
+        </div>
+      ) : null}
       {error || pathSearch.error ? (
         <button
           type="button"
@@ -551,7 +593,7 @@ export default function FileBrowserPanel({
       <FileTree
         model={model}
         aria-label={`${projectName} files`}
-        className="min-h-0 flex-1 overflow-hidden"
+        className={cn("min-h-0 flex-1 overflow-hidden", showsLists && "hidden")}
         style={pierreTreeStyle(resolvedTheme)}
       />
     </div>
