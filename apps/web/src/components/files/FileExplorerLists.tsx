@@ -9,10 +9,10 @@ import { Badge } from "../ui/badge";
 import { Kbd } from "../ui/kbd";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
-  fileFolder,
   fileName,
   type FilesFilter,
   groupChangedFilesByFolder,
+  shortFileFolder,
   type ThreadChangedFile,
 } from "./threadChangedFiles";
 
@@ -46,6 +46,11 @@ function SectionLabel(props: { readonly children: ReactNode }) {
       {props.children}
     </div>
   );
+}
+
+/** A held edit: the reader's text is kept, but not saved, until they pick a version. */
+function UnsavedMark() {
+  return <span className="shrink-0 text-[11px] text-muted-foreground">unsaved</span>;
 }
 
 function FileRow(props: {
@@ -83,6 +88,7 @@ export function ChangedFileLists(props: {
   readonly changed: ReadonlyArray<ThreadChangedFile>;
   readonly recent: ReadonlyArray<RecentFile>;
   readonly selectedPath: string | null;
+  readonly unsavedPaths: ReadonlySet<string>;
   readonly onOpenFile: (path: string, line: number | null) => void;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
@@ -132,6 +138,7 @@ export function ChangedFileLists(props: {
                         <span className="min-w-0 flex-1 truncate font-mono text-xs">
                           {fileName(file.path)}
                         </span>
+                        {props.unsavedPaths.has(file.path) ? <UnsavedMark /> : null}
                         {file.isNew ? (
                           <Badge variant="outline" className="shrink-0">
                             new
@@ -166,8 +173,9 @@ export function ChangedFileLists(props: {
               <span className="min-w-0 flex-1 truncate font-mono text-xs">
                 {fileName(file.path)}
               </span>
+              {props.unsavedPaths.has(file.path) ? <UnsavedMark /> : null}
               <span className="max-w-24 shrink-0 truncate text-muted-foreground text-xs">
-                {fileFolder(file.path) || "root"}
+                {shortFileFolder(file.path)}
               </span>
             </FileRow>
           ))}

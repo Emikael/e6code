@@ -34,7 +34,7 @@ export function useFileSaveCoordinator({
     const coordinatorRef = createRef<FileSaveCoordinator>();
     return {
       change: (contents: string) => coordinatorRef.current?.change(contents),
-      release: () => coordinatorRef.current?.release(),
+      release: (contents?: string) => coordinatorRef.current?.release(contents),
       discard: () => coordinatorRef.current?.discard() ?? false,
       setup: () => {
         if (relativePath === null) return;

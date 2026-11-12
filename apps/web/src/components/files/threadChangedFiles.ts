@@ -24,6 +24,8 @@ interface CheckpointLike {
   readonly status: string;
   readonly files: ReadonlyArray<{
     readonly path: string;
+    /** "added", "deleted" or "modified"; a path this list does not know reads as modified. */
+    readonly kind?: string;
     readonly additions: number;
     readonly deletions: number;
   }>;
@@ -33,9 +35,11 @@ const NEW_KINDS = new Set(["added", "untracked"]);
 
 /**
  * Merges the working tree with the thread's checkpoints into the files the thread has touched.
- * A working-tree entry speaks for the file as it stands now; a file only in checkpoints (already
- * committed) adds up its turns. Deleted files are left out: there is nothing to open. `toWorkspacePath`
- * maps a repository path into the workspace, or null for one outside it.
+ * A working-tree entry speaks for the file as it stands now. A file only in checkpoints (already
+ * committed) shows the counts of the last turn that touched it, the turn View diff opens, and
+ * "new" when a turn of this thread added it. A file whose last turn deleted it is left out, as are
+ * deleted working-tree files: there is nothing to open. `toWorkspacePath` maps a repository path
+ * into the workspace, or null for one outside it.
  */
 export function mergeThreadChangedFiles(input: {
   readonly workingTree: ReadonlyArray<VcsWorkingTreeFile>;
@@ -49,13 +53,17 @@ export function mergeThreadChangedFiles(input: {
     for (const file of checkpoint.files) {
       const path = input.toWorkspacePath(file.path);
       if (path === null) continue;
+      if (file.kind === "deleted") {
+        byPath.delete(path);
+        continue;
+      }
       const previous = byPath.get(path);
       byPath.set(path, {
         path,
         repositoryPath: file.path,
-        additions: (previous?.additions ?? 0) + file.additions,
-        deletions: (previous?.deletions ?? 0) + file.deletions,
-        isNew: false,
+        additions: file.additions,
+        deletions: file.deletions,
+        isNew: file.kind === "added" || (previous?.isNew ?? false),
         diff: { kind: "turn", turnId: checkpoint.turnId },
       });
     }
@@ -125,11 +133,19 @@ export function resolveFilesFilter(input: {
   return input.stored ?? "changed";
 }
 
-/** "Recently opened": files opened in this thread that are not already in Changed. */
+/** "Recently opened": the last `limit` files opened in this thread that are not in Changed. */
 export function recentFilesOutsideChanged<T extends { readonly path: string }>(
   recent: ReadonlyArray<T>,
   changed: ReadonlyArray<{ readonly path: string }>,
+  limit: number,
 ): T[] {
   const changedPaths = new Set(changed.map((file) => file.path));
-  return recent.filter((file) => !changedPaths.has(file.path));
+  return recent.filter((file) => !changedPaths.has(file.path)).slice(0, limit);
+}
+
+/** The last two folders of a path, as "Recently opened" names where a file lives: "contracts/src". */
+export function shortFileFolder(path: string): string {
+  const folder = fileFolder(path);
+  if (folder === "") return "root";
+  return folder.split("/").slice(-2).join("/");
 }

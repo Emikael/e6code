@@ -9,7 +9,7 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
-  RECENT_FILES_LIMIT,
+  RECENT_FILES_STORED_LIMIT,
   recordRecentFile,
   reorderProjects,
   resolveProjectExpanded,
@@ -56,11 +56,13 @@ describe("Files tab state per thread", () => {
       { path: "a.ts", line: 40 },
       { path: "b.ts", line: null },
     ]);
-    for (const path of ["c", "d", "e", "f", "g"]) {
-      state = recordRecentFile(state, "env:t1", path, null);
+    for (let index = 0; index < RECENT_FILES_STORED_LIMIT; index++) {
+      state = recordRecentFile(state, "env:t1", `f${index}`, null);
     }
-    expect(state.recentFilesByThreadKey["env:t1"]).toHaveLength(RECENT_FILES_LIMIT);
-    expect(state.recentFilesByThreadKey["env:t1"]?.[0]?.path).toBe("g");
+    expect(state.recentFilesByThreadKey["env:t1"]).toHaveLength(RECENT_FILES_STORED_LIMIT);
+    expect(state.recentFilesByThreadKey["env:t1"]?.[0]?.path).toBe(
+      `f${RECENT_FILES_STORED_LIMIT - 1}`,
+    );
     expect(state.recentFilesByThreadKey["env:t2"]).toBeUndefined();
   });
 

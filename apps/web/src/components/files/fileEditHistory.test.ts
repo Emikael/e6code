@@ -74,7 +74,9 @@ describe("the reader's edits to a file", () => {
     const held = reduceFileEditHistory(editing, {
       type: "changed-underneath",
       contents: "theirs",
+      mine: "mine",
     });
+    expect(held.held).toBe("mine");
     expect(held.conflict).toBe("theirs");
     expect(reduceFileEditHistory(held, { type: "read", contents: "theirs" }).conflict).toBe(
       "theirs",
@@ -86,6 +88,7 @@ describe("the reader's edits to a file", () => {
     ];
     const kept = keep.reduce(reduceFileEditHistory, held);
     expect(kept.conflict).toBeNull();
+    expect(kept.held).toBeNull();
     expect(canUndoFileEdit(kept)).toBe(true);
   });
 });

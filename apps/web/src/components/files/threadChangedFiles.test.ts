@@ -6,6 +6,7 @@ import {
   mergeThreadChangedFiles,
   recentFilesOutsideChanged,
   resolveFilesFilter,
+  shortFileFolder,
 } from "./threadChangedFiles";
 
 const turn = (id: string, files: Array<[string, number, number]>, status = "ready") => ({
@@ -57,9 +58,45 @@ describe("mergeThreadChangedFiles", () => {
       {
         path: "src/theme.ts",
         repositoryPath: "apps/web/src/theme.ts",
-        additions: 3,
-        deletions: 1,
+        // The counts of the turn View diff opens, not a sum over turns.
+        additions: 1,
+        deletions: 0,
         isNew: false,
+        diff: { kind: "turn", turnId: TurnId.make("t2") },
+      },
+    ]);
+  });
+
+  it("uses each turn's kind: an added file is new, a deleted one is gone", () => {
+    const files = mergeThreadChangedFiles({
+      workingTree: [],
+      checkpoints: [
+        {
+          turnId: TurnId.make("t1"),
+          status: "ready",
+          files: [
+            { path: "a.ts", kind: "added", additions: 4, deletions: 0 },
+            { path: "b.ts", kind: "modified", additions: 1, deletions: 1 },
+          ],
+        },
+        {
+          turnId: TurnId.make("t2"),
+          status: "ready",
+          files: [
+            { path: "a.ts", kind: "modified", additions: 2, deletions: 1 },
+            { path: "b.ts", kind: "deleted", additions: 0, deletions: 9 },
+          ],
+        },
+      ],
+      toWorkspacePath: (path) => path,
+    });
+    expect(files).toEqual([
+      {
+        path: "a.ts",
+        repositoryPath: "a.ts",
+        additions: 2,
+        deletions: 1,
+        isNew: true,
         diff: { kind: "turn", turnId: TurnId.make("t2") },
       },
     ]);
@@ -104,7 +141,19 @@ describe("the Changed filter", () => {
           { path: "b.ts", line: null },
         ],
         [{ path: "a.ts" }],
+        5,
       ),
     ).toEqual([{ path: "b.ts", line: null }]);
+    // Cut after the filter, so changed files never leave Recently opened short.
+    const recent = ["c1", "a", "c2", "b", "c", "d", "e", "f"].map((path) => ({ path }));
+    expect(
+      recentFilesOutsideChanged(recent, [{ path: "c1" }, { path: "c2" }], 5).map((f) => f.path),
+    ).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("names where a recent file lives by its last two folders", () => {
+    expect(shortFileFolder("packages/contracts/src/settings.ts")).toBe("contracts/src");
+    expect(shortFileFolder("src/a.ts")).toBe("src");
+    expect(shortFileFolder("AGENTS.md")).toBe("root");
   });
 });

@@ -34,9 +34,20 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     if (!this.held) this.schedule(this.options.debounceMs);
   }
 
-  /** Save the held contents over the file as it is now. */
-  release(): void {
-    if (!this.held || this.disposed) return;
+  /**
+   * Save the held contents over the file as it is now. With `contents`, save those over it even
+   * when this coordinator held nothing: a held edit kept from an earlier visit to the file.
+   */
+  release(contents?: string): void {
+    if (this.disposed) return;
+    if (contents !== undefined) {
+      this.latestContents = contents;
+      this.latestRevision += 1;
+      this.lastChangeAt = Date.now();
+      this.options.onPendingChange(true);
+    } else if (!this.held) {
+      return;
+    }
     this.held = false;
     this.skipCheck = true;
     this.schedule(0);

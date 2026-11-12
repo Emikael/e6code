@@ -1,14 +1,13 @@
 import type { EnvironmentId } from "@e6tools/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   canRevertFileEdits,
   canUndoFileEdit,
-  EMPTY_FILE_EDIT_HISTORY,
   type FileEditEvent,
   type FileEditHistory,
-  reduceFileEditHistory,
 } from "./fileEditHistory";
+import { fileEditHistoryForTurn, fileEditKey, useFileEditStore } from "./fileEditStore";
 import {
   clearProjectFileQueryData,
   getOptimisticProjectFileQueryData,
@@ -30,13 +29,15 @@ export interface FileEditSession {
 }
 
 /**
- * The open file's saves and the reader's edit history (see fileEditHistory.ts). The history is
- * kept per file and forgotten when the next turn starts, so Revert reaches back only to the file
- * as the last turn left it.
+ * The open file's saves and the reader's edit history (see fileEditHistory.ts). The history lives
+ * in fileEditStore by thread and path, so it outlasts the surface, and is forgotten when the next
+ * turn starts, so Revert reaches back only to the file as the last turn left it.
  */
 export function useFileEditSession(input: {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
+  /** The thread the Files tab belongs to; the history is kept per thread and path. */
+  readonly threadKey: string;
   /** Null while no editable file is open. */
   readonly relativePath: string | null;
   /** The file as shown, with any unsaved edit. */
@@ -47,21 +48,15 @@ export function useFileEditSession(input: {
   readonly turnKey: string | null;
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
 }): FileEditSession {
-  const { environmentId, cwd, relativePath } = input;
-  const key = `${relativePath ?? ""}\u0000${input.turnKey ?? ""}`;
-  const [state, setState] = useState<{ key: string; history: FileEditHistory }>({
-    key,
-    history: EMPTY_FILE_EDIT_HISTORY,
-  });
-  const history = state.key === key ? state.history : EMPTY_FILE_EDIT_HISTORY;
+  const { environmentId, cwd, relativePath, turnKey } = input;
+  const key = fileEditKey(input.threadKey, relativePath ?? "");
+  const entry = useFileEditStore((state) => state.byFileKey[key]);
+  const history = useMemo(() => fileEditHistoryForTurn(entry, turnKey), [entry, turnKey]);
   const dispatch = useCallback(
-    (event: FileEditEvent) =>
-      setState((current) => {
-        const base = current.key === key ? current.history : EMPTY_FILE_EDIT_HISTORY;
-        const next = reduceFileEditHistory(base, event);
-        return next === base && current.key === key ? current : { key, history: next };
-      }),
-    [key],
+    (event: FileEditEvent) => {
+      if (relativePath !== null) useFileEditStore.getState().dispatch(key, turnKey, event);
+    },
+    [key, relativePath, turnKey],
   );
   // Contents written back by Undo, Revert or Keep mine, so their save is not counted as an edit.
   const restoringRef = useRef<string | null>(null);
@@ -72,12 +67,15 @@ export function useFileEditSession(input: {
   const contentsRef = useRef(input.contents);
   const serverContentsRef = useRef(input.serverContents);
   const editingRef = useRef(history.editing);
-  // Read through a ref so `edit` stays stable across turns: the editor is built around it.
+  const heldRef = useRef(history.held);
+  // Read through a ref so the save coordinator and `edit` stay stable when a turn starts: the
+  // editor is built around `edit`, and a rebuilt coordinator would lose a pending save.
   const dispatchRef = useRef(dispatch);
   useEffect(() => {
     contentsRef.current = input.contents;
     serverContentsRef.current = input.serverContents;
     editingRef.current = history.editing;
+    heldRef.current = history.held;
     dispatchRef.current = dispatch;
   });
   const onConfirmed = useCallback((contents: string) => {
@@ -89,6 +87,8 @@ export function useFileEditSession(input: {
   const check = useCallback(
     async (contents: string) => {
       if (relativePath === null) return true;
+      // Still held from an earlier visit: the reader has not picked a version yet.
+      if (heldRef.current !== null) return false;
       const disk = await readProjectFileFromDisk(environmentId, cwd, relativePath);
       if (
         disk === null ||
@@ -98,7 +98,7 @@ export function useFileEditSession(input: {
       ) {
         return true;
       }
-      dispatchRef.current({ type: "changed-underneath", contents: disk });
+      dispatchRef.current({ type: "changed-underneath", contents: disk, mine: contents });
       return false;
     },
     [cwd, environmentId, relativePath],
@@ -122,17 +122,19 @@ export function useFileEditSession(input: {
         baseRef.current = serverContentsRef.current;
         editingRef.current = true;
       }
-      if (before !== null) dispatchRef.current({ type: "edit", before });
+      if (before !== null) dispatchRef.current({ type: "edit", before, after: contents });
       setProjectFileQueryData(environmentId, cwd, relativePath, contents);
       coordinator.change(contents);
     },
     [coordinator, cwd, environmentId, relativePath],
   );
-  const write = (contents: string | null) => {
+  // Undo, Revert and Keep mine are the reader's own decisions: they write without the
+  // changed-on-disk check, and over a held save.
+  const writeOver = (contents: string | null, restore: boolean) => {
     if (relativePath === null || contents === null) return;
-    restoringRef.current = contents;
+    restoringRef.current = restore ? contents : null;
     setProjectFileQueryData(environmentId, cwd, relativePath, contents);
-    coordinator.change(contents);
+    coordinator.release(contents);
   };
 
   // A read from disk that the reader did not write is the agent's: say so rather than lose either.
@@ -140,24 +142,32 @@ export function useFileEditSession(input: {
     if (input.serverContents !== null) dispatch({ type: "read", contents: input.serverContents });
   }, [dispatch, input.serverContents]);
 
+  // Back on a file whose edit is held: show the reader's text again, not the agent's.
+  useEffect(() => {
+    if (relativePath === null || heldRef.current === null) return;
+    const held = heldRef.current;
+    if (getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents !== held) {
+      setProjectFileQueryData(environmentId, cwd, relativePath, held);
+    }
+  }, [cwd, environmentId, relativePath]);
+
   return {
     edit,
     history,
     canUndo: canUndoFileEdit(history),
     canRevert: canRevertFileEdits(history, input.contents),
-    undo: () => write(history.undoTo),
-    revert: () => write(history.original),
+    undo: () => writeOver(history.undoTo, true),
+    revert: () => writeOver(history.original, true),
     keepMine: () => {
+      const mine = history.held ?? history.saved;
       dispatch({ type: "keep-mine" });
-      // An unsaved edit was held: save it now. Otherwise put the reader's last save back.
-      if (history.editing) coordinator.release();
-      else write(history.saved);
+      writeOver(mine, false);
     },
     takeTheirs: () => {
-      if (coordinator.discard() && relativePath !== null) {
-        clearProjectFileQueryData(environmentId, cwd, relativePath);
-      }
-      dispatch({ type: "reset" });
+      const mine = history.held ?? history.saved;
+      coordinator.discard();
+      if (relativePath !== null) clearProjectFileQueryData(environmentId, cwd, relativePath);
+      dispatch({ type: "take-theirs", mine });
     },
   };
 }

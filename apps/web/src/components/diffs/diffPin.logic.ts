@@ -48,16 +48,19 @@ export function nextAppliedDiffPreview<Preview, WorkingTree>(
 
 /**
  * Whether the live preview answers the user's action taken at `since`: the first preview that
- * settled after it. Null while it has not arrived; "failed" when the refresh failed instead.
+ * settled after it. Null while it has not arrived; "failed" when the refresh failed instead. An
+ * error counts only once the action's own refresh has started (`refreshStarted`), so an error
+ * left from an earlier query does not end the action before its refresh runs.
  */
 export function userActionAnswer(input: {
   readonly since: number;
   readonly settledAt: number | null;
   readonly pending: boolean;
   readonly failed: boolean;
+  readonly refreshStarted: boolean;
 }): "answered" | "failed" | null {
   if (input.pending) return null;
-  if (input.failed) return "failed";
+  if (input.failed) return input.refreshStarted ? "failed" : null;
   return input.settledAt !== null && input.settledAt >= input.since ? "answered" : null;
 }
 

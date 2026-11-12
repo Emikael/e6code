@@ -81,6 +81,7 @@ import {
 
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { unsentCodeCommentCount } from "~/lib/attachedForAgent";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { cn } from "~/lib/utils";
 import { type DiffPanelFocusTarget } from "~/diffPanelStore";
@@ -392,14 +393,9 @@ function ChangesSection({
     threadKey: scopedThreadKey(threadRef),
     files: reviewFiles,
   });
-  // Diff comments attached to the composer and not sent yet.
-  const unsentComments = useComposerDraftStore(
-    (store) =>
-      store
-        .getComposerDraft(threadRef)
-        ?.reviewComments.filter(
-          (comment) => !comment.pullRequest && (comment.fenceLanguage ?? "diff") === "diff",
-        ).length ?? 0,
+  // Diff and file comments attached to the composer and not sent yet.
+  const unsentComments = useComposerDraftStore((store) =>
+    unsentCodeCommentCount(store.getComposerDraft(threadRef)?.reviewComments ?? []),
   );
   if (status && !status.isRepo) return null;
 

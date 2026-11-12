@@ -170,7 +170,8 @@ interface RightPanelStoreState {
    */
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   /** "Keep as its own tab": moves the file out of the Files tab into a per-file tab. */
-  keepFileAsTab: (ref: ScopedThreadRef, relativePath: string) => void;
+  /** Moves a file out of the Files tab into its own tab, at `line` (where the reader was). */
+  keepFileAsTab: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
     ref: ScopedThreadRef,
@@ -536,10 +537,16 @@ export function migratePersistedRightPanelState(
   version = 0,
 ): {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  restingOpen?: boolean;
 } {
   if (!persistedState || typeof persistedState !== "object") {
     return { byThreadKey: {} };
   }
+  // The reader's choice to keep the panel open or closed outlives every version bump.
+  const restingOpen =
+    "restingOpen" in persistedState && typeof persistedState.restingOpen === "boolean"
+      ? persistedState.restingOpen
+      : undefined;
   const byThreadKey =
     "byThreadKey" in persistedState &&
     persistedState.byThreadKey &&
@@ -687,7 +694,7 @@ export function migratePersistedRightPanelState(
             }),
         )
       : {};
-  return { byThreadKey };
+  return restingOpen === undefined ? { byThreadKey } : { byThreadKey, restingOpen };
 }
 
 export const useRightPanelStore = create<RightPanelStoreState>()(
@@ -836,7 +843,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             };
           }),
         ),
-      keepFileAsTab: (ref, requestedPath) =>
+      keepFileAsTab: (ref, requestedPath, line) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             const relativePath = normalizeFilePath(requestedPath);
@@ -850,7 +857,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : [surface],
             );
             const filesIndex = surfaces.findIndex((surface) => surface.kind === "files");
-            const kept = fileSurface(relativePath, null, 0);
+            const kept = fileSurface(
+              relativePath,
+              normalizeRevealLine(line),
+              line === undefined ? 0 : 1,
+            );
             return {
               ...current,
               isOpen: true,

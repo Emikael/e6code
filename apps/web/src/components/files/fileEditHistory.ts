@@ -15,8 +15,15 @@ export interface FileEditHistory {
   readonly saved: string | null;
   /** "Your edit saved" shows. */
   readonly showSaved: boolean;
+  /** The reader took the agent's version; Undo brings their own text back. */
+  readonly tookTheirs: boolean;
   /** The file on disk changed to something the reader did not write: the agent's version. */
   readonly conflict: string | null;
+  /**
+   * The reader's text whose save is held because the agent changed the file under it. Kept here,
+   * not only in the editor, so leaving the file and coming back still shows it with the notice.
+   */
+  readonly held: string | null;
 }
 
 export const EMPTY_FILE_EDIT_HISTORY: FileEditHistory = {
@@ -25,21 +32,28 @@ export const EMPTY_FILE_EDIT_HISTORY: FileEditHistory = {
   editing: false,
   saved: null,
   showSaved: false,
+  tookTheirs: false,
   conflict: null,
+  held: null,
 };
 
 export type FileEditEvent =
-  /** The reader typed: `before` is the file as it was before this change. */
-  | { readonly type: "edit"; readonly before: string }
+  /** The reader typed: `before` is the file as it was before this change, `after` as it is now. */
+  | { readonly type: "edit"; readonly before: string; readonly after?: string }
   /** A save landed. `restore` marks one written by Undo, Revert or Keep mine. */
   | { readonly type: "saved"; readonly contents: string; readonly restore: boolean }
   /** Revert my edits, Take the agent's version, or a new turn: forget the reader's edits. */
   | { readonly type: "reset" }
   /** The file was read from disk again. */
   | { readonly type: "read"; readonly contents: string }
-  /** A save was held: the file on disk is now `contents`, which the reader did not write. */
-  | { readonly type: "changed-underneath"; readonly contents: string }
-  | { readonly type: "keep-mine" };
+  /**
+   * A save of `mine` was held: the file on disk is now `contents`, which the reader did not write.
+   */
+  | { readonly type: "changed-underneath"; readonly contents: string; readonly mine: string }
+  /** Keep mine: the reader's text goes over the agent's, which Undo can bring back. */
+  | { readonly type: "keep-mine" }
+  /** Take the agent's version: `mine` is the reader's text it replaced, which Undo brings back. */
+  | { readonly type: "take-theirs"; readonly mine: string | null };
 
 export function reduceFileEditHistory(
   state: FileEditHistory,
@@ -47,6 +61,10 @@ export function reduceFileEditHistory(
 ): FileEditHistory {
   switch (event.type) {
     case "edit":
+      // Typing on while a save is held keeps the held text current.
+      if (state.held !== null && event.after !== undefined && event.after !== state.held) {
+        return { ...state, held: event.after, showSaved: false };
+      }
       if (state.editing) return state.showSaved ? { ...state, showSaved: false } : state;
       return {
         ...state,
@@ -54,6 +72,7 @@ export function reduceFileEditHistory(
         undoTo: event.before,
         editing: true,
         showSaved: false,
+        tookTheirs: false,
       };
     case "saved":
       if (event.restore) {
@@ -61,9 +80,26 @@ export function reduceFileEditHistory(
         const backToOriginal = event.contents === state.original;
         return backToOriginal
           ? EMPTY_FILE_EDIT_HISTORY
-          : { ...state, undoTo: null, editing: false, saved: event.contents, showSaved: false };
+          : {
+              ...state,
+              undoTo: null,
+              editing: false,
+              saved: event.contents,
+              showSaved: false,
+              tookTheirs: false,
+              // Written by the reader's own choice, over whatever was on disk.
+              conflict: null,
+              held: null,
+            };
       }
-      return { ...state, editing: false, saved: event.contents, showSaved: true };
+      return {
+        ...state,
+        editing: false,
+        saved: event.contents,
+        showSaved: true,
+        tookTheirs: false,
+        held: null,
+      };
     case "reset":
       return EMPTY_FILE_EDIT_HISTORY;
     case "read":
@@ -78,9 +114,29 @@ export function reduceFileEditHistory(
       if (event.contents === state.original || event.contents === state.undoTo) return state;
       return { ...state, conflict: event.contents, showSaved: false };
     case "changed-underneath":
-      return { ...state, conflict: event.contents, showSaved: false };
+      return { ...state, conflict: event.contents, held: event.mine, showSaved: false };
     case "keep-mine":
-      return { ...state, conflict: null };
+      // The save that follows is the reader's own; Undo goes back to the agent's version only.
+      return {
+        ...state,
+        undoTo: state.conflict ?? state.undoTo,
+        editing: true,
+        tookTheirs: false,
+        conflict: null,
+        held: null,
+      };
+    case "take-theirs":
+      if (event.mine === null || state.conflict === null) return EMPTY_FILE_EDIT_HISTORY;
+      return {
+        ...state,
+        undoTo: event.mine,
+        editing: false,
+        saved: state.conflict,
+        showSaved: true,
+        tookTheirs: true,
+        conflict: null,
+        held: null,
+      };
   }
 }
 
@@ -89,7 +145,15 @@ export function canUndoFileEdit(state: FileEditHistory): boolean {
   return state.showSaved && state.undoTo !== null;
 }
 
-/** "Revert my edits" stays in More until the next turn starts. */
+/**
+ * "Revert my edits" stays in More until the next turn starts. Not during a conflict: it would
+ * write the original over the agent's version, which Take the agent's version already settles.
+ */
 export function canRevertFileEdits(state: FileEditHistory, current: string | null): boolean {
-  return state.original !== null && current !== null && current !== state.original;
+  return (
+    state.conflict === null &&
+    state.original !== null &&
+    current !== null &&
+    current !== state.original
+  );
 }
