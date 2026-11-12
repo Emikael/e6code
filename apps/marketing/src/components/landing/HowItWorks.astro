@@ -43,16 +43,20 @@ import { shipped, showHowItWorks } from "../../lib/shipped";
               <div
                 class="ill-card"
                 role="img"
-                aria-label="A list. Needs you: Fix tunnel reconnect loop. To review: Usage page totals, plan ready, and Settings search pulse, done."
+                aria-label="A list. Needs you: Fix tunnel reconnect loop, Needs approval, 4 minutes. To review: Usage page totals, plan ready, and Settings search pulse, done."
               >
                 <div class="ill-section" aria-hidden="true">
                   <span class="grow">Needs you</span>
                   <span class="t-meta">1</span>
                 </div>
-                <div class="navrow" aria-hidden="true">
-                  <span class="dot dot--waiting" />
-                  <span class="grow clip">Fix tunnel reconnect loop</span>
-                  <span class="t-meta muted">4m</span>
+                <div class="navrow navrow--blocked" aria-hidden="true">
+                  <span class="row navrow-title">
+                    <span class="dot dot--waiting" />
+                    <span class="grow clip">Fix tunnel reconnect loop</span>
+                  </span>
+                  <span class="navrow-status">
+                    <span class="waiting-word">Needs approval</span> · 4m
+                  </span>
                 </div>
                 <div class="ill-section ill-section--next" aria-hidden="true">
                   To review
@@ -86,7 +90,7 @@ import { shipped, showHowItWorks } from "../../lib/shipped";
               <div
                 class="recap"
                 role="img"
-                aria-label="A recap card. You asked: Also update the mobile tokens. Since then: Claude read 3 files and changed 2."
+                aria-label="A recap card. You asked: Also update the mobile tokens. Since then: Claude read 3 files and changed 2 files."
               >
                 <span class="t-heading" aria-hidden="true">
                   Where you left off
@@ -97,7 +101,7 @@ import { shipped, showHowItWorks } from "../../lib/shipped";
                 </div>
                 <div class="recap-row" aria-hidden="true">
                   <span class="recap-key">Since then</span>
-                  <span class="t-body">Claude read 3 files and changed 2.</span>
+                  <span class="t-body">Claude read 3 files and changed 2 files.</span>
                 </div>
               </div>
             </article>
@@ -105,11 +109,11 @@ import { shipped, showHowItWorks } from "../../lib/shipped";
           {shipped.oneThreadCard && (
             <article class="vig vig--on-page">
               <h3 class="h3">One thread on screen</h3>
-              <p class="copy">Focus mode hides the sidebar and panels. Press a key to save a note without leaving the thread.</p>
+              <p class="copy">Focus mode hides the sidebar and panels. Press a key to park a thought without leaving the thread.</p>
               <div
                 class="floating capture"
                 role="img"
-                aria-label="A one-line capture bar holding the note: Try view transitions for the sidebar"
+                aria-label="The Park a thought bar holding: Try view transitions for the sidebar"
               >
                 <div class="row capture-row" aria-hidden="true">
                   <svg class="i i18 muted" viewBox="0 0 24 24">
@@ -173,6 +177,32 @@ import { shipped, showHowItWorks } from "../../lib/shipped";
     padding: 0 10px;
     border-radius: 8px;
     font: 500 13px/18px var(--font-sans);
+  }
+
+  /* The app's blocked row: the title, then its status word and age under it. */
+  .navrow--blocked {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 2px;
+    height: auto;
+    padding-block: 7px;
+  }
+
+  .navrow-title {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .navrow-status {
+    padding-left: 16px;
+    font: 400 12px/16px var(--font-sans);
+    color: var(--fg-muted);
+  }
+
+  .waiting-word {
+    font-weight: 500;
+    color: var(--warn);
   }
 
   .navrow svg {

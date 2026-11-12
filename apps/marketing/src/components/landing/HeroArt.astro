@@ -27,11 +27,14 @@ const rows: Row[] = [
   { who: "Grok Build", what: "Sidebar drag reorder", state: "done" },
 ];
 
+// The app's notification body: the thread title and one fact (threadNotificationBody).
+const toastBody = "Fix tunnel reconnect loop · Codex wants to run a command";
+
 const shownRows = phone ? rows.slice(0, 4) : rows;
 const label = phone
   ? "Four agents in an ordered list. One, Fix tunnel reconnect loop, is marked Needs approval."
   : "Six agents in an ordered list. Three are working and two are done. One, Fix tunnel reconnect loop on Codex, is marked Needs approval" +
-    (notification ? ", and a notification says Approval needed." : ".");
+    (notification ? ", and a notification says Approval needed: Codex wants to run a command." : ".");
 ---
 
 <!-- The page's one motion (board 20). The CSS base state is the final frame;
@@ -51,7 +54,7 @@ const label = phone
           <span class="t-label grow">Approval needed</span>
           <span class="t-meta muted">now</span>
         </div>
-        <span class="t-caption muted">Fix tunnel reconnect loop</span>
+        <span class="t-caption muted">{toastBody}</span>
       </div>
     )
   }
