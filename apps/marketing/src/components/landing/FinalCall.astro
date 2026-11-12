@@ -1,14 +1,17 @@
 ---
 import DownloadButtons from "./DownloadButtons.astro";
 import InstallCommand from "./InstallCommand.astro";
+import PhoneActions from "./PhoneActions.astro";
 ---
 
 <section id="download" class="band">
   <div class="wrap stack final">
     <h2 class="h2 final-title">Install it and start one thread.</h2>
     <p class="lead final-lead">You need at least one provider signed in. E6 Code uses it as it is.</p>
-    <DownloadButtons class="final-actions" />
-    <InstallCommand context="final section" class="final-install" />
+    {/* A phone cannot run the install command, so the hero's share action repeats instead. */}
+    <DownloadButtons class="final-actions for-desktop" />
+    <PhoneActions class="final-phone" />
+    <InstallCommand context="final section" class="final-install for-desktop" />
     <p class="t-body muted">Early software. Expect bugs, and tell us about them.</p>
   </div>
 </section>
@@ -30,6 +33,10 @@ import InstallCommand from "./InstallCommand.astro";
 
   .final :global(.final-actions) {
     justify-content: center;
+  }
+
+  .final :global(.final-phone) {
+    align-self: stretch;
   }
 
   /* The toggle and the command sit in this column's own rhythm. */
