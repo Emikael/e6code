@@ -9,10 +9,10 @@ within each theme. Appearance preferences are saved separately on each device or
 Cobalt, Rose, or Graphite. It applies to the stock E6 Code theme only; other themes bring their
 own accent. On mobile, choose it under **Settings → Appearance**, separately on each device.
 
-New installs start with Graphite at contrast 120. Graphite is neutral, so color on screen always
-means a status: amber when an agent is blocked on you, red for a failure, teal for done. An accent
-or contrast you chose yourself is kept; if you never changed them, you get the new default. To
-switch, pick **Graphite** under **Accent**, then raise **Contrast** under **Advanced** to 120.
+New profiles start with Graphite at contrast 120. Graphite has no hue, so color in the app is left
+to status, such as an agent blocked on you or a failure. A profile that already had an accent or
+contrast keeps it. To switch, choose **Try the new look** on the start screen's one-time **What
+changed** card, or pick **Graphite** under **Accent** and set **Contrast** under **Advanced** to 120.
 
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
@@ -23,16 +23,13 @@ those modes. Customize these shortcuts under **Settings → Keybindings**.
 On wide screens, **Chat width** in **Settings → Appearance** lets messages and the composer grow
 beyond the default column: choose Wide or Full.
 **Effort display** in the same section shows a model's reasoning effort in the composer as
-its name, such as High, or as bars.
-An opened work log is drawn as a timeline of steps, with how long each tool call took and the
-lines a file edit changed when the provider reports them. Whether a working agent's steps open by
-themselves is **Settings → Attention → Agent activity**: Summary keeps them folded to one line,
-Live opens them as they happen. A thread's **More** menu can choose differently for that thread.
+its name, such as High, or as bars. Whether a working agent's steps open by themselves is
+[**Settings → Attention → Agent activity**](./attention.md#work-without-interruptions).
 
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
-**Thinking timeline** under **Work log** in the same screen is the mobile switch for the timeline,
-set on each device.
+**Thinking timeline** under **Work log** in the same screen shows an opened work log as a
+timeline, with each step's duration, on that device.
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
@@ -45,7 +42,7 @@ of the selected theme.
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
 **Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
+in your operating system or **Settings → Attention → Motion** is set to **Reduced**. Moving between threads always snaps to the selected thread's panel state
 without replaying its transitions.
 
 ## Custom themes

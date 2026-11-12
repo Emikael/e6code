@@ -5,6 +5,7 @@
 - [Install E6 Code](./user/install.md)
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
+- [Attention](./user/attention.md)
 - [Permission modes](./user/permission-modes.md)
 - [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
@@ -50,6 +51,8 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Terminal runtime](./internals/terminal-runtime.md)
 - [Devices](./internals/devices.md)
 - [Voice input](./internals/voice-input.md)
+- [Attention selector](./internals/attention.md)
+- [Parked thoughts across devices](./internals/parked-sync.md)
 
 ### Runbooks
 
