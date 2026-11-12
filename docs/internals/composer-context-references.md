@@ -129,8 +129,14 @@ message stays readable and the provider receives markers plus one envelope.
 Review comments and preview annotations enter the draft through store mutators. A mounted composer
 registers a context insertion handler so panel-originated references land at its current or
 last-known caret; when no composer is mounted, the store appends them. Terminal excerpts and
-attachments use the same caret-first behavior. Removing a chip in the editor removes the record;
-removing a preview screenshot thumbnail removes its annotation and chip.
+attachments use the same caret-first behavior.
+
+On web and desktop, terminal excerpts, preview annotations and diff or file review comments are
+not drawn as chips: the composer lists them in its Attached row (`ComposerAttachedItems`). Their
+references still sit in the prompt, because the send path reads the prompt, but the editor hides
+them and keeps editing from deleting them unseen (`isAttachedLedgerReference`). Removing an item
+from that row, or a preview screenshot thumbnail, removes its reference and record; removing any
+other chip in the editor removes its record.
 
 The transcript resolves a message with `resolveUserMessageContext`: structured context is used as
 is, older messages are upgraded in memory. `ChatMarkdown` renders `e6-context://` links through

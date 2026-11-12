@@ -46,6 +46,13 @@ Terms whose meaning matters across E6 Code. Architecture and lifecycle constrain
 | Checkpoint baseline | The workspace state captured before the work being compared.                                                 |
 | Turn diff           | The workspace changes attributed to one turn.                                                                |
 
+## Attention
+
+| Term      | Meaning                                                                                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Blocked   | A thread that cannot continue without the user: a pending approval or question, or a failure. Server state, counted in badges. See [attention](./attention.md). |
+| To review | A thread with a ready plan or a finished turn this device has not opened. Device state, never counted.                                                          |
+
 ## Pull requests
 
 | Term                 | Meaning                                                                                                                                                                                  |
