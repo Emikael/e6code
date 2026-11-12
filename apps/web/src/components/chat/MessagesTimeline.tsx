@@ -5593,13 +5593,13 @@ function SubagentBatchRow({
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
             {agent.title}
           </span>
-          {/* Narrow cards keep the shape-distinct glyph; the word returns with room. */}
-          <SubagentStatusGlyph tone={tone} className="size-3 @[26rem]/spawn:hidden" />
-          <SubagentStatusWord tone={tone} className="hidden @[26rem]/spawn:inline-flex" />
+          {/* A status is never a bare dot: the word always stays, and in a narrow card the
+              elapsed time gives way instead (it is in Run details too). */}
+          <SubagentStatusWord tone={tone} />
           <SubagentElapsed
             agent={agent}
             minutes
-            className="min-w-14 shrink-0 text-right text-xs text-muted-foreground"
+            className="hidden min-w-14 shrink-0 text-right text-xs text-muted-foreground @[26rem]/spawn:block"
           />
         </span>
         <SubagentActivityLine agent={agent} tone={tone} />
