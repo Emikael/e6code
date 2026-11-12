@@ -1674,6 +1674,11 @@ describe("Needs you section", () => {
       "v2-needs-you",
     ]);
     expect(items[0]?.type === "v2-needs-you-header" && items[0].count).toBe(2);
+    // Only the first approval opens with its actions.
+    expect(items.slice(1, 3).map((item) => item.type === "v2-needs-you" && item.expanded)).toEqual([
+      true,
+      false,
+    ]);
     expect(items.filter((item) => item.type === "v2-thread")).toHaveLength(3);
     expect(
       buildThreadListV2ListItems({ needsYou: [], items: layout.items, pendingTasks: [] })[0]?.type,

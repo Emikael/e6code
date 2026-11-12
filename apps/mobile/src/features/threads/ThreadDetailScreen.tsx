@@ -117,6 +117,8 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
+import { ThreadRecapHost } from "./ThreadRecapCard";
+import { threadAgentName } from "./threadListV2";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 import { SubagentRequestsContext } from "./thread-work-log";
@@ -302,6 +304,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       threadId: props.selectedThread.id,
     });
   }, [navigation, props.environmentId, props.selectedThread.id]);
+  const openChanges = useCallback(() => {
+    Keyboard.dismiss();
+    navigation.navigate("ThreadReview", {
+      environmentId: props.environmentId,
+      threadId: props.selectedThread.id,
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
@@ -427,6 +436,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       isCompacting: props.isCompacting,
       agentState: props.selectedThread.agentState,
       activeWorkStartedAt: props.activeWorkStartedAt,
+      planProgress: props.selectedThread.planProgress,
     });
   })();
   const showWorkingControl = floatingStatus !== null;
@@ -1031,6 +1041,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     {props.handoffCard}
                   </Animated.View>
                 ) : null}
+                <ThreadRecapHost
+                  environmentId={props.environmentId}
+                  threadId={props.selectedThread.id}
+                  provider={threadAgentName(props.selectedThread)}
+                  // A request or a failed creation owns this space; the recap waits.
+                  visible={
+                    activeUserInputRequestId === null &&
+                    props.activePendingApproval === null &&
+                    props.activePendingUserInput === null &&
+                    props.creationState === null
+                  }
+                  onOpenChanges={openChanges}
+                />
                 {props.creationState?.kind === "failed" ? (
                   <Animated.View
                     className="shrink-0 px-4"

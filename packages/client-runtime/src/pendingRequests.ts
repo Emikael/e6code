@@ -92,8 +92,9 @@ const SHOWN_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
 };
 
 /**
- * The headline for one approval shown on its own, with its place among the
- * thread's pending approvals when there is more than one:
+ * The headline for one approval shown on its own. Alone it reads like the
+ * shell's summary ("Codex wants to run 1 command"); among several it names
+ * the one shown and its place, so it never reads like approve-all:
  * "Codex wants to run this command · 1 of 2". No trailing period.
  */
 export function describeShownApprovalAsk(
@@ -101,8 +102,12 @@ export function describeShownApprovalAsk(
   requestKind: ProviderRequestKind,
   position: { readonly index: number; readonly total: number },
 ): string {
-  const ask = `${provider} ${SHOWN_APPROVAL_PHRASE[requestKind]}`;
-  return position.total > 1 ? `${ask} · ${position.index + 1} of ${position.total}` : ask;
+  if (position.total <= 1) {
+    return requestKind === "command"
+      ? `${provider} wants to run 1 command`
+      : `${provider} ${SUBAGENT_APPROVAL_PHRASE[requestKind]}`;
+  }
+  return `${provider} ${SHOWN_APPROVAL_PHRASE[requestKind]} · ${position.index + 1} of ${position.total}`;
 }
 
 /** What a subagent is blocked on: the oldest pending request that names it. */

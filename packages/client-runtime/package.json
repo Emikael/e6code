@@ -31,6 +31,10 @@
       "types": "./src/pendingRequests.ts",
       "default": "./src/pendingRequests.ts"
     },
+    "./approval-answers": {
+      "types": "./src/approvalAnswers.ts",
+      "default": "./src/approvalAnswers.ts"
+    },
     "./approval-feedback": {
       "types": "./src/approvalFeedback.ts",
       "default": "./src/approvalFeedback.ts"

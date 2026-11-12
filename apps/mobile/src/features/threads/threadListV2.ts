@@ -343,6 +343,8 @@ export interface ThreadListV2NeedsYouListItem {
   readonly type: "v2-needs-you";
   readonly key: string;
   readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+  /** The first approval opens with its actions (board 8); the rest are rows. */
+  readonly expanded: boolean;
 }
 
 export type ThreadListV2ListItem =
@@ -478,6 +480,7 @@ export function buildThreadListV2ListItems(input: {
   const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? threadItems.length;
   const snoozedEnd = settledShelfHeaderIndex ?? threadItems.length;
   const needsYou = input.needsYou ?? [];
+  const firstApproval = needsYou.find((item) => item.kind === "approval");
   const result: ThreadListV2ListItem[] = [
     ...(needsYou.length > 0
       ? [
@@ -490,6 +493,7 @@ export function buildThreadListV2ListItems(input: {
             type: "v2-needs-you",
             key: `v2-needs-you:${item.key}`,
             item,
+            expanded: item === firstApproval,
           })),
         ]
       : []),

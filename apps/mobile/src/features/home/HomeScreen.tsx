@@ -58,6 +58,7 @@ import {
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
+import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
@@ -834,7 +835,11 @@ export function HomeScreen(props: HomeScreenProps) {
         return <ThreadListV2NeedsYouHeader count={item.count} />;
       }
       if (item.type === "v2-needs-you") {
-        return <ThreadListV2NeedsYouRow item={item.item} onSelectThread={props.onSelectThread} />;
+        return item.expanded ? (
+          <HomeApprovalCard item={item.item} onSelectThread={props.onSelectThread} />
+        ) : (
+          <ThreadListV2NeedsYouRow item={item.item} onSelectThread={props.onSelectThread} />
+        );
       }
       if (item.type === "v2-pending") {
         const pendingScopeKey = scopedProjectKey(

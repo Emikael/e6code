@@ -665,12 +665,15 @@ describe("pending request asks from the shell summary", () => {
 });
 
 describe("describeShownApprovalAsk", () => {
-  it("words the request on screen, with its place only when there are several", () => {
+  it("words the request on screen, with its place when there are several", () => {
     expect(describeShownApprovalAsk("Codex", "command", { index: 0, total: 2 })).toBe(
       "Codex wants to run this command · 1 of 2",
     );
+    expect(describeShownApprovalAsk("Codex", "command", { index: 0, total: 1 })).toBe(
+      "Codex wants to run 1 command",
+    );
     expect(describeShownApprovalAsk("Claude", "file-change", { index: 0, total: 1 })).toBe(
-      "Claude wants to make this change",
+      "Claude wants to change files",
     );
   });
 });

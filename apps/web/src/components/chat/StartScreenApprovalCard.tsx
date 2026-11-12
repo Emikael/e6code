@@ -137,7 +137,12 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
         ) : null}
         {cue}
       </div>
-      <p className="text-sm leading-[22px] text-foreground">{headline ?? asSentence(fact)}</p>
+      <p className="text-sm leading-[22px] text-foreground">
+        {
+          // Among several, the place ends the line; alone it is a plain sentence.
+          headline !== null && (shown?.total ?? 0) > 1 ? headline : asSentence(headline ?? fact)
+        }
+      </p>
       {approval?.detail ? (
         <pre className="max-h-24 overflow-auto rounded-lg bg-surface-well px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre text-foreground">
           {approval.detail}
