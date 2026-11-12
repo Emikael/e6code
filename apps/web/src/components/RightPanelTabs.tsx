@@ -1538,7 +1538,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     setRenamingDevice(null);
   });
 
-  // A newly active tab, or tabs that start overflowing, can sit outside the scrolled strip.
+  // A newly active tab, tabs that start overflowing, or an active tab whose label grows (Diff
+  // learning its file count) can sit outside the scrolled strip; the active tab is never hidden.
+  const activeTabHidden = hiddenTabIds.includes(props.activeSurfaceId ?? RUN_DETAILS_TAB_ID);
   const hasHiddenTabs = hiddenTabIds.length > 0;
   useEffect(() => {
     if (!hasHiddenTabs) return;
@@ -1547,7 +1549,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       tabListRef.current?.querySelectorAll<HTMLElement>("[data-panel-tab-id]") ?? [],
     ).find((element) => element.dataset.panelTabId === activeId);
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [props.activeSurfaceId, hasHiddenTabs]);
+  }, [props.activeSurfaceId, hasHiddenTabs, activeTabHidden]);
 
   const attachTabList = (root: HTMLDivElement | null) => {
     const viewport = tabScrollViewport(root);
