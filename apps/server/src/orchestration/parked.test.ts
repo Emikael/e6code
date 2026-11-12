@@ -63,13 +63,19 @@ const addThought = (id: string, text = `thought ${id}`) => ({
   createdAt: AT,
 });
 
-const setNote = (text: string, baseUpdatedAt: string | null) => ({
+const setNote = (
+  text: string,
+  baseUpdatedAt: string | null,
+  baseText?: string | null,
+  createdAt = AT,
+) => ({
   type: "parked.note.set" as const,
   commandId: CommandId.make(`note-${text}`),
   threadId: THREAD,
   text,
   baseUpdatedAt,
-  createdAt: AT,
+  ...(baseText === undefined ? {} : { baseText }),
+  createdAt,
 });
 
 const importEntries = (entries: ReadonlyArray<Record<string, unknown>>) => ({
@@ -174,5 +180,73 @@ describe("parked aggregate", () => {
       payload: { threadId: THREAD, deletedAt: LATER },
     } as Extract<OrchestrationEvent, { readonly type: "thread.deleted" }>);
     expect(afterDelete.entries).toEqual([]);
+  });
+
+  it("replaces a note when the edit started from the text held now, even from an old version", () => {
+    let { state } = apply(EMPTY_PARKED_STATE, setNote("A", null, null));
+    const firstVersion = state.entries[0]!.updatedAt;
+    // The first edit landed but its reply was lost; the second one was queued
+    // behind it, starting from the first edit's text.
+    state = apply(state, setNote("A plus", firstVersion, "A"), LATER).state;
+    state = apply(state, setNote("A plus more", firstVersion, "A plus"), LATER).state;
+    expect(state.entries.map((entry) => entry.text)).toEqual(["A plus more"]);
+    // Text another device wrote meanwhile is still joined, not replaced.
+    state = apply(state, setNote("Elsewhere", null, "A plus"), LATER).state;
+    expect(state.entries[0]?.text).toBe("A plus more\n\nElsewhere");
+  });
+
+  it("refuses a stale note edit that would join past the joined cap", () => {
+    let { state } = apply(EMPTY_PARKED_STATE, setNote("x".repeat(1_000), null, null));
+    state = apply(state, setNote("y".repeat(990), null, "old"), LATER).state;
+    expect(state.entries[0]?.text).toHaveLength(1_992);
+    const decision = apply(state, setNote("z".repeat(500), null, "old"), LATER).decision;
+    expect(decision.ok).toBe(false);
+  });
+
+  it("does not bring back a note cleared here from an older copy, but takes a newer one", () => {
+    let { state } = apply(EMPTY_PARKED_STATE, setNote("Old note", null, null));
+    state = apply(state, setNote("", null, "Old note"), LATER).state;
+    expect(state.entries).toEqual([]);
+    expect(state.removedNotes).toEqual([{ id: parkedNoteId(THREAD), removedAt: LATER }]);
+    const note = (text: string, createdAt: string) => ({
+      id: ParkedEntryId.make(`local-${text}`),
+      kind: "note" as const,
+      threadId: THREAD,
+      text,
+      createdAt,
+    });
+    state = apply(state, importEntries([note("Old note", AT)]), LATER).state;
+    expect(state.entries).toEqual([]);
+    state = apply(state, importEntries([note("Written after", "2026-11-12T12:00:00.000Z")])).state;
+    expect(state.entries.map((entry) => entry.text)).toEqual(["Written after"]);
+    expect(state.removedNotes).toEqual([]);
+  });
+
+  it("skips a copy sent once before the oldest tombstone, and takes one never sent", () => {
+    const longAgo = "2026-07-01T00:00:00.000Z";
+    const { state } = apply(
+      EMPTY_PARKED_STATE,
+      importEntries([
+        { id: ParkedEntryId.make("sent"), text: "sent", sentAt: longAgo },
+        { id: ParkedEntryId.make("never-sent"), text: "never sent", createdAt: longAgo },
+        { id: ParkedEntryId.make("recent"), text: "recent", sentAt: AT },
+      ]),
+    );
+    expect(state.entries.map((entry) => entry.id).toSorted()).toEqual(["never-sent", "recent"]);
+  });
+
+  it("keeps one thought pinned per day when two browsers import one each", () => {
+    const pinned = (id: string, createdAt: string) => ({
+      id: ParkedEntryId.make(id),
+      text: id,
+      pinnedFor: "2026-11-13",
+      createdAt,
+    });
+    let { state } = apply(EMPTY_PARKED_STATE, importEntries([pinned("first", AT)]));
+    state = apply(state, importEntries([pinned("later", LATER)])).state;
+    state = apply(state, importEntries([pinned("earliest", "2026-11-12T08:00:00.000Z")])).state;
+    const pinnedIds = state.entries.filter((entry) => entry.pinnedFor !== null).map((e) => e.id);
+    expect(pinnedIds).toEqual(["later"]);
+    expect(state.entries).toHaveLength(3);
   });
 });

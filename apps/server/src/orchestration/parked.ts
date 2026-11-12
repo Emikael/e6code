@@ -10,13 +10,18 @@
  *   keep one copy and a stale copy cannot bring a deleted thought back.
  * - A note edit made from an older version of the note never replaces text
  *   the editing client did not see: the two texts are joined instead, and a
- *   stale clear leaves the newer note alone.
+ *   stale clear leaves the newer note alone. A cleared note leaves a
+ *   tombstone, so an older copy imported again does not come back.
  * - Past a cap a new entry is refused (import skips it); nothing is evicted.
+ * - One thought leads each day: an import that brings a second thought pinned
+ *   for the same day keeps the later one pinned.
  */
 import {
   EMPTY_PARKED_STATE,
+  PARKED_NOTE_JOINED_MAX_CHARS,
   PARKED_NOTES_MAX,
   PARKED_THOUGHTS_MAX,
+  PARKED_TOMBSTONE_MAX_AGE_MS,
   parkedNoteId,
   type OrchestrationCommand,
   type OrchestrationEvent,
@@ -63,6 +68,23 @@ const findNote = (state: OrchestrationParkedState, threadId: ThreadId) =>
 function joinNoteText(current: string, incoming: string): string {
   return current.includes(incoming) ? current : `${current}\n\n${incoming}`;
 }
+
+/**
+ * Whether a note edit was made from a version other than the one held now. The
+ * text the client saw decides when it says (newer clients); else the version.
+ */
+function isStaleNoteEdit(
+  existing: OrchestrationParkedEntry | undefined,
+  command: Extract<ParkedCommand, { readonly type: "parked.note.set" }>,
+): boolean {
+  if (existing === undefined) return false;
+  if (command.baseText !== undefined) return existing.text !== (command.baseText ?? "");
+  return command.baseUpdatedAt !== existing.updatedAt;
+}
+
+/** Whether an import names an entry this client sent before the oldest tombstone kept here. */
+const sentBeforeTombstones = (sentAt: string | undefined, occurredAt: string) =>
+  sentAt !== undefined && Date.parse(occurredAt) - Date.parse(sentAt) > PARKED_TOMBSTONE_MAX_AGE_MS;
 
 const reject = (detail: string): ParkedDecision => ({ ok: false, detail });
 
@@ -144,7 +166,7 @@ export function decideParkedCommand(input: {
         return reject(`thread ${command.threadId} does not exist`);
       }
       const existing = findNote(state, command.threadId);
-      const stale = existing !== undefined && command.baseUpdatedAt !== existing.updatedAt;
+      const stale = isStaleNoteEdit(existing, command);
       if (command.text.length === 0) {
         if (!existing) return reject(`thread ${command.threadId} has no note`);
         // A clear made from an older note must not remove text written since.
@@ -160,6 +182,12 @@ export function decideParkedCommand(input: {
       if (!existing && countKind(state, "note") >= PARKED_NOTES_MAX) {
         return reject("Note limit reached. Clear one to add another.");
       }
+      const text = existing && stale ? joinNoteText(existing.text, command.text) : command.text;
+      if (text.length > PARKED_NOTE_JOINED_MAX_CHARS) {
+        return reject(
+          `the note on ${command.threadId} changed since it was read and is too long to join`,
+        );
+      }
       return {
         ok: true,
         event: {
@@ -168,7 +196,7 @@ export function decideParkedCommand(input: {
             entry: {
               id: existing?.id ?? parkedNoteId(command.threadId),
               kind: "note",
-              text: existing && stale ? joinNoteText(existing.text, command.text) : command.text,
+              text,
               projectId: null,
               threadId: command.threadId,
               pinnedFor: null,
@@ -182,24 +210,36 @@ export function decideParkedCommand(input: {
 
     case "parked.import": {
       let next = state;
-      const imported: OrchestrationParkedEntry[] = [];
+      const imported = new Map<string, OrchestrationParkedEntry>();
       const keep = (entry: OrchestrationParkedEntry) => {
-        imported.push(entry);
+        imported.set(entry.id, entry);
         next = projectParkedEntry(next, entry);
       };
+      const removedThoughts = new Set<string>(state.removedEntryIds);
+      const removedNotes = new Map(
+        (state.removedNotes ?? []).map((note) => [note.id as string, note.removedAt]),
+      );
       for (const candidate of command.entries) {
         if (candidate.kind === "thought") {
-          if (findEntry(next, candidate.id) || next.removedEntryIds.includes(candidate.id)) {
-            continue;
-          }
+          if (findEntry(next, candidate.id) || removedThoughts.has(candidate.id)) continue;
+          if (sentBeforeTombstones(candidate.sentAt, occurredAt)) continue;
           if (countKind(next, "thought") >= PARKED_THOUGHTS_MAX) continue;
+          let pinnedFor = candidate.pinnedFor;
+          if (pinnedFor !== null) {
+            // One thought leads a day: the later one keeps the pin.
+            const rival = next.entries.find(
+              (entry) => entry.kind === "thought" && entry.pinnedFor === pinnedFor,
+            );
+            if (rival && rival.createdAt > candidate.createdAt) pinnedFor = null;
+            else if (rival) keep({ ...rival, pinnedFor: null, updatedAt: occurredAt });
+          }
           keep({
             id: candidate.id,
             kind: "thought",
             text: candidate.text,
             projectId: candidate.projectId,
             threadId: null,
-            pinnedFor: candidate.pinnedFor,
+            pinnedFor,
             createdAt: candidate.createdAt,
             updatedAt: occurredAt,
           });
@@ -210,13 +250,15 @@ export function decideParkedCommand(input: {
         const existing = findNote(next, threadId);
         if (existing) {
           if (existing.text.includes(candidate.text)) continue;
-          keep({
-            ...existing,
-            text: joinNoteText(existing.text, candidate.text),
-            updatedAt: occurredAt,
-          });
+          const text = joinNoteText(existing.text, candidate.text);
+          if (text.length > PARKED_NOTE_JOINED_MAX_CHARS) continue;
+          keep({ ...existing, text, updatedAt: occurredAt });
           continue;
         }
+        // A copy written before the note was cleared here stays cleared.
+        const clearedAt = removedNotes.get(parkedNoteId(threadId));
+        if (clearedAt !== undefined && candidate.createdAt <= clearedAt) continue;
+        if (sentBeforeTombstones(candidate.sentAt, occurredAt)) continue;
         if (countKind(next, "note") >= PARKED_NOTES_MAX) continue;
         keep({
           id: parkedNoteId(threadId),
@@ -230,7 +272,10 @@ export function decideParkedCommand(input: {
         });
       }
       // Always one event, even when nothing was new: the import is acknowledged either way.
-      return { ok: true, event: { type: "parked.imported", payload: { entries: imported } } };
+      return {
+        ok: true,
+        event: { type: "parked.imported", payload: { entries: [...imported.values()] } },
+      };
     }
   }
 }
@@ -240,6 +285,7 @@ function projectParkedEntry(
   entry: OrchestrationParkedEntry,
 ): OrchestrationParkedState {
   const index = state.entries.findIndex((candidate) => candidate.id === entry.id);
+  const removedNotes = state.removedNotes ?? [];
   return {
     entries:
       index === -1
@@ -248,22 +294,36 @@ function projectParkedEntry(
     removedEntryIds: state.removedEntryIds.includes(entry.id)
       ? state.removedEntryIds.filter((id) => id !== entry.id)
       : state.removedEntryIds,
+    removedNotes: removedNotes.some((note) => note.id === entry.id)
+      ? removedNotes.filter((note) => note.id !== entry.id)
+      : removedNotes,
   };
 }
 
 function removeParkedEntry(
   state: OrchestrationParkedState,
   entryId: ParkedEntryId,
+  removedAt: string,
 ): OrchestrationParkedState {
   const entry = findEntry(state, entryId);
   if (!entry) return state;
+  const entries = state.entries.filter((candidate) => candidate.id !== entryId);
+  if (entry.kind === "note") {
+    return {
+      entries,
+      removedEntryIds: state.removedEntryIds,
+      removedNotes: [
+        ...(state.removedNotes ?? []).filter((note) => note.id !== entryId),
+        { id: entryId, removedAt },
+      ],
+    };
+  }
   return {
-    entries: state.entries.filter((candidate) => candidate.id !== entryId),
-    // Only thoughts need remembering: a note's id follows from its thread.
-    removedEntryIds:
-      entry.kind === "thought" && !state.removedEntryIds.includes(entryId)
-        ? [...state.removedEntryIds, entryId]
-        : state.removedEntryIds,
+    ...state,
+    entries,
+    removedEntryIds: state.removedEntryIds.includes(entryId)
+      ? state.removedEntryIds
+      : [...state.removedEntryIds, entryId],
   };
 }
 
@@ -281,7 +341,7 @@ export function projectParkedEvent(
     case "parked.note-set":
       return projectParkedEntry(state, event.payload.entry);
     case "parked.entry-removed":
-      return removeParkedEntry(state, event.payload.entryId);
+      return removeParkedEntry(state, event.payload.entryId, event.payload.removedAt);
     case "parked.imported":
       return event.payload.entries.reduce(projectParkedEntry, state);
     case "thread.deleted": {
@@ -309,7 +369,9 @@ export function parkedStreamItemsForEvent(
     case "parked.imported":
       return event.payload.entries.map((entry) => ({ kind: "upserted" as const, entry }));
     case "parked.entry-removed":
-      return [{ kind: "removed", entryId: event.payload.entryId }];
+      return [
+        { kind: "removed", entryId: event.payload.entryId, removedAt: event.payload.removedAt },
+      ];
     case "thread.deleted":
       return [{ kind: "removed", entryId: parkedNoteId(event.payload.threadId) }];
     default:

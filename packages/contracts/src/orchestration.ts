@@ -33,6 +33,7 @@ import {
   OrchestrationParkedStreamItem,
   OrchestrationSubscribeParkedInput,
   PARKED_IMPORT_MAX,
+  PARKED_TEXT_MAX_CHARS,
   ParkedImportEntry,
   ParkedPinDate,
   ParkedText,
@@ -1352,13 +1353,20 @@ const ParkedNoteSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   /** Empty clears the note. */
-  text: TrimmedString,
+  text: TrimmedString.check(Schema.isMaxLength(PARKED_TEXT_MAX_CHARS)),
   /**
    * The `updatedAt` of the note the client edited, or null when it saw none.
    * When the note changed since, the edit is merged rather than replacing
    * text the client never saw (see the decider).
    */
   baseUpdatedAt: Schema.NullOr(IsoDateTime),
+  /**
+   * The note text the client edited (null: it saw none). When present it
+   * decides whether the note changed since, in place of `baseUpdatedAt`, so a
+   * second edit queued behind an unanswered first one is judged against the
+   * first one's text. Older clients leave it out.
+   */
+  baseText: Schema.optionalKey(Schema.NullOr(Schema.String)),
   createdAt: IsoDateTime,
 });
 
