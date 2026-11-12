@@ -1008,6 +1008,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "../../state/server";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
+import { OpenThreadReminder } from "./OpenThreadReminder";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
 
@@ -6380,6 +6381,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 isComposerResting && "py-2 sm:py-2",
               )}
             >
+              {/* New threads only: how many are already open, never a gate on Send. */}
+              {routeKind === "draft" && !isComposerApprovalState && !isComposerResting ? (
+                <OpenThreadReminder />
+              ) : null}
               {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
                 <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
                   <ComposerStashMenu

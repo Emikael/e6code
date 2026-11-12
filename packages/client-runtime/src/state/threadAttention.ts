@@ -2,7 +2,7 @@
 import type { EnvironmentId, OrchestrationThreadShell } from "@e6tools/contracts";
 
 import { scopedThreadKey, scopeThreadRef } from "../environment/scoped.ts";
-import { canSnooze, effectiveSnoozed } from "./threadSettled.ts";
+import { canSnooze, effectiveSnoozed, type ThreadSnoozeShell } from "./threadSettled.ts";
 
 /**
  * "What is waiting on me?" as one derived list, shared by every client.
@@ -276,4 +276,29 @@ export function selectSnoozedThreads<T extends ThreadAttentionShell>(
   return threads.filter(
     (thread) => thread.archivedAt === null && effectiveSnoozed(thread, { now: options.now }),
   );
+}
+
+/**
+ * Threads still open: not archived, settled or snoozed. The open-thread
+ * reminder (F12) counts these; it is information, never a gate on Send.
+ */
+export function countOpenThreads(
+  threads: ReadonlyArray<
+    ThreadSnoozeShell & Pick<ThreadAttentionShell, "archivedAt" | "settledOverride">
+  >,
+  options: { readonly now: string },
+): number {
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || thread.settledOverride === "settled") continue;
+    if (effectiveSnoozed(thread, options)) continue;
+    count += 1;
+  }
+  return count;
+}
+
+/** "5 threads are open." once the count reaches the setting's threshold, else null. */
+export function openThreadReminderText(count: number, threshold: "off" | number): string | null {
+  if (threshold === "off" || count < threshold) return null;
+  return `${count} threads are open.`;
 }

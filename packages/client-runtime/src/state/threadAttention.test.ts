@@ -2,7 +2,9 @@ import { EnvironmentId, ThreadId, TurnId } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  countOpenThreads,
   formatAttentionAge,
+  openThreadReminderText,
   isThreadFailed,
   nextNeedsYouTarget,
   selectSnoozedThreads,
@@ -233,5 +235,32 @@ describe("snooze everything except this thread", () => {
     expect(selectSnoozedThreads(asleep, { now: NOW }).map((thread) => thread.id)).toEqual([
       "other",
     ]);
+  });
+});
+
+describe("open-thread reminder", () => {
+  it("counts open threads, leaving out settled, snoozed and archived ones", () => {
+    const threads = [
+      shell("open-a"),
+      shell("open-b", { hasPendingApprovals: true }),
+      shell("settled", { settledOverride: "settled" }),
+      shell("archived", { archivedAt: "2026-04-10T09:00:00.000Z" }),
+      shell("snoozed", {
+        snoozedUntil: "2026-04-11T09:00:00.000Z",
+        snoozedAt: "2026-04-10T09:00:00.000Z",
+      }),
+      shell("woke", {
+        snoozedUntil: "2026-04-10T11:00:00.000Z",
+        snoozedAt: "2026-04-10T09:00:00.000Z",
+      }),
+    ];
+    expect(countOpenThreads(threads, { now: NOW })).toBe(3);
+  });
+
+  it("speaks only at the threshold, and never when off", () => {
+    expect(openThreadReminderText(4, 5)).toBeNull();
+    expect(openThreadReminderText(5, 5)).toBe("5 threads are open.");
+    expect(openThreadReminderText(9, 8)).toBe("9 threads are open.");
+    expect(openThreadReminderText(20, "off")).toBeNull();
   });
 });

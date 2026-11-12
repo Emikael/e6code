@@ -376,24 +376,39 @@ describe("ClientSettings diff colors", () => {
   });
 });
 
-describe("ClientSettings thinking timeline", () => {
-  it("shows the timeline for settings saved before it existed", () => {
-    expect(decodeClientSettings({}).showThinkingTimeline).toBe(true);
+describe("ClientSettings agent activity and open-thread reminder", () => {
+  it("defaults to summary activity and a reminder at 5 open threads", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.agentActivityDetail).toBe("summary");
+    expect(decoded.openThreadReminderAt).toBe(5);
   });
 
-  it("keeps an explicit choice and patches it", () => {
-    const settings = decodeClientSettings({ showThinkingTimeline: false });
-    expect(settings.showThinkingTimeline).toBe(false);
-    expect(encodeClientSettings(settings).showThinkingTimeline).toBe(false);
-    expect(decodeClientSettingsPatch({ showThinkingTimeline: false })).toEqual({
-      showThinkingTimeline: false,
+  it("drops the retired thinking timeline key", () => {
+    const decoded = decodeClientSettings({ showThinkingTimeline: false });
+    expect(decoded.agentActivityDetail).toBe("summary");
+    expect(encodeClientSettings(decoded)).not.toHaveProperty("showThinkingTimeline");
+  });
+
+  it("keeps and patches a choice, and falls back for a malformed value", () => {
+    const settings = decodeClientSettings({
+      agentActivityDetail: "live",
+      openThreadReminderAt: "off",
     });
-  });
-
-  it("falls back to on for a malformed stored value without failing other settings", () => {
-    const settings = decodeClientSettings({ showThinkingTimeline: "yes", chatWidth: "wide" });
-    expect(settings.showThinkingTimeline).toBe(true);
-    expect(settings.chatWidth).toBe("wide");
+    expect(encodeClientSettings(settings)).toMatchObject({
+      agentActivityDetail: "live",
+      openThreadReminderAt: "off",
+    });
+    expect(decodeClientSettingsPatch({ openThreadReminderAt: 8 })).toEqual({
+      openThreadReminderAt: 8,
+    });
+    const malformed = decodeClientSettings({
+      agentActivityDetail: "loud",
+      openThreadReminderAt: 4,
+      chatWidth: "wide",
+    });
+    expect(malformed.agentActivityDetail).toBe("summary");
+    expect(malformed.openThreadReminderAt).toBe(5);
+    expect(malformed.chatWidth).toBe("wide");
   });
 });
 

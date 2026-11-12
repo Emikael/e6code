@@ -8,7 +8,9 @@
  */
 import {
   DEFAULT_CLIENT_SETTINGS,
+  type AgentActivityDetail,
   type ComposerControls,
+  type OpenThreadReminderAt,
   type RecapTrigger,
 } from "@e6tools/contracts/settings";
 
@@ -31,6 +33,24 @@ const RECAP_TRIGGER_LABELS = {
   never: "Never",
 } satisfies Record<RecapTrigger, string>;
 
+const OPEN_THREAD_REMINDER_OPTIONS: ReadonlyArray<{
+  readonly value: OpenThreadReminderAt;
+  readonly label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: 3, label: "At 3 threads" },
+  { value: 5, label: "At 5 threads" },
+  { value: 8, label: "At 8 threads" },
+];
+
+const openThreadReminderLabel = (value: OpenThreadReminderAt) =>
+  OPEN_THREAD_REMINDER_OPTIONS.find((option) => option.value === value)?.label ?? "Off";
+
+const AGENT_ACTIVITY_LABELS = {
+  summary: "Summary",
+  live: "Live",
+} satisfies Record<AgentActivityDetail, string>;
+
 const COMPOSER_CONTROLS_LABELS = {
   compact: "Compact",
   full: "Full",
@@ -42,6 +62,8 @@ export function AttentionSettingsPanel() {
   const recapTrigger = useClientSettings((s) => s.recapTrigger);
   const composerControls = useClientSettings((s) => s.composerControls);
   const focusHoldsFinished = useClientSettings((s) => s.focusHoldsFinished);
+  const openThreadReminderAt = useClientSettings((s) => s.openThreadReminderAt);
+  const agentActivityDetail = useClientSettings((s) => s.agentActivityDetail);
   const updateSettings = useUpdateClientSettings();
 
   return (
@@ -73,6 +95,48 @@ export function AttentionSettingsPanel() {
                 }
                 aria-label="Needs you at the top of the sidebar"
               />
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("open-thread-reminder")}
+            description="A quiet line in the composer when this many threads are open."
+            resetAction={
+              openThreadReminderAt !== DEFAULT_CLIENT_SETTINGS.openThreadReminderAt ? (
+                <SettingResetButton
+                  label="open-thread reminder"
+                  onClick={() =>
+                    updateSettings({
+                      openThreadReminderAt: DEFAULT_CLIENT_SETTINGS.openThreadReminderAt,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={String(openThreadReminderAt)}
+                onValueChange={(value) => {
+                  const option = OPEN_THREAD_REMINDER_OPTIONS.find(
+                    (candidate) => String(candidate.value) === value,
+                  );
+                  if (option) updateSettings({ openThreadReminderAt: option.value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-40"
+                  aria-label={`Open-thread reminder: ${openThreadReminderLabel(openThreadReminderAt).toLowerCase()}`}
+                >
+                  <SelectValue>{openThreadReminderLabel(openThreadReminderAt)}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {OPEN_THREAD_REMINDER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} hideIndicator value={String(option.value)}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
             }
           />
           <SettingsRow
@@ -147,6 +211,41 @@ export function AttentionSettingsPanel() {
                   ))}
                 </SelectPopup>
               </Select>
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("agent-activity-detail")}
+            description="Summary folds tool calls into one line. Live shows each step."
+            resetAction={
+              agentActivityDetail !== DEFAULT_CLIENT_SETTINGS.agentActivityDetail ? (
+                <SettingResetButton
+                  label="agent activity"
+                  onClick={() =>
+                    updateSettings({
+                      agentActivityDetail: DEFAULT_CLIENT_SETTINGS.agentActivityDetail,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <ToggleGroup
+                aria-label="Agent activity"
+                variant="segmented"
+                value={[agentActivityDetail]}
+                onValueChange={(next) => {
+                  const value = next[0];
+                  if (value === "summary" || value === "live") {
+                    updateSettings({ agentActivityDetail: value });
+                  }
+                }}
+              >
+                {Object.entries(AGENT_ACTIVITY_LABELS).map(([value, label]) => (
+                  <Toggle key={value} value={value}>
+                    {label}
+                  </Toggle>
+                ))}
+              </ToggleGroup>
             }
           />
           <SettingsRow

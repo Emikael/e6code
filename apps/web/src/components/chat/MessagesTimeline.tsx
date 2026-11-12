@@ -225,6 +225,7 @@ import {
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
   shouldPreserveAssistantLineBreaks,
+  toggleWorkGroupDisclosure,
   toolGroupAction,
   workEntryDisplayLabel,
   workEntryIsVisibleInGroup,
@@ -352,7 +353,8 @@ interface TimelineRowSharedState {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleEarlierTurns: () => void;
-  onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
+  /** `expanded` is the group's state now; the toggle flips it. */
+  onToggleWorkGroup: (groupId: string, anchorKey: string, expanded: boolean) => void;
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean) => void;
   onToggleSpawnRow: (entryId: string, expanded: boolean) => void;
   onToggleReasoning: (messageId: string, expanded: boolean, anchorKey: string) => void;
@@ -836,17 +838,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [suspendEndScrollMaintenanceForDisclosure],
   );
   const onToggleWorkGroup = useCallback(
-    (groupId: string, anchorKey: string) => {
+    (groupId: string, anchorKey: string, expanded: boolean) => {
       suspendEndScrollMaintenanceForDisclosure(anchorKey);
-      setExpandedWorkGroupIds((existing) => {
-        const next = new Set(existing);
-        if (next.has(groupId)) {
-          next.delete(groupId);
-        } else {
-          next.add(groupId);
-        }
-        return next;
-      });
+      setExpandedWorkGroupIds((existing) => toggleWorkGroupDisclosure(existing, groupId, expanded));
     },
     [expandedWorkGroupIds, suspendEndScrollMaintenanceForDisclosure],
   );
@@ -921,6 +915,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         : new Set(liveAgentTaskKey.length > 0 ? liveAgentTaskKey.split("\n") : []),
     [liveAgentTaskKey],
   );
+  // "Agent activity": this thread's choice from its More menu, else the setting.
+  const defaultAgentActivityDetail = useClientSettings((settings) => settings.agentActivityDetail);
+  const threadAgentActivityDetail = useUiStateStore(
+    (state) => state.agentActivityDetailByThreadKey[routeThreadKey],
+  );
+  const agentActivityDetail = threadAgentActivityDetail ?? defaultAgentActivityDetail;
   const rawRows = useMemo(() => {
     const previous = rowsProjectionRef.current;
     const projection = deriveMessagesTimelineRowsWithState(
@@ -939,6 +939,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         queuedMessages,
         turnUsageByTurnId,
         earlierTurns,
+        agentActivityDetail,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -955,6 +956,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     runningTurnId,
     paintedExpandedTurnIds,
     paintedExpandedWorkGroupIds,
+    agentActivityDetail,
     isWorking,
     activeTurnStartedAt,
     turnDiffSummaries,
@@ -1204,7 +1206,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
-  const thinkingTimeline = useClientSettings((settings) => settings.showThinkingTimeline);
+  // An opened work log is always drawn as a rail; "Agent activity" decides what opens.
+  const thinkingTimeline = true;
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -3179,7 +3182,7 @@ function ActivityGroupTimelineRow({
         className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         aria-label={!heading && failed ? `${label}, tool call failed` : undefined}
         aria-expanded={row.expanded}
-        onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+        onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
       >
         {heading ? (
           <ThinkingTimelineHeading
@@ -3970,7 +3973,7 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
       className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={failed ? `${label}, tool call failed` : undefined}
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     >
       <LiveActivityRow
         label={
@@ -4051,7 +4054,7 @@ function WorkGroupToggleTimelineRow({
       className="group/tool-group group/timeline-row relative flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-surface-raised/75 data-[expanded=true]:bg-surface-raised/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={row.hasFailure ? `${row.summary}, tool call failed` : undefined}
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     >
       <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-well/60 text-icon-muted ring-1 ring-border/40 transition-colors group-hover/tool-group:text-foreground">
         <ToolActivityIconView

@@ -81,13 +81,18 @@ import { goToNextThreadThatNeedsYou } from "~/lib/needsYouNavigation";
 import { shortcutLabelForCommand } from "~/keybindings";
 import {
   Menu,
+  MenuGroup,
+  MenuGroupLabel,
   MenuItem,
   MenuItemLabel,
   MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
+import { useUiStateStore } from "~/uiStateStore";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -464,6 +469,12 @@ export const ChatHeader = memo(function ChatHeader({
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  // "Agent activity" for this thread (F11): its own choice, else the Attention setting.
+  const activeThreadKey = scopedThreadKey(activeThreadRef);
+  const defaultAgentActivityDetail = useClientSettings((settings) => settings.agentActivityDetail);
+  const agentActivityDetail =
+    useUiStateStore((state) => state.agentActivityDetailByThreadKey[activeThreadKey]) ??
+    defaultAgentActivityDetail;
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -649,11 +660,36 @@ export const ChatHeader = memo(function ChatHeader({
           </MenuItem>
         </>
       ) : null}
+      {isServerThread ? (
+        <>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuGroupLabel>Agent activity</MenuGroupLabel>
+            <MenuRadioGroup
+              value={agentActivityDetail}
+              onValueChange={(value) => {
+                if (value !== "summary" && value !== "live") return;
+                // Choosing what the setting says clears this thread's own choice.
+                useUiStateStore
+                  .getState()
+                  .setThreadAgentActivityDetail(
+                    activeThreadKey,
+                    value === defaultAgentActivityDetail ? null : value,
+                  );
+              }}
+            >
+              <MenuRadioItem value="summary">Summary</MenuRadioItem>
+              <MenuRadioItem value="live">Live</MenuRadioItem>
+            </MenuRadioGroup>
+          </MenuGroup>
+        </>
+      ) : null}
     </>
   );
   const hasHeaderActions =
     activeProject !== null ||
     terminal !== null ||
+    isServerThread ||
     Boolean(showProjectScripts || showOpenInPicker || gitInMenu);
   // "More: scripts, open in", naming only what the menu holds here.
   const moreMenuLabel = [
