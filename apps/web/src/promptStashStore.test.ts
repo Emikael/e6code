@@ -10,6 +10,7 @@ import { removeLocalStorageItem } from "./hooks/useLocalStorage";
 import {
   MAX_PARKED_THOUGHTS,
   MAX_STASH_ENTRIES,
+  handlePromptStashStorageEvent,
   parkedEntryKind,
   selectThreadNote,
   PROMPT_STASH_STORAGE_KEY,
@@ -260,6 +261,51 @@ describe("promptStashStore", () => {
     // A later write starts from the stored list, not this tab's stale copy.
     store.stashEntry(thought("fresh"));
     expect(usePromptStashStore.getState().entries.map((entry) => entry.id)).toEqual(["fresh"]);
+  });
+
+  it("keeps a note and a pinned thought another tab wrote through this tab's next write", () => {
+    const store = usePromptStashStore.getState();
+    store.stashEntry(thought("mine"));
+    writePromptStashStorageForTest(
+      JSON.stringify({
+        version: 2,
+        state: {
+          entries: [
+            {
+              ...makeEntry({ id: "their-note", prompt: "Their note" }),
+              kind: "note",
+              threadKey: "env:t",
+            },
+            { ...thought("their-pin"), pinnedFor: "2026-11-13" },
+            thought("mine"),
+          ],
+        },
+      }),
+      { rehydrate: false },
+    );
+    store.stashEntry(thought("later"));
+    const entries = usePromptStashStore.getState().entries;
+    expect(selectThreadNote(entries, "env:t")?.prompt).toBe("Their note");
+    expect(entries.find((entry) => entry.id === "their-pin")?.pinnedFor).toBe("2026-11-13");
+    expect(entries.map((entry) => entry.id)).toEqual(["later", "their-note", "their-pin", "mine"]);
+  });
+
+  it("rehydrates from another tab's storage event, leaving its pending images alone", () => {
+    writePromptStashStorageForTest(
+      JSON.stringify({
+        version: 2,
+        state: { entries: [{ ...makeEntry({ id: "theirs" }), pendingImageCount: 2 }] },
+      }),
+      { rehydrate: false },
+    );
+    handlePromptStashStorageEvent("unrelated-key");
+    expect(usePromptStashStore.getState().entries).toEqual([]);
+    handlePromptStashStorageEvent(PROMPT_STASH_STORAGE_KEY);
+    const [entry] = usePromptStashStore.getState().entries;
+    expect(entry?.id).toBe("theirs");
+    // That tab may still be encoding; only a fresh load settles orphans.
+    expect(entry?.pendingImageCount).toBe(2);
+    expect(entry?.unreadableImageNames).toBeUndefined();
   });
 
   it("keeps this tab's own pending image count across a re-read", () => {

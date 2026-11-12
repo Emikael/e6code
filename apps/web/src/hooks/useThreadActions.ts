@@ -317,8 +317,8 @@ export function useThreadActions() {
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       // Review marks are per device and advisory; an archived thread's are not kept.
       useDiffReviewStore.getState().forgetThread(scopedThreadKey(threadRef));
-      // A note to self lives only in its thread's recap; it goes with the thread.
-      usePromptStashStore.getState().setThreadNote(scopedThreadKey(threadRef), "");
+      // The thread's note stays: Undo and unarchive bring the thread back with it.
+      // Only deleting a thread removes its note.
       opts.onArchived?.();
       if (opts.silent) {
         action.finish();

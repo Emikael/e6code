@@ -122,7 +122,7 @@ function clearOrphanedPendingImages(
   entries: ReadonlyArray<PromptStashEntry>,
 ): ReadonlyArray<PromptStashEntry> {
   return entries.map((entry) => {
-    if (!entry.pendingImageCount || encodingInThisTab.has(entry.id)) return entry;
+    if (!entry.pendingImageCount) return entry;
     const lostCount = entry.pendingImageCount;
     return {
       ...entry,
@@ -187,12 +187,6 @@ function resolveBaseStorage(): { storage: StateStorage; durable: boolean } {
 const { storage: baseStashStorage, durable: storageIsDurable } = resolveBaseStorage();
 
 /**
- * Entries whose images this tab is still encoding. Their pending count is
- * real, so a re-read of storage must not settle it as orphaned.
- */
-const encodingInThisTab = new Set<string>();
-
-/**
  * Persists the queue, immediately rather than debounced. Stashing is a
  * deliberate, infrequent keystroke — not a per-character autosave — so there
  * is nothing to coalesce, and the caller clears the composer on the strength
@@ -223,10 +217,16 @@ function persistEntries(entries: ReadonlyArray<PromptStashEntry>): {
 }
 
 /**
- * Reads the persisted queue, settling stale pending counts. Null when the
- * payload cannot be read or decoded; an empty key reads as no entries.
+ * Reads the persisted queue. Null when the payload cannot be read or decoded;
+ * an empty key reads as no entries.
+ *
+ * `settleOrphans` is passed only at startup. Later re-reads (before a write,
+ * on another tab's `storage` event) leave pending counts alone, because
+ * another open tab may still be encoding those images.
  */
-function readPersistedEntries(): ReadonlyArray<PromptStashEntry> | null {
+function readPersistedEntries(
+  options: { settleOrphans?: boolean } = {},
+): ReadonlyArray<PromptStashEntry> | null {
   try {
     const raw = baseStashStorage.getItem(PROMPT_STASH_STORAGE_KEY);
     if (raw === null || raw === "") return [];
@@ -234,7 +234,8 @@ function readPersistedEntries(): ReadonlyArray<PromptStashEntry> | null {
     const parsed: unknown = JSON.parse(raw);
     const state = (parsed as { state?: unknown } | null)?.state;
     if (!state) return null;
-    return clearOrphanedPendingImages(decodePersistedPromptStashState(state).entries);
+    const entries = decodePersistedPromptStashState(state).entries;
+    return options.settleOrphans ? clearOrphanedPendingImages(entries) : entries;
   } catch {
     return null;
   }
@@ -328,7 +329,6 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
       set(() => ({ entries }));
       return { refused: false, written: false, durable: false };
     }
-    if (entry.pendingImageCount) encodingInThisTab.add(entry.id);
     set(() => ({ entries: nextEntries }));
     return { refused: false, written: true, durable };
   },
@@ -431,7 +431,6 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
   takeEntry: (entryId) => {
     const entries = latestEntries(get().entries);
     const entry = entries.find((candidate) => candidate.id === entryId) ?? null;
-    encodingInThisTab.delete(entryId);
     if (!entry) {
       set(() => ({ entries }));
       return { entry: null, durable: true };
@@ -445,7 +444,6 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     const entries = latestEntries(get().entries);
     const index = entries.findIndex((candidate) => candidate.id === entryId);
     const existing = index === -1 ? undefined : entries[index];
-    encodingInThisTab.delete(entryId);
     // Restored or deleted mid-encode: nothing to attach to.
     if (!existing) {
       set(() => ({ entries }));
@@ -493,16 +491,22 @@ export function selectThreadNote(
     // Purging the v1 payload is best-effort; a storage policy that rejects
     // the delete must not take down module init.
   }
-  const persisted = readPersistedEntries();
+  const persisted = readPersistedEntries({ settleOrphans: true });
   if (persisted) {
     usePromptStashStore.setState({ entries: persisted });
   }
   if (storageIsDurable && typeof window !== "undefined") {
-    window.addEventListener("storage", (event) => {
-      if (event.key !== null && event.key !== PROMPT_STASH_STORAGE_KEY) return;
-      usePromptStashStore.setState({ entries: readPersistedEntries() ?? [] });
-    });
+    window.addEventListener("storage", (event) => handlePromptStashStorageEvent(event.key));
   }
+}
+
+/**
+ * Another tab wrote storage (`key` null means it cleared everything). The list
+ * is re-read without settling pending images: that tab may still be encoding them.
+ */
+export function handlePromptStashStorageEvent(key: string | null): void {
+  if (key !== null && key !== PROMPT_STASH_STORAGE_KEY) return;
+  usePromptStashStore.setState({ entries: readPersistedEntries() ?? [] });
 }
 
 /**
@@ -516,5 +520,6 @@ export function writePromptStashStorageForTest(
 ): void {
   baseStashStorage.setItem(PROMPT_STASH_STORAGE_KEY, raw);
   if (options.rehydrate === false) return;
-  usePromptStashStore.setState({ entries: readPersistedEntries() ?? [] });
+  // Rehydrating here stands in for a fresh page load, so orphans settle.
+  usePromptStashStore.setState({ entries: readPersistedEntries({ settleOrphans: true }) ?? [] });
 }
