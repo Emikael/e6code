@@ -249,6 +249,7 @@ import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
 import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
+import { useAttachedNotSentLabel } from "./attached/useAttachedNotSentLabel";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { earlierTurnDurations, selectRetryMessage } from "./chat/ThreadNowBar.logic";
 import { ThreadNextCard } from "./chat/ThreadNextCard";
@@ -1640,6 +1641,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
+  // The recap says what waits in this composer: the same words as the sidebar row.
+  const recapAttachedNotSent = useAttachedNotSentLabel(composerDraftTarget);
   const draftThread = useComposerDraftStore((store) =>
     routeKind === "server"
       ? store.getDraftSessionByRef(routeThreadRef)
@@ -11066,6 +11069,7 @@ export default function ChatView(props: ChatViewProps) {
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
                       threadKey={activeThreadKey}
+                      attachedNotSent={recapAttachedNotSent}
                       ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
                       source={recapSource}
                       onOpenMessage={(messageId) =>

@@ -75,8 +75,11 @@ export function ThreadRecapHost({
   onOpenStep,
   onOpenFile,
   onOpenChanges,
+  attachedNotSent,
 }: {
   threadKey: string;
+  /** "1 comment not sent": attached items waiting in this thread's composer, kept live. */
+  attachedNotSent: string | null;
   /** False while thread detail loads; the recap waits so it sees the whole log. */
   ready: boolean;
   source: ThreadRecapSource;
@@ -189,6 +192,7 @@ export function ThreadRecapHost({
       onOpenStep={onOpenStep}
       onOpenFile={onOpenFile}
       onOpenChanges={onOpenChanges}
+      attachedNotSent={attachedNotSent}
     />
   );
 }
@@ -254,9 +258,11 @@ function ThreadRecapCard({
   onOpenStep,
   onOpenFile,
   onOpenChanges,
+  attachedNotSent,
 }: {
   threadKey: string;
   recap: ThreadRecap;
+  attachedNotSent: string | null;
   onDismiss: () => void;
   onOpenMessage: (messageId: string) => void;
   onOpenStep: (step: { readonly entryId: string; readonly turnId: string | null }) => void;
@@ -332,6 +338,12 @@ function ThreadRecapCard({
               </span>
             ) : null}
           </span>
+        </div>
+      ) : null}
+      {attachedNotSent !== null ? (
+        <div className={ROW_CLASS}>
+          <span className={KEY_CLASS}>Attached</span>
+          <span className="text-sm leading-[22px] text-foreground">{attachedNotSent}</span>
         </div>
       ) : null}
       {editingNote ? (
