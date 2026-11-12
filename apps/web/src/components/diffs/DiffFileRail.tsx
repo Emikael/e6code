@@ -1,11 +1,10 @@
-import { ChevronDownIcon, ChevronRightIcon, PanelLeftCloseIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { memo, useState, type ReactNode } from "react";
 
 import type { DiffReviewStatus } from "~/diffReviewStore";
 import { cn } from "~/lib/utils";
 
 import { DiffStat } from "../DiffStat";
-import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import {
   fileCountLabel,
@@ -19,14 +18,13 @@ import { DiffReviewTick } from "./DiffReviewTick";
 export const DIFF_FILE_RAIL_CLASS_NAME =
   "flex w-[min(244px,45%)] min-w-0 shrink-0 flex-col border-r border-border bg-sidebar";
 
-/** The rail's heading row: the file count, any count beside it, and the button that hides it. */
+/** The rail's heading row: the file count and any count beside it. View › File list hides it. */
 export function DiffFileRailHeader(props: {
   readonly fileCount: number | null;
   readonly meta?: ReactNode;
-  readonly onHide: () => void;
 }) {
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2 ps-4 pe-2">
+    <div className="flex shrink-0 items-center gap-2 px-4 pt-2.5 pb-1.5">
       <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
         {props.fileCount === null ? "Files" : fileCountLabel(props.fileCount)}
       </span>
@@ -35,15 +33,6 @@ export function DiffFileRailHeader(props: {
           {props.meta}
         </span>
       ) : null}
-      <Button
-        size="icon-xs"
-        variant="ghost-muted"
-        aria-label="Hide file list"
-        className="shrink-0"
-        onClick={props.onHide}
-      >
-        <PanelLeftCloseIcon aria-hidden className="size-3.5" />
-      </Button>
     </div>
   );
 }
@@ -60,7 +49,10 @@ export function DiffFileRail(props: {
   readonly reviewedCount: number;
   readonly currentPath: string | null;
   readonly onSelect: (path: string) => void;
-  readonly onHide: () => void;
+  /** Said under the current row's name, as "change 1 of 2". */
+  readonly currentCaption?: string | null;
+  /** Below the rows, at the rail's foot. */
+  readonly footer?: ReactNode;
 }) {
   const [showGenerated, setShowGenerated] = useState(false);
   const view = props.rows ? visibleRailRows(props.rows, showGenerated) : null;
@@ -69,7 +61,6 @@ export function DiffFileRail(props: {
       <DiffFileRailHeader
         fileCount={props.rows?.length ?? null}
         meta={props.rows && props.reviewStatusOf ? `${props.reviewedCount} reviewed` : null}
-        onHide={props.onHide}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2.5">
         {view === null ? (
@@ -90,6 +81,7 @@ export function DiffFileRail(props: {
                 row={row}
                 status={props.reviewStatusOf?.(row.path) ?? null}
                 current={row.path === props.currentPath}
+                currentCaption={row.path === props.currentPath ? props.currentCaption : null}
                 onSelect={props.onSelect}
               />
             ))}
@@ -113,18 +105,24 @@ export function DiffFileRail(props: {
           </>
         )}
       </div>
+      {props.footer}
     </nav>
   );
 }
 
-function DiffFileRailRow(props: {
+const DiffFileRailRow = memo(function DiffFileRailRow(props: {
   readonly row: DiffRailRow;
   readonly status: DiffReviewStatus | null;
   readonly current: boolean;
+  readonly currentCaption?: string | null | undefined;
   readonly onSelect: (path: string) => void;
 }) {
   const { row, status } = props;
-  const caption = [row.folder, status === "changed" ? "changed since review" : null]
+  const caption = [
+    row.folder,
+    status === "changed" ? "changed since review" : null,
+    props.currentCaption ?? null,
+  ]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -160,4 +158,4 @@ function DiffFileRailRow(props: {
       />
     </button>
   );
-}
+});

@@ -1,4 +1,3 @@
-import { MessageCircle, Trash2 } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -21,12 +20,17 @@ interface DiffCommentAnnotationProps {
   onCancel: () => void;
   onComment: (text: string) => void;
   onDelete?: () => void;
+  /** Reopens a saved comment for editing. */
+  onEdit?: () => void;
   placeholder?: string;
   submitLabel?: string;
   pending?: boolean;
   secondaryAction?: DiffCommentSecondaryAction;
   focusOnMount?: boolean;
 }
+
+/** Said on every surface that attaches context to the next message. */
+export const ATTACHED_SENTENCE = "Attached. Goes with your next message in this thread.";
 
 /** The shared inline comment treatment for file previews, thread diffs, and pull-request diffs. */
 export function DiffCommentAnnotation({
@@ -37,6 +41,7 @@ export function DiffCommentAnnotation({
   onCancel,
   onComment,
   onDelete,
+  onEdit,
   placeholder = "Add a comment…",
   submitLabel = "Comment",
   pending = false,
@@ -57,29 +62,31 @@ export function DiffCommentAnnotation({
   }, [focusOnMount, kind]);
 
   if (kind === "comment") {
+    // A saved comment is attached to the composer draft, so the card says where it goes.
     return (
       <div
         data-diff-comment-annotation
-        className="flex min-w-0 items-start gap-2.5 border-s-2 border-primary-edge bg-primary/[0.045] px-3 py-2.5 font-sans text-foreground"
+        className="my-1.5 ms-7 me-3 flex min-w-0 flex-col gap-1.5 rounded-lg border border-input bg-card px-3 py-2.5 font-sans text-foreground"
         contentEditable={false}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <MessageCircle
-          className="mt-0.5 size-3.5 shrink-0 text-primary-text/70"
-          aria-hidden="true"
-        />
-        <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-5">{displayedText}</p>
-        {onDelete ? (
-          <Button
-            className="-my-1 -mr-1 shrink-0 text-muted-foreground"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Delete comment"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3" />
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-1">
+          <span className="min-w-0 flex-1 font-medium text-[13px] leading-[18px]">
+            Your comment
+          </span>
+          {onEdit ? (
+            <Button variant="ghost" size="compact" onClick={onEdit}>
+              Edit
+            </Button>
+          ) : null}
+          {onDelete ? (
+            <Button variant="ghost" size="compact" onClick={onDelete}>
+              Remove
+            </Button>
+          ) : null}
+        </div>
+        <p className="min-w-0 whitespace-pre-wrap text-sm leading-[22px]">{displayedText}</p>
+        <p className="text-muted-foreground text-xs">{ATTACHED_SENTENCE}</p>
       </div>
     );
   }

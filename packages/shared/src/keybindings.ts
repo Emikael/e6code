@@ -137,6 +137,10 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+f6", command: "workspace.focusNext" },
   { key: "mod+shift+f6", command: "workspace.focusPrevious" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  // The Diff tab's review keys answer only while the reader is working in that tab.
+  { key: "v", command: "diff.nextChange", when: "diffFocus && !editableFocus" },
+  { key: "j", command: "diff.nextFile", when: "diffFocus && !editableFocus" },
+  { key: "k", command: "diff.previousFile", when: "diffFocus && !editableFocus" },
   { key: "mod+shift+j", command: "preview.toggle" },
   { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
   { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },

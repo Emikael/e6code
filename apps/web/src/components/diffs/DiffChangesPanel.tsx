@@ -10,8 +10,16 @@ import {
   vcsUnstagePaths,
   type VcsChangeEntry,
 } from "@e6tools/client-runtime/state/vcs";
-import type { EnvironmentId, VcsFileChangeKind, VcsWorkingTreeFile } from "@e6tools/contracts";
-import { EllipsisIcon, MinusIcon, PlusIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import type { EnvironmentId, VcsWorkingTreeFile } from "@e6tools/contracts";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  EllipsisIcon,
+  MinusIcon,
+  PlusIcon,
+  Trash2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import {
   memo,
   useCallback,
@@ -37,6 +45,8 @@ import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { generatedFoldLabel, inDiffOrder, railFolderHints } from "./diffFileRail.logic";
+import { diffFileTier } from "../pullRequest/pullRequestFileOrder.logic";
 import { DiffReviewTick } from "./DiffReviewTick";
 
 export type DiffChangesSection = "staged" | "unstaged";
@@ -56,18 +66,17 @@ interface DiffChangesPanelProps {
   readonly consumeCommitFocusRequest?: () => boolean;
   /** Each file's review mark, when the Diff tab keeps them for this scope. */
   readonly reviewStatusOf?: ((path: string) => DiffReviewStatus) | null;
+  /**
+   * Paths in the order the diff body shows them. Each section lists its files in this order, so
+   * the list and the diff never disagree.
+   */
+  readonly order?: readonly string[];
+  /**
+   * Called as the user stages, unstages, discards or commits, so a diff held still for the
+   * agent's changes shows the user's own at once.
+   */
+  readonly onUserChange?: () => void;
 }
-
-const KIND_TONE: Record<VcsFileChangeKind, string> = {
-  modified: "text-warning-foreground",
-  added: "text-success-foreground",
-  untracked: "text-success-foreground",
-  deleted: "text-destructive-foreground",
-  renamed: "text-info",
-  copied: "text-info",
-  "type-changed": "text-warning-foreground",
-  conflicted: "text-error",
-};
 
 function describeFailure(result: AtomCommandResult<unknown, unknown>): string {
   if (result._tag !== "Failure") return "";
@@ -101,6 +110,8 @@ export function DiffChangesPanel({
   onSelectFile,
   consumeCommitFocusRequest,
   reviewStatusOf = null,
+  order,
+  onUserChange,
 }: DiffChangesPanelProps) {
   const commitBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -109,7 +120,22 @@ export function DiffChangesPanel({
   }, [consumeCommitFocusRequest]);
   const selectedIn = (section: DiffChangesSection) =>
     selected?.section === section ? selected.path : null;
-  const sections = useMemo(() => deriveVcsChangeSections(files), [files]);
+  const sections = useMemo(() => {
+    const derived = deriveVcsChangeSections(files);
+    if (!order) return derived;
+    return {
+      ...derived,
+      conflicts: inDiffOrder(derived.conflicts, order),
+      staged: inDiffOrder(derived.staged, order),
+      unstaged: inDiffOrder(derived.unstaged, order),
+    };
+  }, [files, order]);
+  // A folder is shown only where two names are easily confused, as in the rail.
+  const pathsKey = files.map((file) => file.path).join("\u0000");
+  const folderHints = useMemo(
+    () => railFolderHints(pathsKey === "" ? [] : pathsKey.split("\u0000")),
+    [pathsKey],
+  );
   const stage = useAtomCommand(vcsEnvironment.stage, { reportFailure: false });
   const unstage = useAtomCommand(vcsEnvironment.unstage, { reportFailure: false });
   const discard = useAtomCommand(vcsEnvironment.discard, { reportFailure: false });
@@ -125,6 +151,7 @@ export function DiffChangesPanel({
       failureTitle: string,
       run: () => Promise<AtomCommandResult<unknown, unknown>>,
     ): Promise<AtomCommandResult<unknown, unknown> | null> => {
+      onUserChange?.();
       setPendingCount((count) => count + 1);
       try {
         const result = await run();
@@ -143,7 +170,7 @@ export function DiffChangesPanel({
         setPendingCount((count) => count - 1);
       }
     },
-    [],
+    [onUserChange],
   );
 
   const stagePaths = useCallback(
@@ -226,6 +253,7 @@ export function DiffChangesPanel({
 
   const commit = useCallback(async () => {
     if (commitDisabledReason || busy) return;
+    onUserChange?.();
     const progressToastId = toastManager.add({
       type: "loading",
       title: message.trim() ? "Committing..." : "Generating commit message...",
@@ -257,7 +285,7 @@ export function DiffChangesPanel({
       description: describeFailure(result),
       timeout: 0,
     });
-  }, [busy, commitAction, commitDisabledReason, message, stagedCount]);
+  }, [busy, commitAction, commitDisabledReason, message, onUserChange, stagedCount]);
 
   if (!sections.supported) {
     return (
@@ -292,6 +320,7 @@ export function DiffChangesPanel({
             ]}
             onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
             reviewStatusOf={reviewStatusOf}
+            folderHints={folderHints}
           />
         ) : null}
         <ChangeSection
@@ -322,6 +351,7 @@ export function DiffChangesPanel({
           ]}
           onSelect={(entry) => onSelectFile(entry.path, "staged")}
           reviewStatusOf={reviewStatusOf}
+          folderHints={folderHints}
           onToggle={commitPendingReason ? undefined : (entry) => unstageEntries([entry])}
         />
         <ChangeSection
@@ -366,6 +396,7 @@ export function DiffChangesPanel({
           ]}
           onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
           reviewStatusOf={reviewStatusOf}
+          folderHints={folderHints}
           onToggle={commitPendingReason ? undefined : (entry) => stagePaths([entry.path])}
         />
       </div>
@@ -431,13 +462,21 @@ function ChangeSection(props: {
   readonly renderRowActions: (entry: VcsChangeEntry) => ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
   readonly reviewStatusOf: ((path: string) => DiffReviewStatus) | null;
+  readonly folderHints: ReadonlyMap<string, string | null>;
   /** Space on a focused row moves it to the other section. */
   readonly onToggle?: ((entry: VcsChangeEntry) => void) | undefined;
 }) {
+  const [showGenerated, setShowGenerated] = useState(false);
   if (props.entries.length === 0 && !props.emptyHint) return null;
+  const generatedCount = props.entries.filter(
+    (entry) => diffFileTier(entry.path) === "generated",
+  ).length;
+  const shown = showGenerated
+    ? props.entries
+    : props.entries.filter((entry) => diffFileTier(entry.path) !== "generated");
   return (
     <section aria-label={`${props.title}, ${props.entries.length} files`}>
-      <div className="group/section flex h-7 items-center gap-1 pr-1 pl-3 text-[11px] font-medium text-muted-foreground">
+      <div className="group/section flex h-7 items-center gap-1 pr-1 pl-4 text-[11px] font-medium text-muted-foreground">
         <span className="text-foreground/80">{props.title}</span>
         <span className="tabular-nums">{props.entries.length}</span>
         <div className="ml-auto flex items-center">{props.actions}</div>
@@ -445,17 +484,37 @@ function ChangeSection(props: {
       {props.entries.length === 0 ? (
         <p className="px-3 pb-2 text-[11px] text-muted-foreground">{props.emptyHint}</p>
       ) : (
-        props.entries.map((entry) => (
-          <ChangeRow
-            key={entry.path}
-            entry={entry}
-            selected={entry.path === props.selectedPath}
-            reviewStatus={props.reviewStatusOf?.(entry.path) ?? null}
-            actions={props.renderRowActions(entry)}
-            onSelect={props.onSelect}
-            onToggle={props.onToggle}
-          />
-        ))
+        <div className="flex flex-col gap-0.5 px-2">
+          {shown.map((entry) => (
+            <ChangeRow
+              key={entry.path}
+              entry={entry}
+              selected={entry.path === props.selectedPath}
+              reviewStatus={props.reviewStatusOf?.(entry.path) ?? null}
+              folder={props.folderHints.get(entry.path) ?? null}
+              actions={props.renderRowActions(entry)}
+              onSelect={props.onSelect}
+              onToggle={props.onToggle}
+            />
+          ))}
+          {generatedCount > 0 ? (
+            <button
+              type="button"
+              aria-expanded={showGenerated}
+              onClick={() => setShowGenerated((current) => !current)}
+              className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-muted-foreground text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            >
+              {showGenerated ? (
+                <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+              ) : (
+                <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1 truncate">
+                {generatedFoldLabel(generatedCount, showGenerated)}
+              </span>
+            </button>
+          ) : null}
+        </div>
       )}
     </section>
   );
@@ -471,12 +530,17 @@ const ChangeRow = memo(function ChangeRow(props: {
   readonly entry: VcsChangeEntry;
   readonly selected: boolean;
   readonly reviewStatus: DiffReviewStatus | null;
+  /** The folder that tells this file from one with an easily confused name. */
+  readonly folder: string | null;
   readonly actions: ReadonlyArray<ChangeRowAction>;
   readonly onSelect: (entry: VcsChangeEntry) => void;
   readonly onToggle: ((entry: VcsChangeEntry) => void) | undefined;
 }) {
   const { entry } = props;
-  const { name, directory } = splitPath(entry.path);
+  const { name } = splitPath(entry.path);
+  const caption = [props.folder, props.reviewStatus === "changed" ? "changed since review" : null]
+    .filter(Boolean)
+    .join(" · ");
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === " " && props.onToggle) {
       event.preventDefault();
@@ -487,28 +551,34 @@ const ChangeRow = memo(function ChangeRow(props: {
     <div
       aria-current={props.selected || undefined}
       className={cn(
-        "group/row flex h-6 items-center gap-1 pr-1 pl-3 text-xs hover:bg-accent/60",
-        props.selected && "bg-accent",
+        "group/row flex items-center gap-1 rounded-md pe-1 ps-2 text-xs",
+        caption ? "min-h-[46px]" : "min-h-8",
+        props.selected
+          ? "bg-sidebar-row-selected ring-1 ring-inset ring-primary-edge"
+          : "hover:bg-accent",
       )}
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`${entry.previousPath ? `${entry.previousPath} renamed to ${entry.path}` : entry.path}, ${vcsChangeKindLabel(entry.kind)}${entry.mixed ? ", also in the other section" : ""}${props.reviewStatus ? `, ${REVIEW_STATUS_WORDS[props.reviewStatus]}` : ""}`}
         onClick={() => props.onSelect(entry)}
         onKeyDown={onKeyDown}
       >
-        {props.reviewStatus ? (
-          <DiffReviewTick status={props.reviewStatus} decorative className="size-3.5" />
-        ) : null}
-        <span className="min-w-0 shrink truncate text-foreground">{name}</span>
-        {directory ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-            {directory}
+        {props.reviewStatus ? <DiffReviewTick status={props.reviewStatus} decorative /> : null}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span
+            className={cn(
+              "truncate font-mono text-xs",
+              props.reviewStatus === "reviewed" ? "text-muted-foreground" : "text-foreground",
+            )}
+          >
+            {name}
           </span>
-        ) : (
-          <span className="flex-1" />
-        )}
+          {caption ? (
+            <span className="truncate text-muted-foreground text-xs">{caption}</span>
+          ) : null}
+        </span>
       </button>
       <div className="hidden items-center group-focus-within/row:flex group-hover/row:flex pointer-coarse:flex">
         {props.actions.map((action) => (
@@ -525,9 +595,10 @@ const ChangeRow = memo(function ChangeRow(props: {
       {entry.stat &&
       hasNonZeroStat({ additions: entry.stat.insertions, deletions: entry.stat.deletions }) ? (
         <DiffStat
+          tone="neutral"
           additions={entry.stat.insertions}
           deletions={entry.stat.deletions}
-          className="text-[10px] group-focus-within/row:hidden group-hover/row:hidden pointer-coarse:hidden"
+          className="shrink-0 text-[11px] text-muted-foreground"
         />
       ) : null}
       {entry.mixed ? (
@@ -540,11 +611,10 @@ const ChangeRow = memo(function ChangeRow(props: {
           <TooltipPopup side="top">Also has changes in the other section</TooltipPopup>
         </Tooltip>
       ) : null}
+      {/* The letter names the kind of change; the row's label says it in words. Neutral, since
+          it is not a status. */}
       <span
-        className={cn(
-          "w-3 shrink-0 text-center font-mono text-[10px] font-semibold",
-          KIND_TONE[entry.kind],
-        )}
+        className="w-3 shrink-0 text-center font-mono text-[10px] font-semibold text-muted-foreground"
         aria-hidden
       >
         {vcsChangeKindLetter(entry.kind)}

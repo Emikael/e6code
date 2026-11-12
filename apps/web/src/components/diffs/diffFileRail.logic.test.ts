@@ -5,7 +5,9 @@ import {
   diffRailRows,
   fileCountLabel,
   generatedFoldLabel,
+  inDiffOrder,
   isFileRailOpen,
+  railFolderHints,
   visibleRailRows,
 } from "./diffFileRail.logic";
 
@@ -85,5 +87,32 @@ describe("labels", () => {
     expect(fileCountLabel(5)).toBe("5 files");
     expect(generatedFoldLabel(1, false)).toBe("1 generated file hidden");
     expect(generatedFoldLabel(2, true)).toBe("2 generated files shown");
+  });
+});
+
+describe("inDiffOrder", () => {
+  it("lists entries as the diff body does, with the rest after in their own order", () => {
+    const entries = [{ path: "b.ts" }, { path: "z.ts" }, { path: "a.ts" }, { path: "y.ts" }];
+    expect(inDiffOrder(entries, ["a.ts", "b.ts"]).map((entry) => entry.path)).toEqual([
+      "a.ts",
+      "b.ts",
+      "z.ts",
+      "y.ts",
+    ]);
+  });
+});
+
+describe("railFolderHints", () => {
+  it("does not take swapped letters for one edit", () => {
+    expect([...railFolderHints(["a/ab.ts", "b/ba.ts"]).values()]).toEqual([null, null]);
+  });
+
+  it("names the folder for names one letter apart", () => {
+    const hints = railFolderHints([
+      "packages/shared/src/themePalettes.ts",
+      "apps/web/src/themePalette.ts",
+      "apps/web/src/other.ts",
+    ]);
+    expect([...hints.values()]).toEqual(["shared", "web", null]);
   });
 });
