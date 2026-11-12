@@ -6,7 +6,7 @@
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedProjectKey } from "@e6tools/client-runtime/environment";
-import { ChevronDownIcon, InboxIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, InboxIcon } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -143,6 +143,13 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
       ...(result.durable
         ? {}
         : { description: "Browser storage is unavailable, so it is kept for this session only." }),
+      // Board 4: the tick, "Parked" and a ghost Undo; the fill stays with the next action.
+      data: {
+        hideCopyButton: true,
+        leadingIcon: <CheckIcon aria-hidden className="size-4 text-success-foreground" />,
+        actionVariant: "ghost",
+        actionSize: "sm",
+      },
       actionProps: {
         children: "Undo",
         onClick: () => usePromptStashStore.getState().takeEntry(entryId),
@@ -223,9 +230,17 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Menu>
             <MenuTrigger
-              render={<Button type="button" size="sm" variant="ghost" className="sm:text-xs" />}
+              // A long project name gives way first, so Park never leaves the bar.
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="min-w-0 shrink sm:text-xs"
+                />
+              }
             >
-              {projectTitle}
+              <span className="min-w-0 truncate">{projectTitle}</span>
               <ChevronDownIcon aria-hidden className="size-3.5" />
             </MenuTrigger>
             <MenuPopup align="start">
