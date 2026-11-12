@@ -62,6 +62,7 @@ import {
   BellDotIcon,
   FocusIcon,
   InboxIcon,
+  CheckIcon,
   HistoryIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
@@ -250,6 +251,7 @@ import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRe
 import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 import { useThreadRecapStore } from "~/threadRecapStore";
 import { openCaptureBar } from "~/parkedThoughts";
+import { openDoneToday } from "./DoneTodayDialog";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -2306,6 +2308,17 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "capture.park",
     run: async () => {
       openCaptureBar();
+    },
+  });
+  // Done today: what got finished since midnight, and Wrap up.
+  actionItems.push({
+    kind: "action",
+    value: "action:done-today",
+    searchTerms: ["done", "today", "finished", "wrap up", "end of day", "closure", "settled"],
+    title: "Done today",
+    icon: <CheckIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openDoneToday();
     },
   });
   const supportsSnooze = (thread: { readonly environmentId: EnvironmentId }) =>

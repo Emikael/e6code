@@ -25,27 +25,57 @@ export function localDateKey(ms: number): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+/** The `localDateKey` of the day after `ms`, for "First thing tomorrow". */
+export function nextLocalDateKey(ms: number): string {
+  const date = new Date(ms);
+  date.setDate(date.getDate() + 1);
+  return localDateKey(date.getTime());
+}
+
 /**
- * The Parked list (board 4): thoughts only, newest first, with one pinned for
- * today ("First thing today") on top. Drafts come back through a composer's
- * Parked menu, and notes stay with their thread's recap.
+ * "First thing today" (boards 1 and 5): the thought Wrap up pinned for today,
+ * or for the latest earlier day if you were away then, so it still greets the
+ * next time you come back. Dismissing it unpins it. Null when there is none.
+ */
+export function selectFirstThing(
+  entries: ReadonlyArray<PromptStashEntry>,
+  today: string,
+): PromptStashEntry | null {
+  let first: PromptStashEntry | null = null;
+  for (const entry of entries) {
+    if (parkedEntryKind(entry) !== "thought" || entry.pinnedFor === undefined) continue;
+    if (entry.pinnedFor > today) continue;
+    if (!first || entry.pinnedFor > (first.pinnedFor ?? "")) first = entry;
+  }
+  return first;
+}
+
+/**
+ * The Parked list (board 4): thoughts only, newest first, with the "First
+ * thing today" one on top. Drafts come back through a composer's Parked
+ * menu, and notes stay with their thread's recap.
  */
 export function selectParkedThoughts(
   entries: ReadonlyArray<PromptStashEntry>,
   today: string,
 ): ReadonlyArray<PromptStashEntry> {
   const thoughts = entries.filter((entry) => parkedEntryKind(entry) === "thought");
-  const pinned = thoughts.find((entry) => entry.pinnedFor === today);
+  const pinned = selectFirstThing(thoughts, today);
   return pinned ? [pinned, ...thoughts.filter((entry) => entry !== pinned)] : thoughts;
 }
 
-/** Board 1's chips under the composer: up to two thoughts, then "N more". Pinned ones lead elsewhere. */
+/**
+ * Board 1's chips under the composer: up to two thoughts, then "N more".
+ * "First thing today" has its own card above the composer, and a thought
+ * pinned for a later day waits for it.
+ */
 export function selectParkedChips(
   entries: ReadonlyArray<PromptStashEntry>,
   today: string,
 ): { readonly chips: ReadonlyArray<PromptStashEntry>; readonly more: number } {
+  const first = selectFirstThing(entries, today);
   const thoughts = selectParkedThoughts(entries, today).filter(
-    (entry) => entry.pinnedFor !== today,
+    (entry) => entry !== first && !(entry.pinnedFor !== undefined && entry.pinnedFor > today),
   );
   return {
     chips: thoughts.slice(0, PARKED_CHIP_LIMIT),

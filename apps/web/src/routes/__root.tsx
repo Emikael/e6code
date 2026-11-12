@@ -32,6 +32,7 @@ import { ThreadNotificationCoordinator } from "../components/ThreadNotificationC
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { FocusModeShortcut } from "../components/FocusModeShortcut";
 import { CaptureBarHost } from "../components/CaptureBar";
+import { DoneTodayDialogHost } from "../components/DoneTodayDialog";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -235,6 +236,7 @@ function RootRouteView() {
           <ReopenClosedViewShortcut />
           <FocusModeShortcut />
           <CaptureBarHost />
+          <DoneTodayDialogHost />
           <ConfirmDialogHost />
           <ImportedCookieApprovalDialogHost />
           <CustomSnoozeDialogHost />

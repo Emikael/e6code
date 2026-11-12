@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
   formatParkedWhen,
   localDateKey,
+  nextLocalDateKey,
   parkThought,
   removeParkedEntry,
+  selectFirstThing,
   selectParkedChips,
   selectParkedThoughts,
 } from "./parkedThoughts";
@@ -61,6 +63,32 @@ describe("selectParkedChips", () => {
     );
     expect(chips.map((item) => item.id)).toEqual(["a"]);
     expect(more).toBe(0);
+  });
+});
+
+describe("selectFirstThing", () => {
+  it("takes today's pinned thought, or the latest one from a day you were away", () => {
+    const entries = [
+      entry("monday", { pinnedFor: "2026-11-09" }),
+      entry("friday", { pinnedFor: "2026-11-06" }),
+      entry("tomorrow", { pinnedFor: "2026-11-13" }),
+      entry("note", { kind: "note", threadKey: "env:thread", pinnedFor: "2026-11-12" }),
+    ];
+    expect(selectFirstThing(entries, "2026-11-12")?.id).toBe("monday");
+    expect(selectFirstThing(entries, "2026-11-13")?.id).toBe("tomorrow");
+    expect(selectFirstThing([entry("a")], "2026-11-12")).toBeNull();
+  });
+
+  it("keeps a thought pinned for tomorrow out of today's chips", () => {
+    const { chips } = selectParkedChips(
+      [entry("tomorrow", { pinnedFor: "2026-11-13" }), entry("a")],
+      "2026-11-12",
+    );
+    expect(chips.map((item) => item.id)).toEqual(["a"]);
+  });
+
+  it("names tomorrow across a month end", () => {
+    expect(nextLocalDateKey(new Date(2026, 10, 30, 22, 0).getTime())).toBe("2026-12-01");
   });
 });
 

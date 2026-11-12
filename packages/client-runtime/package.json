@@ -251,6 +251,10 @@
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
     },
+    "./state/done-today": {
+      "types": "./src/state/doneToday.ts",
+      "default": "./src/state/doneToday.ts"
+    },
     "./state/thread-attention": {
       "types": "./src/state/threadAttention.ts",
       "default": "./src/state/threadAttention.ts"
