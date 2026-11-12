@@ -92,9 +92,9 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `editableFocus`, `isWeb`, and `isDesktop`.
+`previewOpen`, `diffFocus`, `modelPickerOpen`, `editableFocus`, `isWeb`, and `isDesktop`.
 `editableFocus` is true while a text field, the composer, or another editor has
-the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
+the keyboard. `diffFocus` is true while the Diff tab or a pull request's Code tab has it. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
@@ -135,6 +135,11 @@ from anywhere, Settings included. Escape does not leave focus mode.
 
 `capture.park` (`mod+alt+p` by default) parks a thought from any screen without leaving it.
 Inside the composer, `mod+s` parks the draft you are writing instead.
+
+`diff.nextChange` (`v`), `diff.nextFile` (`j`), and `diff.previousFile` (`k`) page through a
+diff while it has focus and you are not typing. After a file's last change, `diff.nextChange`
+marks it reviewed and moves to the next file you have not reviewed; see
+[Source control](./source-control.md#review-changes-in-the-diff-tab).
 
 On some Windows keyboard layouts `ctrl+alt` acts as AltGr; if one of these shortcuts types a
 character instead, choose another binding in Settings.
