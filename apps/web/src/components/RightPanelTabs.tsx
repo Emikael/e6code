@@ -1064,6 +1064,14 @@ export function focusedPanelTabSurfaceId(target: EventTarget | null): string | n
   return id === RUN_DETAILS_TAB_ID ? null : id;
 }
 
+/** Whether keyboard focus is on the Run details tab, which never closes. */
+export function isRunDetailsTabFocused(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement) || target.getAttribute("role") !== "tab") return false;
+  return (
+    target.closest<HTMLElement>("[data-panel-tab-id]")?.dataset.panelTabId === RUN_DETAILS_TAB_ID
+  );
+}
+
 /** A tab the strip cannot show, as the "N more" menu lists it. Run details has no surface. */
 interface HiddenPanelTab {
   id: string;

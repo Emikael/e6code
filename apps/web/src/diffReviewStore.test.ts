@@ -2,7 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   diffReviewKey,
+  diffReviewMarksByPath,
   diffReviewStatus,
+  diffReviewStatusAcrossScopes,
   diffLastSeenKey,
   withDiffLastSeen,
   withDiffReviewMark,
@@ -121,5 +123,34 @@ describe("last seen", () => {
     expect(Object.keys(withoutDiffReviewThread(positions, "env:t1"))).toEqual([
       diffLastSeenKey("env:t2", "uncommitted"),
     ]);
+  });
+});
+
+describe("review across scopes", () => {
+  const workingTree = fingerprint({ objects: null, counts: "4:1" });
+
+  it("counts a mark made under Latest turn for the file Run details lists", () => {
+    const marks = {
+      [diffReviewKey("env:t1", "turn:3", "src/a.ts")]: mark({ objects: "a1..b2" }),
+      [diffReviewKey("env:t10", "uncommitted", "src/b.ts")]: mark(),
+    };
+    const byPath = diffReviewMarksByPath(marks, "env:t1");
+    expect([...byPath.keys()]).toEqual(["src/a.ts"]);
+    expect(diffReviewStatusAcrossScopes(byPath.get("src/a.ts"), workingTree)).toBe("reviewed");
+  });
+
+  it("is reviewed when any scope proves the file unchanged", () => {
+    const marks = [mark({ objects: null, counts: "9:9" }, 2), mark({ objects: null }, 1)];
+    expect(diffReviewStatusAcrossScopes(marks, workingTree)).toBe("reviewed");
+  });
+
+  it("follows the newest mark when none proves the file unchanged", () => {
+    const marks = [
+      mark({ objects: null, counts: "9:9" }, 2),
+      mark({ ignoreWhitespace: true, rawCounts: null }, 3),
+    ];
+    expect(diffReviewStatusAcrossScopes(marks, workingTree)).toBe("unreviewed");
+    expect(diffReviewStatusAcrossScopes([marks[0]!], workingTree)).toBe("changed");
+    expect(diffReviewStatusAcrossScopes(undefined, workingTree)).toBe("unreviewed");
   });
 });

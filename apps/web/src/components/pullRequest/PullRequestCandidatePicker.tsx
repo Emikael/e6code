@@ -6,7 +6,7 @@
  * The same combobox as the project and branch pickers, and dressed the same, rather than a menu:
  * a menu's typeahead claims every keypress to jump between rows, which a search box cannot share.
  */
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import { Button } from "../ui/button";
 import {
@@ -42,8 +42,11 @@ export function PullRequestCandidatePicker<T>({
   disabled,
   onSelect,
   children,
+  trigger,
 }: {
   icon: ReactNode;
+  /** A labelled button in place of the icon trigger, for places that name the action. */
+  trigger?: ReactElement | undefined;
   /** The trigger's accessible name; the button carries an icon alone. */
   label: string;
   /** False where the host would refuse this account's change. Disabled with the reason rather
@@ -116,9 +119,11 @@ export function PullRequestCandidatePicker<T>({
     >
       <ComboboxTrigger
         render={
-          <Button size="icon-xs" variant="ghost" aria-label={label}>
-            {icon}
-          </Button>
+          trigger ?? (
+            <Button size="icon-xs" variant="ghost" aria-label={label}>
+              {icon}
+            </Button>
+          )
         }
       />
       <ComboboxPopup align="start" side="bottom" className="w-72">

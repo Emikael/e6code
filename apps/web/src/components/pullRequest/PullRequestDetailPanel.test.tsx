@@ -26,7 +26,11 @@ const { newThread, prepareThread, refresh, Wrapper, Trigger } = vi.hoisted(() =>
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => [] }));
 vi.mock("~/state/server", () => ({ primaryServerKeybindingsAtom: {} }));
-vi.mock("~/state/entities", () => ({ useProjects: () => [], useServerConfigs: () => new Map() }));
+vi.mock("~/state/entities", () => ({
+  useProjects: () => [],
+  useServerConfigs: () => new Map(),
+  useThread: () => null,
+}));
 vi.mock("~/state/environments", () => ({
   useEnvironments: () => ({ environments: [] }),
   usePrimaryEnvironmentId: () => EnvironmentId.make("env-1"),
@@ -101,17 +105,21 @@ vi.mock("./PullRequestThreadLinks", () => ({ PullRequestThreadLinks: () => null 
 vi.mock("./PullRequestSummaryTab", () => ({
   PullRequestSummaryTab: ({
     onFixFinding,
+    lead,
   }: ComponentProps<typeof import("./PullRequestSummaryTab").PullRequestSummaryTab>) => (
-    <button
-      onClick={() =>
-        onFixFinding?.({
-          kind: "check",
-          check: { name: "Unit tests", status: "failure", description: "Test failed", url: null },
-        })
-      }
-    >
-      Fix check
-    </button>
+    <>
+      {lead}
+      <button
+        onClick={() =>
+          onFixFinding?.({
+            kind: "check",
+            check: { name: "Unit tests", status: "failure", description: "Test failed", url: null },
+          })
+        }
+      >
+        Fix check
+      </button>
+    </>
   ),
 }));
 vi.mock("./PullRequestCodeTab", () => ({
@@ -176,19 +184,20 @@ const detail: PullRequestDetailView = {
   commentsTruncated: false,
   reviewThreads: [],
   commits: [],
-  mergeCapabilities: { merge: false, squash: false, rebase: false },
+  // Mergeable by this viewer, so the next step card offers Resolve conflicts.
+  mergeCapabilities: { merge: false, squash: true, rebase: false },
   capabilities: {
     diff: true,
     comment: false,
     search: true,
-    actions: [],
-    mergeMethods: [],
+    actions: ["merge"],
+    mergeMethods: ["squash"],
     review: { inlineComment: false, reply: false, resolve: false, verdicts: [] },
     reviewers: { request: false, listCandidates: false },
     edit: { changeRequest: true, comment: false },
   },
   viewerPermissions: {
-    actions: [],
+    actions: ["merge"],
     comment: false,
     resolve: false,
     verdicts: [],
@@ -314,7 +323,7 @@ describe.each([
   it.each(actions)("%s writes to the correct composer", async (action) => {
     if (target) useComposerDraftStore.getState().setPrompt(target, "Keep my draft");
     await act(async () => render());
-    if (action === "Add to agent") await click("Code");
+    if (action === "Add to agent") await click("Code · 1 file");
     await click(target ? action : action.replace("in this thread", "in a thread"));
     const draft = useComposerDraftStore.getState().getComposerDraft(target ?? newDraftId);
     if (action === "Resolve conflicts") expect(draft?.prompt).toContain("resolve every conflict");

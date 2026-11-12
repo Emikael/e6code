@@ -97,9 +97,10 @@ export function planLimitUsedPercent(remainingPercent: number): number {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * A plan limit's reading, written the way its bar points: "38% used · resets Mon" when the reset
- * is a day or more away, "38% used · resets 4:30 PM" when it is sooner, "38% used" without one.
- * A clock time or a day, never a countdown.
+ * A plan limit's reading, written the way its bar points. The reset is a clock time when it falls
+ * today ("38% used · resets 4:30 PM"), the day and time when it falls on another day within 24
+ * hours ("resets Tue 1:00 AM"), the day alone within six days ("resets Mon"), and a date beyond
+ * that ("resets Nov 24"). "38% used" without one. Never a countdown.
  */
 export function planLimitReading(
   usedPercent: number,
@@ -109,10 +110,28 @@ export function planLimitReading(
 ): string {
   const used = `${usedPercent}% used`;
   if (resetsAt === null || resetsAt <= now) return used;
-  const options: Intl.DateTimeFormatOptions =
-    resetsAt - now >= DAY_MS ? { weekday: "short" } : { hour: "numeric", minute: "2-digit" };
-  if (format.timeZone) options.timeZone = format.timeZone;
-  return `${used} · resets ${new Intl.DateTimeFormat(format.locale, options).format(resetsAt)}`;
+  const zone: Intl.DateTimeFormatOptions = format.timeZone ? { timeZone: format.timeZone } : {};
+  const write = (options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat(format.locale, { ...options, ...zone }).format(resetsAt);
+  const calendarDay = (at: number) =>
+    new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      ...zone,
+    }).format(at);
+  const away = resetsAt - now;
+  let reset: string;
+  if (away > 6 * DAY_MS) {
+    reset = write({ month: "short", day: "numeric" });
+  } else if (away >= DAY_MS) {
+    reset = write({ weekday: "short" });
+  } else if (calendarDay(resetsAt) === calendarDay(now)) {
+    reset = write({ hour: "numeric", minute: "2-digit" });
+  } else {
+    reset = write({ weekday: "short", hour: "numeric", minute: "2-digit" });
+  }
+  return `${used} · resets ${reset}`;
 }
 
 /**

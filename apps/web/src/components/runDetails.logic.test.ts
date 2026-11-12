@@ -102,6 +102,24 @@ describe("planLimitReading", () => {
     expect(planLimitReading(38, later, now, format)).toBe("38% used · resets 4:30 PM");
   });
 
+  it("names the day and time when a reset within a day falls after midnight", () => {
+    const evening = Date.parse("2026-09-03T22:00:00.000Z");
+    const afterMidnight = Date.parse("2026-09-04T01:00:00.000Z");
+    expect(planLimitReading(38, afterMidnight, evening, format)).toBe(
+      "38% used · resets Fri 1:00 AM",
+    );
+  });
+
+  it("names the date when the reset is more than six days away", () => {
+    const later = Date.parse("2026-09-12T09:00:00.000Z");
+    expect(planLimitReading(38, later, now, format)).toBe("38% used · resets Sep 12");
+  });
+
+  it("names the day for a reset within six days", () => {
+    const sixDays = Date.parse("2026-09-09T11:00:00.000Z");
+    expect(planLimitReading(38, sixDays, now, format)).toBe("38% used · resets Wed");
+  });
+
   it("says only the share used without a future reset", () => {
     expect(planLimitReading(38, null, now, format)).toBe("38% used");
     expect(planLimitReading(38, now - 1, now, format)).toBe("38% used");

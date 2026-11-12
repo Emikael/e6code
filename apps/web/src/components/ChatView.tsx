@@ -242,7 +242,7 @@ import { pullRequestPanelContext } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
-import { focusedPanelTabSurfaceId, RightPanelTabs } from "./RightPanelTabs";
+import { focusedPanelTabSurfaceId, isRunDetailsTabFocused, RightPanelTabs } from "./RightPanelTabs";
 import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
@@ -7348,6 +7348,12 @@ export default function ChatView(props: ChatViewProps) {
         // Nothing open: leave the event alone so the shortcut keeps its
         // native meaning (close window on desktop, close tab in a browser).
         // While focus is in the tab strip, the focused tab closes rather than the selected one.
+        // Run details never closes, so with its tab focused the shortcut does nothing.
+        if (isRunDetailsTabFocused(event.target)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         const focusedTabId = focusedPanelTabSurfaceId(event.target);
         const surface =
           (focusedTabId !== null

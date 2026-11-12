@@ -70,45 +70,6 @@ export function resolvePullRequestMergeMethod(
 const safeShellArgument = /^[A-Za-z0-9._/@+=,-]+$/;
 const bitbucketRepositoryName = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
-export type PullRequestPrimaryControl =
-  | "resolve"
-  | "ready"
-  | "merge"
-  | "enable-auto-merge"
-  | "auto-merge-armed"
-  | "merged"
-  | "closed"
-  | null;
-
-/** The one merge-area state shown in the header, including terminal and deferred states. */
-export function resolvePullRequestPrimaryControl(input: {
-  readonly state: PullRequestState;
-  readonly isDraft: boolean;
-  readonly mergeability: PullRequestMergeability;
-  readonly checksState: PullRequestChecksState | null;
-  readonly autoMergeEnabled: boolean | undefined;
-  readonly hasMergeMethod: boolean;
-  readonly canMerge: boolean;
-  readonly canMarkReady: boolean;
-  readonly canEnableAutoMerge: boolean;
-}): PullRequestPrimaryControl {
-  if (input.state === "merged") return "merged";
-  if (input.state === "closed") return "closed";
-  if (input.mergeability === "conflicting") return "resolve";
-  if (input.isDraft) return input.canMarkReady ? "ready" : null;
-  if (input.autoMergeEnabled) return "auto-merge-armed";
-  if (!input.hasMergeMethod) return null;
-  if (
-    input.autoMergeEnabled === false &&
-    input.checksState !== null &&
-    input.checksState !== "passing" &&
-    input.canEnableAutoMerge
-  ) {
-    return "enable-auto-merge";
-  }
-  return input.canMerge ? "merge" : null;
-}
-
 export function pullRequestCheckoutCommand(
   provider: SourceControlProviderKind,
   number: number,
@@ -243,12 +204,10 @@ export function pullRequestHandoffLabels(inThisThread: boolean) {
   return inThisThread
     ? {
         fixFinding: "Fix in this thread",
-        fixCheck: "Fix in this thread",
         fixFindings: "Fix findings in this thread",
       }
     : {
         fixFinding: "Fix in a thread",
-        fixCheck: "Fix",
         fixFindings: "Fix findings in a thread",
       };
 }
@@ -1268,12 +1227,14 @@ export interface MergeReadinessRow {
   readonly key: "checks" | "review" | "conflicts" | "base";
   readonly status: MergeReadinessStatus;
   readonly label: string;
+  /** The row's status in a word, so it never rests on its icon: "Met", "Failing", "Checking". */
+  readonly word: string;
   readonly detail: string | null;
   /**
    * The panel action that clears this row, where there is one. Failing checks have none here:
-   * the findings button under the checklist hands them over with the review comments.
+   * the next step card hands them over with the review comments.
    */
-  readonly action: "resolve-conflicts" | "update-branch" | null;
+  readonly action: "resolve-conflicts" | "update-branch" | "request-review" | null;
 }
 
 export interface MergeReadiness {
@@ -1284,61 +1245,30 @@ export interface MergeReadiness {
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
-/**
- * What "Fix findings" would hand over, worded for the button beside it, or null where there is
- * nothing to fix. Counted the way `buildFixFindingsHandoff` selects them: unresolved review
- * threads somebody wrote in, and failing checks — or a failing rollup newer than the check list.
- */
-export function summarizePullRequestFindings(input: {
-  readonly reviewThreads: ReadonlyArray<PullRequestReviewThread>;
-  readonly checks: ReadonlyArray<PullRequestCheck>;
-  readonly checksState: PullRequestChecksState | null;
-  readonly checksStale: boolean;
-}): string | null {
-  const threads = input.reviewThreads.filter(
-    (thread) =>
-      !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
-  ).length;
-  const failing = input.checksStale
-    ? null
-    : input.checks.filter((check) => check.status === "failure" || check.status === "cancelled")
-        .length;
-  const parts = [
-    threads > 0
-      ? `${threads} unresolved ${plural(threads, "review comment", "review comments")}`
-      : null,
-    failing === null
-      ? input.checksState === "failing"
-        ? "failing checks"
-        : null
-      : failing > 0
-        ? `${failing} failing ${plural(failing, "check", "checks")}`
-        : null,
-  ].filter((part) => part !== null);
-  return parts.length === 0 ? null : parts.join(" · ");
-}
-
 function checksReadinessRow(input: {
   readonly checks: ReadonlyArray<PullRequestCheck>;
   readonly checksState: PullRequestChecksState | null;
   readonly checksStale: boolean;
 }): MergeReadinessRow {
-  const row = (
-    status: MergeReadinessStatus,
-    label: string,
-    detail: string | null = null,
-  ): MergeReadinessRow => ({ key: "checks", status, label, detail, action: null });
+  const row = (status: MergeReadinessStatus, label: string, word: string): MergeReadinessRow => ({
+    key: "checks",
+    status,
+    label,
+    word,
+    detail: null,
+    action: null,
+  });
   // A newer rollup than the check list says how things stand, not how many of each.
   if (input.checksStale || input.checks.length === 0) {
     switch (input.checksState) {
       case "passing":
-        return row("ok", "Checks passed");
+        return row("ok", "Checks passed", "Met");
       case "failing":
-        return row("blocked", "Checks failing");
+        return row("blocked", "Checks failing", "Failing");
       case "pending":
-        return row("waiting", "Checks running");
+        return row("waiting", "Checks running", "Running");
       default:
-        return row("unknown", "No checks reported");
+        return row("unknown", "No checks reported", "None");
     }
   }
   const total = input.checks.length;
@@ -1348,71 +1278,98 @@ function checksReadinessRow(input: {
   const pending = count("pending", "action-required");
   const passed = count("success");
   const skipped = count("skipped", "neutral");
-  if (failed > 0) {
-    return row("blocked", `${failed} ${plural(failed, "check", "checks")} failing`, `of ${total}`);
-  }
-  if (pending > 0) return row("waiting", "Checks running", `${total - pending} of ${total} done`);
-  return row("ok", "Checks passed", skipped > 0 ? `${passed} · ${skipped} skipped` : `${passed}`);
+  if (failed > 0) return row("blocked", `Checks: ${failed} of ${total} failing`, "Failing");
+  if (pending > 0) return row("waiting", `Checks: ${total - pending} of ${total} done`, "Running");
+  return row(
+    "ok",
+    skipped > 0 ? `Checks: ${passed} passed, ${skipped} skipped` : `Checks: ${passed} passed`,
+    "Met",
+  );
 }
 
 /**
- * The merge checklist above the merge control: checks, review, conflicts and base freshness,
- * each worded so the row reads without its icon. Null for a pull request that is not open,
- * where there is nothing left to merge.
+ * The merge checklist on Summary: checks, review, conflicts and base freshness, each worded so
+ * the row reads without its icon, with its status in a word. Null for a pull request that is
+ * not open, where there is nothing left to merge. It informs; the host decides whether a merge
+ * may go, so nothing here gates the merge button.
  */
 export function resolveMergeReadiness(input: {
   readonly state: PullRequestState;
+  readonly baseBranch: string;
   readonly checks: ReadonlyArray<PullRequestCheck>;
   readonly checksState: PullRequestChecksState | null;
   readonly checksStale: boolean;
   readonly reviewDecision: PullRequestReviewDecision | null | undefined;
   /** Standing approvals counted from the conversation, for hosts that give no decision. */
   readonly approvalCount: number;
+  /** Requested reviewers who have not given a verdict yet. */
+  readonly pendingReviewers?: ReadonlyArray<string> | undefined;
   readonly mergeability: PullRequestMergeability;
   readonly baseComparison?: PullRequestBaseComparison | undefined;
   readonly behindBy?: number | undefined;
 }): MergeReadiness | null {
   if (input.state !== "open") return null;
-  const review: MergeReadinessRow = {
-    key: "review",
-    action: null,
-    detail: null,
-    ...(input.reviewDecision === "changes-requested"
-      ? { status: "blocked", label: "Changes requested" }
-      : input.reviewDecision === "approved"
-        ? { status: "ok", label: "Approved" }
-        : input.reviewDecision === "review-required"
-          ? { status: "waiting", label: "Review required" }
-          : input.approvalCount > 0
-            ? { status: "ok", label: "Approved" }
-            : { status: "unknown", label: "No review decision" }),
-  };
+  const base = input.baseBranch;
+  const pending = input.pendingReviewers ?? [];
+  const reviewRow = (
+    status: MergeReadinessStatus,
+    word: string,
+    action: MergeReadinessRow["action"] = null,
+  ): MergeReadinessRow => ({ key: "review", status, label: "Review", word, detail: null, action });
+  const review =
+    input.reviewDecision === "changes-requested"
+      ? reviewRow("blocked", "Changes requested")
+      : input.reviewDecision === "approved" || input.approvalCount > 0
+        ? reviewRow("ok", "Met")
+        : pending.length > 0
+          ? reviewRow(
+              "waiting",
+              `Waiting on ${pending[0]}${pending.length > 1 ? ` and ${pending.length - 1} more` : ""}`,
+            )
+          : reviewRow("blocked", "Not requested", "request-review");
   const conflicts: MergeReadinessRow =
     input.mergeability === "mergeable"
-      ? { key: "conflicts", status: "ok", label: "No conflicts", detail: null, action: null }
+      ? {
+          key: "conflicts",
+          status: "ok",
+          label: "No conflicts",
+          word: "Met",
+          detail: null,
+          action: null,
+        }
       : input.mergeability === "conflicting"
         ? {
             key: "conflicts",
             status: "blocked",
-            label: "Conflicts with the base branch",
+            label: `Conflicts with ${base}`,
+            word: "Conflicts",
             detail: null,
             action: "resolve-conflicts",
           }
         : {
             key: "conflicts",
             status: "unknown",
-            label: "Checking for conflicts",
+            label: "Conflicts",
+            word: "Checking",
             detail: null,
             action: null,
           };
-  const base: MergeReadinessRow =
+  const baseRow: MergeReadinessRow =
     input.baseComparison === "up-to-date"
-      ? { key: "base", status: "ok", label: "Up to date with base", detail: null, action: null }
+      ? {
+          key: "base",
+          status: "ok",
+          label: `Up to date with ${base}`,
+          word: "Met",
+          detail: null,
+          action: null,
+        }
       : input.baseComparison === "behind"
         ? {
             key: "base",
             status: "waiting",
-            label: "Behind the base branch",
+            label: `Behind ${base}`,
+            word: "Behind",
             detail:
               input.behindBy === undefined
                 ? null
@@ -1422,17 +1379,23 @@ export function resolveMergeReadiness(input: {
         : {
             key: "base",
             status: "unknown",
-            label: "Base comparison unavailable",
+            label: `Up to date with ${base}`,
+            word: "Not reported",
             detail: null,
             action: null,
           };
-  const rows = [checksReadinessRow(input), review, conflicts, base];
+  const rows = [checksReadinessRow(input), review, conflicts, baseRow];
   const counted = rows.filter((row) => row.status !== "unknown");
   return {
     rows,
     met: counted.filter((row) => row.status === "ok").length,
     counted: counted.length,
   };
+}
+
+/** "2 of 4 met". */
+export function mergeReadinessCountLabel(readiness: MergeReadiness): string {
+  return `${readiness.met} of ${readiness.counted} met`;
 }
 
 /** Live host state wins; a snapshot is only the same change request, never a neighbour's. */
@@ -1461,4 +1424,362 @@ export function resolveDisplayedPullRequestDetail(input: {
   } catch {
     return null;
   }
+}
+
+/** The host's name, for sentences that say who is deciding. */
+const HOST_NAMES: Record<SourceControlProviderKind, string> = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  forgejo: "Forgejo",
+  bitbucket: "Bitbucket",
+  "azure-devops": "Azure DevOps",
+  unknown: "The host",
+};
+
+export function pullRequestHostName(provider: SourceControlProviderKind): string {
+  return HOST_NAMES[provider];
+}
+
+/** "lint", "lint and typecheck", "lint, typecheck and test", "lint, typecheck and 3 more". */
+export function joinNames(names: ReadonlyArray<string>, limit = 3): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length > limit) {
+    return `${names.slice(0, limit - 1).join(", ")} and ${names.length - (limit - 1)} more`;
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+export type PullRequestNextStepKind =
+  | "no-permission"
+  | "conflicts"
+  | "changes-requested"
+  | "checks-failing"
+  | "behind"
+  | "draft"
+  | "review-not-requested"
+  | "waiting-checks"
+  | "waiting-review"
+  | "checking"
+  | "merge-when-ready"
+  | "ready";
+
+export type PullRequestNextStepActionKind =
+  | "resolve-conflicts"
+  | "fix"
+  | "view-logs"
+  | "update-branch"
+  | "ready"
+  | "request-review"
+  | "cancel-auto-merge";
+
+export interface PullRequestNextStepAction {
+  readonly kind: PullRequestNextStepActionKind;
+  readonly label: string;
+}
+
+export interface PullRequestNextStep {
+  readonly kind: PullRequestNextStepKind;
+  readonly title: string;
+  /** What stands in the way and what follows it, said once. */
+  readonly body: string | null;
+  readonly primary: PullRequestNextStepAction | null;
+  readonly secondary: PullRequestNextStepAction | null;
+  /** Under the buttons, for an action that hands work to the agent: where it lands. */
+  readonly caption: string | null;
+}
+
+export interface PullRequestNextStepInput {
+  readonly provider: SourceControlProviderKind;
+  readonly state: PullRequestState;
+  readonly isDraft: boolean;
+  readonly baseBranch: string;
+  /** The host offers merging and this account may merge. */
+  readonly canMerge: boolean;
+  readonly mergeability: PullRequestMergeability;
+  readonly checks: ReadonlyArray<PullRequestCheck>;
+  readonly checksState: PullRequestChecksState | null;
+  /** A newer rollup than the check list: it says how things stand, not which checks. */
+  readonly checksStale: boolean;
+  readonly reviewDecision: PullRequestReviewDecision | null | undefined;
+  readonly approvalCount: number;
+  /** Who asked for changes, where the conversation says. */
+  readonly changesRequestedBy: string | null;
+  /** Requested reviewers who have not given a verdict yet. */
+  readonly pendingReviewers: ReadonlyArray<string>;
+  readonly baseComparison?: PullRequestBaseComparison | undefined;
+  readonly behindBy?: number | undefined;
+  readonly autoMergeEnabled: boolean | undefined;
+  readonly unresolvedReviewThreads: number;
+  /** The thread's provider, "Claude"; null off a thread or for an unknown one. */
+  readonly agentName: string | null;
+  /** Hand-offs land in this thread's composer, rather than a new thread's. */
+  readonly inThisThread: boolean;
+  /** A hand-off can be prepared at all: a composer to write to, or a checkout to open. */
+  readonly canHandOff: boolean;
+  readonly canUpdateBranch: boolean;
+  readonly canMarkReady: boolean;
+  readonly canRequestReview: boolean;
+  readonly canCancelAutoMerge: boolean;
+}
+
+const FAILED_CHECK: ReadonlySet<PullRequestCheck["status"]> = new Set(["failure", "cancelled"]);
+const RUNNING_CHECK: ReadonlySet<PullRequestCheck["status"]> = new Set([
+  "pending",
+  "action-required",
+]);
+const TEST_CHECK = /\b(tests?|specs?|e2e|unit|integration)\b/i;
+
+/**
+ * The one thing to do next on a pull request, for the card on Summary: the first row of the
+ * F17 table that applies. Null for a merged or closed one. Readiness rows that the host could not
+ * report are not a reason to wait, except a merge verdict it has not reached yet ("Checking").
+ */
+export function resolvePullRequestNextStep(
+  input: PullRequestNextStepInput,
+): PullRequestNextStep | null {
+  if (input.state !== "open") return null;
+  const agent = input.agentName ?? "the agent";
+  const handOffCaption = (alsoSends: boolean) =>
+    [
+      input.inThisThread
+        ? "Adds the task to this thread's composer. Nothing runs until you send it."
+        : "Opens a new thread on this branch with the task in its composer. Nothing runs until you send it.",
+      alsoSends
+        ? `It also hands over ${input.unresolvedReviewThreads} unresolved review ${
+            input.unresolvedReviewThreads === 1 ? "comment" : "comments"
+          }.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  const step = (
+    kind: PullRequestNextStepKind,
+    title: string,
+    body: string | null,
+    primary: PullRequestNextStepAction | null = null,
+    secondary: PullRequestNextStepAction | null = null,
+    caption: string | null = null,
+  ): PullRequestNextStep => ({ kind, title, body, primary, secondary, caption });
+
+  if (!input.canMerge) {
+    return step(
+      "no-permission",
+      "You cannot merge this pull request",
+      `${pullRequestHostName(input.provider)} does not let this account merge here. Someone with write access can.`,
+    );
+  }
+
+  const failed = input.checksStale
+    ? null
+    : input.checks.filter((check) => FAILED_CHECK.has(check.status));
+  const checksFailing = failed === null ? input.checksState === "failing" : failed.length > 0;
+  const running = input.checks.filter((check) => RUNNING_CHECK.has(check.status)).length;
+  const checksRunning =
+    !checksFailing &&
+    (input.checksStale || input.checks.length === 0
+      ? input.checksState === "pending"
+      : running > 0);
+  const approved = input.reviewDecision === "approved" || input.approvalCount > 0;
+  const changesRequested = input.reviewDecision === "changes-requested";
+  const reviewPending = !approved && !changesRequested && input.pendingReviewers.length > 0;
+  const reviewNotRequested = !approved && !changesRequested && input.pendingReviewers.length === 0;
+  const behind = input.baseComparison === "behind";
+
+  // What is still needed after the step shown, so one sentence covers the rest.
+  const later = (from: PullRequestNextStepKind) => {
+    const order: ReadonlyArray<[PullRequestNextStepKind, boolean, string]> = [
+      ["changes-requested", changesRequested, "the requested changes"],
+      ["checks-failing", checksFailing, "passing checks"],
+      ["behind", behind, `an update from ${input.baseBranch}`],
+      ["draft", input.isDraft, "marking it ready for review"],
+      ["review-not-requested", reviewNotRequested, "a review"],
+      ["waiting-checks", checksRunning, "checks to finish"],
+      ["waiting-review", reviewPending, "a review"],
+    ];
+    const start = order.findIndex(([kind]) => kind === from);
+    const rest = order
+      .slice(start + 1)
+      .filter(([, applies]) => applies)
+      .map(([, , words]) => words);
+    return rest.length === 0 ? null : `Still needed after that: ${joinNames(rest, 4)}.`;
+  };
+  const withLater = (first: string, from: PullRequestNextStepKind) =>
+    [first, later(from)].filter(Boolean).join(" ");
+
+  if (input.mergeability === "conflicting") {
+    return step(
+      "conflicts",
+      "Next: resolve conflicts",
+      withLater(`This branch conflicts with ${input.baseBranch}, so it cannot merge.`, "conflicts"),
+      input.canHandOff ? { kind: "resolve-conflicts", label: "Resolve conflicts" } : null,
+      null,
+      input.canHandOff ? handOffCaption(false) : null,
+    );
+  }
+
+  if (changesRequested) {
+    return step(
+      "changes-requested",
+      "Next: address the requested changes",
+      withLater(
+        `${input.changesRequestedBy ?? "A reviewer"} asked for changes.`,
+        "changes-requested",
+      ),
+      input.canHandOff ? { kind: "fix", label: `Have ${agent} address them` } : null,
+      null,
+      input.canHandOff ? handOffCaption(false) : null,
+    );
+  }
+
+  if (checksFailing) {
+    const names = failed?.map((check) => check.name) ?? [];
+    const title =
+      failed === null
+        ? "Next: fix the failing checks"
+        : `Next: fix ${failed.length} failing ${failed.length === 1 ? "check" : "checks"}`;
+    const what =
+      names.length === 0
+        ? "Checks failed on the last push."
+        : `${joinNames(names)} failed on the last push.`;
+    const logs = failed?.some((check) => check.url !== null)
+      ? ({ kind: "view-logs", label: "View logs" } as const)
+      : null;
+    const fix = input.canHandOff
+      ? ({ kind: "fix", label: `Have ${agent} fix them` } as const)
+      : null;
+    // A failing test usually needs reading before fixing; lint and types say what is wrong.
+    const testsLead = logs !== null && names.some((name) => TEST_CHECK.test(name));
+    return step(
+      "checks-failing",
+      title,
+      withLater(what, "checks-failing"),
+      testsLead ? logs : (fix ?? logs),
+      testsLead ? fix : fix ? logs : null,
+      fix ? handOffCaption(input.unresolvedReviewThreads > 0) : null,
+    );
+  }
+
+  if (behind) {
+    const count =
+      input.behindBy === undefined
+        ? ""
+        : ` ${input.behindBy.toLocaleString()} ${input.behindBy === 1 ? "commit" : "commits"}`;
+    return step(
+      "behind",
+      "Next: update the branch",
+      withLater(
+        `${input.baseBranch} has${count || " commits"} this branch does not have.`,
+        "behind",
+      ),
+      input.canUpdateBranch ? { kind: "update-branch", label: "Update branch" } : null,
+    );
+  }
+
+  if (input.isDraft) {
+    return step(
+      "draft",
+      "Next: mark ready for review",
+      withLater("This is a draft, so it cannot merge yet.", "draft"),
+      input.canMarkReady ? { kind: "ready", label: "Ready for review" } : null,
+    );
+  }
+
+  if (reviewNotRequested) {
+    return step(
+      "review-not-requested",
+      "Next: request a review",
+      withLater("Nobody has been asked to review this yet.", "review-not-requested"),
+      input.canRequestReview ? { kind: "request-review", label: "Request review" } : null,
+    );
+  }
+
+  if (checksRunning) {
+    const total = input.checks.length;
+    return step(
+      "waiting-checks",
+      "Waiting on checks",
+      withLater(
+        input.checksStale || total === 0
+          ? "Checks are still running."
+          : `${(total - running).toLocaleString()} of ${total.toLocaleString()} checks are done.`,
+        "waiting-checks",
+      ),
+    );
+  }
+
+  if (reviewPending) {
+    const [first = "a reviewer", ...others] = input.pendingReviewers;
+    return step(
+      "waiting-review",
+      `Waiting on ${first}${others.length > 0 ? ` and ${others.length} more` : ""}`,
+      "Their review has been requested.",
+    );
+  }
+
+  if (input.mergeability === "unknown") {
+    return step(
+      "checking",
+      "Checking",
+      `${pullRequestHostName(input.provider)} has not said yet whether this can merge.`,
+    );
+  }
+
+  if (input.autoMergeEnabled === true) {
+    return step(
+      "merge-when-ready",
+      "Merge when ready is on",
+      `${pullRequestHostName(input.provider)} merges this once its requirements are met.`,
+      input.canCancelAutoMerge ? { kind: "cancel-auto-merge", label: "Cancel" } : null,
+    );
+  }
+
+  return step("ready", "Ready to merge", "Every requirement is met.");
+}
+
+/** "Code · 5 files", the pull request's Code tab with its file count. */
+export function pullRequestCodeTabLabel(changedFiles: number): string {
+  return `Code · ${changedFiles.toLocaleString()} ${changedFiles === 1 ? "file" : "files"}`;
+}
+
+export interface PullRequestChecksGroups {
+  /** Failing checks first, then the ones still running: shown open. */
+  readonly open: ReadonlyArray<PullRequestCheck>;
+  /** Passed, skipped and neutral checks, behind one fold. */
+  readonly folded: ReadonlyArray<PullRequestCheck>;
+  /** The fold's label: "7 passed", "7 passed, 2 skipped". */
+  readonly foldedLabel: string | null;
+  /** Beside the Checks heading: "2 failing · 7 passed". */
+  readonly summary: string;
+}
+
+/**
+ * The Checks list on Summary: what failed first and open, then what still runs, and everything
+ * that passed folded into one row. Each group keeps the host's order.
+ */
+export function groupPullRequestChecks(
+  checks: ReadonlyArray<PullRequestCheck>,
+): PullRequestChecksGroups {
+  const failed = checks.filter((check) => FAILED_CHECK.has(check.status));
+  const running = checks.filter((check) => RUNNING_CHECK.has(check.status));
+  const passed = checks.filter((check) => check.status === "success");
+  const skipped = checks.filter(
+    (check) => check.status === "skipped" || check.status === "neutral",
+  );
+  const passedWords = [
+    passed.length > 0 ? `${passed.length} passed` : null,
+    skipped.length > 0 ? `${skipped.length} skipped` : null,
+  ].filter((part) => part !== null);
+  const summary = [
+    failed.length > 0 ? `${failed.length} failing` : null,
+    running.length > 0 ? `${running.length} running` : null,
+    ...passedWords,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+  return {
+    open: [...failed, ...running],
+    folded: [...passed, ...skipped],
+    foldedLabel: passedWords.length > 0 ? passedWords.join(", ") : null,
+    summary,
+  };
 }

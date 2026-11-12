@@ -30,8 +30,9 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   PullRequestActorLabel,
-  PullRequestCheckStatusIcon,
   pullRequestCheckStatusLabel,
+  PullRequestDiffStat,
+  PullRequestMetaLine,
   PullRequestLabelChip,
   PullRequestReviewOutcomeBadge,
   pullRequestReviewOutcomeLabel,
@@ -42,6 +43,7 @@ import { PullRequestLabelPicker } from "./PullRequestLabelPicker";
 import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import {
+  groupPullRequestChecks,
   latestPullRequestReviewOutcomes,
   orderPullRequestComments,
   pullRequestFindingKey,
@@ -455,6 +457,104 @@ function CommentGroup({
  */
 const COMMENT_PAGE = 10;
 
+/**
+ * The Checks list (board 13): failing checks first and open, each with its log; checks still
+ * running next; everything that passed folded into one row. A failure is said here once, in its
+ * row's word, not repeated in red across the list.
+ */
+function PullRequestChecksList({
+  checks,
+  stale,
+  onRefresh,
+  onOpenLog,
+}: {
+  checks: PullRequestDetailView["checks"];
+  stale: boolean;
+  onRefresh: () => void;
+  onOpenLog: (url: string) => void;
+}) {
+  const [showPassed, setShowPassed] = useState(false);
+  const groups = groupPullRequestChecks(checks);
+  const row = (check: PullRequestDetailView["checks"][number], index: number) => {
+    const failed = check.status === "failure" || check.status === "cancelled";
+    return (
+      <li
+        // Position too: the host decides how many runs share a name.
+        key={`${index}:${check.name}:${check.url ?? ""}`}
+        className="flex min-h-[38px] min-w-0 items-center gap-2.5 border-t border-border first:border-t-0"
+      >
+        <span className="min-w-0 flex-1 truncate font-mono text-xs">{check.name}</span>
+        <span
+          className={cn(
+            "shrink-0 text-xs font-medium",
+            failed ? "text-error-foreground" : "text-muted-foreground",
+          )}
+        >
+          {pullRequestCheckStatusLabel(check)}
+        </span>
+        {check.url ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-label={`Log for ${check.name}`}
+            onClick={() => onOpenLog(check.url!)}
+          >
+            Log
+          </Button>
+        ) : null}
+      </li>
+    );
+  };
+  return (
+    <section aria-label="Checks" className="flex flex-col gap-2">
+      <div className="flex min-h-6 items-center gap-2">
+        <h2 className="flex-1 text-sm font-semibold">Checks</h2>
+        {!stale && groups.summary ? (
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {groups.summary}
+          </span>
+        ) : null}
+      </div>
+      {stale ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Check details are out of date.</span>
+          <Button size="xs" variant="ghost" onClick={onRefresh}>
+            Refresh
+          </Button>
+        </div>
+      ) : checks.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No checks reported.</p>
+      ) : (
+        <ul className="flex flex-col rounded-xl border border-border bg-surface-raised px-3 py-1">
+          {groups.open.map(row)}
+          {groups.foldedLabel ? (
+            <li className="border-t border-border first:border-t-0">
+              <button
+                type="button"
+                aria-expanded={showPassed}
+                onClick={() => setShowPassed((open) => !open)}
+                className="flex min-h-[38px] w-full cursor-pointer items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ChevronRightIcon
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none",
+                    showPassed && "rotate-90",
+                  )}
+                />
+                <span className="flex-1 text-sm text-muted-foreground">{groups.foldedLabel}</span>
+              </button>
+            </li>
+          ) : null}
+          {showPassed
+            ? groups.folded.map((check, index) => row(check, groups.open.length + index))
+            : null}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function PullRequestSummaryTab({
   environmentId,
   threadRef,
@@ -465,11 +565,13 @@ export function PullRequestSummaryTab({
   activityError,
   pendingFinding,
   fixFindingLabel = "Fix in a thread",
-  fixCheckLabel = "Fix",
   onFixFinding,
   onRefresh,
   onRefreshChecks = onRefresh,
+  lead,
 }: {
+  /** Above everything else: the next step card. */
+  lead?: ReactNode;
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef | null;
   reference: PullRequestRef;
@@ -480,7 +582,6 @@ export function PullRequestSummaryTab({
   /** The hand-off currently preparing, if any, so only the finding it belongs to says so. */
   pendingFinding?: string | null;
   fixFindingLabel?: string;
-  fixCheckLabel?: string;
   onFixFinding?: (finding: PullRequestFinding) => void;
   onRefresh: () => void;
   onRefreshChecks?: () => void;
@@ -710,6 +811,68 @@ export function PullRequestSummaryTab({
 
   return (
     <div className="h-full overflow-y-auto" data-pull-request-summary-scroll>
+      <div className="flex flex-col gap-[18px] p-4">
+        {lead}
+        <PullRequestChecksList
+          key={detail.url}
+          checks={detail.checks}
+          stale={checksStale}
+          onRefresh={onRefreshChecks}
+          onOpenLog={openCheck}
+        />
+      </div>
+      <Section key={`description:${detail.url}`} title="Description" keepMounted>
+        <div className="group">
+          {bodyScope === detail.url ? (
+            <PullRequestMarkdownEditor
+              // Empty is a real answer here: saving nothing is how a description is cleared.
+              allowEmpty
+              value={detail.body}
+              cwd={detail.workspaceRoot}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              label="Pull request description"
+              placeholder="Describe this pull request"
+              saving={bodySaving}
+              onSave={(body) => void saveBody(body)}
+              onCancel={() => setBodyScope(null)}
+            />
+          ) : (
+            <div className="flex items-start gap-1">
+              <PullRequestMarkdown
+                className="min-w-0 flex-1"
+                text={detail.body.trim().length > 0 ? detail.body : "_No description provided._"}
+                cwd={detail.workspaceRoot}
+                environmentId={environmentId}
+                threadRef={threadRef}
+              />
+              {canEditPullRequestChangeRequest(detail) ? (
+                <PullRequestEditButton
+                  aria-label="Edit description"
+                  onClick={() => setBodyScope(detail.url)}
+                />
+              ) : null}
+            </div>
+          )}
+        </div>
+        <div className="mt-2 font-mono text-[11px] text-muted-foreground">
+          <PullRequestMetaLine className="flex-wrap">
+            <span className="inline-flex items-center gap-1">
+              <PullRequestDiffStat additions={detail.additions} deletions={detail.deletions} />
+              across {detail.changedFiles.toLocaleString()}{" "}
+              {detail.changedFiles === 1 ? "file" : "files"}
+            </span>
+            {activityPending || activityError ? null : (
+              <span>
+                {detail.commits.length.toLocaleString()}{" "}
+                {detail.commits.length === 1 ? "commit" : "commits"}
+              </span>
+            )}
+            {detail.author ? <span>by {detail.author.login}</span> : null}
+          </PullRequestMetaLine>
+        </div>
+      </Section>
+
       <section className="px-4 pt-2.5 pb-1">
         <div className="space-y-2">
           <MetaRow icon={<UsersIcon className="size-3.5" />} label="Reviewers">
@@ -830,100 +993,6 @@ export function PullRequestSummaryTab({
           ) : null}
         </div>
       </section>
-
-      <Section key={`description:${detail.url}`} title="Description" keepMounted>
-        <div className="group">
-          {bodyScope === detail.url ? (
-            <PullRequestMarkdownEditor
-              // Empty is a real answer here: saving nothing is how a description is cleared.
-              allowEmpty
-              value={detail.body}
-              cwd={detail.workspaceRoot}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              label="Pull request description"
-              placeholder="Describe this pull request"
-              saving={bodySaving}
-              onSave={(body) => void saveBody(body)}
-              onCancel={() => setBodyScope(null)}
-            />
-          ) : (
-            <div className="flex items-start gap-1">
-              <PullRequestMarkdown
-                className="min-w-0 flex-1"
-                text={detail.body.trim().length > 0 ? detail.body : "_No description provided._"}
-                cwd={detail.workspaceRoot}
-                environmentId={environmentId}
-                threadRef={threadRef}
-              />
-              {canEditPullRequestChangeRequest(detail) ? (
-                <PullRequestEditButton
-                  aria-label="Edit description"
-                  onClick={() => setBodyScope(detail.url)}
-                />
-              ) : null}
-            </div>
-          )}
-        </div>
-      </Section>
-
-      <Section key={`checks:${detail.url}`} title="Checks" defaultOpen={false}>
-        {checksStale ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>Check details are out of date.</span>
-            <Button size="xs" variant="ghost" onClick={onRefreshChecks}>
-              Refresh
-            </Button>
-          </div>
-        ) : detail.checks.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No checks reported.</p>
-        ) : (
-          detail.checks.map((check, index) => {
-            const finding = { kind: "check", check } as const;
-            const failing = check.status === "failure" || check.status === "cancelled";
-            return (
-              <div
-                // Position too: the host decides how many runs share a name, and a repeated
-                // key would be a rendering fault on top of whatever the list already says.
-                key={`${index}:${check.name}:${check.url ?? ""}`}
-                className="group flex items-center gap-2 rounded-md pr-1 hover:bg-accent/60"
-              >
-                <button
-                  type="button"
-                  disabled={!check.url}
-                  onClick={() => check.url && openCheck(check.url)}
-                  className={cn(
-                    "flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left text-xs leading-5 [&>svg]:mt-0.5",
-                    check.url ? "cursor-pointer" : "cursor-default",
-                  )}
-                >
-                  <PullRequestCheckStatusIcon status={check.status} />
-                  <span className="min-w-0 flex-1 wrap-anywhere">{check.name}</span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {pullRequestCheckStatusLabel(check)}
-                  </span>
-                </button>
-                {/* Only where there is something to fix. A passing check has no failure to
-                      reproduce, and the button would be an invitation to waste a thread. */}
-                {onFixFinding && failing ? (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    className="shrink-0"
-                    disabled={pendingFinding !== null && pendingFinding !== undefined}
-                    onClick={() => onFixFinding(finding)}
-                  >
-                    <HammerIcon className="size-3" />
-                    {pendingFinding === pullRequestFindingKey(finding)
-                      ? "Preparing..."
-                      : fixCheckLabel}
-                  </Button>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </Section>
 
       <Section
         title={`Comments (${detail.commentCount})`}

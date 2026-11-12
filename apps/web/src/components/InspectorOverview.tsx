@@ -86,7 +86,11 @@ import { type DiffPanelFocusTarget } from "~/diffPanelStore";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
-import { diffReviewFingerprint, reviewedCountLabel, useDiffReviewView } from "~/diffReviewStore";
+import {
+  diffReviewFingerprint,
+  reviewedCountLabel,
+  useThreadDiffReviewStatuses,
+} from "~/diffReviewStore";
 import { useSubagentSelectionStore } from "~/subagentSelectionStore";
 import { type RunDetailsSectionId, useUiStateStore } from "~/uiStateStore";
 import type { ActivePlanState } from "~/session-logic";
@@ -364,7 +368,7 @@ function ChangesSection({
     gitStatus: status ?? null,
   });
   const files = status?.workingTree.files ?? EMPTY_WORKING_TREE_FILES;
-  // Marks made in the Diff tab's Uncommitted scope, matched by each file's counts.
+  // Marks made in any Diff scope, matched by each file's counts.
   const reviewFiles = useMemo(
     () =>
       files.map((file) => ({
@@ -378,9 +382,8 @@ function ChangesSection({
       })),
     [files],
   );
-  const review = useDiffReviewView({
+  const review = useThreadDiffReviewStatuses({
     threadKey: scopedThreadKey(threadRef),
-    scope: "uncommitted",
     files: reviewFiles,
   });
   if (status && !status.isRepo) return null;
