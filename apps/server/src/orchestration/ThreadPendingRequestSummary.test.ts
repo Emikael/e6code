@@ -61,4 +61,12 @@ describe("truncatePendingQuestion", () => {
     expect(cut).toHaveLength(160);
     expect(cut?.endsWith("…")).toBe(true);
   });
+
+  it("never splits an emoji at the cut", () => {
+    const cut = truncatePendingQuestion(`${"a".repeat(158)}😀 and more after the limit`);
+    expect(cut).toBe(`${"a".repeat(158)}…`);
+    expect(cut?.isWellFormed()).toBe(true);
+    const family = truncatePendingQuestion(`${"a".repeat(150)}👩‍👩‍👧‍👦${"b".repeat(20)}`);
+    expect(family).toBe(`${"a".repeat(150)}…`);
+  });
 });

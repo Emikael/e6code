@@ -4047,6 +4047,20 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         userInputCount: 0,
         questionCount: 0,
       });
+      // The kind is stored on the pending row, so the summary never scans activities.
+      assert.deepEqual(
+        yield* sql<{ readonly requestKind: string | null; readonly requestType: string | null }>`
+          SELECT request_kind AS "requestKind", request_type AS "requestType"
+          FROM projection_pending_approvals
+          WHERE thread_id = 'thread-pending-summary'
+          ORDER BY created_at
+        `,
+        [
+          { requestKind: "command", requestType: "command_execution_approval" },
+          { requestKind: "file-change", requestType: null },
+          { requestKind: null, requestType: "exec_command_approval" },
+        ],
+      );
 
       // A question with a long, multi-line text is cut to one short line.
       const longText = `Keep the spring animation,\n or cut to a fade? ${"x".repeat(200)}`;

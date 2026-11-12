@@ -29,6 +29,13 @@ export const ProjectionPendingApproval = Schema.Struct({
   decision: ProjectionPendingApprovalDecision,
   createdAt: IsoDateTime,
   resolvedAt: Schema.NullOr(IsoDateTime),
+  /**
+   * What the request's `approval.requested` activity named, stored with the
+   * row so the shell summary reads it without scanning activities. Absent on
+   * a write that does not know it; the stored value is then kept.
+   */
+  requestKind: Schema.optional(Schema.NullOr(Schema.String)),
+  requestType: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type ProjectionPendingApproval = typeof ProjectionPendingApproval.Type;
 
