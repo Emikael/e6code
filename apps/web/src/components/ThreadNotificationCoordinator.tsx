@@ -42,7 +42,10 @@ interface ThreadNotice {
   readonly threadTitle: string;
   readonly kind: ThreadNotificationKind;
   readonly title: string;
+  /** For the in-app toast: may quote the agent's question. */
   readonly body: string;
+  /** For the system notification: never the question text, which a lock screen would show. */
+  readonly systemBody: string;
 }
 
 interface HeldNotice extends ThreadNotice {
@@ -192,8 +195,12 @@ export function ThreadNotificationCoordinator() {
 
   const showSystemNotification = useCallback(
     (notice: ThreadNotice) =>
-      raiseSystemNotification(notice.key, notice.title, notice.body, notice.environmentId, () =>
-        openThread(notice.environmentId, notice.threadId),
+      raiseSystemNotification(
+        notice.key,
+        notice.title,
+        notice.systemBody,
+        notice.environmentId,
+        () => openThread(notice.environmentId, notice.threadId),
       ),
     [openThread, raiseSystemNotification],
   );
@@ -491,6 +498,9 @@ function EnvironmentNotifications({
           kind,
           title: THREAD_NOTIFICATION_TITLES[kind],
           body: threadNotificationBody(thread, kind, providerLabel),
+          systemBody: threadNotificationBody(thread, kind, providerLabel, {
+            withQuestion: false,
+          }),
         },
         { isOpenThread: activeEnvironmentId === environmentId && activeThreadId === thread.id },
       );

@@ -69,13 +69,40 @@ export function describePendingApprovalAsk(
  * What a blocked thread's agent asks, from the shell's request summary:
  * "Claude asks 1 question: keep the spring animation, or cut to a fade?".
  * Without the question text it says "Claude asked you a question".
+ * `withQuestion: false` leaves the text out ("Claude asks 1 question"), for
+ * system notifications, which can show on a lock screen.
  */
 export function describePendingQuestionAsk(
   provider: string,
   summary: ThreadPendingRequestSummary | undefined,
+  options: { readonly withQuestion?: boolean } = {},
 ): string {
   if (!summary?.question) return `${provider} asked you a question`;
-  return `${provider} asks ${plural(Math.max(1, summary.questionCount), "question")}: ${summary.question}`;
+  const count = `${provider} asks ${plural(Math.max(1, summary.questionCount), "question")}`;
+  return options.withQuestion === false ? count : `${count}: ${summary.question}`;
+}
+
+/** What one shown request asks for, after the agent's name: "wants to run this command". */
+const SHOWN_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+  command: "wants to run this command",
+  "file-read": "wants to read this file",
+  "file-change": "wants to make this change",
+  "mcp-elicitation": "wants app access",
+  permission: "wants this app permission",
+};
+
+/**
+ * The headline for one approval shown on its own, with its place among the
+ * thread's pending approvals when there is more than one:
+ * "Codex wants to run this command · 1 of 2". No trailing period.
+ */
+export function describeShownApprovalAsk(
+  provider: string,
+  requestKind: ProviderRequestKind,
+  position: { readonly index: number; readonly total: number },
+): string {
+  const ask = `${provider} ${SHOWN_APPROVAL_PHRASE[requestKind]}`;
+  return position.total > 1 ? `${ask} · ${position.index + 1} of ${position.total}` : ask;
 }
 
 /** What a subagent is blocked on: the oldest pending request that names it. */

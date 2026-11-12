@@ -31,7 +31,7 @@ export function BlockedDiamond({ className }: { className?: string }) {
   return (
     <span
       aria-hidden
-      className={cn("size-2 shrink-0 rotate-45 rounded-[1px] bg-warning-foreground", className)}
+      className={cn("size-2 shrink-0 rotate-45 rounded-[2px] bg-warning-foreground", className)}
     />
   );
 }

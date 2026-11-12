@@ -224,6 +224,7 @@ export function threadNotificationFact(
   thread: NotificationThread,
   kind: ThreadNotificationKind,
   providerLabel: (providerName: string) => string | undefined,
+  options: { readonly withQuestion?: boolean } = {},
 ): string | null {
   const providerName = thread.session?.providerName;
   const provider = (providerName && providerLabel(providerName)) || "The agent";
@@ -231,7 +232,7 @@ export function threadNotificationFact(
     case "approval":
       return describePendingApprovalAsk(provider, thread.pendingRequestSummary);
     case "input":
-      return describePendingQuestionAsk(provider, thread.pendingRequestSummary);
+      return describePendingQuestionAsk(provider, thread.pendingRequestSummary, options);
     case "failed": {
       const error = thread.session?.lastError;
       if (!error) return `${provider} stopped`;
@@ -251,12 +252,17 @@ export function threadNotificationFact(
   }
 }
 
-/** Notification body: the thread title plus one fact. */
+/**
+ * Notification body: the thread title plus one fact. `withQuestion: false`
+ * leaves the agent's question text out, for system notifications, which can
+ * show on a lock screen; toasts keep it.
+ */
 export function threadNotificationBody(
   thread: NotificationThread,
   kind: ThreadNotificationKind,
   providerLabel: (providerName: string) => string | undefined,
+  options: { readonly withQuestion?: boolean } = {},
 ): string {
-  const fact = threadNotificationFact(thread, kind, providerLabel);
+  const fact = threadNotificationFact(thread, kind, providerLabel, options);
   return fact ? `${thread.title} · ${fact}` : thread.title;
 }

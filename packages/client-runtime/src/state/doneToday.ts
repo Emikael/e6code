@@ -115,3 +115,28 @@ export function selectDoneToday<T extends DoneTodayShell>(
   rows.sort((left, right) => right.doneMs - left.doneMs || left.key.localeCompare(right.key));
   return rows.map(({ doneMs: _doneMs, ...row }) => row);
 }
+
+/**
+ * The input for `selectDoneToday`: the live shells plus threads archived since
+ * `startOfDayMs`. The live shell snapshot leaves archived threads out, so they
+ * come from the archived snapshot instead. A thread present in both (archived
+ * and restored in between) keeps its live shell.
+ */
+export function withThreadsArchivedToday<T extends DoneTodayShell>(
+  threads: ReadonlyArray<T>,
+  archived: ReadonlyArray<T>,
+  options: { readonly startOfDayMs: number },
+): ReadonlyArray<T> {
+  const live = new Set(
+    threads.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+  );
+  const archivedToday = archived.filter((thread) => {
+    const archivedMs = msOrNull(thread.archivedAt);
+    return (
+      archivedMs !== null &&
+      archivedMs >= options.startOfDayMs &&
+      !live.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)))
+    );
+  });
+  return archivedToday.length === 0 ? threads : [...threads, ...archivedToday];
+}

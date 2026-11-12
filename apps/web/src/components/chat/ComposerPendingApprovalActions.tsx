@@ -13,6 +13,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
 import { DEFAULT_APPROVAL_OPTIONS, layoutApprovalActions } from "./approvalActions";
 import { HoldToAllowButton } from "./HoldToAllowButton";
+import { useApprovalSwapGuard } from "./useApprovalResponder";
 
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
@@ -46,9 +47,15 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   );
   // A destructive command is allowed one hold at a time, never for the session.
   const moreOptions = layoutApprovalActions(options, destructive).more;
+  // A request answered elsewhere is replaced under the pointer: ignore clicks
+  // for a moment, and key everything by request so a press in progress dies.
+  const activationAllowed = useApprovalSwapGuard(requestId);
+  const respond = (decision: ProviderApprovalDecision, feedback?: string) => {
+    if (activationAllowed()) void onRespondToApproval(requestId, decision, feedback);
+  };
 
   return (
-    <>
+    <Fragment key={requestId}>
       {primaryOptions.map((option) => {
         if (option.decision === "accept" && destructive !== null) {
           return (
@@ -69,7 +76,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
             variant={option.decision === "accept" ? "default" : "outline"}
             disabled={isResponding}
             aria-description={option.warning}
-            onClick={() => void onRespondToApproval(requestId, option.decision)}
+            onClick={() => respond(option.decision)}
           >
             {option.warning ? <TriangleAlertIcon className="size-3 shrink-0" /> : null}
             <span className="max-w-40 truncate">{option.label}</span>
@@ -104,7 +111,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
               disabled={isResponding || feedbackDraft.status !== "ready"}
               onClick={() => {
                 if (feedbackDraft.status !== "ready") return;
-                void onRespondToApproval(requestId, "decline", feedbackDraft.feedback);
+                respond("decline", feedbackDraft.feedback);
               }}
             >
               <span className="max-w-48 truncate">{`Decline and tell ${declineFeedback.agentName}`}</span>
@@ -132,7 +139,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
                   key={option.decision}
                   disabled={isResponding}
                   aria-description={option.warning}
-                  onClick={() => void onRespondToApproval(requestId, option.decision)}
+                  onClick={() => respond(option.decision)}
                   variant="ghost"
                   className="mb-1 last:mb-0"
                 >
@@ -154,6 +161,6 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
           </MenuPopup>
         </Menu>
       ) : null}
-    </>
+    </Fragment>
   );
 });
