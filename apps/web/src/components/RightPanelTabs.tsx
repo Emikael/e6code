@@ -1550,7 +1550,6 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   }, [props.activeSurfaceId, hasHiddenTabs]);
 
   const attachTabList = (root: HTMLDivElement | null) => {
-    tabListRef.current = root;
     const viewport = tabScrollViewport(root);
     if (!viewport) return;
 
@@ -1576,7 +1575,6 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     update();
 
     return () => {
-      tabListRef.current = null;
       stopObserving();
       viewport.removeEventListener("scroll", update);
       viewport.removeEventListener("wheel", handleWheel);
@@ -1610,43 +1608,45 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         )}
         data-right-panel-tabbar
       >
-        <ScrollArea
-          ref={attachTabList}
-          hideScrollbars
-          scrollFade
-          // Sized to its tabs so Add sits beside them; shrinks and scrolls when they do not fit.
-          className="w-auto min-w-0 flex-initial"
-          data-right-panel-tab-list
+        <div
+          ref={tabListRef}
+          role="tablist"
+          aria-label="Panel tabs"
+          onKeyDown={handleTabListKeyDown}
+          onFocus={() => {
+            stripHadFocusRef.current = true;
+          }}
+          onBlur={(event) => {
+            // A removed tab blurs with no related target; focus that moved elsewhere has one.
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+              stripHadFocusRef.current = false;
+            }
+          }}
+          className={cn(
+            // One track at every tab count, so the bar never changes shape as tabs come and go.
+            // Run details stays first and in view; the other tabs scroll beside it.
+            "flex h-8 min-w-0 flex-initial items-center gap-0.5 rounded-lg bg-surface-well p-0.5",
+            props.surfaces.length === 0 && !props.onShowRunDetails && "hidden",
+          )}
         >
-          <div className="flex h-full w-max min-w-full items-center">
-            <div
-              role="tablist"
-              aria-label="Panel tabs"
-              onKeyDown={handleTabListKeyDown}
-              onFocus={() => {
-                stripHadFocusRef.current = true;
-              }}
-              onBlur={(event) => {
-                // A removed tab blurs with no related target; focus that moved elsewhere has one.
-                if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
-                  stripHadFocusRef.current = false;
-                }
-              }}
-              className={cn(
-                // One track at every tab count, so the bar never changes shape as tabs come and go.
-                "flex h-8 items-center gap-0.5 rounded-lg bg-surface-well p-0.5",
-                props.surfaces.length === 0 && !props.onShowRunDetails && "hidden",
-              )}
-            >
-              {props.onShowRunDetails ? (
-                <RunDetailsTab
-                  active={props.activeSurfaceId === null}
-                  focusable={focusableTabId === RUN_DETAILS_TAB_ID}
-                  panelId={panelId}
-                  ownsDesktopTitleBar={ownsDesktopTitleBar}
-                  onShow={props.onShowRunDetails}
-                />
-              ) : null}
+          {props.onShowRunDetails ? (
+            <RunDetailsTab
+              active={props.activeSurfaceId === null}
+              focusable={focusableTabId === RUN_DETAILS_TAB_ID}
+              panelId={panelId}
+              ownsDesktopTitleBar={ownsDesktopTitleBar}
+              onShow={props.onShowRunDetails}
+            />
+          ) : null}
+          <ScrollArea
+            ref={attachTabList}
+            hideScrollbars
+            scrollFade
+            // Sized to its tabs so Add sits beside them; shrinks and scrolls when they do not fit.
+            className="w-auto min-w-0 flex-initial"
+            data-right-panel-tab-list
+          >
+            <div className="flex h-full w-max min-w-full items-center gap-0.5">
               <SortableTabList surfaces={props.surfaces} onMove={props.onMoveSurface}>
                 {props.surfaces.map((surface) => {
                   const previewTabId = previewTabIdOf(surface, props.previewSessions);
@@ -1719,8 +1719,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 })}
               </SortableTabList>
             </div>
-          </div>
-        </ScrollArea>
+          </ScrollArea>
+        </div>
         {hiddenTabs.length > 0 ? (
           <Menu>
             <MenuTrigger
@@ -1776,7 +1776,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 <Button
                   aria-label="Add a panel tab"
                   className="shrink-0"
-                  size="icon-xs"
+                  size="icon-sm"
                   variant="ghost-muted"
                 />
               }
