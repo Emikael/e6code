@@ -12,10 +12,11 @@ import {
   type ThreadRecap,
 } from "@e6tools/client-runtime/work-log/thread-recap";
 import type { WorkLogEntry } from "@e6tools/client-runtime/work-log/entries";
-import { XIcon } from "lucide-react";
+import { PencilIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
+import { PARKED_FULL_MESSAGE, selectThreadNote, usePromptStashStore } from "~/promptStashStore";
 import { useThreadRecapStore } from "~/threadRecapStore";
 import { formatDayAwareTimestamp } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
@@ -125,7 +126,7 @@ export function ThreadRecapHost({
             ...source,
             since: seenActivityAt ?? visitAt,
             visitedAt: visitAt,
-            note: null,
+            note: readThreadNote(threadKey),
           })
         : null;
     current = { ...current, recap };
@@ -146,7 +147,12 @@ export function ThreadRecapHost({
       source.messages.find((message) => message.role === "user")?.createdAt ??
       null;
     const recap = since
-      ? deriveThreadRecap({ ...source, since, visitedAt: visitAt ?? since, note: null })
+      ? deriveThreadRecap({
+          ...source,
+          since,
+          visitedAt: visitAt ?? since,
+          note: readThreadNote(threadKey),
+        })
       : null;
     if (recap === null) {
       toastManager.add({ type: "info", title: "Nothing to recap in this thread yet" });
@@ -172,6 +178,7 @@ export function ThreadRecapHost({
   if (!current.recap) return null;
   return (
     <ThreadRecapCard
+      threadKey={threadKey}
       recap={current.recap}
       onDismiss={() => setState({ ...current, recap: null })}
       onOpenMessage={onOpenMessage}
@@ -189,7 +196,54 @@ const LINK_CLASS =
 
 const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
 
+/** The thread's note to self, kept with parked thoughts in this browser. */
+const readThreadNote = (threadKey: string) =>
+  selectThreadNote(usePromptStashStore.getState().entries, threadKey)?.prompt ?? null;
+
+/** One line for a note to self: Enter saves (empty removes it), Escape keeps the old one. */
+function NoteEditor({
+  id,
+  initial,
+  onDone,
+}: {
+  id: string;
+  initial: string;
+  onDone: (text: string | null) => void;
+}) {
+  const [text, setText] = useState(initial);
+  return (
+    <form
+      className="flex min-w-0 items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onDone(text);
+      }}
+    >
+      <input
+        id={id}
+        autoFocus
+        autoComplete="off"
+        value={text}
+        placeholder="A note for when you come back"
+        className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-foreground ring-1 ring-muted-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onDone(null);
+          }
+        }}
+      />
+      <Button type="submit" size="sm" variant="outline" className="sm:text-xs">
+        Save
+      </Button>
+    </form>
+  );
+}
+
 function ThreadRecapCard({
+  threadKey,
   recap,
   onDismiss,
   onOpenMessage,
@@ -197,6 +251,7 @@ function ThreadRecapCard({
   onOpenFile,
   onOpenChanges,
 }: {
+  threadKey: string;
   recap: ThreadRecap;
   onDismiss: () => void;
   onOpenMessage: (messageId: string) => void;
@@ -205,7 +260,12 @@ function ThreadRecapCard({
   onOpenChanges: () => void;
 }) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
-  const { youAsked, sinceThen, note } = recap;
+  const { youAsked, sinceThen } = recap;
+  // The note is yours, so it stays live while the rest of the recap holds still.
+  const note = usePromptStashStore(
+    (store) => selectThreadNote(store.entries, threadKey)?.prompt ?? null,
+  );
+  const [editingNote, setEditingNote] = useState(false);
   return (
     <section
       aria-label="Where you left off"
@@ -270,19 +330,48 @@ function ThreadRecapCard({
           </span>
         </div>
       ) : null}
-      {note ? (
+      {editingNote ? (
+        <div className={ROW_CLASS}>
+          <label htmlFor={`recap-note-${threadKey}`} className={KEY_CLASS}>
+            Your note
+          </label>
+          <NoteEditor
+            id={`recap-note-${threadKey}`}
+            initial={note ?? ""}
+            onDone={(text) => {
+              setEditingNote(false);
+              if (text === null) return;
+              const result = usePromptStashStore.getState().setThreadNote(threadKey, text);
+              if (result.refused) toastManager.add({ type: "error", title: PARKED_FULL_MESSAGE });
+              else if (!result.written)
+                toastManager.add({ type: "error", title: "Could not save the note" });
+            }}
+          />
+        </div>
+      ) : note ? (
         <div className={ROW_CLASS}>
           <span className={KEY_CLASS}>Your note</span>
-          <span className="text-sm leading-[22px] text-foreground">{note}</span>
+          <span className="text-sm leading-[22px] break-words text-foreground">{note}</span>
         </div>
       ) : null}
-      {sinceThen && sinceThen.files.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {sinceThen && sinceThen.files.length > 0 ? (
           <Button size="sm" variant="outline" className="sm:text-xs" onClick={onOpenChanges}>
             Changes so far
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        {editingNote ? null : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="sm:text-xs"
+            onClick={() => setEditingNote(true)}
+          >
+            <PencilIcon aria-hidden />
+            {note ? "Edit note" : "Add note"}
+          </Button>
+        )}
+      </div>
     </section>
   );
 }

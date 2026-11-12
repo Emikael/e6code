@@ -11,7 +11,7 @@
  * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
  * the picker's popup can anchor to that width rather than to its 28px trigger.
  */
-import { FolderPlusIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import { FolderPlusIcon, InboxIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -21,6 +21,7 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
+import { openCaptureBar } from "~/parkedThoughts";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SidebarMenuButton } from "../ui/sidebar";
@@ -52,6 +53,8 @@ export interface SidebarThreadHeaderProps {
   /** Shown in the idle search field as a jump to the command palette. */
   commandPaletteShortcutLabel: string | null;
   onOpenCommandPalette: () => void;
+  /** "Park a thought" beside New thread (board 2). */
+  parkShortcutLabel?: string | null;
 }
 
 export function SidebarThreadHeader({
@@ -74,6 +77,7 @@ export function SidebarThreadHeader({
   onClearSearch,
   commandPaletteShortcutLabel,
   onOpenCommandPalette,
+  parkShortcutLabel = null,
 }: SidebarThreadHeaderProps) {
   const resultsVisible = isSearching && searchResultCount > 0;
   // Results shrink as the query narrows, so the active index can outrun the
@@ -86,43 +90,62 @@ export function SidebarThreadHeader({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label="New thread"
-              disabled={newThreadDisabled}
-              onClick={onNewThread}
-              className="flex h-[34px] w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-foreground/14 bg-sidebar-row-active px-2.5 text-[13px] font-medium text-sidebar-foreground shadow-xs outline-hidden transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 dark:shadow-none"
-            />
-          }
-        >
-          <PlusIcon aria-hidden className="size-[15px] shrink-0" />
-          <span className="truncate">New thread</span>
-          {newThreadShortcutLabel ? (
-            <kbd
-              aria-hidden
-              className="ml-auto shrink-0 font-mono text-[11px] font-normal text-sidebar-muted-foreground pointer-coarse:hidden"
-            >
-              {newThreadShortcutLabel}
-            </kbd>
-          ) : null}
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">
-          {showNewThreadInProjectHint ? (
-            <span className="flex flex-col gap-0.5">
-              <span>{newThreadLabel}</span>
-              <span className="text-muted-foreground">
-                New thread in current project: Shift+click
-                {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
+      <div className="flex items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="New thread"
+                disabled={newThreadDisabled}
+                onClick={onNewThread}
+                className="flex h-[34px] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border border-sidebar-foreground/14 bg-sidebar-row-active px-2.5 text-[13px] font-medium text-sidebar-foreground shadow-xs outline-hidden transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 dark:shadow-none"
+              />
+            }
+          >
+            <PlusIcon aria-hidden className="size-[15px] shrink-0" />
+            <span className="truncate">New thread</span>
+            {newThreadShortcutLabel ? (
+              <kbd
+                aria-hidden
+                className="ml-auto shrink-0 font-mono text-[11px] font-normal text-sidebar-muted-foreground pointer-coarse:hidden"
+              >
+                {newThreadShortcutLabel}
+              </kbd>
+            ) : null}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {showNewThreadInProjectHint ? (
+              <span className="flex flex-col gap-0.5">
+                <span>{newThreadLabel}</span>
+                <span className="text-muted-foreground">
+                  New thread in current project: Shift+click
+                  {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
+                </span>
               </span>
-            </span>
-          ) : (
-            newThreadLabel
-          )}
-        </TooltipPopup>
-      </Tooltip>
+            ) : (
+              newThreadLabel
+            )}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Park a thought"
+                onClick={openCaptureBar}
+                className="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-sidebar-foreground/14 bg-sidebar-row-active text-sidebar-foreground shadow-xs outline-hidden transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring dark:shadow-none"
+              />
+            }
+          >
+            <InboxIcon aria-hidden className="size-[15px]" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {parkShortcutLabel ? `Park a thought (${parkShortcutLabel})` : "Park a thought"}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
       {/* Search, project scope and new project share one quiet row: they are
           reached far less often than New thread. */}
       <div className="flex items-center gap-0.5">

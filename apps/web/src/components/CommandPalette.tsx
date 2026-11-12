@@ -60,6 +60,7 @@ import {
   ArrowLeftIcon,
   BellDotIcon,
   FocusIcon,
+  InboxIcon,
   HistoryIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
@@ -246,6 +247,7 @@ import { readPullRequestListPreferences } from "~/components/pullRequest/pullReq
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
 import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 import { useThreadRecapStore } from "~/threadRecapStore";
+import { openCaptureBar } from "~/parkedThoughts";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -2263,6 +2265,18 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+  // Park it: a stray thought gets a home without leaving the page.
+  actionItems.push({
+    kind: "action",
+    value: "action:park-thought",
+    searchTerms: ["park", "thought", "capture", "later", "note", "idea", "remember", "inbox"],
+    title: "Park a thought",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "capture.park",
+    run: async () => {
+      openCaptureBar();
+    },
+  });
   const supportsSnooze = (thread: { readonly environmentId: EnvironmentId }) =>
     serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
   const paletteNow = new Date();

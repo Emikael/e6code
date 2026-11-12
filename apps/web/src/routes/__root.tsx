@@ -30,6 +30,7 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
+import { CaptureBarHost } from "../components/CaptureBar";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -231,6 +232,7 @@ function RootRouteView() {
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
           <ReopenClosedViewShortcut />
+          <CaptureBarHost />
           <ConfirmDialogHost />
           <ImportedCookieApprovalDialogHost />
           <CustomSnoozeDialogHost />

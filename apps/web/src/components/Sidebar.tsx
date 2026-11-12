@@ -4991,6 +4991,7 @@ export default function Sidebar() {
                 "commandPalette.toggle",
               )}
               onOpenCommandPalette={() => openCommandPalette()}
+              parkShortcutLabel={shortcutLabelForCommand(keybindings, "capture.park")}
               showNewThreadInProjectHint={projectGroups.length > 1}
               searchInputRef={threadSearchInputRef}
               searchQuery={threadSearchQuery}

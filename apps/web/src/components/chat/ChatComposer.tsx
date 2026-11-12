@@ -122,7 +122,8 @@ import {
   useEffectiveComposerModelState,
 } from "../../composerDraftStore";
 import {
-  MAX_STASH_ENTRIES,
+  PARKED_FULL_MESSAGE,
+  parkedEntryKind,
   partitionStashAttachments,
   usePromptStashStore,
   type PromptStashEntry,
@@ -4195,7 +4196,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Prompt stash (⌘S)
   // ------------------------------------------------------------------
   // Files remain tied to the environment that owns their uploaded bytes.
-  const stashQueue = usePromptStashStore((state) => state.entries);
+  const parkedEntries = usePromptStashStore((state) => state.entries);
+  // Drafts and parked thoughts both come back into a composer; notes stay with their recap.
+  const stashQueue = useMemo(
+    () => parkedEntries.filter((entry) => parkedEntryKind(entry) !== "note"),
+    [parkedEntries],
+  );
   const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
   const takeStashEntry = usePromptStashStore((state) => state.takeEntry);
   const finalizeStashEntryImages = usePromptStashStore((state) => state.finalizeEntryImages);
@@ -4579,7 +4585,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ),
     ];
     if (prompt.length === 0 && images.length === 0 && files.length === 0) {
-      const entries = usePromptStashStore.getState().entries;
+      const entries = usePromptStashStore
+        .getState()
+        .entries.filter((candidate) => parkedEntryKind(candidate) !== "note");
       const entry = entries.length === 1 ? entries[0] : undefined;
       if (entry && !entry.pendingImageCount) {
         await restoreStashEntry(entry);
@@ -4636,7 +4644,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // mid-encode still leaves the prompt recoverable, while clearing before
       // the async image work means edits typed during encoding are not wiped.
       // Images are appended to the stored entry as they finish encoding.
-      const { evicted, written, durable } = stashEntryToQueue({
+      const { refused, written, durable } = stashEntryToQueue({
         id: entryId,
         createdAt: new Date().toISOString(),
         prompt,
@@ -4648,6 +4656,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ...(stashedRecords.length > 0 ? { records: stashedRecords } : {}),
       });
 
+      // Parked is full: nothing is evicted to make room, and the draft stays put.
+      if (refused) {
+        toastManager.add({
+          type: "error",
+          title: PARKED_FULL_MESSAGE,
+          description: "Your draft is still in the composer.",
+          data: { hideCopyButton: true },
+        });
+        return;
+      }
       // Clearing the composer is only safe once the write actually landed.
       // If it was rejected (quota) the store has already rolled itself back,
       // so leave the composer untouched rather than making it the second
@@ -4693,22 +4711,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       setComposerCursor(0);
       setComposerTrigger(null);
       pulseStashBadge();
-
-      if (evicted) {
-        for (const file of evicted.files ?? []) {
-          releasePersistedAttachmentUpload({
-            id: file.id,
-            environmentId: file.environmentId,
-            attachmentId: file.attachmentId,
-          });
-        }
-        toastManager.add({
-          type: "warning",
-          title: "Oldest stashed prompt discarded",
-          description: `The stash holds ${MAX_STASH_ENTRIES} prompts; the oldest was removed to make room.`,
-          data: { hideCopyButton: true },
-        });
-      }
 
       // Images are re-encoded for the stash rather than stored verbatim: the
       // composer allows up to 10MB per image, but localStorage gives the whole

@@ -7,6 +7,7 @@ import {
   PersistedComposerImageAttachment,
 } from "./composerDraftStore";
 import { createMemoryStorage, type StateStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 
 export const PROMPT_STASH_STORAGE_KEY = "e6code:prompt-stash:v2";
 /**
@@ -18,7 +19,28 @@ export const PROMPT_STASH_STORAGE_KEY = "e6code:prompt-stash:v2";
 const LEGACY_PROMPT_STASH_STORAGE_KEY = "e6code:prompt-stash:v1";
 const PROMPT_STASH_STORAGE_VERSION = 2;
 
+/** Drafts parked from a composer (Mod+S), which can carry images. */
 export const MAX_STASH_ENTRIES = 20;
+/** Text-only thoughts parked from the capture bar (Mod+Alt+P). */
+export const MAX_PARKED_THOUGHTS = 200;
+/** Notes to self, one per thread, shown in the recap. */
+export const MAX_THREAD_NOTES = 200;
+
+/**
+ * What an entry is. Drafts are composer snapshots, thoughts come from the
+ * capture bar, and notes belong to one thread's recap. Entries written before
+ * kinds existed decode as drafts.
+ */
+export type ParkedEntryKind = "draft" | "thought" | "note";
+
+/** The cap for each kind. Past it a new entry is refused; nothing is evicted (decision 10). */
+export const PARKED_CAPS: Readonly<Record<ParkedEntryKind, number>> = {
+  draft: MAX_STASH_ENTRIES,
+  thought: MAX_PARKED_THOUGHTS,
+  note: MAX_THREAD_NOTES,
+};
+
+export const PARKED_FULL_MESSAGE = "Parked is full. Remove one to add another.";
 /**
  * Budget for an entry's serialized attachment payload. localStorage is a
  * ~5MB origin-wide quota shared with the composer draft store, so oversized
@@ -62,8 +84,19 @@ const StashEntrySchema = Schema.Struct({
    * decode without it.
    */
   records: Schema.optionalKey(ForwardCompatibleArray(ComposerContextRecord)),
+  /** Absent on entries from before kinds: those are drafts. */
+  kind: Schema.optionalKey(Schema.Literals(["draft", "thought", "note"])),
+  /** The project it was parked in (`scopedProjectKey`), for "e6code · 14:09". */
+  projectKey: Schema.optionalKey(Schema.String),
+  /** A note's thread (`scopedThreadKey`). */
+  threadKey: Schema.optionalKey(Schema.String),
+  /** A local date ("2026-11-12") on which the entry leads the start screen (wrap up, phase 14). */
+  pinnedFor: Schema.optionalKey(Schema.String),
 });
 export type PromptStashEntry = typeof StashEntrySchema.Type;
+
+export const parkedEntryKind = (entry: Pick<PromptStashEntry, "kind">): ParkedEntryKind =>
+  entry.kind ?? "draft";
 
 const PersistedPromptStashState = Schema.Struct({
   entries: Schema.Array(StashEntrySchema),
@@ -197,11 +230,12 @@ function readPersistedEntries(): ReadonlyArray<PromptStashEntry> | null {
 interface PromptStashStoreState {
   entries: ReadonlyArray<PromptStashEntry>;
   /**
-   * Prepends an entry to the queue, evicting the oldest entry past the cap.
-   * Returns the evicted entry (for messaging) if any.
+   * Prepends an entry to the queue. Past its kind's cap the entry is refused
+   * and nothing changes: parked work is never evicted silently.
    */
   stashEntry: (entry: PromptStashEntry) => {
-    evicted: PromptStashEntry | null;
+    /** True when the kind is at its cap; nothing was written. */
+    refused: boolean;
     /** False when the write failed outright (e.g. quota); nothing was kept. */
     written: boolean;
     /**
@@ -216,6 +250,16 @@ interface PromptStashStoreState {
    * reload would resurrect the entry.
    */
   takeEntry: (entryId: string) => { entry: PromptStashEntry | null; durable: boolean };
+  /** Puts an entry taken earlier back where it was (Undo); refused only if storage fails. */
+  restoreEntry: (entry: PromptStashEntry, index: number) => { written: boolean; durable: boolean };
+  /**
+   * Sets the thread's note to self, replacing the previous one; empty text
+   * removes it. `refused` when a new note would pass the notes cap.
+   */
+  setThreadNote: (
+    threadKey: string,
+    text: string,
+  ) => { refused: boolean; written: boolean; durable: boolean };
   /**
    * Attaches the encoded images to an entry written earlier by `stashEntry`,
    * clearing its pending count. Returns attached=false when the entry is gone
@@ -235,17 +279,65 @@ interface PromptStashStoreState {
 export const usePromptStashStore = create<PromptStashStoreState>()((set, get) => ({
   entries: [],
   stashEntry: (entry) => {
-    const nextEntries = [entry, ...get().entries];
-    const evicted = nextEntries.length > MAX_STASH_ENTRIES ? (nextEntries.pop() ?? null) : null;
+    const entries = get().entries;
+    const kind = parkedEntryKind(entry);
+    if (countParkedEntries(entries, kind) >= PARKED_CAPS[kind]) {
+      return { refused: true, written: false, durable: false };
+    }
+    const nextEntries = [entry, ...entries];
     const { written, durable } = persistEntries(nextEntries);
     // A rejected write must not leave the entry visible either: the caller
     // keeps the composer intact on failure, so a stashed copy would
-    // duplicate the prompt. Eviction likewise only sticks on success.
+    // duplicate the prompt.
     if (!written) {
-      return { evicted: null, written: false, durable: false };
+      return { refused: false, written: false, durable: false };
     }
     set(() => ({ entries: nextEntries }));
-    return { evicted, written: true, durable };
+    return { refused: false, written: true, durable };
+  },
+  restoreEntry: (entry, index) => {
+    const entries = get().entries;
+    if (entries.some((candidate) => candidate.id === entry.id)) {
+      return { written: true, durable: true };
+    }
+    const nextEntries = [...entries];
+    nextEntries.splice(Math.min(Math.max(0, index), nextEntries.length), 0, entry);
+    const { written, durable } = persistEntries(nextEntries);
+    if (written) set(() => ({ entries: nextEntries }));
+    return { written, durable };
+  },
+  setThreadNote: (threadKey, text) => {
+    const entries = get().entries;
+    const existing = entries.find(
+      (entry) => parkedEntryKind(entry) === "note" && entry.threadKey === threadKey,
+    );
+    const trimmed = text.trim();
+    const rest = entries.filter((entry) => entry !== existing);
+    if (
+      !existing &&
+      trimmed.length > 0 &&
+      countParkedEntries(entries, "note") >= MAX_THREAD_NOTES
+    ) {
+      return { refused: true, written: false, durable: false };
+    }
+    const nextEntries: PromptStashEntry[] =
+      trimmed.length === 0
+        ? rest
+        : [
+            {
+              id: existing?.id ?? randomUUID(),
+              createdAt: new Date().toISOString(),
+              prompt: trimmed,
+              attachments: [],
+              droppedImageNames: [],
+              kind: "note",
+              threadKey,
+            },
+            ...rest,
+          ];
+    const { written, durable } = persistEntries(nextEntries);
+    if (written) set(() => ({ entries: nextEntries }));
+    return { refused: false, written, durable };
   },
   takeEntry: (entryId) => {
     const entries = get().entries;
@@ -275,6 +367,26 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     return { attached: true, durable };
   },
 }));
+
+function countParkedEntries(
+  entries: ReadonlyArray<PromptStashEntry>,
+  kind: ParkedEntryKind,
+): number {
+  let count = 0;
+  for (const entry of entries) if (parkedEntryKind(entry) === kind) count += 1;
+  return count;
+}
+
+/** The thread's note to self, for the recap's "Your note". */
+export function selectThreadNote(
+  entries: ReadonlyArray<PromptStashEntry>,
+  threadKey: string,
+): PromptStashEntry | null {
+  return (
+    entries.find((entry) => parkedEntryKind(entry) === "note" && entry.threadKey === threadKey) ??
+    null
+  );
+}
 
 // Hydrate once at startup. Like the app's other persisted stores, tabs are
 // last-write-wins: no cross-tab merging or storage-event syncing.
