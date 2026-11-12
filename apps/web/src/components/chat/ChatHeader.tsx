@@ -64,6 +64,7 @@ import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
+  WorkspaceBreadcrumbSeparator,
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
@@ -241,7 +242,7 @@ function ThreadHeaderBranch(props: { branch: string }) {
         render={
           <span
             // Branch gives way first: hidden in narrow headers, pill stays.
-            className="hidden min-w-0 shrink font-mono text-[11px] text-muted-foreground @xl/header-actions:block"
+            className="hidden min-w-0 shrink rounded-sm bg-surface-well px-1.5 py-[3px] font-mono text-[11px] leading-[14px] text-muted-foreground @xl/header-actions:block"
           />
         }
       >
@@ -524,6 +525,19 @@ export const ChatHeader = memo(function ChatHeader({
   );
   const hasHeaderActions =
     activeProject !== null || Boolean(showProjectScripts || showOpenInPicker || showGitActions);
+  // "More: scripts, open in", naming only what the menu holds here.
+  const moreMenuLabel = [
+    "More",
+    [
+      showProjectScripts ? "scripts" : null,
+      showOpenInPicker ? "open in" : null,
+      showGitActions ? "git" : null,
+    ]
+      .filter(Boolean)
+      .join(", "),
+  ]
+    .filter(Boolean)
+    .join(": ");
   return (
     <div
       className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
@@ -533,6 +547,15 @@ export const ChatHeader = memo(function ChatHeader({
         ariaLabel="Thread breadcrumb"
         className="flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
+        {/* Board 2: "project / title". The project gives way first in narrow headers. */}
+        {projectDisplayName ? (
+          <>
+            <li className="hidden min-w-0 shrink-[2] items-center text-[13px] font-medium text-muted-foreground @2xl/header-actions:flex">
+              <span className="truncate">{projectDisplayName}</span>
+            </li>
+            <WorkspaceBreadcrumbSeparator className="hidden text-muted-foreground @2xl/header-actions:flex" />
+          </>
+        ) : null}
         {/* The title sizes to its text so the branch sits right after it; the title still
             truncates first, and the status pill holds the right edge. */}
         <WorkspaceBreadcrumbItem current className="min-w-10 shrink text-[15px] font-semibold">
@@ -655,7 +678,7 @@ export const ChatHeader = memo(function ChatHeader({
                 size="icon-sm"
                 variant="ghost"
                 className="text-muted-foreground"
-                aria-label="Thread actions"
+                aria-label={moreMenuLabel}
               />
             }
           >

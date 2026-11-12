@@ -6,11 +6,16 @@
  * the rows that exist so far; later rows join their group without moving
  * the others. The starting-point tiles go above the grid.
  */
-import { DEFAULT_CLIENT_SETTINGS, type RecapTrigger } from "@e6tools/contracts/settings";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  type ComposerControls,
+  type RecapTrigger,
+} from "@e6tools/contracts/settings";
 
 import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   SettingResetButton,
   SettingsPageContainer,
@@ -26,10 +31,16 @@ const RECAP_TRIGGER_LABELS = {
   never: "Never",
 } satisfies Record<RecapTrigger, string>;
 
+const COMPOSER_CONTROLS_LABELS = {
+  compact: "Compact",
+  full: "Full",
+} satisfies Record<ComposerControls, string>;
+
 export function AttentionSettingsPanel() {
   const needsYouSectionEnabled = useClientSettings((s) => s.needsYouSectionEnabled);
   const sidebarElapsedTimeEnabled = useClientSettings((s) => s.sidebarElapsedTimeEnabled);
   const recapTrigger = useClientSettings((s) => s.recapTrigger);
+  const composerControls = useClientSettings((s) => s.composerControls);
   const updateSettings = useUpdateClientSettings();
 
   return (
@@ -61,6 +72,39 @@ export function AttentionSettingsPanel() {
                 }
                 aria-label="Needs you at the top of the sidebar"
               />
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("composer-controls")}
+            description="Compact keeps effort, permissions and mode behind one chip."
+            resetAction={
+              composerControls !== DEFAULT_CLIENT_SETTINGS.composerControls ? (
+                <SettingResetButton
+                  label="composer controls"
+                  onClick={() =>
+                    updateSettings({ composerControls: DEFAULT_CLIENT_SETTINGS.composerControls })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <ToggleGroup
+                aria-label="Composer controls"
+                variant="segmented"
+                value={[composerControls]}
+                onValueChange={(next) => {
+                  const value = next[0];
+                  if (value === "compact" || value === "full") {
+                    updateSettings({ composerControls: value });
+                  }
+                }}
+              >
+                {Object.entries(COMPOSER_CONTROLS_LABELS).map(([value, label]) => (
+                  <Toggle key={value} value={value}>
+                    {label}
+                  </Toggle>
+                ))}
+              </ToggleGroup>
             }
           />
         </SettingsSection>

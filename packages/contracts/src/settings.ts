@@ -235,6 +235,13 @@ export type AttentionNotifications = typeof AttentionNotifications.Type;
 export const RecapTrigger = Schema.Literals(["after-break", "always", "never"]);
 export type RecapTrigger = typeof RecapTrigger.Type;
 
+/**
+ * How the composer footer shows effort, permissions and Plan or Build:
+ * folded into one chip that names their values, or as separate controls.
+ */
+export const ComposerControls = Schema.Literals(["compact", "full"]);
+export type ComposerControls = typeof ComposerControls.Type;
+
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
 const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
@@ -511,6 +518,9 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarElapsedTimeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   recapTrigger: RecapTrigger.pipe(
     Schema.withDecodingDefault(Effect.succeed("after-break" as const)),
+  ),
+  composerControls: ComposerControls.pipe(
+    Schema.withDecodingDefault(Effect.succeed("compact" as const)),
   ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
@@ -1744,6 +1754,7 @@ export const ClientSettingsPatch = Schema.Struct({
   needsYouSectionEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarElapsedTimeEnabled: Schema.optionalKey(Schema.Boolean),
   recapTrigger: Schema.optionalKey(RecapTrigger),
+  composerControls: Schema.optionalKey(ComposerControls),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
