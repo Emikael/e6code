@@ -391,6 +391,7 @@ import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useEnvironmentDisconnectDelay } from "../hooks/useEnvironmentDisconnectDelay";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
+import { useFinishedTerminalIds } from "./terminal/terminalPaneState";
 import { useEnvironmentQuery } from "../state/query";
 import {
   environmentServerConfigsAtom,
@@ -1353,6 +1354,8 @@ interface PersistentThreadTerminalPanelProps {
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
   closeShortcutLabel?: string | undefined;
+  runningTerminalIds: ReadonlySet<string>;
+  finishedTerminalIds: ReadonlySet<string>;
 }
 
 const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPanel({
@@ -1372,6 +1375,8 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
   splitVerticalShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
+  runningTerminalIds,
+  finishedTerminalIds,
 }: PersistentThreadTerminalPanelProps) {
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const serverThread = useThread(threadRef, { waitForShell: draftThread !== null });
@@ -1504,6 +1509,8 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
       terminalLabelsById={terminalLabelsById}
       terminalLaunchLocationsById={terminalLaunchLocationsById}
       keybindings={keybindings}
+      runningTerminalIds={runningTerminalIds}
+      finishedTerminalIds={finishedTerminalIds}
     />
   );
 });
@@ -2174,6 +2181,17 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelControlsAtRoot = rightPanelPresent && !shouldUseRightPanelSheet;
   const renderedRightPanelSurface = rightPanelPresence.value?.activeSurface ?? null;
   const renderedRightPanelSurfaces = rightPanelPresence.value?.surfaces ?? [];
+  // F19's Finished cue: a terminal whose process stopped while out of view says so on its tab.
+  const finishedTerminalIds = useFinishedTerminalIds(
+    activeThreadKey ?? "",
+    runningTerminalIds,
+    rightPanelOpen && renderedRightPanelSurface?.kind === "terminal"
+      ? renderedRightPanelSurface.terminalIds
+      : terminalUiState.terminalOpen
+        ? terminalUiState.terminalIds
+        : null,
+  );
+  const runningTerminalIdSet = useMemo(() => new Set(runningTerminalIds), [runningTerminalIds]);
   const previewMiniPlayerVisible = shouldRenderPreviewMiniPlayer(
     activePreviewMiniPlayer?.source ?? null,
     renderedRightPanelSurface,
@@ -10371,6 +10389,8 @@ export default function ChatView(props: ChatViewProps) {
         splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
         newShortcutLabel={newTerminalShortcutLabel ?? undefined}
         closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+        runningTerminalIds={runningTerminalIdSet}
+        finishedTerminalIds={finishedTerminalIds}
       />
     ) : renderedRightPanelSurface?.kind === "diff" ? (
       <Suspense fallback={null}>
@@ -11394,6 +11414,7 @@ export default function ChatView(props: ChatViewProps) {
           deviceAvailable={activeThreadRef !== null}
           changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
           runningTerminalIds={runningTerminalIds}
+          finishedTerminalIds={finishedTerminalIds}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -11462,6 +11483,7 @@ export default function ChatView(props: ChatViewProps) {
             deviceAvailable={activeThreadRef !== null}
             changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
             runningTerminalIds={runningTerminalIds}
+            finishedTerminalIds={finishedTerminalIds}
           >
             {rightPanelContent}
           </RightPanelTabs>

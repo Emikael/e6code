@@ -159,6 +159,8 @@ export interface RightPanelTabsProps {
   changedFileCount?: number;
   /** The thread's terminals with a running process; named on their tabs. */
   runningTerminalIds?: ReadonlyArray<string> | undefined;
+  /** Terminals showing the Finished cue (see useFinishedTerminalIds). */
+  finishedTerminalIds?: ReadonlySet<string> | undefined;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -1160,7 +1162,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     () => new Set(props.runningTerminalIds ?? []),
     [props.runningTerminalIds],
   );
-  const titleState = { changedFileCount: props.changedFileCount ?? 0, runningTerminalIds };
+  const titleState = {
+    changedFileCount: props.changedFileCount ?? 0,
+    runningTerminalIds,
+    ...(props.finishedTerminalIds ? { finishedTerminalIds: props.finishedTerminalIds } : {}),
+  };
   const panelId = useId();
   const closeKeyShortcuts = useMemo(
     () =>

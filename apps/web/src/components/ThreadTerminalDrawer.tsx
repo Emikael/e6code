@@ -12,6 +12,8 @@ import {
   type TerminalSessionState,
 } from "@e6tools/client-runtime/state/terminal";
 import {
+  ChevronDown,
+  MoreHorizontal,
   Plus,
   Square,
   SquareSplitHorizontal,
@@ -84,6 +86,16 @@ import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
+import {
+  findLocalAddress,
+  localAddressLabel,
+  TERMINAL_PANE_STATUS_WORD,
+  terminalOutputTail,
+  terminalPaneStatus,
+  type TerminalPaneStatus,
+} from "./terminal/terminalPaneState";
+import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
+import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
 import {
@@ -251,15 +263,20 @@ export function terminalSelectionLineRange(position: {
 
 export type TerminalContextMenuAction = "add-to-chat" | "copy" | "paste";
 
-/** Post-selection popup: available selection actions, always enabled. */
+/**
+ * The selection actions, Copy first (most selections are for copying), then "Add to message",
+ * which attaches the lines to the thread's next message.
+ */
 export function terminalSelectionMenuItems(options?: {
   canAddToChat?: boolean;
 }): ContextMenuItem<"add-to-chat" | "copy">[] {
   return [
+    { id: "copy", label: "Copy" },
     ...(options?.canAddToChat === false
       ? []
-      : ([{ id: "add-to-chat", label: "Add to chat" }] satisfies ContextMenuItem<"add-to-chat">[])),
-    { id: "copy", label: "Copy" },
+      : ([
+          { id: "add-to-chat", label: "Add to message" },
+        ] satisfies ContextMenuItem<"add-to-chat">[])),
   ];
 }
 
@@ -320,6 +337,8 @@ interface TerminalViewportProps {
   providerInstanceId?: ProviderInstanceId;
   onSessionExited: () => void;
   onAddTerminalContext?: (selection: TerminalContextSelection) => void;
+  /** The last local address the pane printed, for "Open … in Browser". */
+  onLocalAddressChange?: (terminalId: string, url: string | null) => void;
   focusRequestId: number;
   autoFocus: boolean;
   visible: boolean;
@@ -346,6 +365,7 @@ export function TerminalViewport({
   providerInstanceId,
   onSessionExited,
   onAddTerminalContext,
+  onLocalAddressChange,
   focusRequestId,
   autoFocus,
   visible,
@@ -378,6 +398,13 @@ export function TerminalViewport({
   // popup that was superseded (but whose menu promise has not settled yet)
   // cannot be mistaken for the active flow.
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
+  const [selectionBar, setSelectionBar] = useState<{
+    readonly requestId: number;
+    readonly top: number;
+    readonly clipboardText: string;
+    readonly selection: TerminalContextSelection;
+  } | null>(null);
+  const selectionBarRef = useRef<HTMLDivElement | null>(null);
   const keybindingsRef = useRef(keybindings);
   const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
   const handleSessionExited = useEffectEvent(() => {
@@ -555,7 +582,11 @@ export function TerminalViewport({
           openSelectionMenuRequestIdRef.current === selectionActionRequestIdRef.current;
         // Passive cancellation must not invalidate a newer right-click flow.
         if (supersede || ownsMenu) selectionActionRequestIdRef.current += 1;
-        if (ownsMenu) void localApi?.contextMenu.close();
+        if (ownsMenu) {
+          openSelectionMenuRequestIdRef.current = null;
+          setSelectionBar(null);
+          void localApi?.contextMenu.close();
+        }
       };
       const clearSelectionAction = () => {
         selectionActions?.cancel();
@@ -693,42 +724,24 @@ export function TerminalViewport({
         }
       };
 
-      const showSelectionAction = async (pointer: SelectionActionPoint | null) => {
-        if (!localApi) {
-          clearSelectionAction();
-          return;
-        }
-        if (openSelectionMenuRequestIdRef.current === selectionActionRequestIdRef.current) {
-          return;
-        }
+      // Board 16: a finished selection shows a small bar beside it, inside the pane, rather than
+      // a menu over the output.
+      const showSelectionAction = (pointer: SelectionActionPoint | null) => {
         const nextAction = readSelectionAction(pointer);
-        if (!nextAction) {
+        const mountElement = containerRef.current;
+        if (!nextAction || !mountElement) {
           clearSelectionAction();
           return;
         }
         const requestId = ++selectionActionRequestIdRef.current;
         openSelectionMenuRequestIdRef.current = requestId;
-        const clicked = await localApi.contextMenu
-          .show(
-            terminalSelectionMenuItems({ canAddToChat: canAddSelectionToChat() }),
-            nextAction.position,
-          )
-          .finally(() => {
-            if (openSelectionMenuRequestIdRef.current === requestId) {
-              openSelectionMenuRequestIdRef.current = null;
-            }
-          });
-        if (requestId !== selectionActionRequestIdRef.current || clicked === null) {
-          return;
-        }
-        switch (clicked) {
-          case "add-to-chat":
-            if (canAddSelectionToChat()) addSelectionToChat(nextAction.selection);
-            return;
-          case "copy":
-            await copySelection(nextAction.clipboardText, requestId);
-            return;
-        }
+        const bounds = mountElement.getBoundingClientRect();
+        setSelectionBar({
+          requestId,
+          top: Math.max(4, Math.min(nextAction.position.y - bounds.top, bounds.height - 40)),
+          clipboardText: nextAction.clipboardText,
+          selection: nextAction.selection,
+        });
       };
 
       const sendTerminalInput = async (data: string, fallbackError: string) => {
@@ -805,6 +818,7 @@ export function TerminalViewport({
             openPreview,
             fallbackToBrowser,
             forceBrowser: event.metaKey || event.ctrlKey,
+            preferApp: findLocalAddress(text) !== null,
           }).catch((error: unknown) => {
             toastManager.add(
               stackedThreadToast({
@@ -857,8 +871,9 @@ export function TerminalViewport({
 
       selectionActions = observeSelectionActions({
         element: mount,
+        getActionElement: () => selectionBarRef.current,
         onSelection: (pointer) => {
-          void showSelectionAction(pointer);
+          showSelectionAction(pointer);
         },
         onDismiss: (reason) => dismissSelectionAction(reason === "interaction"),
       });
@@ -979,12 +994,78 @@ export function TerminalViewport({
       window.cancelAnimationFrame(frame);
     };
   }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId]);
+  const reportLocalAddress = useEffectEvent((url: string | null) => {
+    onLocalAddressChange?.(terminalId, url);
+  });
+  const localAddress = useMemo(
+    () => findLocalAddress(terminalOutputTail(terminalOutput.chunks)),
+    [terminalOutput],
+  );
+  useEffect(() => {
+    reportLocalAddress(localAddress);
+  }, [localAddress]);
+
+  const closeSelectionBar = () => {
+    selectionActionRequestIdRef.current += 1;
+    openSelectionMenuRequestIdRef.current = null;
+    setSelectionBar(null);
+  };
   return (
-    <div
-      ref={containerRef}
-      tabIndex={-1}
-      className="relative h-full w-full overflow-hidden bg-[var(--terminal-background)]"
-    />
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="relative h-full w-full overflow-hidden bg-[var(--terminal-background)]"
+      />
+      {selectionBar ? (
+        // Neither action is filled: most selections are for copying.
+        <div
+          ref={selectionBarRef}
+          role="toolbar"
+          aria-label="Selected output"
+          className="absolute right-3 z-10 flex gap-0.5 rounded-xl border border-border bg-surface-floating p-1 shadow-lg"
+          style={{ top: selectionBar.top }}
+        >
+          <Button
+            size="compact"
+            variant="ghost"
+            onClick={() => {
+              const { clipboardText } = selectionBar;
+              closeSelectionBar();
+              void writeTextToClipboard(clipboardText, "terminal selection").catch(
+                (error: unknown) => {
+                  const activeTerminal = terminalRef.current;
+                  if (activeTerminal) {
+                    writeSystemMessage(
+                      activeTerminal,
+                      error instanceof Error ? error.message : "Unable to copy terminal selection",
+                    );
+                  }
+                },
+              );
+              terminalRef.current?.focus();
+            }}
+          >
+            Copy
+          </Button>
+          {onAddTerminalContext ? (
+            <Button
+              size="compact"
+              variant="ghost"
+              onClick={() => {
+                const { selection } = selectionBar;
+                closeSelectionBar();
+                handleAddTerminalContext(selection);
+                terminalRef.current?.clearSelection();
+                terminalRef.current?.focus();
+              }}
+            >
+              Add to message
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1018,7 +1099,12 @@ interface ThreadTerminalDrawerProps {
   terminalLabelsById?: ReadonlyMap<string, string>;
   /** Prefer per-session launch locations when the server already knows a terminal. */
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
+  /** Panel mode: terminals with a running process, and those showing the Finished cue. */
+  runningTerminalIds?: ReadonlySet<string>;
+  finishedTerminalIds?: ReadonlySet<string>;
 }
+
+const NO_TERMINAL_IDS: ReadonlySet<string> = new Set();
 
 /** A terminal action in the panel's shared header: a 24px icon target. */
 const PANEL_HEADER_ACTION_CLASS =
@@ -1081,8 +1167,25 @@ export default function ThreadTerminalDrawer({
   keybindings,
   terminalLabelsById,
   terminalLaunchLocationsById,
+  runningTerminalIds = NO_TERMINAL_IDS,
+  finishedTerminalIds = NO_TERMINAL_IDS,
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
+  const runPaneInput = useAtomCommand(terminalEnvironment.write, { reportFailure: false });
+  const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
+  // The last local address each pane printed; the footer offers the active pane's, or any.
+  const [localAddresses, setLocalAddresses] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+  const onLocalAddressChange = useCallback((terminalId: string, url: string | null) => {
+    setLocalAddresses((current) => {
+      if ((current.get(terminalId) ?? null) === url) return current;
+      const next = new Map(current);
+      if (url === null) next.delete(terminalId);
+      else next.set(terminalId, url);
+      return next;
+    });
+  }, []);
   const [advancedTypography] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
@@ -1231,7 +1334,8 @@ export default function ThreadTerminalDrawer({
     (normalizedTerminalIds.length > 0 ? [resolvedActiveTerminalId] : []);
   const splitDirection =
     resolvedTerminalGroups[resolvedActiveGroupIndex]?.splitDirection ?? "horizontal";
-  const hasTerminalSidebar = normalizedTerminalIds.length > 1;
+  // The panel shows every pane of its tab, each with its own header, so it needs no list.
+  const hasTerminalSidebar = !isPanel && normalizedTerminalIds.length > 1;
   const isSplitView = visibleTerminalIds.length > 1;
   const showGroupHeaders =
     resolvedTerminalGroups.length > 1 ||
@@ -1422,7 +1526,7 @@ export default function ThreadTerminalDrawer({
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-6 text-center text-sm text-muted-foreground">
           <p>No terminal sessions for this thread yet.</p>
           <Button size="xs" variant="outline" onClick={onNewTerminalAction}>
-            {newTerminalActionLabel}
+            {isPanel ? "New terminal" : newTerminalActionLabel}
           </Button>
         </div>
       </aside>
@@ -1430,6 +1534,105 @@ export default function ThreadTerminalDrawer({
   }
 
   const activeTerminalLaunchLocation = resolveTerminalLaunchLocation(resolvedActiveTerminalId);
+  // Board 16: each pane in the panel has its own header, the label and its state in words, then
+  // at most two labelled buttons (Split and New on the first pane, Stop where a process runs) and
+  // More.
+  const paneHeader = (terminalId: string, index: number) => {
+    const label = terminalLabelById.get(terminalId) ?? "Terminal";
+    const status = terminalPaneStatus(terminalId, runningTerminalIds, finishedTerminalIds);
+    const sendInput = (data: string) =>
+      void runPaneInput({
+        environmentId: threadRef.environmentId,
+        input: { threadId, terminalId, data },
+      });
+    const first = index === 0;
+    const running = status === "running";
+    return (
+      <PanelSurfaceHeader
+        actions={
+          <>
+            {first ? (
+              <Menu>
+                <MenuTrigger render={<Button size="compact" variant="ghost" />}>
+                  Split
+                  <ChevronDown aria-hidden className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end" className="min-w-44">
+                  <MenuItem disabled={hasReachedSplitLimit} onClick={onSplitTerminalAction}>
+                    Side by side
+                    {splitShortcutLabel ? <MenuShortcut>{splitShortcutLabel}</MenuShortcut> : null}
+                  </MenuItem>
+                  <MenuItem disabled={hasReachedSplitLimit} onClick={onSplitTerminalVerticalAction}>
+                    Stacked
+                    {splitVerticalShortcutLabel ? (
+                      <MenuShortcut>{splitVerticalShortcutLabel}</MenuShortcut>
+                    ) : null}
+                  </MenuItem>
+                  {hasReachedSplitLimit ? (
+                    <p className="px-2 py-1 text-muted-foreground text-xs">
+                      {`Up to ${MAX_TERMINALS_PER_GROUP} panes in one tab.`}
+                    </p>
+                  ) : null}
+                </MenuPopup>
+              </Menu>
+            ) : null}
+            {running ? (
+              <Button size="compact" variant="ghost" onClick={() => sendInput("\u0003")}>
+                Stop
+              </Button>
+            ) : first ? (
+              <Button size="compact" variant="ghost" onClick={onNewTerminalAction}>
+                New
+              </Button>
+            ) : null}
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`More for ${label}: clear, close pane`}
+                  />
+                }
+              >
+                <MoreHorizontal aria-hidden className="size-4" />
+              </MenuTrigger>
+              <MenuPopup align="end" className="min-w-44">
+                {first && running ? (
+                  <MenuItem onClick={onNewTerminalAction}>
+                    New terminal
+                    {newShortcutLabel ? <MenuShortcut>{newShortcutLabel}</MenuShortcut> : null}
+                  </MenuItem>
+                ) : null}
+                <MenuItem onClick={() => sendInput("\u000c")}>Clear</MenuItem>
+                <MenuItem onClick={() => confirmCloseTerminal(terminalId)}>
+                  Close pane
+                  {terminalId === resolvedActiveTerminalId && closeShortcutLabel ? (
+                    <MenuShortcut>{closeShortcutLabel}</MenuShortcut>
+                  ) : null}
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
+          </>
+        }
+      >
+        <span className="min-w-0 truncate font-mono text-xs text-foreground">{label}</span>
+        <TerminalPaneStatusWord status={status} />
+      </PanelSurfaceHeader>
+    );
+  };
+  const footerAddress =
+    localAddresses.get(resolvedActiveTerminalId) ?? localAddresses.values().next().value ?? null;
+  const openFooterAddress = (url: string) => {
+    void openTerminalLinkInPreview({
+      url,
+      threadRef,
+      openPreview,
+      fallbackToBrowser: () => void readLocalApi()?.shell.openExternal(url),
+      forceBrowser: false,
+      preferApp: true,
+    });
+  };
 
   return (
     <aside
@@ -1449,58 +1652,6 @@ export default function ThreadTerminalDrawer({
           onPointerUp={handleResizePointerEnd}
           onPointerCancel={handleResizePointerEnd}
         />
-      ) : null}
-
-      {isPanel ? (
-        <PanelSurfaceHeader
-          actions={
-            hasTerminalSidebar ? null : (
-              <>
-                <TerminalActionButton
-                  className={cn(
-                    PANEL_HEADER_ACTION_CLASS,
-                    hasReachedSplitLimit && "cursor-not-allowed opacity-45 hover:bg-transparent",
-                  )}
-                  onClick={onSplitTerminalAction}
-                  label={splitTerminalActionLabel}
-                >
-                  <SquareSplitHorizontal className="size-3.5" />
-                </TerminalActionButton>
-                <TerminalActionButton
-                  className={cn(
-                    PANEL_HEADER_ACTION_CLASS,
-                    hasReachedSplitLimit && "cursor-not-allowed opacity-45 hover:bg-transparent",
-                  )}
-                  onClick={onSplitTerminalVerticalAction}
-                  label={splitTerminalVerticalActionLabel}
-                >
-                  <SquareSplitVertical className="size-3.5" />
-                </TerminalActionButton>
-                <TerminalActionButton
-                  className={PANEL_HEADER_ACTION_CLASS}
-                  onClick={onNewTerminalAction}
-                  label={newTerminalActionLabel}
-                >
-                  <Plus className="size-3.5" />
-                </TerminalActionButton>
-                <TerminalActionButton
-                  className={cn(
-                    PANEL_HEADER_ACTION_CLASS,
-                    "text-muted-foreground hover:bg-destructive/15 hover:text-destructive",
-                  )}
-                  onClick={() => confirmCloseTerminal(resolvedActiveTerminalId)}
-                  label={closeTerminalActionLabel}
-                >
-                  <Trash2 className="size-3.5" />
-                </TerminalActionButton>
-              </>
-            )
-          }
-        >
-          <span className="min-w-0 truncate font-mono text-xs text-foreground">
-            {terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
-          </span>
-        </PanelSurfaceHeader>
       ) : null}
 
       {!isPanel && !hasTerminalSidebar && (
@@ -1593,59 +1744,69 @@ export default function ThreadTerminalDrawer({
                         }
                       }}
                     >
-                      <div className="h-full">
-                        <TerminalViewport
-                          advancedTypography={advancedTypography}
-                          threadRef={threadRef}
-                          threadId={threadId}
-                          terminalId={terminalId}
-                          terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
-                          cwd={terminalLaunchLocation.cwd}
-                          {...(terminalLaunchLocation.worktreePath !== undefined
-                            ? { worktreePath: terminalLaunchLocation.worktreePath }
-                            : {})}
-                          {...(terminalLaunchLocation.runtimeEnv
-                            ? { runtimeEnv: terminalLaunchLocation.runtimeEnv }
-                            : {})}
-                          onSessionExited={() => onCloseTerminal(terminalId)}
-                          onAddTerminalContext={onAddTerminalContext}
-                          focusRequestId={focusRequestId}
-                          autoFocus={terminalId === resolvedActiveTerminalId}
-                          visible={visible}
-                          resizeEpoch={resizeEpoch}
-                          drawerHeight={drawerHeight}
-                          keybindings={keybindings}
-                        />
+                      <div className="flex h-full min-h-0 flex-col">
+                        {isPanel
+                          ? paneHeader(terminalId, visibleTerminalIds.indexOf(terminalId))
+                          : null}
+                        <div className="min-h-0 flex-1">
+                          <TerminalViewport
+                            advancedTypography={advancedTypography}
+                            threadRef={threadRef}
+                            threadId={threadId}
+                            terminalId={terminalId}
+                            terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
+                            cwd={terminalLaunchLocation.cwd}
+                            {...(terminalLaunchLocation.worktreePath !== undefined
+                              ? { worktreePath: terminalLaunchLocation.worktreePath }
+                              : {})}
+                            {...(terminalLaunchLocation.runtimeEnv
+                              ? { runtimeEnv: terminalLaunchLocation.runtimeEnv }
+                              : {})}
+                            onSessionExited={() => onCloseTerminal(terminalId)}
+                            onAddTerminalContext={onAddTerminalContext}
+                            onLocalAddressChange={onLocalAddressChange}
+                            focusRequestId={focusRequestId}
+                            autoFocus={terminalId === resolvedActiveTerminalId}
+                            visible={visible}
+                            resizeEpoch={resizeEpoch}
+                            drawerHeight={drawerHeight}
+                            keybindings={keybindings}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="h-full">
-                <TerminalViewport
-                  advancedTypography={advancedTypography}
-                  key={resolvedActiveTerminalId}
-                  threadRef={threadRef}
-                  threadId={threadId}
-                  terminalId={resolvedActiveTerminalId}
-                  terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
-                  cwd={activeTerminalLaunchLocation.cwd}
-                  {...(activeTerminalLaunchLocation.worktreePath !== undefined
-                    ? { worktreePath: activeTerminalLaunchLocation.worktreePath }
-                    : {})}
-                  {...(activeTerminalLaunchLocation.runtimeEnv
-                    ? { runtimeEnv: activeTerminalLaunchLocation.runtimeEnv }
-                    : {})}
-                  onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
-                  onAddTerminalContext={onAddTerminalContext}
-                  focusRequestId={focusRequestId}
-                  autoFocus
-                  visible={visible}
-                  resizeEpoch={resizeEpoch}
-                  drawerHeight={drawerHeight}
-                  keybindings={keybindings}
-                />
+              <div className="flex h-full min-h-0 flex-col">
+                {isPanel ? paneHeader(resolvedActiveTerminalId, 0) : null}
+                <div className="min-h-0 flex-1">
+                  <TerminalViewport
+                    advancedTypography={advancedTypography}
+                    key={resolvedActiveTerminalId}
+                    threadRef={threadRef}
+                    threadId={threadId}
+                    terminalId={resolvedActiveTerminalId}
+                    terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
+                    cwd={activeTerminalLaunchLocation.cwd}
+                    {...(activeTerminalLaunchLocation.worktreePath !== undefined
+                      ? { worktreePath: activeTerminalLaunchLocation.worktreePath }
+                      : {})}
+                    {...(activeTerminalLaunchLocation.runtimeEnv
+                      ? { runtimeEnv: activeTerminalLaunchLocation.runtimeEnv }
+                      : {})}
+                    onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
+                    onAddTerminalContext={onAddTerminalContext}
+                    onLocalAddressChange={onLocalAddressChange}
+                    focusRequestId={focusRequestId}
+                    autoFocus
+                    visible={visible}
+                    resizeEpoch={resizeEpoch}
+                    drawerHeight={drawerHeight}
+                    keybindings={keybindings}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1776,6 +1937,43 @@ export default function ThreadTerminalDrawer({
           )}
         </div>
       </div>
+      {isPanel ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+          <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
+            Select output to add it to your next message.
+          </span>
+          {footerAddress && isPreviewSupportedInRuntime() ? (
+            <button
+              type="button"
+              className="text-foreground text-xs underline underline-offset-2"
+              onClick={() => openFooterAddress(footerAddress)}
+            >
+              {`Open ${localAddressLabel(footerAddress)} in Browser`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </aside>
+  );
+}
+
+/** "Running" with a solid neutral dot; otherwise a hollow ring and "No process running" or "Finished". */
+function TerminalPaneStatusWord({ status }: { status: TerminalPaneStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap font-medium text-xs",
+        status === "idle" ? "text-muted-foreground" : "text-foreground",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-2 shrink-0 rounded-full",
+          status === "running" ? "bg-foreground" : "border-[1.5px] border-muted-foreground",
+        )}
+      />
+      {TERMINAL_PANE_STATUS_WORD[status]}
+    </span>
   );
 }

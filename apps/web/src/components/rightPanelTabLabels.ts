@@ -4,7 +4,6 @@ import type {
   PullRequestState,
 } from "@e6tools/contracts";
 import { isMacPlatform } from "@e6tools/shared/keybindings";
-import { getTerminalLabel } from "@e6tools/shared/terminalLabels";
 
 import type { RightPanelSurface } from "~/rightPanelStore";
 import { PULL_REQUEST_STATE_PRESENTATION } from "./pullRequest/pullRequestIcons";
@@ -15,6 +14,8 @@ export interface SurfaceTitleState {
   readonly changedFileCount?: number;
   /** Terminals with a running process, for terminal tabs. */
   readonly runningTerminalIds?: ReadonlySet<string>;
+  /** Terminals whose process stopped while out of view, until they are looked at. */
+  readonly finishedTerminalIds?: ReadonlySet<string>;
   /** The resolved lifecycle of a pull request tab, once known. */
   readonly pullRequestStatus?: {
     readonly state: PullRequestState;
@@ -44,7 +45,8 @@ export interface SurfaceTitleParts {
 export function surfaceTitleParts(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
-  terminalLabelsById: ReadonlyMap<string, string>,
+  // Terminal tabs are named "Terminal" (board 16); a pane's own label is in its header.
+  _terminalLabelsById: ReadonlyMap<string, string>,
   state: SurfaceTitleState = {},
 ): SurfaceTitleParts {
   switch (surface.kind) {
@@ -66,11 +68,14 @@ export function surfaceTitleParts(
         state: null,
       };
     case "terminal": {
-      const label =
-        terminalLabelsById.get(surface.activeTerminalId) ??
-        getTerminalLabel(surface.activeTerminalId);
+      // Board 16: "Terminal · 1 running", "Terminal · Finished", or "Terminal". Each pane's own
+      // label is in its header.
       const running = runningTerminalCount(surface, state.runningTerminalIds);
-      return { name: label, state: running > 0 ? `${running} running` : null };
+      if (running > 0) return { name: "Terminal", state: `${running} running` };
+      const finished = surface.terminalIds.some((terminalId) =>
+        state.finishedTerminalIds?.has(terminalId),
+      );
+      return { name: "Terminal", state: finished ? "Finished" : null };
     }
     case "pull-request": {
       const status = state.pullRequestStatus;

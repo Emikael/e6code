@@ -36,6 +36,8 @@ interface OpenTerminalLinkInPreviewInput<E> {
   readonly fallbackToBrowser: () => void;
   /** Cmd/Ctrl-click bypasses the preference and opens in the system browser. */
   readonly forceBrowser: boolean;
+  /** A local address opens in the Browser tab whatever "Open links in" says. */
+  readonly preferApp?: boolean;
 }
 
 /**
@@ -50,7 +52,7 @@ export async function openTerminalLinkInPreview<E>(
     isWebUrl(input.url) &&
     isPreviewSupportedInRuntime() &&
     input.threadRef.threadId.length > 0 &&
-    (await resolveBrowserLinkTargetPreference()) === "app";
+    (input.preferApp === true || (await resolveBrowserLinkTargetPreference()) === "app");
 
   if (!supportsPreview) {
     input.fallbackToBrowser();

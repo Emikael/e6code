@@ -1,0 +1,136 @@
+import { useState } from "react";
+
+/** How much of a pane's output is searched for a local address after each update. */
+const LOCAL_ADDRESS_SCAN_CHARS = 8_192;
+
+// Escape sequences (colors, cursor moves, OSC titles and hyperlinks) sit between the words a dev
+// server prints, so they are dropped before matching.
+// oxlint-disable-next-line no-control-regex
+const ANSI_SEQUENCE =
+  /\u001b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[@-_])/g;
+const LOCAL_ADDRESS =
+  /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?![\w-]|\.\w)(?::\d{1,5})?(?:\/[^\s"'<>`]*)?/gi;
+
+/**
+ * The last local address (localhost, 127.0.0.1, 0.0.0.0 or [::1]) printed near the end of a
+ * pane's output, such as a dev server's "Local: http://localhost:5733/". Only the tail is read,
+ * so a long-running pane does not rescan its whole history on every chunk.
+ */
+export function findLocalAddress(output: string): string | null {
+  const tail = output.slice(-LOCAL_ADDRESS_SCAN_CHARS).replace(ANSI_SEQUENCE, "");
+  const matches = tail.match(LOCAL_ADDRESS);
+  const last = matches?.at(-1);
+  if (!last) return null;
+  // Sentence punctuation after an address is not part of it.
+  const trimmed = last.replace(/[.,;:)\]]+$/, "");
+  // 0.0.0.0 means "every interface"; a browser reaches it as localhost.
+  return trimmed.replace(/^(https?:\/\/)0\.0\.0\.0/i, "$1localhost");
+}
+
+/** The end of a pane's retained output, at least `chars` long when that much is kept. */
+export function terminalOutputTail(
+  chunks: ReadonlyArray<{ readonly data: string }>,
+  chars = LOCAL_ADDRESS_SCAN_CHARS,
+): string {
+  const parts: string[] = [];
+  let length = 0;
+  for (let index = chunks.length - 1; index >= 0 && length < chars; index -= 1) {
+    const data = chunks[index]!.data;
+    parts.push(data);
+    length += data.length;
+  }
+  return parts.reverse().join("");
+}
+
+/** "localhost:5733", or "localhost:5733/settings" when the address has a path. */
+export function localAddressLabel(url: string): string {
+  return url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+
+/** What a pane's header says about its process. */
+export type TerminalPaneStatus = "running" | "finished" | "idle";
+
+export function terminalPaneStatus(
+  terminalId: string,
+  running: ReadonlySet<string>,
+  finished: ReadonlySet<string>,
+): TerminalPaneStatus {
+  if (running.has(terminalId)) return "running";
+  return finished.has(terminalId) ? "finished" : "idle";
+}
+
+export const TERMINAL_PANE_STATUS_WORD: Record<TerminalPaneStatus, string> = {
+  running: "Running",
+  finished: "Finished",
+  idle: "No process running",
+};
+
+/**
+ * The Finished cue: a pane whose process stopped while it was out of view says "Finished" until
+ * it has been looked at, that is, until it comes into view and leaves it again, or runs again.
+ * Returns `finished` itself when nothing changed.
+ */
+export function nextFinishedTerminalIds(input: {
+  readonly finished: ReadonlySet<string>;
+  readonly previousRunning: ReadonlyArray<string>;
+  readonly running: ReadonlyArray<string>;
+  readonly previousInView: ReadonlyArray<string>;
+  readonly inView: ReadonlyArray<string>;
+}): ReadonlySet<string> {
+  const running = new Set(input.running);
+  const inView = new Set(input.inView);
+  let next: Set<string> | null = null;
+  const edit = () => (next ??= new Set(input.finished));
+  for (const terminalId of input.previousRunning) {
+    if (!running.has(terminalId) && !inView.has(terminalId) && !input.finished.has(terminalId)) {
+      edit().add(terminalId);
+    }
+  }
+  for (const terminalId of input.finished) {
+    const seen = input.previousInView.includes(terminalId) && !inView.has(terminalId);
+    if (running.has(terminalId) || seen) edit().delete(terminalId);
+  }
+  return next ?? input.finished;
+}
+
+const NO_TERMINALS: ReadonlyArray<string> = [];
+const NO_FINISHED: ReadonlySet<string> = new Set();
+
+/**
+ * The thread's terminals showing the Finished cue. `running` must keep its identity while it
+ * does not change (`useThreadRunningTerminalIds` does); `inView` is compared by contents.
+ */
+export function useFinishedTerminalIds(
+  threadKey: string,
+  running: ReadonlyArray<string>,
+  /** The terminals on screen; null for none. */
+  inViewOrNull: ReadonlyArray<string> | null,
+): ReadonlySet<string> {
+  const inView = inViewOrNull ?? NO_TERMINALS;
+  const [state, setState] = useState({
+    threadKey,
+    running,
+    inView,
+    finished: NO_FINISHED,
+  });
+  const current =
+    state.threadKey === threadKey
+      ? state
+      : { threadKey, running: NO_TERMINALS, inView: NO_TERMINALS, finished: NO_FINISHED };
+  const sameInView =
+    current.inView.length === inView.length &&
+    current.inView.every((terminalId, index) => inView[index] === terminalId);
+  if (current !== state || current.running !== running || !sameInView) {
+    const finished = nextFinishedTerminalIds({
+      finished: current.finished,
+      previousRunning: current.running,
+      running,
+      previousInView: current.inView,
+      inView,
+    });
+    // Adjusting state while rendering: React re-renders at once with the settled value.
+    setState({ threadKey, running, inView: sameInView ? current.inView : inView, finished });
+    return finished;
+  }
+  return state.finished;
+}
