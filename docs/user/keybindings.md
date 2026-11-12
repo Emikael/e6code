@@ -19,8 +19,10 @@ Use `mod+shift+e` for effort, `mod+shift+a` for permissions, `mod+shift+x` for t
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
-`mod+/` steps effort through Fast, Balanced and Deep, the same steps shown next to the model on
-wider screens and in the model picker. The effort menu keeps every level the model offers.
+`mod+/` steps effort through Fast, Balanced and Deep, the same steps shown in the model picker
+and, with **Settings → Attention → Composer controls** set to Full, next to the model on wider
+screens. The effort menu keeps every level the model offers. While Composer controls is Compact,
+the effort, permissions and mode shortcuts open the one controls chip.
 
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to

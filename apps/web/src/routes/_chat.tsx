@@ -24,6 +24,7 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
+import { useUiStateStore } from "../uiStateStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
@@ -125,6 +126,16 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
+      if (command === "focus.toggle") {
+        // Enters focus on a thread; exits it from anywhere. Escape never exits.
+        const { focusMode, toggleFocusMode } = useUiStateStore.getState();
+        if (!focusMode && !activeThread) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleFocusMode();
+        return;
+      }
+
       if (command === "preview.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -188,6 +199,18 @@ function ChatRouteGlobalShortcuts() {
     legacySidebarEnabled,
     terminalOpen,
   ]);
+
+  // Desktop: View > Focus Mode.
+  const hasActiveThread = activeThread !== null && activeThread !== undefined;
+  useEffect(
+    () =>
+      window.desktopBridge?.onMenuAction?.((action) => {
+        if (action !== "focus.toggle") return;
+        const { focusMode, toggleFocusMode } = useUiStateStore.getState();
+        if (focusMode || hasActiveThread) toggleFocusMode();
+      }),
+    [hasActiveThread],
+  );
 
   return null;
 }

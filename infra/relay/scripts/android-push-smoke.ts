@@ -71,9 +71,9 @@ const main = Effect.gen(function* () {
   }).pipe(Effect.flatMap(decodeDevice));
   const title =
     phase === "completed"
-      ? "Agent finished"
+      ? "Thread completed"
       : phase === "failed"
-        ? "Agent failed"
+        ? "Thread failed"
         : phase === "approval"
           ? "Approval needed"
           : phase === "input"

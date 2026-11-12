@@ -241,6 +241,8 @@ import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { composerControlsSummary } from "./composerControlsSummary";
+import { useFocusModeActive } from "../../hooks/useFocusMode";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -4871,9 +4873,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onComposerOverlayHeightChange,
   );
 
+  const focusModeActive = useFocusModeActive();
+  // "Composer controls: Compact" folds effort, permissions and Plan or Build into the
+  // overflow chip at every width; the measured layout only decides in Full.
+  const composerControlsCompact =
+    settings.composerControls === "compact" && !composerControlsInStrip;
   const restingHiddenBlockCount = composerControlsInStrip
     ? restingControlsHiddenBlockCount
-    : expandedControlsLayout.hiddenBlockCount;
+    : composerControlsCompact
+      ? providerTraitsPicker
+        ? 2
+        : 1
+      : expandedControlsLayout.hiddenBlockCount;
   const iconOnlyBlockCount = composerControlsInStrip
     ? restingControlsIconOnlyBlockCount
     : expandedControlsLayout.iconOnlyBlockCount;
@@ -5013,7 +5024,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         keybindings={keybindings}
         modelOptionsByInstance={modelOptionsByInstance}
         size={composerControlsInStrip ? "xs" : "sm"}
-        {...(composerControlsInStrip ? {} : { triggerVariant: "outline" as const })}
+        {...(composerControlsInStrip || composerControlsCompact
+          ? {}
+          : { triggerVariant: "outline" as const })}
         triggerClassName={
           composerControlsInStrip
             ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
@@ -5043,6 +5056,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }}
         onOpenProviderSetup={onOpenProviderSetup}
         effortControl={effortSegmentControl}
+        hideEffortInLabel={composerControlsCompact}
       />
 
       <>
@@ -5082,6 +5096,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             runtimeMode={runtimeMode}
             size={composerControlsInStrip ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
+            {...(composerControlsCompact
+              ? {
+                  summary: composerControlsSummary({
+                    effort: effortSegmentControl,
+                    runtimeMode,
+                    interactionMode: planModeUiEnabled ? interactionMode : null,
+                  }),
+                }
+              : {})}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
@@ -5111,6 +5134,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsStashMenuOpen(false);
   }, [prompt]);
 
+  // Mod+S and the footer's "Park it" button: stash the draft, or with an
+  // empty draft open (or restore) what was stashed.
+  const parkDraft = useCallback(() => {
+    if (isRevertingCheckpoint) return;
+    if (pendingUserInputs.length > 0 && !isComposerApprovalState) {
+      setIsStashMenuOpen((open) => !open);
+      return;
+    }
+    if (isComposerApprovalState || projectSelectionRequired || activePendingProgress !== null) {
+      return;
+    }
+    void stashCurrentPrompt();
+  }, [
+    activePendingProgress,
+    isComposerApprovalState,
+    isRevertingCheckpoint,
+    pendingUserInputs.length,
+    projectSelectionRequired,
+    stashCurrentPrompt,
+  ]);
+
+  const parkShortcutLabel = shortcutLabelForCommand(keybindings, "composer.stash", {
+    context: { terminalFocus: false, terminalOpen, modelPickerOpen: false },
+  });
+
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       const command = resolveShortcutCommand(event, keybindings, {
@@ -5125,31 +5173,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // even when the composer is in a state that can't stash.
       event.preventDefault();
       event.stopPropagation();
-      if (isCommandPaletteOpen() || isRevertingCheckpoint) {
-        return;
-      }
-      if (pendingUserInputs.length > 0 && !isComposerApprovalState) {
-        setIsStashMenuOpen((open) => !open);
-        return;
-      }
-      if (isComposerApprovalState || projectSelectionRequired || activePendingProgress !== null) {
-        return;
-      }
-      void stashCurrentPrompt();
+      if (isCommandPaletteOpen()) return;
+      parkDraft();
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [
-    activePendingProgress,
-    isComposerApprovalState,
-    isComposerModelPickerOpen,
-    keybindings,
-    pendingUserInputs.length,
-    projectSelectionRequired,
-    stashCurrentPrompt,
-    isRevertingCheckpoint,
-    terminalOpen,
-  ]);
+  }, [isComposerModelPickerOpen, keybindings, parkDraft, terminalOpen]);
 
   // ------------------------------------------------------------------
   // Callbacks: attachments
@@ -6773,6 +6802,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       projectSelectionRequired,
                       providerUnavailable: showProviderUnavailable,
                       phase,
+                      focusMode: focusModeActive,
                     })}
                     disabled={
                       isConnecting ||
@@ -6865,7 +6895,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         render={
                           <Button
                             type="button"
-                            variant="outline"
+                            variant={composerControlsCompact ? "ghost" : "outline"}
                             size="icon-sm"
                             className="size-[30px] rounded-lg shadow-none sm:size-[30px]"
                             onPointerDown={(event) => event.preventDefault()}
@@ -6903,6 +6933,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {pendingUserInputs.length === 0 && !projectSelectionRequired ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="hidden sm:inline-flex"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={parkDraft}
+                          />
+                        }
+                      >
+                        Park it
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        Keep this draft for later
+                        {parkShortcutLabel ? ` (${parkShortcutLabel})` : ""}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={

@@ -61,6 +61,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
   effortControl?: EffortSegmentControl | null;
+  /** The compact composer chip names the effort, so the model chip leaves it out. */
+  hideEffortInLabel?: boolean;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
@@ -273,7 +275,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             >
               {props.triggerLabel ??
                 multipleLabel ??
-                formatModelChipLabel(triggerTitle, props.effortControl)}
+                formatModelChipLabel(
+                  triggerTitle,
+                  props.hideEffortInLabel ? null : props.effortControl,
+                )}
             </TooltipTrigger>
             <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
           </Tooltip>

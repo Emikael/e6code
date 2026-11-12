@@ -209,10 +209,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "composer-controls",
+    title: "Composer controls",
+    to: "/settings/attention",
+    searchTerms: ["attention composer compact full chip effort permissions plan build mode footer"],
+  },
+  {
     id: "recap-trigger",
     title: "Show where you left off",
     to: "/settings/attention",
     searchTerms: ["attention recap where was i left off summary break away return catch up"],
+  },
+  {
+    id: "focus-holds-finished",
+    title: "Hold finished threads in focus mode",
+    to: "/settings/attention",
+    searchTerms: ["attention focus mode hold finished notifications digest quiet"],
   },
   {
     id: "sidebar-elapsed-time",

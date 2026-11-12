@@ -32,6 +32,7 @@ export interface PersistedUiState {
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
   runDetailsSectionOpen?: Record<string, boolean>;
+  focusMode?: boolean;
 }
 
 export interface UiProjectState {
@@ -65,8 +66,29 @@ export interface UiRunDetailsState {
   runDetailsSectionOpen: Partial<Record<RunDetailsSectionId, boolean>>;
 }
 
+/**
+ * Focus mode (F6): one thread, no periphery. A render-time override: while on,
+ * the sidebar, right panel and terminal drawer render closed without writing
+ * their own state, so leaving focus shows them exactly as they were.
+ */
+export interface UiFocusState {
+  /** Persisted, so a reload stays in focus. */
+  focusMode: boolean;
+  /**
+   * The right panel was opened during focus (Mod+D, Review diff), so it shows
+   * until closed. Not persisted: a reload in focus starts with it closed.
+   */
+  focusPanelPeek: boolean;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiRunDetailsState {}
+  extends
+    UiProjectState,
+    UiThreadState,
+    UiEndpointState,
+    UiPullRequestState,
+    UiRunDetailsState,
+    UiFocusState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -77,6 +99,8 @@ const initialState: UiState = {
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
   runDetailsSectionOpen: {},
+  focusMode: false,
+  focusPanelPeek: false,
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -183,6 +207,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
     runDetailsSectionOpen: sanitizeRunDetailsSectionOpen(parsed.runDetailsSectionOpen),
+    focusMode: parsed.focusMode === true,
+    focusPanelPeek: false,
   };
 }
 
@@ -258,6 +284,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
         runDetailsSectionOpen: state.runDetailsSectionOpen,
+        focusMode: state.focusMode,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -384,6 +411,17 @@ function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMetho
     : { ...state, pullRequestMergeMethod: method };
 }
 
+/** Entering or leaving focus starts with the right panel hidden again. */
+export function setFocusMode(state: UiState, focusMode: boolean): UiState {
+  if (state.focusMode === focusMode && !state.focusPanelPeek) return state;
+  return { ...state, focusMode, focusPanelPeek: false };
+}
+
+export function setFocusPanelPeek(state: UiState, peek: boolean): UiState {
+  if (!state.focusMode || state.focusPanelPeek === peek) return state;
+  return { ...state, focusPanelPeek: peek };
+}
+
 export function resolveProjectExpanded(
   projectExpandedById: Readonly<Record<string, boolean>>,
   preferenceKeys: readonly string[],
@@ -469,6 +507,9 @@ interface UiStateStore extends UiState {
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setRunDetailsSectionOpen: (section: RunDetailsSectionId, open: boolean) => void;
+  setFocusMode: (focusMode: boolean) => void;
+  toggleFocusMode: () => void;
+  setFocusPanelPeek: (peek: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -492,6 +533,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setRunDetailsSectionOpen: (section, open) =>
     set((state) => setRunDetailsSectionOpen(state, section, open)),
+  setFocusMode: (focusMode) => set((state) => setFocusMode(state, focusMode)),
+  toggleFocusMode: () => set((state) => setFocusMode(state, !state.focusMode)),
+  setFocusPanelPeek: (peek) => set((state) => setFocusPanelPeek(state, peek)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>

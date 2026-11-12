@@ -27,6 +27,14 @@ describe("DEFAULT_KEYBINDINGS", () => {
   });
 });
 
+describe("focus.toggle", () => {
+  it("binds Mod+Alt+Z to focus mode, and nothing else to it", () => {
+    expect(DEFAULT_KEYBINDINGS.filter((binding) => binding.key === "mod+alt+z")).toEqual([
+      { key: "mod+alt+z", command: "focus.toggle" },
+    ]);
+  });
+});
+
 describe("Diff review keys", () => {
   it("answer V, J and K only while the Diff tab has focus and no field does", () => {
     expect(

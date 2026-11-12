@@ -19,6 +19,7 @@ import {
 } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { useFocusModeActive } from "../hooks/useFocusMode";
 import { useLegacySidebarEnabled } from "../hooks/useSettings";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import {
@@ -42,6 +43,8 @@ import {
 } from "./threadSidebarWidth";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+function ignoreSidebarOpenChange() {}
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
 
@@ -184,6 +187,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // Narrow windows keep the sheet sidebar, which already carries the same destinations.
   const isMobile = useIsMobile();
   const showsRail = showsAppNavRail(pathname) && !isMobile;
+  // Focus mode renders the thread sidebar collapsed but keeps it mounted (it owns next and
+  // previous thread), and never writes its open state, so exit restores it as it was.
+  const focusModeActive = useFocusModeActive() && !showsRail;
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render
@@ -266,6 +272,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         // The rail cannot be hidden, so the layout reads as an open sidebar while it shows. The
         // thread sidebar's own open state is left as the reader set it.
         {...(showsRail ? { open: true } : {})}
+        {...(focusModeActive ? { open: false, onOpenChange: ignoreSidebarOpenChange } : {})}
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
@@ -308,7 +315,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           </Sidebar>
         )}
         {children}
-        {showsRail ? null : <SidebarControl />}
+        {showsRail || focusModeActive ? null : <SidebarControl />}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

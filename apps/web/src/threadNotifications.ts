@@ -6,6 +6,11 @@ export function canRequestSystemNotifications(): boolean {
   return typeof Notification !== "undefined" && window.isSecureContext;
 }
 
+/** Whether a system notification can be shown now: supported, secure and allowed. */
+export function systemNotificationsAvailable(): boolean {
+  return canRequestSystemNotifications() && Notification.permission === "granted";
+}
+
 /**
  * The desktop dock badge (Windows: taskbar overlay) as a standing count of
  * threads blocked on you, equal to the sidebar's Needs you badge.

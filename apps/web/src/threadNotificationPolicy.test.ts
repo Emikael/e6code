@@ -4,8 +4,10 @@ import {
   DIGEST_IDLE_BREAKPOINT_MS,
   DIGEST_MAX_HOLD_MS,
   formatWorkedDuration,
+  groupThreadDeliveries,
   nextDigestFlushAtMs,
   resolveThreadNotificationDelivery,
+  selectHeldForFlush,
   threadNotificationBody,
   type ThreadNotificationContext,
 } from "./threadNotificationPolicy";
@@ -20,6 +22,8 @@ function deliver(overrides: Partial<ThreadNotificationContext>) {
   return resolveThreadNotificationDelivery({
     event: "blocked",
     windowFocused: true,
+    anotherWindowFocused: false,
+    systemNotificationsAvailable: true,
     isOpenThread: false,
     watched: false,
     focusHold: false,
@@ -93,6 +97,110 @@ describe("resolveThreadNotificationDelivery", () => {
         windowFocused: false,
       }),
     ).toBe("os");
+  });
+});
+
+describe("without system notifications", () => {
+  const unavailable = { systemNotificationsAvailable: false, windowFocused: false } as const;
+
+  it("holds a blocked agent for your return instead of dropping it", () => {
+    expect(deliver(unavailable)).toBe("held");
+    expect(deliver({ ...unavailable, isOpenThread: true })).toBe("held");
+  });
+
+  it("holds watched and every-update finishes with the digest", () => {
+    const all = { ...standard, attentionNotifications: "all" } as const;
+    expect(deliver({ ...unavailable, event: "finished", watched: true })).toBe("digest");
+    expect(deliver({ ...unavailable, event: "finished", settings: all })).toBe("digest");
+  });
+
+  it("changes nothing while the window has focus", () => {
+    expect(deliver({ systemNotificationsAvailable: false })).toBe("toast");
+  });
+});
+
+describe("with another window focused", () => {
+  it("leaves the notice to the focused window", () => {
+    const away = { windowFocused: false, anotherWindowFocused: true } as const;
+    expect(deliver(away)).toBe("none");
+    expect(deliver({ ...away, event: "finished", watched: true })).toBe("none");
+    expect(deliver({ ...away, event: "finished" })).toBe("none");
+  });
+
+  it("still delivers in the focused window", () => {
+    expect(deliver({ anotherWindowFocused: true })).toBe("toast");
+  });
+});
+
+describe("selectHeldForFlush", () => {
+  const notice = (
+    key: string,
+    kind: "approval" | "completion",
+    heldAtMs: number,
+    watched = false,
+  ) => ({ key, kind, heldAtMs, watched });
+  const none = new Map<string, number>();
+
+  it("gives blocked and watched items their own toast and digests the rest, oldest first", () => {
+    const held = [
+      notice("c", "completion", 30),
+      notice("a", "approval", 10),
+      notice("w", "completion", 20, true),
+      notice("d", "completion", 5),
+    ];
+    const result = selectHeldForFlush(held, {
+      openThreadKey: null,
+      visitedAtMsByKey: none,
+      focusHold: false,
+    });
+    expect(result.own.map((item) => item.key)).toEqual(["a", "w"]);
+    expect(result.digest.map((item) => item.key)).toEqual(["d", "c"]);
+    expect(result.keep).toEqual([]);
+  });
+
+  it("drops what you have open, or opened after it was held", () => {
+    const held = [
+      notice("open", "approval", 10),
+      notice("seen", "completion", 10),
+      notice("before", "completion", 10),
+    ];
+    const result = selectHeldForFlush(held, {
+      openThreadKey: "open",
+      visitedAtMsByKey: new Map([
+        ["seen", 15],
+        ["before", 5],
+      ]),
+      focusHold: false,
+    });
+    expect(result.own).toEqual([]);
+    expect(result.digest.map((item) => item.key)).toEqual(["before"]);
+  });
+
+  it("keeps finishes in focus mode but lets blocked items through", () => {
+    const held = [notice("a", "approval", 1), notice("w", "completion", 2, true)];
+    const result = selectHeldForFlush(held, {
+      openThreadKey: null,
+      visitedAtMsByKey: none,
+      focusHold: true,
+    });
+    expect(result.own.map((item) => item.key)).toEqual(["a"]);
+    expect(result.keep.map((item) => item.key)).toEqual(["w"]);
+  });
+});
+
+describe("groupThreadDeliveries", () => {
+  it("joins several finishes delivered the same way into one", () => {
+    const groups = groupThreadDeliveries([
+      { notice: { id: 1, kind: "completion" as const }, delivery: "toast" },
+      { notice: { id: 2, kind: "approval" as const }, delivery: "toast" },
+      { notice: { id: 3, kind: "completion" as const }, delivery: "toast" },
+      { notice: { id: 4, kind: "completion" as const }, delivery: "os" },
+    ]);
+    expect(groups.map((group) => [group.delivery, group.notices.map((n) => n.id)])).toEqual([
+      ["toast", [2]],
+      ["toast", [1, 3]],
+      ["os", [4]],
+    ]);
   });
 });
 

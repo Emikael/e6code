@@ -1,9 +1,12 @@
 # Permission modes
 
 Permission modes control when an agent needs your approval to act. Choose a mode in the message
-composer; it applies to that thread. In a thread on your default mode, open **Permissions** from
-the effort menu or press `mod+shift+a`. A thread on another mode, or a model without an effort
-menu, shows the mode next to the model.
+composer; it applies to that thread. The composer's controls chip names the effort, the mode and
+Plan or Build ("Balanced · Supervised · Build"); open it or press `mod+shift+a`. **Full access**
+is always shown in the warning color. With **Settings → Attention → Composer controls** set to
+Full, each control has its own button: in a thread on your default mode, **Permissions** sits in
+the effort menu, and a thread on another mode, or a model without an effort menu, shows the mode
+next to the model.
 
 Set the default for new threads in **Settings → General → New threads → Permissions**.
 Projects can override the environment default. New threads use this setting rather than the

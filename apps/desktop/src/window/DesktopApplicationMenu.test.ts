@@ -152,6 +152,31 @@ describe("DesktopApplicationMenu", () => {
     }),
   );
 
+  it.effect("routes View > Focus Mode through the renderer, without an accelerator", () =>
+    Effect.gen(function* () {
+      const selectedAction = yield* Deferred.make<string>();
+      const applicationMenuTemplate =
+        yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+
+      yield* configureMenu(selectedAction, applicationMenuTemplate);
+
+      const template = yield* Deferred.await(applicationMenuTemplate);
+      const viewMenu = template.find((item) => item.label === "View");
+      if (!Array.isArray(viewMenu?.submenu)) {
+        throw new Error("Expected View menu submenu to be an array.");
+      }
+      const focusItem = viewMenu.submenu.find((item) => item.label === "Focus Mode");
+      assert.isDefined(focusItem);
+      assert.isUndefined(focusItem.accelerator);
+      if (typeof focusItem.click !== "function") {
+        throw new Error("Expected Focus Mode menu item to have a click handler.");
+      }
+
+      focusItem.click({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
+      assert.equal(yield* Deferred.await(selectedAction), "focus.toggle");
+    }),
+  );
+
   it.effect("owns Paste as Text and routes it through the renderer", () =>
     Effect.gen(function* () {
       const selectedAction = yield* Deferred.make<string>();

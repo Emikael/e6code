@@ -7,10 +7,12 @@ import type { ClientSettings } from "@e6tools/contracts/settings";
  *
  * - `os`: a system notification now (the window is in the background).
  * - `toast`: an in-app toast now.
+ * - `held`: kept until you return to the window, then shown as its own toast.
+ *   A blocked agent lands here when system notifications are unavailable.
  * - `digest`: held until the next breakpoint, then shown as a toast.
- * - `none`: nothing extra; the thread view already shows it.
+ * - `none`: nothing extra; the thread view, or another window, already shows it.
  */
-export type ThreadNotificationDelivery = "os" | "toast" | "digest" | "none";
+export type ThreadNotificationDelivery = "os" | "toast" | "held" | "digest" | "none";
 
 /** `blocked`: an approval, a question or a failure. `finished`: a turn completed. */
 export type ThreadNotificationEvent = "blocked" | "finished";
@@ -24,6 +26,14 @@ export interface ThreadNotificationContext {
   readonly event: ThreadNotificationEvent;
   /** The window is visible and has focus. */
   readonly windowFocused: boolean;
+  /** Another window of the app, on this origin, has focus and delivers instead. */
+  readonly anotherWindowFocused: boolean;
+  /**
+   * System notifications can be shown: permission granted in a secure
+   * context. False on a fresh web profile, after "Not now" or a denial, and
+   * on plain-http remote origins.
+   */
+  readonly systemNotificationsAvailable: boolean;
   /** The thread is the one open in this window. */
   readonly isOpenThread: boolean;
   /** You sent the turn that just ended and asked to hear when it finishes. */
@@ -40,19 +50,87 @@ export function resolveThreadNotificationDelivery(
   if (settings.attentionNotifications === "off") return "none";
   // The thread in front of you already shows its own state.
   if (windowFocused && isOpenThread) return "none";
-  if (event === "blocked") return windowFocused ? "toast" : "os";
+  // The focused window raises its own toast; a second notice here would repeat it.
+  if (!windowFocused && context.anotherWindowFocused) return "none";
+  if (event === "blocked") {
+    if (windowFocused) return "toast";
+    return context.systemNotificationsAvailable ? "os" : "held";
+  }
 
   const watched = context.watched && settings.notifyWatchedThreads;
   // In focus mode only the focused thread's own completion comes through.
   if (context.focusHold && !isOpenThread) return "digest";
   if (watched || settings.attentionNotifications === "all") {
-    if (!windowFocused) return "os";
+    // Without system notifications a finish waits for your return, like the digest.
+    if (!windowFocused) return context.systemNotificationsAvailable ? "os" : "digest";
     return watched && settings.holdFinishedUntilBreakpoint ? "digest" : "toast";
   }
   // Under "blocked", other finished threads never raise a system
   // notification; with nobody looking they wait for the window to return.
   if (!windowFocused || settings.holdFinishedUntilBreakpoint) return "digest";
   return "toast";
+}
+
+interface HeldThreadNotice {
+  readonly key: string;
+  readonly kind: ThreadNotificationKind;
+  readonly watched: boolean;
+  readonly heldAtMs: number;
+}
+
+/**
+ * Splits what was held when a breakpoint comes. Items for the thread you
+ * have open, or opened after they were held, are dropped: you have seen them.
+ * Blocked items and watched finishes get their own toast; other finishes
+ * share one digest. Focus mode keeps the finishes for later.
+ */
+export function selectHeldForFlush<T extends HeldThreadNotice>(
+  held: ReadonlyArray<T>,
+  input: {
+    readonly openThreadKey: string | null;
+    readonly visitedAtMsByKey: ReadonlyMap<string, number>;
+    readonly focusHold: boolean;
+  },
+): { readonly own: T[]; readonly digest: T[]; readonly keep: T[] } {
+  const own: T[] = [];
+  const digest: T[] = [];
+  const keep: T[] = [];
+  for (const notice of [...held].sort((a, b) => a.heldAtMs - b.heldAtMs)) {
+    if (notice.key === input.openThreadKey) continue;
+    const visitedAtMs = input.visitedAtMsByKey.get(notice.key);
+    if (visitedAtMs !== undefined && visitedAtMs >= notice.heldAtMs) continue;
+    if (notice.kind !== "completion") own.push(notice);
+    else if (input.focusHold) keep.push(notice);
+    else if (notice.watched) own.push(notice);
+    else digest.push(notice);
+  }
+  return { own, digest, keep };
+}
+
+/**
+ * Groups one pass of deliveries. More than one finish delivered the same way
+ * (toast or system notification) becomes a single "N threads finished";
+ * blocked items and a lone finish stay their own notice.
+ */
+export function groupThreadDeliveries<T extends { readonly kind: ThreadNotificationKind }>(
+  deliveries: ReadonlyArray<{ readonly notice: T; readonly delivery: "os" | "toast" }>,
+): Array<{ readonly delivery: "os" | "toast"; readonly notices: T[] }> {
+  const groups: Array<{ delivery: "os" | "toast"; notices: T[] }> = [];
+  const finished = { os: [] as T[], toast: [] as T[] };
+  for (const { notice, delivery } of deliveries) {
+    if (notice.kind === "completion") finished[delivery].push(notice);
+    else groups.push({ delivery, notices: [notice] });
+  }
+  for (const delivery of ["toast", "os"] as const) {
+    const notices = finished[delivery];
+    if (notices.length > 0) groups.push({ delivery, notices });
+  }
+  return groups;
+}
+
+/** "2 threads finished". */
+export function finishedDigestTitle(count: number): string {
+  return `${count} threads finished`;
 }
 
 /** Twenty seconds without a key or pointer press counts as a pause. */

@@ -235,6 +235,13 @@ export type AttentionNotifications = typeof AttentionNotifications.Type;
 export const RecapTrigger = Schema.Literals(["after-break", "always", "never"]);
 export type RecapTrigger = typeof RecapTrigger.Type;
 
+/**
+ * How the composer footer shows effort, permissions and Plan or Build:
+ * folded into one chip that names their values, or as separate controls.
+ */
+export const ComposerControls = Schema.Literals(["compact", "full"]);
+export type ComposerControls = typeof ComposerControls.Type;
+
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
 const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
@@ -512,6 +519,11 @@ export const ClientSettingsSchema = Schema.Struct({
   recapTrigger: RecapTrigger.pipe(
     Schema.withDecodingDefault(Effect.succeed("after-break" as const)),
   ),
+  composerControls: ComposerControls.pipe(
+    Schema.withDecodingDefault(Effect.succeed("compact" as const)),
+  ),
+  /** Focus mode holds other finished threads until you exit it. */
+  focusHoldsFinished: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -552,6 +564,26 @@ export const ClientSettingsSchema = Schema.Struct({
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
+
+/**
+ * Carries a choice made under a retired key into its fresh key before
+ * decoding. Run it on stored client settings, not on patches. The old key is
+ * dropped on the next save, so this applies once.
+ *
+ * - `notificationMode` "sound" or "notifications-and-sound" turns on
+ *   `attentionSoundEnabled`, so nobody loses the sound they chose.
+ */
+export function carryRetiredClientSettings(stored: unknown): unknown {
+  if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return stored;
+  const mode: unknown = Reflect.get(stored, "notificationMode");
+  if (
+    (mode === "sound" || mode === "notifications-and-sound") &&
+    !Object.hasOwn(stored, "attentionSoundEnabled")
+  ) {
+    return { ...stored, attentionSoundEnabled: true };
+  }
+  return stored;
+}
 
 // ── Server Settings (server-authoritative) ────────────────────
 
@@ -1724,6 +1756,8 @@ export const ClientSettingsPatch = Schema.Struct({
   needsYouSectionEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarElapsedTimeEnabled: Schema.optionalKey(Schema.Boolean),
   recapTrigger: Schema.optionalKey(RecapTrigger),
+  composerControls: Schema.optionalKey(ComposerControls),
+  focusHoldsFinished: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

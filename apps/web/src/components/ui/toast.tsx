@@ -66,6 +66,15 @@ export type ThreadToastData = {
   /** When set with `expandableContent`, the summary + label act as one text disclosure (no separate chevron row). */
   expandableDescriptionTrigger?: boolean;
   actionLayout?: "inline" | "stacked-end";
+  /** Height of the primary action: `xs` (24px, the default) or `sm` (28px). */
+  actionSize?: "xs" | "sm";
+  /** A short mono cue at the end of the title row, such as "now". */
+  trailingMeta?: string;
+  /**
+   * Makes the whole toast one button (keyboard-reachable) that closes the
+   * toast and runs `onActivate`. Use it instead of an action button.
+   */
+  activate?: { readonly label: string; readonly onActivate: () => void };
   actionVariant?:
     | "default"
     | "destructive"
@@ -368,6 +377,11 @@ function ToastBodyContent({
             </div>
           ) : null}
           <Toast.Title className="min-w-0 wrap-break-word font-medium" data-slot="toast-title" />
+          {toastData?.trailingMeta ? (
+            <span className="ml-auto flex h-lh shrink-0 items-center font-mono text-[11px] text-muted-foreground tabular-nums">
+              {toastData.trailingMeta}
+            </span>
+          ) : null}
         </div>
         <ToastDescriptionAndExpandable
           toastData={toastData}
@@ -404,7 +418,10 @@ function ToastBodyContent({
           ) : null}
           {hasVisibleToastAction(actionProps) ? (
             <Toast.Action
-              className={cn(buttonVariants({ size: "xs", variant: actionVariant }), "shrink-0")}
+              className={cn(
+                buttonVariants({ size: toastData?.actionSize ?? "xs", variant: actionVariant }),
+                "shrink-0",
+              )}
               data-slot="toast-action"
             >
               {actionProps?.children}
@@ -588,7 +605,7 @@ function Toasts({ position }: { position: ToastPosition }) {
           return (
             <Toast.Root
               className={cn(
-                "dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none rounded-lg text-popover-foreground shadow-xl shadow-black/25 [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                "group/toast dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none rounded-lg text-popover-foreground shadow-xl shadow-black/25 [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
                 "data-[position*=left]:right-auto data-[position*=left]:left-0",
@@ -661,6 +678,23 @@ function Toasts({ position }: { position: ToastPosition }) {
                 dismissAfterVisibleMs={toast.data?.dismissAfterVisibleMs}
                 toastId={toast.id}
               />
+              {toast.data?.activate ? (
+                <button
+                  aria-label={toast.data.activate.label}
+                  className={cn(
+                    "absolute inset-0 z-10 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    hideCollapsedContent &&
+                      "pointer-events-none group-data-expanded/toast:pointer-events-auto",
+                  )}
+                  data-slot="toast-activate"
+                  onClick={() => {
+                    const { onActivate } = toast.data?.activate ?? {};
+                    toastManager.close(toast.id);
+                    onActivate?.();
+                  }}
+                  type="button"
+                />
+              ) : null}
               <div className={toastCornerDismissClass}>
                 <button
                   aria-label="Dismiss notification"
