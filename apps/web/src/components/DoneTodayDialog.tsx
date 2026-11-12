@@ -34,7 +34,7 @@ import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { useClientSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useThreadAttention } from "../hooks/useThreadAttention";
-import { nextLocalDateKey } from "../parkedThoughts";
+import { nextLocalDateKey, PARKED_INPUT_MAX_CHARS, parkedLengthCount } from "../parkedThoughts";
 import { PARKED_FULL_MESSAGE, usePromptStashStore } from "../promptStashStore";
 import { readEnvironmentSupportsSnooze, useProjects, useThreadShells } from "../state/entities";
 import { useEnvironments } from "../state/environments";
@@ -348,12 +348,14 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
           id={noteId}
           rows={3}
           value={note}
+          maxLength={PARKED_INPUT_MAX_CHARS}
           onChange={(event) => setNote(event.target.value)}
           aria-describedby={`${noteId}-hint`}
           className="w-full resize-none rounded-lg border border-input bg-card px-2.5 py-2 text-sm leading-[22px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
         />
         <span id={`${noteId}-hint`} className="text-xs leading-4 text-muted-foreground">
           Shown above the composer when you come back.
+          {parkedLengthCount(note.length) ? ` ${parkedLengthCount(note.length)}` : null}
         </span>
       </div>
       <span className="grow" />

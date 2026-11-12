@@ -5,6 +5,7 @@
  * An environment with `parkedSync` holds them (phase 20); otherwise they stay
  * on this device.
  */
+import { PARKED_TEXT_MAX_CHARS } from "@e6tools/contracts";
 import { create } from "zustand";
 
 import {
@@ -46,7 +47,14 @@ export function selectFirstThing(
   for (const entry of entries) {
     if (parkedEntryKind(entry) !== "thought" || entry.pinnedFor === undefined) continue;
     if (entry.pinnedFor > today) continue;
-    if (!first || entry.pinnedFor > (first.pinnedFor ?? "")) first = entry;
+    // Two devices may each have pinned one for the same day: the later one leads.
+    if (
+      !first ||
+      entry.pinnedFor > (first.pinnedFor ?? "") ||
+      (entry.pinnedFor === first.pinnedFor && entry.createdAt > first.createdAt)
+    ) {
+      first = entry;
+    }
   }
   return first;
 }
@@ -178,23 +186,31 @@ export const openParkedList = () => useCaptureBarStore.getState().setListOpen(tr
 /** The Parked list as a dialog (command palette), reachable without the sidebar. */
 export const openParkedListDialog = () => useCaptureBarStore.getState().setListDialogOpen(true);
 
+/** The longest thought or note an environment takes; the inputs stop there. */
+export const PARKED_INPUT_MAX_CHARS = PARKED_TEXT_MAX_CHARS;
+
+/** "812 / 1,000" once text nears the limit, so the stop is never a surprise. Null before. */
+export function parkedLengthCount(length: number): string | null {
+  if (length < PARKED_INPUT_MAX_CHARS * 0.8) return null;
+  const format = (count: number) => count.toLocaleString("en-US");
+  return `${format(length)} / ${format(PARKED_INPUT_MAX_CHARS)}`;
+}
+
 /**
  * The Parked list's footer: where the list is kept, said plainly. While no
  * environment holds it, it is this browser's (board 4 says "device", but the
  * desktop app and a browser on one machine keep different lists); once one
- * does, it names where.
+ * does, it names where. A count follows only when something is actually on
+ * its way, or kept here for good while the rest is saved.
  */
-export function parkedHomeLine(
-  home: "device" | "synced" | "uploading",
-  environmentLabels: ReadonlyArray<string>,
-): string {
-  const where = environmentLabels.length === 1 ? environmentLabels[0] : "your environments";
-  switch (home) {
-    case "device":
-      return "Kept in this browser for now.";
-    case "synced":
-      return `Saved on ${where}, so your other devices see it too.`;
-    case "uploading":
-      return "Some are still in this browser, waiting to be saved.";
-  }
+export function parkedFooterLines(
+  footer: { readonly waiting: number; readonly keptHere: number },
+  savedOnLabels: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  if (savedOnLabels.length === 0) return ["Kept in this browser for now."];
+  const where = savedOnLabels.length === 1 ? savedOnLabels[0] : "your environments";
+  const lines = [`Saved on ${where}, so your other devices see it too.`];
+  if (footer.waiting > 0) lines.push(`${footer.waiting} waiting to be saved.`);
+  else if (footer.keptHere > 0) lines.push(`${footer.keptHere} kept only in this browser.`);
+  return lines;
 }

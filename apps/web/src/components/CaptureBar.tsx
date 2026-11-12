@@ -19,7 +19,12 @@ import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { isModelPickerOpen } from "../modelPickerVisibility";
-import { parkThought, useCaptureBarStore } from "../parkedThoughts";
+import {
+  PARKED_INPUT_MAX_CHARS,
+  parkedLengthCount,
+  parkThought,
+  useCaptureBarStore,
+} from "../parkedThoughts";
 import { usePromptStashStore } from "../promptStashStore";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { useProjects } from "../state/entities";
@@ -111,6 +116,7 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
   );
   const projectTitle = selectedOption?.label ?? "No project";
   const empty = text.trim().length === 0;
+  const lengthCount = parkedLengthCount(text.length);
   const openShortcut = shortcutLabelForCommand(keybindings, "capture.park");
   const mac = isMacPlatform(navigator.platform);
 
@@ -192,6 +198,8 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
             autoFocus
             autoComplete="off"
             value={text}
+            maxLength={PARKED_INPUT_MAX_CHARS}
+            aria-describedby={lengthCount ? `${inputId}-count` : undefined}
             placeholder="A thought for later"
             className="min-w-0 flex-1 bg-transparent text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground"
             onChange={(event) => setText(event.target.value)}
@@ -202,6 +210,14 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
               }
             }}
           />
+          {lengthCount ? (
+            <span
+              id={`${inputId}-count`}
+              className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums"
+            >
+              {lengthCount}
+            </span>
+          ) : null}
         </div>
         <div className="h-px bg-border" />
         <div className="flex items-center gap-2 px-3 py-2.5">
