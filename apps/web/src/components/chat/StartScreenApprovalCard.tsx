@@ -42,6 +42,7 @@ import {
   layoutApprovalActions,
 } from "./approvalActions";
 import { asSentence } from "./DraftHeroFooter.logic";
+import { screenFillHolder } from "./composerNeighbors.logic";
 import { HoldToAllowButton } from "./HoldToAllowButton";
 import { useApprovalResponder, useApprovalSwapGuard } from "./useApprovalResponder";
 
@@ -55,6 +56,7 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
   since,
   renderCue,
   onOpen,
+  composerHasText,
 }: {
   thread: EnvironmentThreadShell;
   /** "Codex": names the agent in the headline once the detail arrives. */
@@ -66,6 +68,8 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
   /** "asked 4m ago", for the request shown. */
   renderCue: (since: string) => ReactNode;
   onOpen: () => void;
+  /** The start screen's composer holds a draft: Send has the screen's one fill. */
+  composerHasText: boolean;
 }) {
   const threadState = useEnvironmentThread(thread.environmentId, thread.id);
   const activities = Option.match(threadState.data, {
@@ -202,6 +206,11 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
           />
         ) : layout.approve ? (
           <Button
+            variant={
+              screenFillHolder({ composerHasText, panelHoldsFill: false }) === "card"
+                ? "default"
+                : "outline"
+            }
             className={ACTION_CLASS}
             disabled={busy}
             aria-description={layout.approve.option.warning}

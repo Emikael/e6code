@@ -78,8 +78,17 @@ export function ThreadRecapHost({
   onOpenFile,
   onOpenChanges,
   attachedNotSent,
+  hidden = false,
+  onShowingChange,
 }: {
   threadKey: string;
+  /**
+   * Another card holds the slot above the composer (the permission prompt):
+   * the recap waits, undismissed, until it is free.
+   */
+  hidden?: boolean;
+  /** Whether a recap applies now (shown or waiting), so the Next card can give way to it. */
+  onShowingChange?: (showing: boolean) => void;
   /** "1 comment not sent": attached items waiting in this thread's composer, kept live. */
   attachedNotSent: string | null;
   /** False while thread detail loads; the recap waits so it sees the whole log. */
@@ -184,7 +193,13 @@ export function ThreadRecapHost({
     };
   }, [noteSeen, threadKey]);
 
-  if (!current.recap) return null;
+  const showing = Boolean(current.recap);
+  useEffect(() => {
+    onShowingChange?.(showing);
+  }, [onShowingChange, showing]);
+  useEffect(() => () => onShowingChange?.(false), [onShowingChange]);
+
+  if (!current.recap || hidden) return null;
   return (
     // A recap for another thread, or one asked for again, arrives as a new card.
     <ThreadRecapCard

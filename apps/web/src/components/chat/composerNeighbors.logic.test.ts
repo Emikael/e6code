@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  rightPanelHoldsFill,
+  screenFillHolder,
+  selectComposerSlotCard,
+} from "./composerNeighbors.logic";
+
+describe("screenFillHolder", () => {
+  it("gives the fill to Send while the composer has a draft, whatever else shows", () => {
+    expect(screenFillHolder({ composerHasText: true, panelHoldsFill: true })).toBe("send");
+    expect(screenFillHolder({ composerHasText: true, panelHoldsFill: false })).toBe("send");
+  });
+
+  it("lets an open Diff or pull request panel keep its own fill over the card", () => {
+    expect(screenFillHolder({ composerHasText: false, panelHoldsFill: true })).toBe("panel");
+    expect(screenFillHolder({ composerHasText: false, panelHoldsFill: false })).toBe("card");
+  });
+});
+
+describe("rightPanelHoldsFill", () => {
+  it("counts only an open Diff or pull request surface", () => {
+    expect(rightPanelHoldsFill({ open: true, surfaceKind: "diff" })).toBe(true);
+    expect(rightPanelHoldsFill({ open: true, surfaceKind: "pull-request" })).toBe(true);
+    expect(rightPanelHoldsFill({ open: false, surfaceKind: "diff" })).toBe(false);
+    expect(rightPanelHoldsFill({ open: true, surfaceKind: "terminal" })).toBe(false);
+    expect(rightPanelHoldsFill({ open: true, surfaceKind: null })).toBe(false);
+  });
+});
+
+describe("selectComposerSlotCard", () => {
+  it("shows one card, by precedence: permission prompt, recap, Next card", () => {
+    expect(selectComposerSlotCard({ permissionPrompt: true, recap: true, nextCard: true })).toBe(
+      "permission",
+    );
+    expect(selectComposerSlotCard({ permissionPrompt: false, recap: true, nextCard: true })).toBe(
+      "recap",
+    );
+    // A dismissed recap no longer applies, so the Next card shows.
+    expect(selectComposerSlotCard({ permissionPrompt: false, recap: false, nextCard: true })).toBe(
+      "next",
+    );
+    expect(
+      selectComposerSlotCard({ permissionPrompt: false, recap: false, nextCard: false }),
+    ).toBeNull();
+  });
+});

@@ -260,6 +260,11 @@ import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { earlierTurnDurations, selectRetryMessage } from "./chat/ThreadNowBar.logic";
 import { ThreadNextCard } from "./chat/ThreadNextCard";
 import { deriveNextCard } from "./chat/ThreadNextCard.logic";
+import {
+  rightPanelHoldsFill,
+  screenFillHolder,
+  selectComposerSlotCard,
+} from "./chat/composerNeighbors.logic";
 import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -7090,6 +7095,23 @@ export default function ChatView(props: ChatViewProps) {
         ] ?? null)
       : null,
   });
+  // One card above the composer (permission prompt, then recap, then Next card), and one fill:
+  // the Next card gives its fill to Send while you type, and to a Diff or pull request panel
+  // that holds its own.
+  const [recapShowing, setRecapShowing] = useState(false);
+  const composerSlotCard = selectComposerSlotCard({
+    permissionPrompt: notificationPermissionBannerItem !== null,
+    recap: recapShowing,
+    nextCard: nextCard !== null,
+  });
+  const nextCardHoldsFill =
+    screenFillHolder({
+      composerHasText: composerHasUnsentContent,
+      panelHoldsFill: rightPanelHoldsFill({
+        open: rightPanelOpen,
+        surfaceKind: activeRightPanelSurface?.kind ?? null,
+      }),
+    }) === "card";
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const notificationPermissionItems =
       notificationPermissionBannerItem === null ? [] : [notificationPermissionBannerItem];
@@ -10657,6 +10679,11 @@ export default function ChatView(props: ChatViewProps) {
             changedFileCount={isServerThread ? nowBar.changedFileCount : null}
             nowBarShown={showNowBar && nowBar.state.kind !== "hidden"}
             doneTurn={focusModeActive && nowBar.state.kind === "done" ? nowBar.state : null}
+            focusRetry={
+              focusModeActive && nowBar.state.kind === "failed" && !retryUnavailableReason
+                ? onRetryFailedTurn
+                : null
+            }
             onOpenChanges={addDiffSurface}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
@@ -10741,7 +10768,11 @@ export default function ChatView(props: ChatViewProps) {
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 foldEarlierTurns={focusModeActive}
-                nowBarAction={nowBar.state.kind === "hidden" ? undefined : nowBar.currentAction}
+                // Only while the now bar shows does it own the status word and the timer;
+                // in focus mode the timeline keeps them.
+                nowBarAction={
+                  showNowBar && nowBar.state.kind !== "hidden" ? nowBar.currentAction : undefined
+                }
                 revealMessageRequest={revealMessageRequest}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
@@ -11104,11 +11135,11 @@ export default function ChatView(props: ChatViewProps) {
                       </div>
                     </div>
                   ) : null}
-                  {nextCard ? (
+                  {nextCard && composerSlotCard === "next" ? (
                     <ThreadNextCard
                       state={nextCard}
                       reviewShortcut={shortcutLabelForCommand(keybindings, "diff.toggle")}
-                      primary={!composerHasUnsentContent}
+                      primary={nextCardHoldsFill}
                       onReviewDiff={() => onOpenTurnDiff(nextCard.turnId)}
                       onSettle={supportsSettlement ? settleFromNextCard : null}
                       onAskForChanges={focusComposer}
@@ -11117,6 +11148,8 @@ export default function ChatView(props: ChatViewProps) {
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
                       threadKey={activeThreadKey}
+                      hidden={composerSlotCard === "permission"}
+                      onShowingChange={setRecapShowing}
                       attachedNotSent={recapAttachedNotSent}
                       ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
                       source={recapSource}
@@ -11352,6 +11385,7 @@ export default function ChatView(props: ChatViewProps) {
                         unpushed={selectUnpushedCommits(gitStatusQuery.data)}
                         setupProject={draftHeroSetupProject}
                         onOpenSourceControl={showRunDetails}
+                        composerHasText={composerHasUnsentContent}
                       />
                     </div>
                   ) : null}

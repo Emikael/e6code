@@ -6,6 +6,7 @@ import {
 } from "./NotificationPermissionPrompt.logic";
 
 const base = {
+  working: true,
   supported: true,
   permission: "default",
   attentionNotifications: "blocked",
@@ -23,6 +24,8 @@ describe("shouldOfferNotificationPermission", () => {
     ["denied", { permission: "denied" }],
     ["unsupported", { supported: false, permission: null }],
     ["notifications off", { attentionNotifications: "off" }],
+    // It says the agent is working; once the turn ends it goes, until the next send.
+    ["no turn is running", { working: false }],
   ] as const)("does not ask when %s", (_case, overrides) => {
     expect(shouldOfferNotificationPermission({ ...base, ...overrides })).toBe(false);
   });

@@ -108,6 +108,7 @@ export function DraftHeroFooter({
   unpushed,
   setupProject,
   onOpenSourceControl,
+  composerHasText,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   /** Commits on the project's branch that its remote lacks. */
@@ -116,6 +117,8 @@ export function DraftHeroFooter({
   setupProject: Parameters<typeof selectStaleSetupThread>[1];
   /** Opens Run details, where Commit pushes or opens a pull request. */
   onOpenSourceControl: () => void;
+  /** The composer holds a draft: Send has the screen's one fill, so Approve gives it up. */
+  composerHasText: boolean;
 }) {
   const router = useRouter();
   const threads = useThreadShells();
@@ -197,6 +200,7 @@ export function DraftHeroFooter({
                     <AttentionCue verb={attentionCueVerb(item.kind)} since={since} />
                   )}
                   onOpen={() => openThread(item.thread)}
+                  composerHasText={composerHasText}
                 />
               ) : (
                 <BlockedCard key={item.key} item={item} onOpen={openThread} />

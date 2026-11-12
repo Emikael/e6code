@@ -116,6 +116,8 @@ interface ChatHeaderProps {
   nowBarShown?: boolean;
   /** The finished turn, for the focus bar's "Ready to review · worked 3m 40s · finished 14:06". */
   doneTurn?: { readonly workedFor: string | null; readonly finishedAt: string } | null;
+  /** Focus mode hides the now bar, so the focus bar offers its Retry for a failed turn. */
+  focusRetry?: (() => void) | null;
   /** Opens the Diff panel on the working tree. */
   onOpenChanges: () => void;
   gitCwd: string | null;
@@ -401,6 +403,7 @@ export const ChatHeader = memo(function ChatHeader({
   changedFileCount,
   nowBarShown = false,
   doneTurn = null,
+  focusRetry = null,
   onOpenChanges,
   gitCwd,
   onOpenPullRequest,
@@ -713,6 +716,11 @@ export const ChatHeader = memo(function ChatHeader({
           <FocusDoneCue workedFor={doneTurn.workedFor} finishedAt={doneTurn.finishedAt} />
         ) : headerStatus ? (
           <ThreadHeaderStatusPill status={headerStatus} plain />
+        ) : null}
+        {focusRetry && headerStatus?.kind === "failed" ? (
+          <Button size="sm" variant="outline" className="shrink-0 sm:text-xs" onClick={focusRetry}>
+            Retry
+          </Button>
         ) : null}
         {statusRegion}
         <span className="grow" />
