@@ -2159,6 +2159,11 @@ describe("ClaudeAdapterLive", () => {
         textEvents.map((event) => event.payload.itemType),
         ["dynamic_tool_call", "dynamic_tool_call", "dynamic_tool_call"],
       );
+      // A text Read names its file, so clients say "Read 3 files" and show the path.
+      for (const event of textEvents) {
+        assert.equal(event.payload.title, "Read file");
+        assert.equal(event.payload.detail, "/workspace/src/index.ts");
+      }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

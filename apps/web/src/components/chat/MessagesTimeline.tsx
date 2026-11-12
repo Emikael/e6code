@@ -393,6 +393,8 @@ interface TimelineRowActivityState {
   agentState: ThreadAgentState | null;
   /** A live thinking timeline already reads "Working for …", so the plain working row stands down. */
   liveTimelineHeading: boolean;
+  /** The running turn has logged steps: with a now bar, its group carries the action line. */
+  liveWorkGroup: boolean;
   /**
    * Set while the now bar shows above the timeline: it owns the status word
    * and the ticking time, so the working row keeps only this action text.
@@ -1539,6 +1541,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const liveTimelineHeading = rows.some(
     (row) => row.kind === "activity-group" && row.active && activityGroupHasTimelineSteps(row),
   );
+  const liveWorkGroup = rows.some(
+    (row) =>
+      (row.kind === "work-live" && row.active) ||
+      (row.kind === "activity-group" &&
+        row.active &&
+        row.entries.some((entry) => entry.kind === "work")),
+  );
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
@@ -1553,11 +1562,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       pendingAttention,
       agentState: agentStateKey === null ? null : (JSON.parse(agentStateKey) as ThreadAgentState),
       liveTimelineHeading,
+      liveWorkGroup,
       nowBarAction,
     }),
     [
       backgroundWorktreeSetup,
       liveTimelineHeading,
+      liveWorkGroup,
       nowBarAction,
       pendingAttention,
       agentStateKey,
@@ -2467,7 +2478,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   );
 
   return (
-    <div className="group flex flex-col items-end gap-1">
+    <div className="group flex flex-col items-end">
       <div
         ref={bubbleRef}
         className="relative max-w-[80%] origin-bottom-right rounded-[14px_14px_4px_14px] bg-message px-3.5 py-2.5 text-message-foreground"
@@ -2583,40 +2594,44 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             markdownCwd={ctx.markdownCwd}
           />
         </div>
-      </div>
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
-        <div className="flex shrink-0 items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-              {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
-            </TooltipPopup>
-          </Tooltip>
-          <div className="flex items-center gap-0.5">
-            {typeof revertTurnCount === "number" && (
-              <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
-            )}
-            {resolvedContext.text && (
-              <MessageCopyButton
-                // Structured paste needs the canonical links to retain their positions.
-                text={
-                  contextClipboardFragment
-                    ? resolvedContext.text
-                    : replaceComposerContextReferences(
-                        resolvedContext.text,
-                        (reference) => reference.label,
-                      )
-                }
-                {...(contextClipboardFragment
-                  ? {
-                      extraFlavors: { [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment },
-                    }
-                  : {})}
-                variant="ghost"
-              />
-            )}
+        {/* Time and actions sit beside the bubble, in the room its 80% cap leaves, so they
+            reserve no height under it and nothing moves when they appear (board 2). */}
+        <div className="absolute right-full bottom-0 me-2 flex items-center text-xs whitespace-nowrap tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+          <div className="flex shrink-0 items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
+                {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
+              </TooltipPopup>
+            </Tooltip>
+            <div className="flex items-center gap-0.5">
+              {typeof revertTurnCount === "number" && (
+                <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+              )}
+              {resolvedContext.text && (
+                <MessageCopyButton
+                  // Structured paste needs the canonical links to retain their positions.
+                  text={
+                    contextClipboardFragment
+                      ? resolvedContext.text
+                      : replaceComposerContextReferences(
+                          resolvedContext.text,
+                          (reference) => reference.label,
+                        )
+                  }
+                  {...(contextClipboardFragment
+                    ? {
+                        extraFlavors: {
+                          [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment,
+                        },
+                      }
+                    : {})}
+                  variant="ghost"
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -2966,6 +2981,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     pendingAttention,
     agentState,
     liveTimelineHeading,
+    liveWorkGroup,
     nowBarAction,
   } = use(TimelineRowActivityCtx);
   const status = resolveWorkingRowStatus({
@@ -2986,7 +3002,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   if (nowBarAction !== undefined && !setupOrCompacting) {
     // The now bar says Working, blocked or paused and ticks the time; this row keeps
     // only what the agent is doing, unless the live thinking timeline shows it already.
-    const action = liveTimelineHeading ? null : nowBarAction;
+    const action = liveTimelineHeading || liveWorkGroup ? null : nowBarAction;
     if (action === null && !backgroundWorktreeSetup) return null;
     return (
       <div className="border-b border-border/60 pb-2 pt-1">
@@ -3155,6 +3171,10 @@ function ActivityGroupTimelineRow({
       })
     : null;
   const failedStepCount = heading ? work.filter(workEntryDisplayIndicatesToolFailure).length : 0;
+  // With the now bar showing it owns "Working" and the time; the live group reads as board 2:
+  // a quiet summary of the steps so far, then what the agent is doing now.
+  const { nowBarAction } = use(TimelineRowActivityCtx);
+  const nowBarCaption = row.active && !heading && work.length > 0 && nowBarAction !== undefined;
   const details: ReactNode[] = [];
   if (row.expanded) {
     for (let index = 0; index < row.entries.length; index += 1) {
@@ -3211,6 +3231,15 @@ function ActivityGroupTimelineRow({
             failedStepCount={failedStepCount}
             expanded={row.expanded}
           />
+        ) : nowBarCaption ? (
+          <span className="flex min-h-6 min-w-0 items-center gap-1.5 px-0.5 text-xs leading-4 text-muted-foreground group-hover/live-work:text-foreground">
+            {row.expanded ? (
+              <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+            ) : (
+              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+            )}
+            <span className="min-w-0 truncate">{summarizeToolGroup(work)}</span>
+          </span>
         ) : (
           <LiveActivityRow
             label={label}
@@ -3221,6 +3250,11 @@ function ActivityGroupTimelineRow({
           />
         )}
       </button>
+      {nowBarCaption && nowBarAction ? (
+        <p className="mt-2 truncate px-0.5 text-xs leading-4 text-muted-foreground">
+          {nowBarAction}
+        </p>
+      ) : null}
       {row.expanded ? (
         timeline ? (
           <ThinkingTimelineRail className="mt-2">{details}</ThinkingTimelineRail>
@@ -3952,6 +3986,7 @@ function LiveActivityContent({
 
 function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "work-live" }> }) {
   const ctx = use(TimelineRowCtx);
+  const { nowBarAction } = use(TimelineRowActivityCtx);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const shownEntryIdRef = useRef(row.entry.id);
   // The live row is reused as each tool call arrives; a remount (scroll,
@@ -3979,6 +4014,32 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
   }
   const label = liveWorkEntryLabel(row.entry, ctx.workspaceRoot, row.active);
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
+
+  // With the now bar showing it owns "Working" and the time; the run reads as board 2: a quiet
+  // summary of its steps, then what the agent is doing now.
+  if (row.active && nowBarAction !== undefined && !row.entry.questionAnswer) {
+    return (
+      <div>
+        <button
+          ref={buttonRef}
+          type="button"
+          className="group/live-work flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 text-left text-xs leading-4 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          aria-expanded={row.expanded}
+          onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
+        >
+          {row.expanded ? (
+            <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+          ) : (
+            <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+          )}
+          <span className="min-w-0 truncate">{summarizeToolGroup(row.groupedEntries)}</span>
+        </button>
+        <p className="mt-2 truncate px-0.5 text-xs leading-4 text-muted-foreground">
+          {nowBarAction ?? label}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <button

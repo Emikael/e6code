@@ -767,6 +767,33 @@ describe("work entry labels", () => {
     );
   });
 
+  it("names the file a file tool works on, as a verb while it runs", () => {
+    const root = "/repo";
+    const edit = {
+      ...entry,
+      label: "File change",
+      toolTitle: "File change",
+      itemType: "file_change" as const,
+      detail: "/repo/packages/shared/src/themePalettes.ts",
+      toolLifecycleStatus: "inProgress" as const,
+    };
+    expect(liveWorkEntryLabel(edit, root, true)).toBe(
+      "Editing repo/packages/shared/src/themePalettes.ts",
+    );
+    const read = {
+      ...entry,
+      toolTitle: "Read file",
+      itemType: "dynamic_tool_call" as const,
+      detail: "/repo/apps/web/src/index.css",
+      toolLifecycleStatus: "completed" as const,
+    };
+    expect(workEntryDisplayLabel(read, root)).toBe("repo/apps/web/src/index.css");
+    // A detail that is not a path stays as written.
+    expect(workEntryDisplayLabel({ ...read, detail: "Read: two files" }, root)).toBe(
+      "Read: two files",
+    );
+  });
+
   it("keeps custom titles and output for unrecognized tools", () => {
     const unknownEntry = { ...entry, toolTitle: "mcp__github__search_issues" };
     expect(liveWorkEntryLabel(unknownEntry, undefined, true)).toBe("Mcp__github__search_issues");
