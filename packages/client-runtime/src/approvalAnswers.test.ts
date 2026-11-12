@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ApprovalRequestId } from "@e6tools/contracts";
+import { ApprovalRequestId, OrchestrationDispatchCommandError } from "@e6tools/contracts";
+import * as Cause from "effect/Cause";
 
 import {
   APPROVAL_SWAP_GUARD_MS,
@@ -9,9 +10,11 @@ import {
   DEFAULT_APPROVAL_OPTIONS,
   answeredPendingIds,
   approvalActivationAllowed,
+  approvalAnsweredLabel,
   approvalAnswerAnnouncement,
   approvalAwayFromThread,
   approvalSentLabel,
+  classifyApprovalAnswer,
   createApprovalAnswerStore,
   firstUnansweredRequest,
   layoutApprovalActions,
@@ -130,17 +133,25 @@ describe("approval answer store", () => {
     // The start card claims it; the thread view, reading the same store, cannot.
     expect(store.begin("env:t1", a)).toBe(true);
     expect(store.begin("env:t1", a)).toBe(false);
-    store.settle("env:t1", a, true);
+    store.settle("env:t1", a, "sent");
     expect(store.begin("env:t1", a)).toBe(false);
     expect([...answeredPendingIds(store.forThread("env:t1"), [a, b])]).toEqual([a]);
     // Other threads are separate.
     expect(store.begin("env:t2", a)).toBe(true);
   });
 
+  it("keeps a request answered elsewhere answered", () => {
+    const store = createApprovalAnswerStore();
+    store.begin("env:t1", a);
+    store.settle("env:t1", a, "already-answered");
+    expect(store.forThread("env:t1").get(a)).toBe("already-answered");
+    expect(store.begin("env:t1", a)).toBe(false);
+  });
+
   it("frees a request whose answer failed", () => {
     const store = createApprovalAnswerStore();
     store.begin("env:t1", a);
-    store.settle("env:t1", a, false);
+    store.settle("env:t1", a, "failed");
     expect(store.forThread("env:t1").size).toBe(0);
     expect(store.begin("env:t1", a)).toBe(true);
   });
@@ -150,7 +161,7 @@ describe("approval answer store", () => {
     let notified = 0;
     store.subscribe(() => notified++);
     store.begin("env:t1", a);
-    store.settle("env:t1", a, true);
+    store.settle("env:t1", a, "sent");
     store.begin("env:t1", b);
     const before = store.forThread("env:t1");
     store.prune("env:t1", [a, b]);
@@ -169,5 +180,57 @@ describe("approval answer store", () => {
     const [, getSnapshot, getServerSnapshot] = store.threadSource("env:t1");
     expect([...getSnapshot().keys()]).toEqual([a]);
     expect(getServerSnapshot().size).toBe(0);
+  });
+});
+
+describe("classifying an approval answer", () => {
+  const failure = (error: unknown) => ({ _tag: "Failure" as const, cause: Cause.fail(error) });
+
+  it("reads the server's refusal of a second answer as already answered", () => {
+    expect(classifyApprovalAnswer({ _tag: "Success" })).toBe("sent");
+    expect(
+      classifyApprovalAnswer(
+        failure(
+          new OrchestrationDispatchCommandError({
+            message: "This request has already been answered.",
+            requestAlreadyAnswered: true,
+          }),
+        ),
+      ),
+    ).toBe("already-answered");
+    // An older server never sends the flag: a plain failure, as before.
+    expect(
+      classifyApprovalAnswer(
+        failure(new OrchestrationDispatchCommandError({ message: "Provider is not running." })),
+      ),
+    ).toBe("failed");
+    expect(classifyApprovalAnswer({ _tag: "Failure", cause: Cause.die(new Error("socket")) })).toBe(
+      "failed",
+    );
+    expect(classifyApprovalAnswer(failure(new Error("Environment is not connected.")))).toBe(
+      "failed",
+    );
+  });
+
+  it("reads a same-command-id replay of that refusal as already answered", () => {
+    const replay = (detail: string) =>
+      failure(
+        new OrchestrationDispatchCommandError({
+          message: `Command previously rejected (cmd-1): ${detail}`,
+        }),
+      );
+    expect(classifyApprovalAnswer(replay("This request has already been answered."))).toBe(
+      "already-answered",
+    );
+    expect(classifyApprovalAnswer(replay("thread t1 is archived"))).toBe("failed");
+  });
+
+  it("says Already answered only when every answer was refused as a second one", () => {
+    expect(approvalAnsweredLabel(["already-answered"], "Codex")).toBe(
+      "Already answered. Waiting for Codex.",
+    );
+    expect(approvalAnsweredLabel(["sent", "already-answered"], "Codex")).toBe(
+      "Sent. Waiting for Codex.",
+    );
   });
 });

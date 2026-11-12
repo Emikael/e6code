@@ -19,6 +19,7 @@ export function approvalMoreLabel(
 export {
   APPROVAL_SWAP_GUARD_MS,
   approvalActivationAllowed,
+  approvalAnsweredLabel,
   approvalAnswerAnnouncement,
   approvalAwayFromThread,
   approvalSentLabel,

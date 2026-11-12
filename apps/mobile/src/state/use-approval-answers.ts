@@ -2,7 +2,12 @@ import {
   answeredPendingIds,
   approvalAnswers,
   approvalAnswersKey,
+  classifyApprovalAnswer,
 } from "@e6tools/client-runtime/approval-answers";
+import {
+  type AtomCommandResult,
+  reportAtomCommandResult,
+} from "@e6tools/client-runtime/state/runtime";
 import type { ApprovalRequestId, EnvironmentId, ThreadId } from "@e6tools/contracts";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -36,15 +41,22 @@ export function useApprovalAnswers(input: {
 
 /**
  * Sends one answer through the shared store: nothing is sent when any
- * surface already answered the request, and a failed answer frees it again.
+ * surface already answered the request. An answer the server refuses because
+ * another one got there first keeps the request answered and reports
+ * nothing; any other failure frees it again and is reported under `label`.
+ * Send with failure reporting off, so the refusal is not reported first.
  */
-export async function sendApprovalAnswer<R extends { readonly _tag: string }>(
+export async function sendApprovalAnswer<R extends AtomCommandResult<unknown, unknown>>(
   key: string,
   requestId: ApprovalRequestId,
+  label: string,
   send: () => Promise<R>,
 ): Promise<R | undefined> {
   if (key === NO_THREAD || !approvalAnswers.begin(key, requestId)) return undefined;
   const result = await send();
-  approvalAnswers.settle(key, requestId, result._tag === "Success");
+  const outcome = classifyApprovalAnswer(result);
+  approvalAnswers.settle(key, requestId, outcome);
+  // Defects were already reported by the command itself.
+  if (outcome === "failed") reportAtomCommandResult(result, { label, reportDefect: false });
   return result;
 }

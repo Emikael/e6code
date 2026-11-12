@@ -13,6 +13,7 @@ import type {
   ProviderApprovalOption,
   ThreadId,
 } from "@e6tools/contracts";
+import * as Cause from "effect/Cause";
 
 import { classifyDestructiveApproval, type DestructiveCommand } from "./destructiveCommands.ts";
 import type { PendingApproval } from "./pendingRequests.ts";
@@ -57,6 +58,68 @@ export function approvalAnswerAnnouncement(
 /** "Sent. Waiting for Codex.": an answered request until the provider resolves it. */
 export function approvalSentLabel(agent: string): string {
   return `Sent. Waiting for ${agent}.`;
+}
+
+/** "Already answered. Waiting for Codex.": another surface or device answered first. */
+export function approvalAlreadyAnsweredLabel(agent: string): string {
+  return `Already answered. Waiting for ${agent}.`;
+}
+
+/**
+ * The quiet line for answered requests still waiting on the provider:
+ * "Already answered…" only when every one of them was answered elsewhere.
+ */
+export function approvalAnsweredLabel(
+  states: ReadonlyArray<ApprovalAnswerState>,
+  agent: string,
+): string {
+  return states.length > 0 && states.every((state) => state === "already-answered")
+    ? approvalAlreadyAnsweredLabel(agent)
+    : approvalSentLabel(agent);
+}
+
+/**
+ * What came of sending one approval answer:
+ * - `sent`: the server took it.
+ * - `already-answered`: the server refused it because the request already
+ *   had an answer (from another surface, another device or the provider).
+ *   Not a failure for the user: the request is answered.
+ * - `failed`: anything else, transport failures and interruptions included.
+ */
+export type ApprovalAnswerOutcome = "sent" | "already-answered" | "failed";
+
+// The server's replay of a refusal for a command id it has seen carries the
+// refusal's message, not its flag: "Command previously rejected (<id>): <message>"
+// (both messages are in apps/server/src/orchestration/Errors.ts).
+const REPLAYED_ALREADY_ANSWERED =
+  /^Command previously rejected \(.*\): This request has already been answered\.$/;
+
+function isAlreadyAnsweredRefusal(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const refusal = error as {
+    readonly _tag?: unknown;
+    readonly requestAlreadyAnswered?: unknown;
+    readonly message?: unknown;
+  };
+  if (refusal._tag !== "OrchestrationDispatchCommandError") return false;
+  return (
+    refusal.requestAlreadyAnswered === true ||
+    (typeof refusal.message === "string" && REPLAYED_ALREADY_ANSWERED.test(refusal.message))
+  );
+}
+
+/** Classifies the settled result of sending an approval answer. */
+export function classifyApprovalAnswer(
+  result:
+    | { readonly _tag: "Success" }
+    | { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> },
+): ApprovalAnswerOutcome {
+  if (result._tag === "Success") return "sent";
+  const reasons = result.cause.reasons;
+  return reasons.length > 0 &&
+    reasons.every((reason) => Cause.isFailReason(reason) && isAlreadyAnsweredRefusal(reason.error))
+    ? "already-answered"
+    : "failed";
 }
 
 /** What the provider offers when it sends no options of its own. */
@@ -146,8 +209,12 @@ export function approvalAwayFromThread(
   return destructive === null ? { kind: "answer" } : { kind: "hold", destructive };
 }
 
-type AnswerState = "sending" | "sent";
-type ThreadAnswers = ReadonlyMap<ApprovalRequestId, AnswerState>;
+/**
+ * `sending` until the server replies; `sent` once it took the answer;
+ * `already-answered` once it refused it because another answer got there first.
+ */
+export type ApprovalAnswerState = "sending" | "sent" | "already-answered";
+type ThreadAnswers = ReadonlyMap<ApprovalRequestId, ApprovalAnswerState>;
 const NO_ANSWERS: ThreadAnswers = new Map();
 const emptyAnswers = (): ThreadAnswers => NO_ANSWERS;
 
@@ -201,13 +268,16 @@ export function createApprovalAnswerStore() {
       write(key, new Map(current).set(requestId, "sending"));
       return true;
     },
-    /** Acknowledged: the request stays answered. Failed: it can be answered again. */
-    settle(key: string, requestId: ApprovalRequestId, acknowledged: boolean): void {
+    /**
+     * Sent or already answered: the request stays answered until it leaves
+     * the pending list. Failed: it can be answered again.
+     */
+    settle(key: string, requestId: ApprovalRequestId, outcome: ApprovalAnswerOutcome): void {
       const current = threads.get(key);
       if (!current?.has(requestId)) return;
       const next = new Map(current);
-      if (acknowledged) next.set(requestId, "sent");
-      else next.delete(requestId);
+      if (outcome === "failed") next.delete(requestId);
+      else next.set(requestId, outcome);
       write(key, next);
     },
     /**

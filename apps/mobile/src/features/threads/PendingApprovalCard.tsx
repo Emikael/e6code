@@ -1,6 +1,9 @@
 import { HoldToAllowButton } from "./HoldToAllowButton";
 import { RequestActionButton } from "./RequestActionButton";
-import { approvalSentLabel } from "@e6tools/client-runtime/approval-answers";
+import {
+  approvalAnsweredLabel,
+  type ApprovalAnswerState,
+} from "@e6tools/client-runtime/approval-answers";
 import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
 import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import type {
@@ -20,8 +23,8 @@ export interface PendingApprovalCardProps {
   /** Title of the subagent that asked; null when the main agent asked. */
   readonly agentTitle?: string | null;
   /** In flight or acknowledged on any surface: the actions are not offered again. */
-  readonly answerState: "sending" | "sent" | null;
-  /** "Codex", for "Sent. Waiting for Codex." */
+  readonly answerState: ApprovalAnswerState | null;
+  /** "Codex", for "Sent. Waiting for Codex." or "Already answered. Waiting for Codex." */
   readonly agentName: string;
   /** Agent that decline instructions go to; null hides the instructions field. */
   readonly feedbackAgentName?: string | null;
@@ -54,6 +57,9 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const [feedbackText, setFeedbackText] = useState("");
   const feedbackDraft = readApprovalFeedbackDraft(feedbackText);
   const responding = props.answerState !== null;
+  // Settled: sent from here, or refused because another answer got there first.
+  const answered =
+    props.answerState === null || props.answerState === "sending" ? null : props.answerState;
   // Opaque for the same reason as PendingUserInputCard: nothing blurs the feed
   // behind this card, so a translucent surface bleeds messages through it.
   return (
@@ -115,16 +121,16 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
           {`Shorten your instructions to ${feedbackDraft.maxChars.toLocaleString()} characters.`}
         </Text>
       ) : null}
-      {props.answerState === "sent" ? (
+      {answered ? (
         // Answered; the provider has not resolved it yet. Words, not a stuck control.
         <Text
           accessibilityLiveRegion="polite"
           className="font-sans text-sm leading-normal text-foreground-secondary"
         >
-          {approvalSentLabel(props.agentName)}
+          {approvalAnsweredLabel([answered], props.agentName)}
         </Text>
       ) : null}
-      {props.answerState === "sent" ? null : (
+      {answered ? null : (
         <View className="flex-row flex-wrap gap-2.5">
           {options.flatMap((option) => {
             if (option.decision === "accept" && destructive !== null) {

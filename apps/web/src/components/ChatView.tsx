@@ -13,7 +13,7 @@ import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { useApprovalResponder, useApprovalSwapGuard } from "./chat/useApprovalResponder";
-import { approvalSentLabel } from "./chat/approvalActions";
+import { approvalAnsweredLabel } from "./chat/approvalActions";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
 import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
 import {
@@ -9408,7 +9408,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const {
     respondingRequestIds,
-    sentRequestIds,
+    answers: approvalAnswerStates,
     respond: onRespondToApproval,
   } = useApprovalResponder({
     environmentId,
@@ -9420,10 +9420,13 @@ export default function ChatView(props: ChatViewProps) {
   });
   // An answered request stays until the provider resolves it; say so, so it
   // does not read as a stuck control.
+  const activeApprovalAnswerState = activePendingApproval
+    ? approvalAnswerStates.get(activePendingApproval.requestId)
+    : undefined;
   const activeApprovalSentLabel =
-    activePendingApproval !== null && sentRequestIds.includes(activePendingApproval.requestId)
-      ? approvalSentLabel(recapSource.provider)
-      : null;
+    activeApprovalAnswerState === undefined || activeApprovalAnswerState === "sending"
+      ? null
+      : approvalAnsweredLabel([activeApprovalAnswerState], recapSource.provider);
   // The frontier card's Decline and Approve ignore a click just after the
   // shown request changes; the composer's own controls guard themselves.
   const frontierApprovalAllowed = useApprovalSwapGuard(activePendingApproval?.requestId ?? null);

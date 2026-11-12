@@ -7,8 +7,8 @@
  */
 import {
   approvalActivationAllowed,
+  approvalAnsweredLabel,
   approvalAnswerAnnouncement,
-  approvalSentLabel,
 } from "@e6tools/client-runtime/approval-answers";
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
@@ -37,6 +37,7 @@ import { homeApprovalCardModel } from "./home-approval-card";
 const NO_ACTIVITIES: never[] = [];
 // Eight 20pt lines plus padding: the longest detail answered here fits whole.
 const DETAIL_MAX_HEIGHT = 180;
+const APPROVAL_RESPONSE_LABEL = "thread approval response";
 
 export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
   readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
@@ -54,7 +55,11 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
     [approvals],
   );
   // Answered here, in the thread or on another card: the client-wide store says.
-  const { key: answersKey, answered } = useApprovalAnswers({
+  const {
+    key: answersKey,
+    answers,
+    answered,
+  } = useApprovalAnswers({
     environmentId: thread.environmentId,
     threadId: thread.id,
     pendingRequestIds,
@@ -73,8 +78,10 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
   useLayoutEffect(() => {
     shownAt.current = performance.now();
   }, [shownRequestId]);
+  // Failures are reported by sendApprovalAnswer, which knows a refused second answer is none.
   const respondToApproval = useAtomCommand(threadEnvironment.respondToApproval, {
-    label: "thread approval response",
+    label: APPROVAL_RESPONSE_LABEL,
+    reportFailure: false,
   });
 
   if (model.kind !== "card") {
@@ -82,7 +89,14 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
       <ThreadListV2NeedsYouRow
         item={props.item}
         onSelectThread={props.onSelectThread}
-        {...(model.kind === "sent" ? { note: approvalSentLabel(agent) } : {})}
+        {...(model.kind === "sent"
+          ? {
+              note: approvalAnsweredLabel(
+                pendingRequestIds.flatMap((id) => answers.get(id) ?? []),
+                agent,
+              ),
+            }
+          : {})}
       />
     );
   }
@@ -90,7 +104,7 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
   const { approval } = model;
   const answer = (decision: ProviderApprovalDecision) => {
     if (!approvalActivationAllowed(shownAt.current, performance.now())) return;
-    void sendApprovalAnswer(answersKey, approval.requestId, () =>
+    void sendApprovalAnswer(answersKey, approval.requestId, APPROVAL_RESPONSE_LABEL, () =>
       respondToApproval({
         environmentId: thread.environmentId,
         input: { threadId: thread.id, requestId: approval.requestId, decision },

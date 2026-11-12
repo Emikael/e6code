@@ -2,6 +2,7 @@ import {
   answeredPendingIds,
   approvalAnswers,
   approvalAnswersKey,
+  classifyApprovalAnswer,
 } from "@e6tools/client-runtime/approval-answers";
 import {
   isAtomCommandInterrupted,
@@ -33,9 +34,11 @@ const NO_THREAD = "";
  * screen's approval card. Answers go through the client's shared answer
  * store, so a request answered on one surface is not answerable on another,
  * or again after a remount: `respondingRequestIds` holds the pending requests
- * whose answer is in flight or acknowledged (the provider's resolution has
- * not arrived yet), and `sentRequestIds` the acknowledged ones. A failure
- * reaches `onError` with a readable message and frees the request.
+ * whose answer is in flight or settled (the provider's resolution has not
+ * arrived yet), and `answers` each one's state. An answer the server refuses
+ * because another one got there first keeps the request answered, quietly.
+ * Any other failure reaches `onError` with a readable message and frees the
+ * request.
  */
 export function useApprovalResponder(input: {
   readonly environmentId: EnvironmentId;
@@ -73,8 +76,9 @@ export function useApprovalResponder(input: {
           ...(feedback !== undefined ? { feedback } : {}),
         },
       });
-      approvalAnswers.settle(answerKey, requestId, result._tag === "Success");
-      if (result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
+      const outcome = classifyApprovalAnswer(result);
+      approvalAnswers.settle(answerKey, requestId, outcome);
+      if (outcome === "failed" && result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         onError(
           threadId,
@@ -91,12 +95,8 @@ export function useApprovalResponder(input: {
     [answers, pendingRequestIds],
   );
   const respondingRequestIds = useMemo(() => [...answeredRequestIds], [answeredRequestIds]);
-  const sentRequestIds = useMemo(
-    () => respondingRequestIds.filter((id) => answers.get(id) === "sent"),
-    [answers, respondingRequestIds],
-  );
 
-  return { respondingRequestIds, sentRequestIds, answeredRequestIds, respond };
+  return { respondingRequestIds, answers, answeredRequestIds, respond };
 }
 
 /**

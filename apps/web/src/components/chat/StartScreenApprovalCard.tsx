@@ -34,10 +34,10 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import {
+  approvalAnsweredLabel,
   approvalAnswerAnnouncement,
   approvalAwayFromThread,
   approvalMoreLabel,
-  approvalSentLabel,
   firstUnansweredRequest,
   layoutApprovalActions,
 } from "./approvalActions";
@@ -94,7 +94,7 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
     });
   }, []);
   const detailLoaded = Option.isSome(threadState.data);
-  const { respondingRequestIds, answeredRequestIds, respond } = useApprovalResponder({
+  const { respondingRequestIds, answers, answeredRequestIds, respond } = useApprovalResponder({
     environmentId: thread.environmentId,
     threadId: thread.id,
     pendingRequestIds,
@@ -174,7 +174,10 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
       ) : null}
       {allSent ? (
         <p role="status" className="text-xs leading-4 text-muted-foreground">
-          {approvalSentLabel(agent)}
+          {approvalAnsweredLabel(
+            pendingRequestIds.flatMap((id) => answers.get(id) ?? []),
+            agent,
+          )}
         </p>
       ) : null}
       {declineMessageOpen && approval && feedbackAgent && verdict?.kind !== "open-thread" ? (

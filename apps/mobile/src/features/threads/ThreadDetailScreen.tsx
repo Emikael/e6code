@@ -90,6 +90,7 @@ import type {
 import type { SubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { approvalFeedbackAgentName } from "@e6tools/client-runtime/approval-feedback";
+import type { ApprovalAnswerState } from "@e6tools/client-runtime/approval-answers";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -157,7 +158,7 @@ export interface ThreadDetailScreenProps {
   /** Title of the subagent behind activePendingUserInput, when one asked. */
   readonly activePendingUserInputAgentTitle?: string | null;
   /** The shown approval's answer: in flight, acknowledged, or not yet given. */
-  readonly activeApprovalAnswerState: "sending" | "sent" | null;
+  readonly activeApprovalAnswerState: ApprovalAnswerState | null;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
