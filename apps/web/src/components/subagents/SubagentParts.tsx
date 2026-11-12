@@ -18,6 +18,7 @@ import {
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import {
   BotIcon,
+  CheckIcon,
   CircleCheckIcon,
   CirclePauseIcon,
   CircleXIcon,
@@ -76,7 +77,8 @@ export function SubagentStatusGlyph({
     case "idle":
       return <CirclePauseIcon {...props} />;
     case "done":
-      return <CircleCheckIcon {...props} />;
+      // Done is the plain tick the plan uses; failed keeps its circled mark.
+      return <CheckIcon {...props} />;
     case "failed":
       return <CircleXIcon {...props} />;
     case "stopped":

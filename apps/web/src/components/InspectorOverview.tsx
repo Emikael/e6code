@@ -494,19 +494,19 @@ function ChangesSection({
       {status && (files.length > 0 || ahead > 0 || behind > 0) ? (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {onOpenDiff && files.length > 0 ? (
-            <Button size="sm" variant="outline" onClick={onOpenDiff}>
+            <Button size="compact" variant="outline" onClick={onOpenDiff}>
               Review changes
               {reviewShortcutLabel ? <Kbd className="ms-0.5">{reviewShortcutLabel}</Kbd> : null}
             </Button>
           ) : null}
           {onFocusDiff && files.length > 0 ? (
-            <Button size="sm" variant="ghost" onClick={() => onFocusDiff({ kind: "commit" })}>
+            <Button size="compact" variant="ghost" onClick={() => onFocusDiff({ kind: "commit" })}>
               Commit
             </Button>
           ) : null}
           {ahead > 0 && status.hasPrimaryRemote ? (
             <Button
-              size="sm"
+              size="compact"
               variant="ghost"
               disabled={pushDisabled}
               title={behind > 0 ? "Pull first: the branch is behind its remote." : undefined}
@@ -1123,13 +1123,13 @@ function SubagentDetail({
       {onShowInThread || canShowScript || sessionUrl || canStop ? (
         <div className="flex flex-wrap gap-2">
           {onShowInThread ? (
-            <Button size="sm" variant="outline" onClick={() => onShowInThread(agent.id)}>
+            <Button size="compact" variant="outline" onClick={() => onShowInThread(agent.id)}>
               Show in thread
             </Button>
           ) : null}
           {canStop ? (
             <Button
-              size="sm"
+              size="compact"
               variant="ghost"
               disabled={stopPending}
               title={
@@ -1144,7 +1144,7 @@ function SubagentDetail({
           ) : null}
           {canShowScript ? (
             <Button
-              size="sm"
+              size="compact"
               variant="ghost"
               aria-expanded={scriptOpen}
               onClick={() => setScriptOpen((value) => !value)}
@@ -1155,7 +1155,7 @@ function SubagentDetail({
           ) : null}
           {sessionUrl ? (
             <Button
-              size="sm"
+              size="compact"
               variant="ghost"
               render={<a href={sessionUrl} target="_blank" rel="noreferrer" />}
             >
