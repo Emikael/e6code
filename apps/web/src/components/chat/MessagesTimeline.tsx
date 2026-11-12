@@ -2766,7 +2766,8 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   }, [row.turnId]);
 
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
+    // Board 2: a quiet caption, chevron first. The landing stripe still plays along its foot.
+    <div className="group/timeline-row relative flex items-center gap-1 pb-1 pe-0.5">
       <span
         ref={stripeRef}
         aria-hidden
@@ -2780,10 +2781,10 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-xs leading-4 text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
+        <Icon aria-hidden className="size-3.5" />
         <span ref={labelRef}>{row.label}</span>
-        <Icon className="size-3.5" />
       </button>
       <TimelineRowTimestamp
         createdAt={row.createdAt}
