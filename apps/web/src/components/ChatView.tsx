@@ -9392,7 +9392,8 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     threadId: activeThreadId ?? null,
     pendingRequestIds: pendingApprovalIds,
-    pendingKnown: activeThread !== undefined && activeThread !== null,
+    // A thread still loading is built from its shell with no activities.
+    pendingKnown: serverThread != null,
     onError: setThreadError,
   });
   // An answered request stays until the provider resolves it; say so, so it
