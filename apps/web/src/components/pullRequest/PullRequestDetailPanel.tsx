@@ -2580,7 +2580,6 @@ export function PullRequestDetailPanel({
                   activityError={activityError}
                   pendingFinding={handoff}
                   fixFindingLabel={handoffLabels.fixFinding}
-                  fixCheckLabel={handoffLabels.fixCheck}
                   onFixFinding={startFixFinding}
                   onRefresh={refreshDetail}
                   onRefreshChecks={refreshFromHost}

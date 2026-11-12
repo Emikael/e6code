@@ -204,12 +204,10 @@ export function pullRequestHandoffLabels(inThisThread: boolean) {
   return inThisThread
     ? {
         fixFinding: "Fix in this thread",
-        fixCheck: "Fix in this thread",
         fixFindings: "Fix findings in this thread",
       }
     : {
         fixFinding: "Fix in a thread",
-        fixCheck: "Fix",
         fixFindings: "Fix findings in a thread",
       };
 }
@@ -1741,4 +1739,47 @@ export function resolvePullRequestNextStep(
 /** "Code · 5 files", the pull request's Code tab with its file count. */
 export function pullRequestCodeTabLabel(changedFiles: number): string {
   return `Code · ${changedFiles.toLocaleString()} ${changedFiles === 1 ? "file" : "files"}`;
+}
+
+export interface PullRequestChecksGroups {
+  /** Failing checks first, then the ones still running: shown open. */
+  readonly open: ReadonlyArray<PullRequestCheck>;
+  /** Passed, skipped and neutral checks, behind one fold. */
+  readonly folded: ReadonlyArray<PullRequestCheck>;
+  /** The fold's label: "7 passed", "7 passed, 2 skipped". */
+  readonly foldedLabel: string | null;
+  /** Beside the Checks heading: "2 failing · 7 passed". */
+  readonly summary: string;
+}
+
+/**
+ * The Checks list on Summary: what failed first and open, then what still runs, and everything
+ * that passed folded into one row. Each group keeps the host's order.
+ */
+export function groupPullRequestChecks(
+  checks: ReadonlyArray<PullRequestCheck>,
+): PullRequestChecksGroups {
+  const failed = checks.filter((check) => FAILED_CHECK.has(check.status));
+  const running = checks.filter((check) => RUNNING_CHECK.has(check.status));
+  const passed = checks.filter((check) => check.status === "success");
+  const skipped = checks.filter(
+    (check) => check.status === "skipped" || check.status === "neutral",
+  );
+  const passedWords = [
+    passed.length > 0 ? `${passed.length} passed` : null,
+    skipped.length > 0 ? `${skipped.length} skipped` : null,
+  ].filter((part) => part !== null);
+  const summary = [
+    failed.length > 0 ? `${failed.length} failing` : null,
+    running.length > 0 ? `${running.length} running` : null,
+    ...passedWords,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+  return {
+    open: [...failed, ...running],
+    folded: [...passed, ...skipped],
+    foldedLabel: passedWords.length > 0 ? passedWords.join(", ") : null,
+    summary,
+  };
 }

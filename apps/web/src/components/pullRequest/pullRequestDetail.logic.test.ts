@@ -52,6 +52,8 @@ import {
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
+  groupPullRequestChecks,
+  pullRequestCodeTabLabel,
   joinNames,
   type PullRequestNextStepInput,
   buildPullRequestTimeline,
@@ -2079,5 +2081,42 @@ describe("resolvePullRequestNextStep", () => {
     expect(joinNames(["a"])).toBe("a");
     expect(joinNames(["a", "b", "c"])).toBe("a, b and c");
     expect(joinNames(["a", "b", "c", "d", "e"])).toBe("a, b and 3 more");
+  });
+});
+
+describe("groupPullRequestChecks", () => {
+  const check = (name: string, status: PullRequestCheck["status"]) => ({
+    name,
+    status,
+    description: null,
+    url: null,
+  });
+
+  it("puts failing checks first and open, then running ones, and folds what passed", () => {
+    const groups = groupPullRequestChecks([
+      check("build", "success"),
+      check("e2e", "pending"),
+      check("lint", "failure"),
+      check("docs", "skipped"),
+      check("typecheck", "cancelled"),
+      check("unit", "success"),
+    ]);
+    expect(groups.open.map((entry) => entry.name)).toEqual(["lint", "typecheck", "e2e"]);
+    expect(groups.folded.map((entry) => entry.name)).toEqual(["build", "unit", "docs"]);
+    expect(groups.foldedLabel).toBe("2 passed, 1 skipped");
+    expect(groups.summary).toBe("2 failing · 1 running · 2 passed · 1 skipped");
+  });
+
+  it("has no fold when nothing passed", () => {
+    const groups = groupPullRequestChecks([check("lint", "failure")]);
+    expect(groups.foldedLabel).toBeNull();
+    expect(groups.summary).toBe("1 failing");
+  });
+});
+
+describe("pullRequestCodeTabLabel", () => {
+  it("counts the files on the Code tab", () => {
+    expect(pullRequestCodeTabLabel(1)).toBe("Code · 1 file");
+    expect(pullRequestCodeTabLabel(5)).toBe("Code · 5 files");
   });
 });

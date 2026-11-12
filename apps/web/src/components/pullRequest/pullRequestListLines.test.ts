@@ -2,7 +2,7 @@ import type { ThreadPullRequestLink } from "@e6tools/contracts";
 import { resolveThreadPullRequestChains } from "@e6tools/shared/threadPullRequests";
 import { describe, expect, it } from "vite-plus/test";
 
-import { pullRequestListLines } from "./pullRequestListLines";
+import { pullRequestListLines, threadPullRequestRowWords } from "./pullRequestListLines";
 
 function link(
   number: number,
@@ -72,5 +72,44 @@ describe("pullRequestListLines", () => {
       [3, 0, "native"],
       [4, 1, null],
     ]);
+  });
+});
+
+describe("threadPullRequestRowWords", () => {
+  const snapshot = (
+    overrides: Partial<NonNullable<ThreadPullRequestLink["snapshot"]>> = {},
+  ): NonNullable<ThreadPullRequestLink["snapshot"]> => ({
+    state: "open",
+    title: "Sidebar drag reorder",
+    headBranch: "sidebar-reorder",
+    baseBranch: "main",
+    isDraft: false,
+    updatedAt: null,
+    syncedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  });
+  const text = (value: NonNullable<ThreadPullRequestLink["snapshot"]>) =>
+    threadPullRequestRowWords(value).map((word) => word.text);
+
+  it("states checks and review in words for an open pull request", () => {
+    expect(text(snapshot({ checksState: "failing", reviewDecision: null }))).toEqual([
+      "Open",
+      "Checks failing",
+      "Review not requested",
+    ]);
+    expect(threadPullRequestRowWords(snapshot({ checksState: "failing" }))[1]?.tone).toBe("failed");
+  });
+
+  it("leaves out what the host did not report", () => {
+    expect(text(snapshot())).toEqual(["Open"]);
+    expect(text(snapshot({ isDraft: true, mergeability: "conflicting" }))).toEqual([
+      "Draft",
+      "Conflicts",
+    ]);
+  });
+
+  it("says only Merged or Closed once nothing is left to do", () => {
+    expect(text(snapshot({ state: "merged", checksState: "failing" }))).toEqual(["Merged"]);
+    expect(text(snapshot({ state: "closed" }))).toEqual(["Closed"]);
   });
 });
