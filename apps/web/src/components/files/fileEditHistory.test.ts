@@ -78,6 +78,9 @@ describe("the reader's edits to a file", () => {
     });
     expect(held.held).toBe("mine");
     expect(held.conflict).toBe("theirs");
+    // The held edit can still be undone; Revert waits until the reader picks a version.
+    expect(canUndoFileEdit(held)).toBe(true);
+    expect(canRevertFileEdits(held, "mine")).toBe(false);
     expect(reduceFileEditHistory(held, { type: "read", contents: "theirs" }).conflict).toBe(
       "theirs",
     );

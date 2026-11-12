@@ -6849,6 +6849,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         : composerCursor
                     }
                     contextRecords={composerContextRecords}
+                    attachedItemsShownElsewhere={
+                      !isComposerCollapsedMobile && !isComposerApprovalState
+                    }
                     buildContextClipboardFragment={buildContextClipboardFragment}
                     importContextFragment={importContextFragment}
                     skills={selectedProviderSkills}

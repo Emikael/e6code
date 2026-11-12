@@ -4,6 +4,7 @@ import {
   findLocalAddress,
   localAddressLabel,
   nextFinishedTerminalIds,
+  nextThreadFinishedTerminalState,
   nextTerminalStopState,
   NO_TERMINAL_STOPS,
   resumeFinishedTerminalState,
@@ -129,5 +130,54 @@ describe("Stop on a process that ignores Ctrl-C", () => {
     expect(
       nextTerminalStopState(NO_TERMINAL_STOPS, { type: "grace-elapsed", terminalId: "a" }),
     ).toBe(NO_TERMINAL_STOPS);
+  });
+});
+
+describe("the Finished cue for a thread whose terminal data has not arrived", () => {
+  const stored = { running: ["t1"], inView: [], finished: new Set<string>() };
+
+  it("marks nothing Finished until the thread's terminals have loaded", () => {
+    // Before the data arrives nothing looks running; that is not the process stopping.
+    const waiting = nextThreadFinishedTerminalState({
+      loaded: false,
+      state: null,
+      stored,
+      threadKey: "thread-a",
+      running: [],
+      inView: [],
+    });
+    expect(waiting).toBeNull();
+    const loaded = nextThreadFinishedTerminalState({
+      loaded: true,
+      state: waiting,
+      stored,
+      threadKey: "thread-a",
+      running: ["t1"],
+      inView: [],
+    });
+    expect([...(loaded?.finished ?? [])]).toEqual([]);
+  });
+
+  it("still marks a process that stopped while away once the data says so", () => {
+    const loaded = nextThreadFinishedTerminalState({
+      loaded: true,
+      state: null,
+      stored,
+      threadKey: "thread-a",
+      running: [],
+      inView: [],
+    });
+    expect([...(loaded?.finished ?? [])]).toEqual(["t1"]);
+    // Settled: the same inputs give the same state back.
+    expect(
+      nextThreadFinishedTerminalState({
+        loaded: true,
+        state: loaded,
+        stored,
+        threadKey: "thread-a",
+        running: loaded!.running,
+        inView: [],
+      }),
+    ).toBe(loaded);
   });
 });

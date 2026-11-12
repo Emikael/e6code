@@ -90,6 +90,36 @@ export function mergeThreadChangedFiles(input: {
   return [...byPath.values()].toSorted((left, right) => left.path.localeCompare(right.path));
 }
 
+/**
+ * Workspace paths this thread's changes leave deleted: the last turn to touch them deleted them,
+ * or the working tree has them deleted. The same reading as `mergeThreadChangedFiles`.
+ */
+export function deletedThreadFilePaths(input: {
+  readonly workingTree: ReadonlyArray<VcsWorkingTreeFile>;
+  readonly checkpoints: ReadonlyArray<CheckpointLike>;
+  readonly toWorkspacePath: (repositoryPath: string) => string | null;
+}): string[] {
+  const deleted = new Set<string>();
+  const mark = (path: string | null, isDeleted: boolean) => {
+    if (path === null) return;
+    if (isDeleted) deleted.add(path);
+    else deleted.delete(path);
+  };
+  for (const checkpoint of input.checkpoints) {
+    if (checkpoint.status !== "ready") continue;
+    for (const file of checkpoint.files) {
+      mark(input.toWorkspacePath(file.path), file.kind === "deleted");
+    }
+  }
+  for (const file of input.workingTree) {
+    mark(
+      input.toWorkspacePath(file.path),
+      file.unstaged === "deleted" || (file.staged === "deleted" && file.unstaged === undefined),
+    );
+  }
+  return [...deleted];
+}
+
 export interface ThreadChangedFolder {
   /** "" for files at the workspace root. */
   readonly folder: string;

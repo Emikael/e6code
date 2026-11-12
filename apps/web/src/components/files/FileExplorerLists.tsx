@@ -6,7 +6,7 @@ import type { RecentFile } from "~/uiStateStore";
 
 import { DiffStat } from "../DiffStat";
 import { Badge } from "../ui/badge";
-import { Kbd } from "../ui/kbd";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   fileName,
@@ -42,7 +42,7 @@ export function FilesFilterSwitch(props: {
 
 function SectionLabel(props: { readonly children: ReactNode }) {
   return (
-    <div className="px-2 py-1 font-medium text-[11px] text-muted-foreground leading-[14px]">
+    <div className="px-2 py-1 font-medium text-[11px] text-muted-foreground leading-[14px] tracking-[.01em]">
       {props.children}
     </div>
   );
@@ -58,13 +58,12 @@ function FileRow(props: {
   readonly indent?: boolean;
   readonly onOpen: () => void;
   readonly children: ReactNode;
-  readonly label: string;
 }) {
+  // No aria-label: the row's own text is its name, so "unsaved", "new" and the counts are read.
   return (
     <button
       type="button"
       aria-current={props.current ? "true" : undefined}
-      aria-label={props.label}
       onClick={props.onOpen}
       className={cn(
         "flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -132,7 +131,6 @@ export function ChangedFileLists(props: {
                         key={file.path}
                         indent={group.folder !== ""}
                         current={file.path === props.selectedPath}
-                        label={file.path}
                         onOpen={() => props.onOpenFile(file.path, null)}
                       >
                         <span className="min-w-0 flex-1 truncate font-mono text-xs">
@@ -167,7 +165,6 @@ export function ChangedFileLists(props: {
             <FileRow
               key={file.path}
               current={file.path === props.selectedPath}
-              label={file.path}
               onOpen={() => props.onOpenFile(file.path, file.line)}
             >
               <span className="min-w-0 flex-1 truncate font-mono text-xs">
@@ -198,7 +195,7 @@ export function BrowseAllFilesRow(props: {
     >
       <FolderIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 font-medium text-[13px]">Browse all files</span>
-      {props.shortcut ? <Kbd className="text-[11px]">{props.shortcut}</Kbd> : null}
+      <ShortcutKeyCaps label={props.shortcut} />
     </button>
   );
 }

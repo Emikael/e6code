@@ -249,6 +249,7 @@ import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
 import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
+import { useAttachedNotSentLabel } from "./attached/useAttachedNotSentLabel";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { earlierTurnDurations, selectRetryMessage } from "./chat/ThreadNowBar.logic";
 import { ThreadNextCard } from "./chat/ThreadNextCard";
@@ -391,7 +392,11 @@ import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useEnvironmentDisconnectDelay } from "../hooks/useEnvironmentDisconnectDelay";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
+import {
+  useKnownTerminalSessions,
+  useTerminalSessionsLoaded,
+  useThreadRunningTerminalIds,
+} from "../state/terminalSessions";
 import { useFinishedTerminalIds } from "./terminal/terminalPaneState";
 import { useEnvironmentQuery } from "../state/query";
 import {
@@ -1640,6 +1645,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
+  // The recap says what waits in this composer: the same words as the sidebar row.
+  const recapAttachedNotSent = useAttachedNotSentLabel(composerDraftTarget);
   const draftThread = useComposerDraftStore((store) =>
     routeKind === "server"
       ? store.getDraftSessionByRef(routeThreadRef)
@@ -2183,6 +2190,7 @@ export default function ChatView(props: ChatViewProps) {
   const renderedRightPanelSurface = rightPanelPresence.value?.activeSurface ?? null;
   const renderedRightPanelSurfaces = rightPanelPresence.value?.surfaces ?? [];
   // F19's Finished cue: a terminal whose process stopped while out of view says so on its tab.
+  const terminalSessionsLoaded = useTerminalSessionsLoaded(activeThreadEnvironmentId);
   const finishedTerminalIds = useFinishedTerminalIds(
     activeThreadKey ?? "",
     runningTerminalIds,
@@ -2191,6 +2199,7 @@ export default function ChatView(props: ChatViewProps) {
       : terminalUiState.terminalOpen
         ? terminalUiState.terminalIds
         : null,
+    terminalSessionsLoaded,
   );
   const runningTerminalIdSet = useMemo(() => new Set(runningTerminalIds), [runningTerminalIds]);
   const previewMiniPlayerVisible = shouldRenderPreviewMiniPlayer(
@@ -11066,6 +11075,7 @@ export default function ChatView(props: ChatViewProps) {
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
                       threadKey={activeThreadKey}
+                      attachedNotSent={recapAttachedNotSent}
                       ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
                       source={recapSource}
                       onOpenMessage={(messageId) =>

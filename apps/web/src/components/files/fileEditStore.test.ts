@@ -5,7 +5,10 @@ import {
   type FileEditEntry,
   fileEditHistoryForTurn,
   fileEditKey,
+  hasHeldFileEdit,
   heldFilePaths,
+  isRetiredFileEdit,
+  pruneFileEditEntries,
   reduceFileEditEntries,
 } from "./fileEditStore";
 
@@ -53,5 +56,40 @@ describe("the reader's edits, kept per thread and file", () => {
     expect(reduceFileEditEntries(byKey, key, "turn-1", { type: "read", contents: "x" })).toBe(
       byKey,
     );
+  });
+});
+
+describe("pruning the reader's edits", () => {
+  const saved = apply("turn-1", [
+    { type: "edit", before: "v0", after: "v1" },
+    { type: "saved", contents: "v1", restore: false },
+  ]);
+  const heldKey = fileEditKey("thread-1", "src/held.ts");
+  const otherKey = fileEditKey("thread-2", "src/a.ts");
+  const entries = {
+    ...saved,
+    [heldKey]: apply("turn-1", [
+      { type: "edit", before: "v0", after: "mine" },
+      { type: "changed-underneath", contents: "theirs", mine: "mine" },
+    ])[key]!,
+    [otherKey]: saved[key]!,
+  };
+
+  it("drops entries of a passed turn that hold nothing, but keeps held text", () => {
+    const pruned = pruneFileEditEntries(entries, (fileKey, entry) =>
+      isRetiredFileEdit(fileKey, entry, "thread-1", "turn-2"),
+    );
+    expect(Object.keys(pruned).toSorted()).toEqual([heldKey, otherKey].toSorted());
+    // The same turn retires nothing.
+    expect(
+      pruneFileEditEntries(entries, (fileKey, entry) =>
+        isRetiredFileEdit(fileKey, entry, "thread-1", "turn-1"),
+      ),
+    ).toBe(entries);
+  });
+
+  it("knows when any text is held, so a reload can warn", () => {
+    expect(hasHeldFileEdit(entries)).toBe(true);
+    expect(hasHeldFileEdit(saved)).toBe(false);
   });
 });

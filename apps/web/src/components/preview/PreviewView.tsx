@@ -25,7 +25,12 @@ import {
 } from "~/browserHistoryStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
 import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
-import { ATTACHED_SENTENCE, ATTACHED_WITH_SCREENSHOT_SENTENCE } from "~/lib/attachedForAgent";
+import {
+  ATTACHED_SENTENCE,
+  ATTACHED_WITH_SCREENSHOT_SENTENCE,
+  attachedCount,
+  browserNoteTitle,
+} from "~/lib/attachedForAgent";
 import { AttachedCountButton } from "../attached/AttachedCountButton";
 import { ensureLocalApi } from "~/localApi";
 import {
@@ -62,6 +67,7 @@ import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Textarea } from "~/components/ui/textarea";
 import { Kbd } from "~/components/ui/kbd";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
@@ -137,6 +143,9 @@ export function PreviewView({
   // Notes wait in the thread's composer with everything else attached for the agent.
   const attachedNotes = useComposerDraftStore(
     (store) => store.getComposerDraft(threadRef)?.previewAnnotations ?? EMPTY_NOTES,
+  );
+  const attachedNoteCount = useComposerDraftStore((store) =>
+    attachedCount(store.getComposerDraft(threadRef), "note"),
   );
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(threadRef.environmentId);
   const environmentHostname = environmentHttpBaseUrl
@@ -922,7 +931,15 @@ export function PreviewView({
       {annotating ? (
         <PreviewAnnotateFooter
           notes={attachedNotes}
+          count={attachedNoteCount}
           onRemove={(id) => removePreviewAnnotation(threadRef, id)}
+          onEdit={(id, comment) =>
+            // In place, so the note keeps its number here and in the composer.
+            useComposerDraftStore.getState().setPreviewAnnotations(
+              threadRef,
+              attachedNotes.map((note) => (note.id === id ? { ...note, comment } : note)),
+            )
+          }
           onDone={finishAnnotating}
         />
       ) : null}
@@ -939,23 +956,78 @@ const EMPTY_NOTES: ReadonlyArray<PreviewAnnotationPayload> = [];
  */
 function PreviewAnnotateFooter(props: {
   readonly notes: ReadonlyArray<PreviewAnnotationPayload>;
+  readonly count: number;
   readonly onRemove: (id: string) => void;
+  readonly onEdit: (id: string, comment: string) => void;
   readonly onDone: () => void;
 }) {
   const latest = props.notes.at(-1);
+  // The id of the note whose text is being edited in place, and the text so far.
+  const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(
+    null,
+  );
+  const editingLatest = latest !== undefined && editing?.id === latest.id ? editing : null;
+  const saveEdit = () => {
+    if (!editingLatest) return;
+    props.onEdit(editingLatest.id, editingLatest.text.trim());
+    setEditing(null);
+  };
   return (
     <div className="flex shrink-0 flex-col gap-3 border-t border-border p-3">
       {latest ? (
-        <div className="flex max-w-[300px] flex-col gap-1.5 rounded-lg border border-border bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
+        <div className="flex max-w-[300px] flex-col gap-1.5 rounded-xl border border-border bg-surface-floating px-3 py-2.5 text-foreground shadow-(--command-deck-shadow)">
           <div className="flex items-center gap-1">
             <span className="min-w-0 flex-1 font-medium text-[13px]">
-              {`Note ${props.notes.length.toLocaleString()}`}
+              {browserNoteTitle(props.notes.length - 1)}
             </span>
+            {editingLatest ? null : (
+              <Button
+                size="compact"
+                variant="ghost"
+                onClick={() => setEditing({ id: latest.id, text: latest.comment })}
+              >
+                Edit
+              </Button>
+            )}
             <Button size="compact" variant="ghost" onClick={() => props.onRemove(latest.id)}>
               Remove
             </Button>
           </div>
-          {latest.comment.trim() ? (
+          {editingLatest ? (
+            <form
+              className="flex flex-col gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveEdit();
+              }}
+            >
+              <Textarea
+                autoFocus
+                size="sm"
+                aria-label={`Edit ${browserNoteTitle(props.notes.length - 1)}`}
+                value={editingLatest.text}
+                onChange={(event) => setEditing({ id: latest.id, text: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setEditing(null);
+                  } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    saveEdit();
+                  }
+                }}
+              />
+              <div className="flex justify-end gap-1">
+                <Button size="compact" variant="ghost" onClick={() => setEditing(null)}>
+                  Cancel
+                </Button>
+                <Button size="compact" variant="outline" type="submit">
+                  Save
+                </Button>
+              </div>
+            </form>
+          ) : latest.comment.trim() ? (
             <p className="whitespace-pre-wrap text-sm">{latest.comment.trim()}</p>
           ) : null}
           <p className="text-muted-foreground text-xs">
@@ -964,7 +1036,7 @@ function PreviewAnnotateFooter(props: {
         </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2.5">
-        <AttachedCountButton count={props.notes.length} kind="note" />
+        <AttachedCountButton count={props.count} kind="note" />
         <span className="min-w-0 flex-1 basis-40 text-muted-foreground text-xs">
           {props.notes.length > 0 ? "Click an element or drag a region to add another." : null}
         </span>

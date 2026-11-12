@@ -4,9 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildFileReviewComment, type ReviewCommentContext } from "~/reviewCommentContext";
 
 import {
+  attachedCount,
   attachedCountLabel,
   attachedGroups,
-  fileCommentCount,
+  attachedNotSentLabel,
   unsentCodeCommentCount,
 } from "./attachedForAgent";
 import type { TerminalContextDraft } from "./terminalContext";
@@ -42,8 +43,56 @@ describe("attached for the agent", () => {
 
   it("counts Diff and file comments as not sent, but not a pull request hand-off", () => {
     expect(unsentCodeCommentCount([fileComment, diffComment, pullRequestComment])).toBe(2);
-    expect(fileCommentCount([fileComment, diffComment], "src/a.ts")).toBe(1);
-    expect(fileCommentCount([fileComment, diffComment], "src/b.ts")).toBe(0);
+  });
+
+  it("counts each tab's kind from the same items the composer row shows", () => {
+    const draft = {
+      reviewComments: [fileComment, diffComment, pullRequestComment],
+      previewAnnotations: [
+        { id: "note-1", comment: "Too faint" } as PreviewAnnotationPayload,
+        { id: "note-2", comment: "Wrong colour" } as PreviewAnnotationPayload,
+      ],
+      terminalContexts: [{ id: "term-1" } as TerminalContextDraft],
+    };
+    const groups = attachedGroups(draft);
+    for (const kind of ["comment", "note", "terminal"] as const) {
+      expect(attachedCount(draft, kind)).toBe(
+        groups.find((group) => group.kind === kind)?.items.length ?? 0,
+      );
+    }
+    expect(attachedCount(draft, "comment")).toBe(2);
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(["file-1", "diff-1"]);
+    expect(groups[1]?.items.map((item) => item.label)).toEqual([
+      "Note 1 · Too faint",
+      "Note 2 · Wrong colour",
+    ]);
+    expect(attachedCount(null, "note")).toBe(0);
+  });
+
+  it("says what is not sent with the right count and word", () => {
+    const empty = { reviewComments: [], previewAnnotations: [], terminalContexts: [] };
+    expect(attachedNotSentLabel(empty)).toBeNull();
+    expect(attachedNotSentLabel({ ...empty, reviewComments: [pullRequestComment] })).toBeNull();
+    expect(attachedNotSentLabel({ ...empty, reviewComments: [fileComment] })).toBe(
+      "1 comment not sent",
+    );
+    expect(
+      attachedNotSentLabel({
+        reviewComments: [fileComment, diffComment],
+        previewAnnotations: [{ id: "n" } as PreviewAnnotationPayload],
+        terminalContexts: [],
+      }),
+    ).toBe("2 comments and 1 note not sent");
+    expect(
+      attachedNotSentLabel({
+        reviewComments: [fileComment],
+        previewAnnotations: [{ id: "n" } as PreviewAnnotationPayload],
+        terminalContexts: [
+          { id: "t" } as TerminalContextDraft,
+          { id: "u" } as TerminalContextDraft,
+        ],
+      }),
+    ).toBe("1 comment, 1 note and 2 selections not sent");
   });
 
   it("groups the composer's chips by kind in a fixed order, leaving empty kinds out", () => {
@@ -66,7 +115,7 @@ describe("attached for the agent", () => {
       ["Browser notes", ["note-1"]],
       ["Terminal output", ["term-1"]],
     ]);
-    expect(groups[1]?.items[0]?.label).toBe("Too faint");
+    expect(groups[1]?.items[0]?.label).toBe("Note 1 · Too faint");
     expect(
       attachedGroups({ reviewComments: [], previewAnnotations: [], terminalContexts: [] }),
     ).toEqual([]);

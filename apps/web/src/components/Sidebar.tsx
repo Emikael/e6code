@@ -107,6 +107,7 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
+import { useAttachedNotSentLabel } from "./attached/useAttachedNotSentLabel";
 import { readLocalApi } from "../localApi";
 import {
   isSameSidebarThreadRef,
@@ -1279,6 +1280,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Unsent composer text on this thread. The open thread shows its own
   // composer, so the marker only decorates rows you have navigated away from.
   const hasUnsentDraft = useThreadHasUnsentDraft(threadRef) && !props.isActive;
+  // F22: attached items waiting in that composer, in words.
+  const attachedNotSent = useAttachedNotSentLabel(props.isActive ? null : threadRef);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const handleDiscardDraftClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -2137,6 +2140,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     prefix="· "
                     className="ml-1.5 text-sidebar-muted-foreground"
                   />
+                ) : null}
+                {attachedNotSent !== null ? (
+                  <span className="ml-1.5 min-w-0 shrink-[10] truncate text-sidebar-muted-foreground">
+                    · {attachedNotSent}
+                  </span>
                 ) : null}
               </span>
               <span className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 text-sidebar-muted-foreground">
