@@ -51,6 +51,9 @@ import {
   resolveBaseFreshness,
   resolveMergeReadiness,
   resolvePullRequestMergeMethod,
+  resolvePullRequestNextStep,
+  joinNames,
+  type PullRequestNextStepInput,
   summarizePullRequestFindings,
   buildPullRequestTimeline,
   editPullRequestThreadComment,
@@ -1973,5 +1976,198 @@ describe("what fixing the findings would hand over", () => {
         checksStale: false,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolvePullRequestNextStep", () => {
+  const check = (
+    name: string,
+    status: "success" | "failure" | "pending",
+    url: string | null = null,
+  ) => ({
+    name,
+    status,
+    description: null,
+    url,
+  });
+  // Everything met: each test breaks one requirement, or several to check the order.
+  const ready: PullRequestNextStepInput = {
+    provider: "github",
+    state: "open",
+    isDraft: false,
+    baseBranch: "main",
+    canMerge: true,
+    mergeability: "mergeable",
+    checks: [check("lint", "success"), check("typecheck", "success")],
+    checksState: "passing",
+    checksStale: false,
+    reviewDecision: "approved",
+    approvalCount: 1,
+    changesRequestedBy: null,
+    pendingReviewers: [],
+    baseComparison: "up-to-date",
+    autoMergeEnabled: false,
+    unresolvedReviewThreads: 0,
+    agentName: "Claude",
+    inThisThread: true,
+    canHandOff: true,
+    canUpdateBranch: true,
+    canMarkReady: true,
+    canRequestReview: true,
+    canCancelAutoMerge: true,
+  };
+  const next = (overrides: Partial<PullRequestNextStepInput>) =>
+    resolvePullRequestNextStep({ ...ready, ...overrides });
+  const failing = {
+    checks: [
+      check("lint", "failure", "https://ci/lint"),
+      check("typecheck", "failure", "https://ci/tc"),
+      check("build", "success"),
+    ],
+    checksState: "failing" as const,
+  };
+
+  it("shows no card once merged or closed", () => {
+    expect(next({ state: "merged" })).toBeNull();
+    expect(next({ state: "closed" })).toBeNull();
+  });
+
+  it("says when this account cannot merge, before anything else", () => {
+    const step = next({ canMerge: false, mergeability: "conflicting", ...failing });
+    expect(step?.kind).toBe("no-permission");
+    expect(step?.title).toBe("You cannot merge this pull request");
+    expect(step?.primary).toBeNull();
+  });
+
+  it("puts conflicts first", () => {
+    const step = next({
+      mergeability: "conflicting",
+      reviewDecision: "changes-requested",
+      ...failing,
+    });
+    expect(step?.title).toBe("Next: resolve conflicts");
+    expect(step?.primary).toEqual({ kind: "resolve-conflicts", label: "Resolve conflicts" });
+    expect(step?.body).toBe(
+      "This branch conflicts with main, so it cannot merge. Still needed after that: the requested changes and passing checks.",
+    );
+  });
+
+  it("asks for the requested changes before failing checks", () => {
+    const step = next({
+      reviewDecision: "changes-requested",
+      changesRequestedBy: "ana",
+      ...failing,
+    });
+    expect(step?.title).toBe("Next: address the requested changes");
+    expect(step?.primary?.label).toBe("Have Claude address them");
+    expect(step?.body).toBe("ana asked for changes. Still needed after that: passing checks.");
+  });
+
+  it("states a failure once, names the checks and what follows", () => {
+    const step = next({
+      ...failing,
+      reviewDecision: null,
+      approvalCount: 0,
+      pendingReviewers: ["ana"],
+    });
+    expect(step?.title).toBe("Next: fix 2 failing checks");
+    expect(step?.body).toBe(
+      "lint and typecheck failed on the last push. Still needed after that: a review.",
+    );
+    expect(step?.primary).toEqual({ kind: "fix", label: "Have Claude fix them" });
+    expect(step?.secondary).toEqual({ kind: "view-logs", label: "View logs" });
+    expect(step?.caption).toBe(
+      "Adds the task to this thread's composer. Nothing runs until you send it.",
+    );
+  });
+
+  it("leads with the logs for failing tests, and says review comments go along", () => {
+    const step = next({
+      checks: [check("unit tests", "failure", "https://ci/tests")],
+      checksState: "failing",
+      unresolvedReviewThreads: 2,
+      agentName: null,
+      inThisThread: false,
+    });
+    expect(step?.title).toBe("Next: fix 1 failing check");
+    expect(step?.primary?.kind).toBe("view-logs");
+    expect(step?.secondary).toEqual({ kind: "fix", label: "Have the agent fix them" });
+    expect(step?.caption).toContain("It also hands over 2 unresolved review comments.");
+  });
+
+  it("asks to update a branch that is behind", () => {
+    const step = next({ baseComparison: "behind", behindBy: 3 });
+    expect(step?.title).toBe("Next: update the branch");
+    expect(step?.body).toBe("main has 3 commits this branch does not have.");
+    expect(step?.primary?.kind).toBe("update-branch");
+    expect(next({ baseComparison: "behind", canUpdateBranch: false })?.primary).toBeNull();
+  });
+
+  it("asks to mark a draft ready", () => {
+    const step = next({ isDraft: true, reviewDecision: null, approvalCount: 0 });
+    expect(step?.title).toBe("Next: mark ready for review");
+    expect(step?.body).toBe(
+      "This is a draft, so it cannot merge yet. Still needed after that: a review.",
+    );
+    expect(step?.primary?.kind).toBe("ready");
+  });
+
+  it("asks for a review nobody was asked for", () => {
+    const step = next({ reviewDecision: null, approvalCount: 0 });
+    expect(step?.title).toBe("Next: request a review");
+    expect(step?.primary?.kind).toBe("request-review");
+    expect(
+      next({ reviewDecision: null, approvalCount: 0, canRequestReview: false })?.primary,
+    ).toBeNull();
+  });
+
+  it("waits on running checks, then on a named reviewer", () => {
+    const running = {
+      checks: [check("lint", "success"), check("e2e", "pending")],
+      checksState: "pending" as const,
+    };
+    const step = next({
+      ...running,
+      reviewDecision: "review-required",
+      approvalCount: 0,
+      pendingReviewers: ["ana", "bo"],
+    });
+    expect(step?.title).toBe("Waiting on checks");
+    expect(step?.body).toBe("1 of 2 checks are done. Still needed after that: a review.");
+    expect(step?.primary).toBeNull();
+    const review = next({
+      reviewDecision: "review-required",
+      approvalCount: 0,
+      pendingReviewers: ["ana", "bo"],
+    });
+    expect(review?.title).toBe("Waiting on ana and 1 more");
+  });
+
+  it("says Checking while the host has not decided whether it can merge", () => {
+    const step = next({ mergeability: "unknown", autoMergeEnabled: true });
+    expect(step?.title).toBe("Checking");
+    expect(step?.body).toBe("GitHub has not said yet whether this can merge.");
+  });
+
+  it("offers to cancel an armed merge", () => {
+    const step = next({ autoMergeEnabled: true });
+    expect(step?.title).toBe("Merge when ready is on");
+    expect(step?.primary).toEqual({ kind: "cancel-auto-merge", label: "Cancel" });
+  });
+
+  it("is ready to merge when everything is met, leaving the button to the footer", () => {
+    const step = next({});
+    expect(step?.title).toBe("Ready to merge");
+    expect(step?.primary).toBeNull();
+  });
+
+  it("does not wait on rows a host cannot report", () => {
+    expect(next({ baseComparison: undefined, checks: [], checksState: null })?.kind).toBe("ready");
+  });
+
+  it("joins names with a count past the limit", () => {
+    expect(joinNames(["a"])).toBe("a");
+    expect(joinNames(["a", "b", "c"])).toBe("a, b and c");
+    expect(joinNames(["a", "b", "c", "d", "e"])).toBe("a, b and 3 more");
   });
 });

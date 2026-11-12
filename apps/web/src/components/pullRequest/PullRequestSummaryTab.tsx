@@ -469,7 +469,10 @@ export function PullRequestSummaryTab({
   onFixFinding,
   onRefresh,
   onRefreshChecks = onRefresh,
+  lead,
 }: {
+  /** Above everything else: the next step card. */
+  lead?: ReactNode;
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef | null;
   reference: PullRequestRef;
@@ -710,6 +713,7 @@ export function PullRequestSummaryTab({
 
   return (
     <div className="h-full overflow-y-auto" data-pull-request-summary-scroll>
+      {lead ? <div className="px-4 pt-4">{lead}</div> : null}
       <section className="px-4 pt-2.5 pb-1">
         <div className="space-y-2">
           <MetaRow icon={<UsersIcon className="size-3.5" />} label="Reviewers">

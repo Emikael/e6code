@@ -11,7 +11,7 @@ import type {
   PullRequestReviewerCandidate,
 } from "@e6tools/contracts";
 import { CheckIcon, UserPlusIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 
 import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
@@ -38,7 +38,10 @@ export function PullRequestReviewerPicker({
   environmentId,
   reference,
   allowed,
+  trigger,
 }: {
+  /** A labelled button in place of the icon, as the next step card shows it. */
+  trigger?: ReactElement | undefined;
   environmentId: EnvironmentId;
   reference: PullRequestRef;
   /** False where the host would refuse this account's request, which is worth saying rather than
@@ -117,6 +120,7 @@ export function PullRequestReviewerPicker({
       candidateKey={(candidate) => `${candidate.kind}:${candidate.id}`}
       disabled={pending !== null}
       onSelect={(candidate) => void toggle(candidate)}
+      trigger={trigger}
     >
       {(candidate) => (
         <>

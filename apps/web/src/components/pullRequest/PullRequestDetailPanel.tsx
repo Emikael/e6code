@@ -7,6 +7,8 @@ import { squashAtomCommandFailure } from "@e6tools/client-runtime/state/runtime"
 import {
   type EnvironmentId,
   DEFAULT_SERVER_SETTINGS,
+  PROVIDER_DISPLAY_NAMES,
+  type ProviderDriverKind,
   type PullRequestAction,
   type PullRequestMergeMethod,
   type PullRequestListEntry,
@@ -80,7 +82,8 @@ import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 import { buildPhysicalToLogicalProjectKeyMap } from "~/sidebarProjectGrouping";
-import { useProjects, useServerConfigs } from "~/state/entities";
+import { useProjects, useServerConfigs, useThread } from "~/state/entities";
+import { useOpenLink } from "~/browser/useOpenLink";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
@@ -138,6 +141,8 @@ import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLi
 import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
 import { PullRequestCommentComposer } from "./PullRequestCommentComposer";
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
+import { PullRequestNextStepCard } from "./PullRequestNextStepCard";
+import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestTimelineTab } from "./PullRequestTimelineTab";
 import {
   buildAddSelectionToAgentHandoff,
@@ -167,12 +172,13 @@ import {
   resolveBaseFreshness,
   resolveMergeReadiness,
   resolvePullRequestMergeMethod,
+  resolvePullRequestNextStep,
   type MergeReadiness,
   type MergeReadinessStatus,
+  type PullRequestNextStepActionKind,
   type PullRequestFinding,
   shouldRefreshPullRequestActivity,
   stripPullRequestHandoffReferences,
-  summarizePullRequestFindings,
   writePullRequestDetailSnapshot,
 } from "./pullRequestDetail.logic";
 import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
@@ -1155,6 +1161,11 @@ export function PullRequestDetailPanel({
 
   const attachTarget = composerDraftTarget ?? null;
   const handoffLabels = pullRequestHandoffLabels(attachTarget !== null);
+  const threadSession = useThread(threadRef)?.session;
+  const threadProviderName = threadSession?.providerName
+    ? (PROVIDER_DISPLAY_NAMES[threadSession.providerName as ProviderDriverKind] ?? null)
+    : null;
+  const openLink = useOpenLink(threadRef);
 
   const writeTaskToComposer = (target: ScopedThreadRef | DraftId, task: ThreadTask) => {
     const store = useComposerDraftStore.getState();
@@ -1640,14 +1651,89 @@ export function PullRequestDetailPanel({
         behindBy: detail.behindBy,
       })
     : null;
-  const findingsSummary = detail
-    ? summarizePullRequestFindings({
-        reviewThreads: detail.reviewThreads,
+  const reviewOutcomes = detail
+    ? latestPullRequestReviewOutcomes(detail.comments, detail.commits)
+    : [];
+  const nextStep = detail
+    ? resolvePullRequestNextStep({
+        provider: detail.provider,
+        state: detail.state,
+        isDraft: detail.isDraft,
+        baseBranch: detail.baseBranch,
+        canMerge: can("merge"),
+        mergeability: detail.mergeability,
         checks: detail.checks,
         checksState,
         checksStale,
+        reviewDecision: sharedSummary?.reviewDecision,
+        approvalCount,
+        changesRequestedBy:
+          reviewOutcomes.find((entry) => entry.outcome === "changes-requested" && !entry.stale)
+            ?.actor?.login ?? null,
+        pendingReviewers: detail.reviewers
+          .filter(
+            (actor) =>
+              !reviewOutcomes.some(
+                (entry) =>
+                  !entry.stale && entry.actor?.login.toLowerCase() === actor.login.toLowerCase(),
+              ),
+          )
+          .map((actor) => actor.login),
+        baseComparison: detail.baseComparison,
+        behindBy: detail.behindBy,
+        autoMergeEnabled: detail.autoMergeEnabled,
+        unresolvedReviewThreads: detail.reviewThreads.filter(
+          (thread) =>
+            !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
+        ).length,
+        agentName: threadProviderName,
+        inThisThread: attachTarget !== null,
+        canHandOff: attachTarget !== null || checkoutRoot !== null,
+        canUpdateBranch: (freshness?.methods.length ?? 0) > 0,
+        canMarkReady: can("ready"),
+        canRequestReview:
+          detail.capabilities.reviewers.request &&
+          detail.capabilities.reviewers.listCandidates &&
+          detail.viewerPermissions.requestReviewers,
+        canCancelAutoMerge: can("disable-auto-merge"),
       })
     : null;
+  const runNextStepAction = (kind: PullRequestNextStepActionKind) => {
+    if (!detail) return;
+    switch (kind) {
+      case "resolve-conflicts":
+        startResolveConflicts();
+        return;
+      case "fix":
+        startFixFindings();
+        return;
+      case "view-logs": {
+        const failed = detail.checks.find(
+          (check) =>
+            (check.status === "failure" || check.status === "cancelled") && check.url !== null,
+        );
+        if (failed?.url) {
+          void openLink(failed.url).catch(() =>
+            toastManager.add({ type: "error", title: "Unable to open check details" }),
+          );
+        }
+        return;
+      }
+      case "update-branch": {
+        const method = freshness?.methods[0];
+        if (method) void perform("update-branch", undefined, method);
+        return;
+      }
+      case "ready":
+        void perform("ready");
+        return;
+      case "cancel-auto-merge":
+        void perform("disable-auto-merge");
+        return;
+      case "request-review":
+        return;
+    }
+  };
 
   // Merging from the keyboard, and from the command palette, goes through the same confirmation
   // the button opens, and only while that button is live. The panel answers only when the reader
@@ -2862,19 +2948,6 @@ export function PullRequestDetailPanel({
                     </Button>
                   ) : null}
                 </section>
-                {/* The same task as the overflow menu's item, out where the findings are. */}
-                {findingsSummary === null ? null : (
-                  <Button
-                    variant="outline"
-                    className="mt-4 w-full"
-                    disabled={handoff !== null}
-                    onClick={startFixFindings}
-                  >
-                    <HammerIcon aria-hidden className="size-3.5" />
-                    {handoff === "findings" ? "Preparing..." : handoffLabels.fixFindings}
-                    <span className="text-muted-foreground">{findingsSummary}</span>
-                  </Button>
-                )}
               </div>
             ) : null}
           </div>
@@ -3092,6 +3165,30 @@ export function PullRequestDetailPanel({
                   onFixFinding={startFixFinding}
                   onRefresh={refreshDetail}
                   onRefreshChecks={refreshFromHost}
+                  lead={
+                    nextStep ? (
+                      <PullRequestNextStepCard
+                        step={nextStep}
+                        pending={handoff !== null || actionPending}
+                        onAction={runNextStepAction}
+                        renderAction={(action, primary) =>
+                          action.kind === "request-review" ? (
+                            <PullRequestReviewerPicker
+                              key={action.kind}
+                              environmentId={environmentId}
+                              reference={reference}
+                              allowed
+                              trigger={
+                                <Button variant={primary ? "default" : "outline"}>
+                                  {action.label}
+                                </Button>
+                              }
+                            />
+                          ) : undefined
+                        }
+                      />
+                    ) : null
+                  }
                 />
               </div>
             ) : null}

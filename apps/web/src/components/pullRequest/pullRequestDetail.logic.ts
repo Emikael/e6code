@@ -1462,3 +1462,313 @@ export function resolveDisplayedPullRequestDetail(input: {
     return null;
   }
 }
+
+/** The host's name, for sentences that say who is deciding. */
+const HOST_NAMES: Record<SourceControlProviderKind, string> = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  forgejo: "Forgejo",
+  bitbucket: "Bitbucket",
+  "azure-devops": "Azure DevOps",
+  unknown: "The host",
+};
+
+export function pullRequestHostName(provider: SourceControlProviderKind): string {
+  return HOST_NAMES[provider];
+}
+
+/** "lint", "lint and typecheck", "lint, typecheck and test", "lint, typecheck and 3 more". */
+export function joinNames(names: ReadonlyArray<string>, limit = 3): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length > limit) {
+    return `${names.slice(0, limit - 1).join(", ")} and ${names.length - (limit - 1)} more`;
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+export type PullRequestNextStepKind =
+  | "no-permission"
+  | "conflicts"
+  | "changes-requested"
+  | "checks-failing"
+  | "behind"
+  | "draft"
+  | "review-not-requested"
+  | "waiting-checks"
+  | "waiting-review"
+  | "checking"
+  | "merge-when-ready"
+  | "ready";
+
+export type PullRequestNextStepActionKind =
+  | "resolve-conflicts"
+  | "fix"
+  | "view-logs"
+  | "update-branch"
+  | "ready"
+  | "request-review"
+  | "cancel-auto-merge";
+
+export interface PullRequestNextStepAction {
+  readonly kind: PullRequestNextStepActionKind;
+  readonly label: string;
+}
+
+export interface PullRequestNextStep {
+  readonly kind: PullRequestNextStepKind;
+  readonly title: string;
+  /** What stands in the way and what follows it, said once. */
+  readonly body: string | null;
+  readonly primary: PullRequestNextStepAction | null;
+  readonly secondary: PullRequestNextStepAction | null;
+  /** Under the buttons, for an action that hands work to the agent: where it lands. */
+  readonly caption: string | null;
+}
+
+export interface PullRequestNextStepInput {
+  readonly provider: SourceControlProviderKind;
+  readonly state: PullRequestState;
+  readonly isDraft: boolean;
+  readonly baseBranch: string;
+  /** The host offers merging and this account may merge. */
+  readonly canMerge: boolean;
+  readonly mergeability: PullRequestMergeability;
+  readonly checks: ReadonlyArray<PullRequestCheck>;
+  readonly checksState: PullRequestChecksState | null;
+  /** A newer rollup than the check list: it says how things stand, not which checks. */
+  readonly checksStale: boolean;
+  readonly reviewDecision: PullRequestReviewDecision | null | undefined;
+  readonly approvalCount: number;
+  /** Who asked for changes, where the conversation says. */
+  readonly changesRequestedBy: string | null;
+  /** Requested reviewers who have not given a verdict yet. */
+  readonly pendingReviewers: ReadonlyArray<string>;
+  readonly baseComparison?: PullRequestBaseComparison | undefined;
+  readonly behindBy?: number | undefined;
+  readonly autoMergeEnabled: boolean | undefined;
+  readonly unresolvedReviewThreads: number;
+  /** The thread's provider, "Claude"; null off a thread or for an unknown one. */
+  readonly agentName: string | null;
+  /** Hand-offs land in this thread's composer, rather than a new thread's. */
+  readonly inThisThread: boolean;
+  /** A hand-off can be prepared at all: a composer to write to, or a checkout to open. */
+  readonly canHandOff: boolean;
+  readonly canUpdateBranch: boolean;
+  readonly canMarkReady: boolean;
+  readonly canRequestReview: boolean;
+  readonly canCancelAutoMerge: boolean;
+}
+
+const FAILED_CHECK: ReadonlySet<PullRequestCheck["status"]> = new Set(["failure", "cancelled"]);
+const RUNNING_CHECK: ReadonlySet<PullRequestCheck["status"]> = new Set([
+  "pending",
+  "action-required",
+]);
+const TEST_CHECK = /\b(tests?|specs?|e2e|unit|integration)\b/i;
+
+/**
+ * The one thing to do next on a pull request, for the card on Summary: the first row of the
+ * F17 table that applies. Null for a merged or closed one. Readiness rows that the host could not
+ * report are not a reason to wait, except a merge verdict it has not reached yet ("Checking").
+ */
+export function resolvePullRequestNextStep(
+  input: PullRequestNextStepInput,
+): PullRequestNextStep | null {
+  if (input.state !== "open") return null;
+  const agent = input.agentName ?? "the agent";
+  const handOffCaption = (alsoSends: boolean) =>
+    [
+      input.inThisThread
+        ? "Adds the task to this thread's composer. Nothing runs until you send it."
+        : "Opens a new thread on this branch with the task in its composer. Nothing runs until you send it.",
+      alsoSends
+        ? `It also hands over ${input.unresolvedReviewThreads} unresolved review ${
+            input.unresolvedReviewThreads === 1 ? "comment" : "comments"
+          }.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  const step = (
+    kind: PullRequestNextStepKind,
+    title: string,
+    body: string | null,
+    primary: PullRequestNextStepAction | null = null,
+    secondary: PullRequestNextStepAction | null = null,
+    caption: string | null = null,
+  ): PullRequestNextStep => ({ kind, title, body, primary, secondary, caption });
+
+  if (!input.canMerge) {
+    return step(
+      "no-permission",
+      "You cannot merge this pull request",
+      `${pullRequestHostName(input.provider)} does not let this account merge here. Someone with write access can.`,
+    );
+  }
+
+  const failed = input.checksStale
+    ? null
+    : input.checks.filter((check) => FAILED_CHECK.has(check.status));
+  const checksFailing = failed === null ? input.checksState === "failing" : failed.length > 0;
+  const running = input.checks.filter((check) => RUNNING_CHECK.has(check.status)).length;
+  const checksRunning =
+    !checksFailing &&
+    (input.checksStale || input.checks.length === 0
+      ? input.checksState === "pending"
+      : running > 0);
+  const approved = input.reviewDecision === "approved" || input.approvalCount > 0;
+  const changesRequested = input.reviewDecision === "changes-requested";
+  const reviewPending = !approved && !changesRequested && input.pendingReviewers.length > 0;
+  const reviewNotRequested = !approved && !changesRequested && input.pendingReviewers.length === 0;
+  const behind = input.baseComparison === "behind";
+
+  // What is still needed after the step shown, so one sentence covers the rest.
+  const later = (from: PullRequestNextStepKind) => {
+    const order: ReadonlyArray<[PullRequestNextStepKind, boolean, string]> = [
+      ["changes-requested", changesRequested, "the requested changes"],
+      ["checks-failing", checksFailing, "passing checks"],
+      ["behind", behind, `an update from ${input.baseBranch}`],
+      ["draft", input.isDraft, "marking it ready for review"],
+      ["review-not-requested", reviewNotRequested, "a review"],
+      ["waiting-checks", checksRunning, "checks to finish"],
+      ["waiting-review", reviewPending, "a review"],
+    ];
+    const start = order.findIndex(([kind]) => kind === from);
+    const rest = order
+      .slice(start + 1)
+      .filter(([, applies]) => applies)
+      .map(([, , words]) => words);
+    return rest.length === 0 ? null : `Still needed after that: ${joinNames(rest, 4)}.`;
+  };
+  const withLater = (first: string, from: PullRequestNextStepKind) =>
+    [first, later(from)].filter(Boolean).join(" ");
+
+  if (input.mergeability === "conflicting") {
+    return step(
+      "conflicts",
+      "Next: resolve conflicts",
+      withLater(`This branch conflicts with ${input.baseBranch}, so it cannot merge.`, "conflicts"),
+      input.canHandOff ? { kind: "resolve-conflicts", label: "Resolve conflicts" } : null,
+      null,
+      input.canHandOff ? handOffCaption(false) : null,
+    );
+  }
+
+  if (changesRequested) {
+    return step(
+      "changes-requested",
+      "Next: address the requested changes",
+      withLater(
+        `${input.changesRequestedBy ?? "A reviewer"} asked for changes.`,
+        "changes-requested",
+      ),
+      input.canHandOff ? { kind: "fix", label: `Have ${agent} address them` } : null,
+      null,
+      input.canHandOff ? handOffCaption(false) : null,
+    );
+  }
+
+  if (checksFailing) {
+    const names = failed?.map((check) => check.name) ?? [];
+    const title =
+      failed === null
+        ? "Next: fix the failing checks"
+        : `Next: fix ${failed.length} failing ${failed.length === 1 ? "check" : "checks"}`;
+    const what =
+      names.length === 0
+        ? "Checks failed on the last push."
+        : `${joinNames(names)} failed on the last push.`;
+    const logs = failed?.some((check) => check.url !== null)
+      ? ({ kind: "view-logs", label: "View logs" } as const)
+      : null;
+    const fix = input.canHandOff
+      ? ({ kind: "fix", label: `Have ${agent} fix them` } as const)
+      : null;
+    // A failing test usually needs reading before fixing; lint and types say what is wrong.
+    const testsLead = logs !== null && names.some((name) => TEST_CHECK.test(name));
+    return step(
+      "checks-failing",
+      title,
+      withLater(what, "checks-failing"),
+      testsLead ? logs : (fix ?? logs),
+      testsLead ? fix : fix ? logs : null,
+      fix ? handOffCaption(input.unresolvedReviewThreads > 0) : null,
+    );
+  }
+
+  if (behind) {
+    const count =
+      input.behindBy === undefined
+        ? ""
+        : ` ${input.behindBy.toLocaleString()} ${input.behindBy === 1 ? "commit" : "commits"}`;
+    return step(
+      "behind",
+      "Next: update the branch",
+      withLater(
+        `${input.baseBranch} has${count || " commits"} this branch does not have.`,
+        "behind",
+      ),
+      input.canUpdateBranch ? { kind: "update-branch", label: "Update branch" } : null,
+    );
+  }
+
+  if (input.isDraft) {
+    return step(
+      "draft",
+      "Next: mark ready for review",
+      withLater("This is a draft, so it cannot merge yet.", "draft"),
+      input.canMarkReady ? { kind: "ready", label: "Ready for review" } : null,
+    );
+  }
+
+  if (reviewNotRequested) {
+    return step(
+      "review-not-requested",
+      "Next: request a review",
+      withLater("Nobody has been asked to review this yet.", "review-not-requested"),
+      input.canRequestReview ? { kind: "request-review", label: "Request review" } : null,
+    );
+  }
+
+  if (checksRunning) {
+    const total = input.checks.length;
+    return step(
+      "waiting-checks",
+      "Waiting on checks",
+      withLater(
+        input.checksStale || total === 0
+          ? "Checks are still running."
+          : `${(total - running).toLocaleString()} of ${total.toLocaleString()} checks are done.`,
+        "waiting-checks",
+      ),
+    );
+  }
+
+  if (reviewPending) {
+    const [first = "a reviewer", ...others] = input.pendingReviewers;
+    return step(
+      "waiting-review",
+      `Waiting on ${first}${others.length > 0 ? ` and ${others.length} more` : ""}`,
+      "Their review has been requested.",
+    );
+  }
+
+  if (input.mergeability === "unknown") {
+    return step(
+      "checking",
+      "Checking",
+      `${pullRequestHostName(input.provider)} has not said yet whether this can merge.`,
+    );
+  }
+
+  if (input.autoMergeEnabled === true) {
+    return step(
+      "merge-when-ready",
+      "Merge when ready is on",
+      `${pullRequestHostName(input.provider)} merges this once its requirements are met.`,
+      input.canCancelAutoMerge ? { kind: "cancel-auto-merge", label: "Cancel" } : null,
+    );
+  }
+
+  return step("ready", "Ready to merge", "Every requirement is met.");
+}
