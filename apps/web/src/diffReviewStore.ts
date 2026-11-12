@@ -169,13 +169,31 @@ export function withoutDiffReviewThread<T>(
   return next;
 }
 
-/** The last change the reader paged to in one thread and scope, for "You stopped here". */
+/** The last change the reader saw in one thread and scope, for "You stopped here". */
 export interface DiffLastSeen {
   readonly path: string;
-  /** The change's index in the file. */
+  /** The change's index in the file when it was seen; an index alone goes stale, see `hunk`. */
   readonly change: number;
+  /**
+   * The change's fingerprint (`hunkFingerprint`), which finds it again after the agent adds or
+   * removes changes above it. Positions saved before it was kept have none and are not shown.
+   */
+  readonly hunk?: string;
   /** ISO time. */
   readonly at: string;
+}
+
+/**
+ * Where a saved position is in the file now: the index of the change with its fingerprint, or
+ * null when that change is gone (or the position predates fingerprints).
+ */
+export function lastSeenChangeIndex(
+  position: DiffLastSeen,
+  fingerprints: ReadonlyArray<string>,
+): number | null {
+  if (!position.hunk) return null;
+  const index = fingerprints.indexOf(position.hunk);
+  return index < 0 ? null : index;
 }
 
 /** Positions kept on this device; past this, the oldest are dropped. */
@@ -204,8 +222,11 @@ interface DiffReviewStoreState {
   readonly marks: DiffReviewMarks;
   readonly lastSeen: Readonly<Record<string, DiffLastSeen>>;
   setLastSeen: (key: string, position: DiffLastSeen) => void;
+  clearLastSeen: (key: string) => void;
   mark: (key: string, fingerprint: DiffReviewFingerprint) => void;
   unmark: (key: string) => void;
+  /** Puts back a mark as it was copied, or removes the key when there was none. */
+  restoreMark: (key: string, mark: DiffReviewMark | undefined) => void;
   forgetThread: (threadKey: string) => void;
 }
 
@@ -217,14 +238,32 @@ export const useDiffReviewStore = create<DiffReviewStoreState>()(
       setLastSeen: (key, position) =>
         set((state) => {
           const current = state.lastSeen[key];
-          if (current?.path === position.path && current.change === position.change) return state;
+          if (
+            current?.path === position.path &&
+            current.change === position.change &&
+            current.hunk === position.hunk
+          ) {
+            return state;
+          }
           return { lastSeen: withDiffLastSeen(state.lastSeen, key, position) };
+        }),
+      clearLastSeen: (key) =>
+        set((state) => {
+          if (!(key in state.lastSeen)) return state;
+          const { [key]: _removed, ...rest } = state.lastSeen;
+          return { lastSeen: rest };
         }),
       mark: (key, fingerprint) =>
         set((state) => ({
           marks: withDiffReviewMark(state.marks, key, { ...fingerprint, at: Date.now() }),
         })),
       unmark: (key) => set((state) => ({ marks: withoutDiffReviewMark(state.marks, key) })),
+      restoreMark: (key, mark) =>
+        set((state) => ({
+          marks: mark
+            ? withDiffReviewMark(state.marks, key, mark)
+            : withoutDiffReviewMark(state.marks, key),
+        })),
       forgetThread: (threadKey) =>
         set((state) => ({
           marks: withoutDiffReviewThread(state.marks, threadKey),
@@ -255,6 +294,8 @@ export interface DiffReviewView extends PullRequestFilesViewedView {
    * can be compared under the current whitespace setting; else null.
    */
   readonly reviewedHunksOf: (path: string) => ReadonlyArray<string> | null;
+  /** Copies a file's mark as it stands; calling the result puts that mark back exactly. */
+  readonly snapshot: (path: string) => () => void;
 }
 
 /**
@@ -306,6 +347,15 @@ export function useDiffReviewView(options: {
     () => files.filter((file) => statusOf(file.path) === "reviewed").length,
     [files, statusOf],
   );
+  const snapshot = useCallback(
+    (path: string) => {
+      if (!threadKey) return noop;
+      const key = diffReviewKey(threadKey, scope, path);
+      const mark = useDiffReviewStore.getState().marks[key];
+      return () => useDiffReviewStore.getState().restoreMark(key, mark);
+    },
+    [scope, threadKey],
+  );
   return {
     enabled: threadKey !== null,
     isViewed: (path) => statusOf(path) === "reviewed",
@@ -317,6 +367,7 @@ export function useDiffReviewView(options: {
     refresh: noop,
     statusOf,
     reviewedHunksOf,
+    snapshot,
   };
 }
 

@@ -58,7 +58,8 @@ import {
   railFolderHints,
 } from "./diffs/diffFileRail.logic";
 import { DiffReviewToggle } from "./diffs/DiffReviewTick";
-import { diffSinceReview } from "./diffs/diffSinceReview.logic";
+import { diffSinceReview, hunkFingerprint, hunkFingerprints } from "./diffs/diffSinceReview.logic";
+import { useRegisterDiffPagingCommands } from "./diffs/diffPagingCommands";
 import {
   changeCaption,
   changeEnd,
@@ -78,6 +79,7 @@ import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import {
   diffLastSeenKey,
   diffReviewFingerprint,
+  lastSeenChangeIndex,
   reviewedCountLabel,
   useDiffReviewStore,
   useDiffReviewView,
@@ -85,9 +87,12 @@ import {
 } from "../diffReviewStore";
 import {
   diffPinState,
+  nextAppliedDiffPreview,
   newerChangeCount,
   pinnedDiffMessage,
   stillWorkingLabel,
+  userActionAnswer,
+  type AppliedDiffPreview,
 } from "./diffs/diffPin.logic";
 import { observeResize } from "~/lib/observeResize";
 import { Button } from "./ui/button";
@@ -390,42 +395,52 @@ export default function DiffPanel({
   // newer one waits behind Update. The pin belongs to one query; another scope starts afresh.
   const livePreview = branchDiffPreview.data;
   const previewKey = `${activeThreadRefreshKey ?? ""}:${selectedGitScope}:${selectedBaseRef ?? ""}:${diffIgnoreWhitespace}`;
-  const [appliedPreview, setAppliedPreview] = useState<{
-    readonly key: string;
-    readonly data: NonNullable<typeof livePreview>;
-    /** The working tree as it was with this preview, so the changes rail holds still too. */
-    readonly workingTree: typeof workingTreeFiles;
-  } | null>(null);
+  // The working tree as it was with the applied preview, so the changes rail holds still too.
+  const [appliedPreview, setAppliedPreview] = useState<AppliedDiffPreview<
+    NonNullable<typeof livePreview>,
+    typeof workingTreeFiles
+  > | null>(null);
   const appliedPreviewForScope = appliedPreview?.key === previewKey ? appliedPreview.data : null;
-  // The pin holds back the agent's changes only. After the user's own stage, commit or refresh,
-  // the diff follows the live one until the preview that answers it arrives.
-  const [followLive, setFollowLive] = useState<{ readonly since: typeof livePreview } | null>(null);
-  const markUserChange = useCallback(() => setFollowLive({ since: livePreview }), [livePreview]);
+  // The pin holds back the agent's changes only. The user's own stage, commit or refresh asks for
+  // a fresh preview, and the first one to settle after it is applied; then the pin holds again.
+  const [userActionAt, setUserActionAt] = useState<number | null>(null);
+  const refreshPreviewQuery = branchDiffPreview.refresh;
+  const markUserChange = useCallback(() => {
+    setUserActionAt(Date.now());
+    refreshPreviewQuery();
+  }, [refreshPreviewQuery]);
+  const userAnswer =
+    userActionAt === null
+      ? null
+      : userActionAnswer({
+          since: userActionAt,
+          settledAt: branchDiffPreview.dataUpdatedAt,
+          pending: branchDiffPreview.isPending,
+          failed: branchDiffPreview.error !== null,
+        });
   const sourceOfPreview = (preview: typeof livePreview | null) =>
     preview?.sources.find((source) => source.kind === GIT_SCOPE_SOURCE_KINDS[selectedGitScope]);
   const liveGitSource = sourceOfPreview(livePreview);
   const appliedGitSource = sourceOfPreview(appliedPreviewForScope);
   const pinState =
-    selectedTurnId === null && followLive === null
+    selectedTurnId === null
       ? diffPinState({
           agentRunning,
           appliedRevision: appliedGitSource?.diffHash ?? null,
           liveRevision: liveGitSource?.diffHash ?? null,
         })
       : "live";
-  if (
-    pinState === "live" &&
-    livePreview &&
-    (appliedPreview?.data !== livePreview ||
-      appliedPreview.key !== previewKey ||
-      appliedPreview.workingTree !== workingTreeFiles)
-  ) {
-    setAppliedPreview({ key: previewKey, data: livePreview, workingTree: workingTreeFiles });
-  }
-  if (followLive !== null && livePreview && livePreview !== followLive.since) {
-    setFollowLive(null);
-  }
-  const shownPreview = pinState === "pinned" ? appliedPreviewForScope : livePreview;
+  const nextApplied = nextAppliedDiffPreview(appliedPreview, {
+    key: previewKey,
+    live: livePreview,
+    workingTree: workingTreeFiles,
+    pinState,
+    answersUser: userAnswer === "answered",
+  });
+  if (nextApplied !== appliedPreview) setAppliedPreview(nextApplied);
+  if (userAnswer !== null) setUserActionAt(null);
+  const shownPreview =
+    pinState === "pinned" && userAnswer !== "answered" ? appliedPreviewForScope : livePreview;
   const pinnedChangeCount =
     pinState === "pinned" && liveGitSource
       ? newerChangeCount(appliedGitSource?.files, liveGitSource.files)
@@ -446,11 +461,7 @@ export default function DiffPanel({
   };
 
   const selectedGitSource = sourceOfPreview(shownPreview);
-  const refreshPreviewQuery = branchDiffPreview.refresh;
-  const refreshDiffFromUserAction = () => {
-    markUserChange();
-    refreshPreviewQuery();
-  };
+  const refreshDiffFromUserAction = markUserChange;
 
   const currentLoadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
     const preview = shownPreview;
@@ -1010,27 +1021,51 @@ export default function DiffPanel({
   const lastSeenKey = routeThreadRef
     ? diffLastSeenKey(scopedThreadKey(routeThreadRef), reviewSectionId)
     : null;
+  // Kept by the change's fingerprint, so it finds the same change after the agent edits above it.
   const recordLastSeen = useCallback(
     (path: string, change: number) => {
       if (!lastSeenKey) return;
-      useDiffReviewStore
-        .getState()
-        .setLastSeen(lastSeenKey, { path, change, at: new Date().toISOString() });
+      const file = codeViewFiles.find((candidate) => candidate.filePath === path);
+      const hunk = file?.fileDiff.hunks[change];
+      if (!file || !hunk) return;
+      useDiffReviewStore.getState().setLastSeen(lastSeenKey, {
+        path,
+        change,
+        hunk: hunkFingerprint(file.fileDiff, hunk),
+        at: new Date().toISOString(),
+      });
     },
-    [lastSeenKey],
+    [codeViewFiles, lastSeenKey],
+  );
+  const requestPagingFile = useCallback(
+    (path: string) => {
+      const index = renderableFileEntries.findIndex(
+        (candidate) => resolveFileDiffPath(candidate.fileDiff) === path,
+      );
+      if (lazySource && index >= settledFileCount) requestFile(index);
+    },
+    [lazySource, renderableFileEntries, requestFile, settledFileCount],
   );
   const paging = useDiffPaging({
     enabled: review.enabled,
     viewer: codeView,
-    scopeKey: codeViewMountKey,
+    // Not the viewer's mount key: Expand all and Collapse all remount the viewer, and the reader's
+    // progress stays.
+    scopeKey: collapseScopeKey ?? reviewSectionId,
     items: pagingItems,
     isReviewed: isFileReviewed,
     setReviewed: setFileReviewed,
+    snapshotReview: review.snapshot,
+    requestFile: requestPagingFile,
     expand: expandDiffFile,
     keybindings,
     panelRef: diffAreaRef,
     bodyRef: diffBodyRef,
-    onLanded: recordLastSeen,
+    onSeen: recordLastSeen,
+  });
+  useRegisterDiffPagingCommands(review.enabled && pagingItems.length > 0, {
+    nextChange: paging.advance,
+    goToFile: paging.goToFile,
   });
   const selectPagingFile = paging.select;
   const selectRailFile = useCallback(
@@ -1053,8 +1088,11 @@ export default function DiffPanel({
     const position = resumeAt.key === lastSeenKey ? resumeAt.position : null;
     if (!position) return null;
     const file = codeViewFiles.find((candidate) => candidate.filePath === position.path);
-    const end = file ? changeEnd(file.fileDiff, position.change) : null;
-    if (!file || !end) return null;
+    if (!file || file.fileDiff.cacheKey?.endsWith(":pending") === true) return null;
+    // Found by its fingerprint; a change that is gone takes the line with it.
+    const change = lastSeenChangeIndex(position, hunkFingerprints(file.fileDiff));
+    const end = change === null ? null : changeEnd(file.fileDiff, change);
+    if (!end) return null;
     const time = formatShortTimestamp(position.at, settings.timestampFormat);
     return {
       fileKey: file.fileKey,
@@ -1125,6 +1163,13 @@ export default function DiffPanel({
     />
   );
   const railCurrentPath = paging.currentPath ?? selectedFilePath;
+  const selectChangedRailFile = useCallback(
+    (filePath: string, section: DiffChangesSection) => {
+      selectPagingFile(filePath);
+      selectChangedFile(filePath, section);
+    },
+    [selectChangedFile, selectPagingFile],
+  );
   const railCurrentCaption = pagingCurrentFile
     ? changeCaption(
         paging.seenOf(pagingCurrentFile.path),
@@ -1399,7 +1444,7 @@ export default function DiffPanel({
   );
 
   return (
-    <DiffPanelShell mode={mode} header={headerRow}>
+    <DiffPanelShell mode={mode} header={headerRow} rootRef={diffAreaRef}>
       {!activeThread ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
@@ -1414,7 +1459,7 @@ export default function DiffPanel({
         </div>
       ) : (
         <>
-          <div ref={diffAreaRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {showPinnedBanner ? (
               <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-surface-raised py-1.5 ps-3 pe-2">
                 <span className="flex shrink-0 items-center gap-2 font-medium text-primary-text text-xs">
@@ -1454,7 +1499,9 @@ export default function DiffPanel({
                       files={shownWorkingTreeFiles ?? []}
                       agentRunning={agentRunning}
                       selected={changedFileReveal}
-                      onSelectFile={selectChangedFile}
+                      currentPath={paging.currentPath}
+                      currentCaption={railCurrentCaption}
+                      onSelectFile={selectChangedRailFile}
                       consumeCommitFocusRequest={consumeCommitFocusRequest}
                       reviewStatusOf={review.enabled ? review.statusOf : null}
                       order={railPaths}

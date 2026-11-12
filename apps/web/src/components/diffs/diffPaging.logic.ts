@@ -3,9 +3,16 @@ import type { FileDiffMetadata, SelectionSide } from "@pierre/diffs";
 /** One file as the paging key sees it, in the order the diff body shows it. */
 export interface DiffPagingFile {
   readonly path: string;
-  /** Its changes (hunks); 0 while its patch has not loaded or for a binary file. */
+  /** Its changes (hunks); 0 for a file without any, such as a binary file. */
   readonly changeCount: number;
   readonly reviewed: boolean;
+  /**
+   * Its patch has not loaded (still to come, or withheld by the host), so its changes are
+   * unknown. The key lands on it and asks for it, and never marks it.
+   */
+  readonly pending?: boolean;
+  /** The reader has been on it: paged or scrolled to it. A file without changes needs this. */
+  readonly visited?: boolean;
 }
 
 /**
@@ -29,7 +36,9 @@ export function nextUnreviewedFile(files: readonly DiffPagingFile[], from: numbe
 
 /** Where to land in a file: its first change not yet seen, else its last one. */
 function landIn(file: DiffPagingFile, seen: number, fileIndex: number): DiffPagingStep {
-  if (file.changeCount === 0) return { kind: "change", fileIndex, changeIndex: null };
+  if (file.pending || file.changeCount === 0) {
+    return { kind: "change", fileIndex, changeIndex: null };
+  }
   return { kind: "change", fileIndex, changeIndex: Math.min(seen, file.changeCount - 1) };
 }
 
@@ -37,6 +46,8 @@ function landIn(file: DiffPagingFile, seen: number, fileIndex: number): DiffPagi
  * The paging key's next step from the current file. It pages through changes not yet seen; only
  * once the file's last change has been seen does it mark the file reviewed and move to the next
  * file not reviewed, wrapping at the end. `seenOf` counts a file's changes already in view.
+ * A file without changes is marked only once the reader has been on it. A pending file is never
+ * marked: the key lands on it, and once there moves on to the next file not reviewed.
  */
 export function nextDiffStep(
   files: readonly DiffPagingFile[],
@@ -47,6 +58,14 @@ export function nextDiffStep(
   const index = Math.min(Math.max(currentIndex, 0), files.length - 1);
   const file = files[index]!;
   if (!file.reviewed) {
+    if (file.pending) {
+      if (!file.visited) return { kind: "change", fileIndex: index, changeIndex: null };
+      const next = nextUnreviewedFile(files, index);
+      return landIn(files[next ?? index]!, seenOf(files[next ?? index]!.path), next ?? index);
+    }
+    if (file.changeCount === 0 && !file.visited) {
+      return { kind: "change", fileIndex: index, changeIndex: null };
+    }
     const seen = seenOf(file.path);
     if (seen < file.changeCount) return { kind: "change", fileIndex: index, changeIndex: seen };
     return { kind: "mark", fileIndex: index, next: nextUnreviewedFile(files, index) };

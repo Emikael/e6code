@@ -58,6 +58,12 @@ interface DiffChangesPanelProps {
   /** Discarding is blocked while the agent may still be writing these files. */
   readonly agentRunning: boolean;
   readonly selected: { readonly path: string; readonly section: DiffChangesSection } | null;
+  /**
+   * The file the reader is in, as the paging key and scrolling move it; it takes the selected
+   * row over from `selected`, and `currentCaption` ("change 1 of 2") goes under it.
+   */
+  readonly currentPath?: string | null;
+  readonly currentCaption?: string | null;
   readonly onSelectFile: (path: string, section: DiffChangesSection) => void;
   /**
    * True once per request to move focus into the commit message box, as Run details' Commit
@@ -72,8 +78,8 @@ interface DiffChangesPanelProps {
    */
   readonly order?: readonly string[];
   /**
-   * Called as the user stages, unstages, discards or commits, so a diff held still for the
-   * agent's changes shows the user's own at once.
+   * Called once the user's stage, unstage, discard or commit has run, so a diff held still for
+   * the agent's changes shows the user's own as soon as a fresh preview answers.
    */
   readonly onUserChange?: () => void;
 }
@@ -107,6 +113,8 @@ export function DiffChangesPanel({
   files,
   agentRunning,
   selected,
+  currentPath = null,
+  currentCaption = null,
   onSelectFile,
   consumeCommitFocusRequest,
   reviewStatusOf = null,
@@ -118,8 +126,13 @@ export function DiffChangesPanel({
     if (!consumeCommitFocusRequest?.()) return;
     commitBoxRef.current?.querySelector("textarea")?.focus();
   }, [consumeCommitFocusRequest]);
-  const selectedIn = (section: DiffChangesSection) =>
-    selected?.section === section ? selected.path : null;
+  const selectedIn = (section: DiffChangesSection) => {
+    if (currentPath === null || currentPath === selected?.path) {
+      return selected?.section === section ? selected.path : null;
+    }
+    // Moved there by the key or by scrolling: whichever section lists the file.
+    return currentPath;
+  };
   const sections = useMemo(() => {
     const derived = deriveVcsChangeSections(files);
     if (!order) return derived;
@@ -151,24 +164,26 @@ export function DiffChangesPanel({
       failureTitle: string,
       run: () => Promise<AtomCommandResult<unknown, unknown>>,
     ): Promise<AtomCommandResult<unknown, unknown> | null> => {
-      onUserChange?.();
       setPendingCount((count) => count + 1);
+      let result: AtomCommandResult<unknown, unknown>;
       try {
-        const result = await run();
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: failureTitle,
-              description: describeFailure(result),
-            }),
-          );
-          return null;
-        }
-        return result;
+        result = await run();
       } finally {
         setPendingCount((count) => count - 1);
       }
+      // The user's change has run; the diff can now show it.
+      onUserChange?.();
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: failureTitle,
+            description: describeFailure(result),
+          }),
+        );
+        return null;
+      }
+      return result;
     },
     [onUserChange],
   );
@@ -253,7 +268,6 @@ export function DiffChangesPanel({
 
   const commit = useCallback(async () => {
     if (commitDisabledReason || busy) return;
-    onUserChange?.();
     const progressToastId = toastManager.add({
       type: "loading",
       title: message.trim() ? "Committing..." : "Generating commit message...",
@@ -265,6 +279,7 @@ export function DiffChangesPanel({
       commitScope: stagedCount > 0 ? "staged" : "all",
       ...(message.trim() ? { commitMessage: message.trim() } : {}),
     });
+    onUserChange?.();
     if (result._tag === "Success") {
       setMessage("");
       toastManager.update(progressToastId, {
@@ -321,6 +336,7 @@ export function DiffChangesPanel({
             onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
             reviewStatusOf={reviewStatusOf}
             folderHints={folderHints}
+            currentCaption={currentCaption}
           />
         ) : null}
         <ChangeSection
@@ -352,6 +368,7 @@ export function DiffChangesPanel({
           onSelect={(entry) => onSelectFile(entry.path, "staged")}
           reviewStatusOf={reviewStatusOf}
           folderHints={folderHints}
+          currentCaption={currentCaption}
           onToggle={commitPendingReason ? undefined : (entry) => unstageEntries([entry])}
         />
         <ChangeSection
@@ -397,6 +414,7 @@ export function DiffChangesPanel({
           onSelect={(entry) => onSelectFile(entry.path, "unstaged")}
           reviewStatusOf={reviewStatusOf}
           folderHints={folderHints}
+          currentCaption={currentCaption}
           onToggle={commitPendingReason ? undefined : (entry) => stagePaths([entry.path])}
         />
       </div>
@@ -463,6 +481,8 @@ function ChangeSection(props: {
   readonly onSelect: (entry: VcsChangeEntry) => void;
   readonly reviewStatusOf: ((path: string) => DiffReviewStatus) | null;
   readonly folderHints: ReadonlyMap<string, string | null>;
+  /** Under the selected row: "change 1 of 2". */
+  readonly currentCaption?: string | null;
   /** Space on a focused row moves it to the other section. */
   readonly onToggle?: ((entry: VcsChangeEntry) => void) | undefined;
 }) {
@@ -490,6 +510,9 @@ function ChangeSection(props: {
               key={entry.path}
               entry={entry}
               selected={entry.path === props.selectedPath}
+              currentCaption={
+                entry.path === props.selectedPath ? (props.currentCaption ?? null) : null
+              }
               reviewStatus={props.reviewStatusOf?.(entry.path) ?? null}
               folder={props.folderHints.get(entry.path) ?? null}
               actions={props.renderRowActions(entry)}
@@ -529,6 +552,7 @@ const REVIEW_STATUS_WORDS: Record<DiffReviewStatus, string> = {
 const ChangeRow = memo(function ChangeRow(props: {
   readonly entry: VcsChangeEntry;
   readonly selected: boolean;
+  readonly currentCaption: string | null;
   readonly reviewStatus: DiffReviewStatus | null;
   /** The folder that tells this file from one with an easily confused name. */
   readonly folder: string | null;
@@ -538,7 +562,11 @@ const ChangeRow = memo(function ChangeRow(props: {
 }) {
   const { entry } = props;
   const { name } = splitPath(entry.path);
-  const caption = [props.folder, props.reviewStatus === "changed" ? "changed since review" : null]
+  const caption = [
+    props.folder,
+    props.currentCaption,
+    props.reviewStatus === "changed" ? "changed since review" : null,
+  ]
     .filter(Boolean)
     .join(" · ");
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {

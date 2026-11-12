@@ -15,6 +15,52 @@ export function diffPinState(input: {
   return input.appliedRevision === input.liveRevision ? "live" : "pinned";
 }
 
+/** The preview on screen and the working tree as it was when that preview was applied. */
+export interface AppliedDiffPreview<Preview, WorkingTree> {
+  readonly key: string;
+  readonly data: Preview;
+  readonly workingTree: WorkingTree;
+}
+
+/**
+ * The preview to keep on screen. A new preview is applied while the diff is live, or when it
+ * answers the user's own action. The working tree is copied only together with a preview: the
+ * status stream runs ahead of the preview, so taking it at any other moment would put the
+ * agent's newer files in the rail over the older body once the pin holds.
+ */
+export function nextAppliedDiffPreview<Preview, WorkingTree>(
+  applied: AppliedDiffPreview<Preview, WorkingTree> | null,
+  input: {
+    readonly key: string;
+    readonly live: Preview | null | undefined;
+    readonly workingTree: WorkingTree;
+    readonly pinState: "live" | "pinned";
+    /** The live preview answers the user's own stage, commit or refresh. */
+    readonly answersUser: boolean;
+  },
+): AppliedDiffPreview<Preview, WorkingTree> | null {
+  const { live } = input;
+  if (live === null || live === undefined) return applied;
+  if (input.pinState !== "live" && !input.answersUser) return applied;
+  if (applied?.data === live && applied.key === input.key) return applied;
+  return { key: input.key, data: live, workingTree: input.workingTree };
+}
+
+/**
+ * Whether the live preview answers the user's action taken at `since`: the first preview that
+ * settled after it. Null while it has not arrived; "failed" when the refresh failed instead.
+ */
+export function userActionAnswer(input: {
+  readonly since: number;
+  readonly settledAt: number | null;
+  readonly pending: boolean;
+  readonly failed: boolean;
+}): "answered" | "failed" | null {
+  if (input.pending) return null;
+  if (input.failed) return "failed";
+  return input.settledAt !== null && input.settledAt >= input.since ? "answered" : null;
+}
+
 interface FileStat {
   readonly path: string;
   readonly additions: number;

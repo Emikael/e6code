@@ -6,6 +6,7 @@ import {
 } from "../lib/workspaceFocus";
 import { threadPullRequestLinkMode } from "@e6tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@e6tools/shared/threadPullRequests";
+import { useDiffPagingCommandsStore } from "./diffs/diffPagingCommands";
 
 import {
   scopedThreadKey,
@@ -65,6 +66,7 @@ import {
   CircleArrowUpIcon,
   CircleStopIcon,
   CornerLeftUpIcon,
+  FileDiffIcon,
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -839,6 +841,7 @@ function OpenCommandPaletteDialog(props: {
       selectThreadRightPanelState(state.byThreadKey, referenceThreadRef, state.restingOpen).isOpen,
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
+  const diffPagingCommands = useDiffPagingCommandsStore((state) => state.commands);
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
   const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
   const serverConfigs = useServerConfigs();
@@ -1973,6 +1976,34 @@ function OpenCommandPaletteDialog(props: {
         runAfterCommandPaletteCloses(requestRightPanelNewMenu);
       },
     });
+  }
+
+  if (diffPagingCommands !== null) {
+    // The Diff tab's paging keys, offered while a Diff tab is open.
+    actionItems.push(
+      ...(
+        [
+          ["next-change", "Diff: Next change", "diff.nextChange", diffPagingCommands.nextChange],
+          ["next-file", "Diff: Next file", "diff.nextFile", diffPagingCommands.nextFile],
+          [
+            "previous-file",
+            "Diff: Previous file",
+            "diff.previousFile",
+            diffPagingCommands.previousFile,
+          ],
+        ] as const
+      ).map(([id, title, shortcutCommand, run]) => ({
+        kind: "action" as const,
+        value: `action:diff-${id}`,
+        searchTerms: ["diff", "review", "change", "file", "next", "previous"],
+        title,
+        icon: <FileDiffIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand,
+        run: async () => {
+          runAfterCommandPaletteCloses(run);
+        },
+      })),
+    );
   }
 
   if (hasClosedViewHistory) {

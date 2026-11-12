@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
@@ -12,15 +12,21 @@ export type DiffPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 const DIFF_PANEL_DRAG_HEADER_CLASS =
   "drag-region flex h-[var(--workspace-topbar-height)] items-center justify-between gap-2 border-b border-border px-4 wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]";
 
-export function DiffPanelShell(props: {
+export function DiffPanelShell({
+  rootRef,
+  ...props
+}: {
   mode: DiffPanelMode;
   header: ReactNode;
   children: ReactNode;
+  /** The whole tab, header row included: the area the Diff's paging keys answer in. */
+  rootRef?: Ref<HTMLDivElement>;
 }) {
   const shouldUseDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "flex h-full min-w-0 flex-col bg-background",
         props.mode === "inline"

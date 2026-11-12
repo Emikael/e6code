@@ -6,6 +6,8 @@ import {
   diffReviewStatus,
   diffReviewStatusAcrossScopes,
   diffLastSeenKey,
+  lastSeenChangeIndex,
+  useDiffReviewStore,
   withDiffLastSeen,
   withDiffReviewMark,
   withoutDiffReviewThread,
@@ -105,7 +107,40 @@ describe("marks", () => {
   });
 });
 
+describe("undo of a mark", () => {
+  it("puts back an earlier changed-since-review mark, with its changes, instead of clearing it", () => {
+    const key = diffReviewKey("env:t1", "uncommitted", "a.ts");
+    const earlier = { ...mark({ objects: "a1..old", hunks: ["h1", "h2"] }, 5) };
+    useDiffReviewStore.setState({ marks: { [key]: earlier } });
+    const before = useDiffReviewStore.getState().marks[key];
+    useDiffReviewStore.getState().mark(key, fingerprint({ objects: "a1..new" }));
+    useDiffReviewStore.getState().restoreMark(key, before);
+    expect(useDiffReviewStore.getState().marks[key]).toEqual(earlier);
+  });
+
+  it("clears a mark that was not there before", () => {
+    const key = diffReviewKey("env:t1", "uncommitted", "b.ts");
+    useDiffReviewStore.setState({ marks: {} });
+    useDiffReviewStore.getState().mark(key, fingerprint());
+    useDiffReviewStore.getState().restoreMark(key, undefined);
+    expect(useDiffReviewStore.getState().marks[key]).toBeUndefined();
+  });
+});
+
 describe("last seen", () => {
+  it("finds the change it stopped at after the agent adds one above it", () => {
+    const position = { path: "a.ts", change: 0, hunk: "h1", at: "2026-11-11T10:00:00.000Z" };
+    expect(lastSeenChangeIndex(position, ["h1", "h2"])).toBe(0);
+    expect(lastSeenChangeIndex(position, ["h0", "h1", "h2"])).toBe(1);
+  });
+
+  it("is gone once that change is gone, or for a position without a fingerprint", () => {
+    const position = { path: "a.ts", change: 1, hunk: "h1", at: "2026-11-11T10:00:00.000Z" };
+    expect(lastSeenChangeIndex(position, ["h0", "h2"])).toBeNull();
+    const { hunk: _hunk, ...withoutFingerprint } = position;
+    expect(lastSeenChangeIndex(withoutFingerprint, ["h1"])).toBeNull();
+  });
+
   it("keeps the newest positions past the cap and forgets an archived thread's", () => {
     let positions = {};
     for (let index = 0; index < 3; index += 1) {
