@@ -92,16 +92,18 @@ describe("threadPullRequestRowWords", () => {
     threadPullRequestRowWords(value).map((word) => word.text);
 
   it("states checks and review in words for an open pull request", () => {
-    expect(text(snapshot({ checksState: "failing", reviewDecision: null }))).toEqual([
+    expect(text(snapshot({ checksState: "failing", reviewDecision: "review-required" }))).toEqual([
       "Open",
       "Checks failing",
-      "Review not requested",
+      "Review required",
     ]);
     expect(threadPullRequestRowWords(snapshot({ checksState: "failing" }))[1]?.tone).toBe("failed");
   });
 
   it("leaves out what the host did not report", () => {
     expect(text(snapshot())).toEqual(["Open"]);
+    // No verdict and no rule requiring one: reviewers may already be requested.
+    expect(text(snapshot({ reviewDecision: null }))).toEqual(["Open"]);
     expect(text(snapshot({ isDraft: true, mergeability: "conflicting" }))).toEqual([
       "Draft",
       "Conflicts",

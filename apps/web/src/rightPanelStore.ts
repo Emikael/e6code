@@ -5,7 +5,9 @@
  * surface descriptors and the active surface, while each feature continues to
  * own its durable resource state. Browser surfaces point at preview tab ids,
  * terminal surfaces point at terminal session ids, file surfaces point at
- * workspace paths, and diff/files remain singleton surfaces.
+ * workspace paths, and diff/files remain singleton surfaces. The Files surface
+ * holds the explorer and the file it shows: opening a file navigates it rather
+ * than adding a tab, and "Keep as its own tab" makes a per-file surface.
  *
  * A thread's panel rests on Run details: an open panel with no active surface
  * shows it, so closing or leaving a surface returns there instead of to a
@@ -61,7 +63,14 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
-  | { id: "files"; kind: "files" }
+  | {
+      id: "files";
+      kind: "files";
+      /** The workspace file (or folder) the Files tab shows beside its explorer. */
+      relativePath?: string;
+      revealLine?: number | null;
+      revealRequestId?: number;
+    }
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -101,7 +110,8 @@ const RIGHT_PANEL_STORAGE_KEY = "e6code:right-panel-state:v2";
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
 // v12 adds the device surface.
 // v14 drops the "agents" (Overview) surface: Run details is the panel's resting view.
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+// v15 folds the per-file tabs into the one Files tab, which now shows the file it opened.
+const RIGHT_PANEL_STORAGE_VERSION = 15;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -154,7 +164,13 @@ interface RightPanelStoreState {
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
+  /**
+   * Shows a workspace file: in its own tab when one was kept for it, otherwise in the Files tab,
+   * which navigates rather than adding a tab.
+   */
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
+  /** "Keep as its own tab": moves the file out of the Files tab into a per-file tab. */
+  keepFileAsTab: (ref: ScopedThreadRef, relativePath: string) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
     ref: ScopedThreadRef,
@@ -442,12 +458,83 @@ const rememberResting = (
 ): Partial<RightPanelStoreState> =>
   panelRestsOnRunDetails(scopedThreadKey(ref)) ? { restingOpen } : {};
 
+/** Workspace entry paths use '/', including on Windows; a trailing slash names the same folder. */
+function normalizeFilePath(requestedPath: string): string {
+  return /^[A-Za-z]:\/+$/.test(requestedPath)
+    ? requestedPath
+    : requestedPath.replace(/\/+$/, "") || requestedPath;
+}
+
+/** The workspace path a Files or per-file surface shows, if any. Attachments have none. */
+export function surfaceFilePath(surface: RightPanelSurface): string | null {
+  if (surface.kind === "files") return surface.relativePath ?? null;
+  if (surface.kind === "file" && surface.attachment === undefined) return surface.relativePath;
+  return null;
+}
+
+/**
+ * Whether a tab's file has an edit still saving. Saves are tracked by `file:<path>`, the per-file
+ * tab's id, so the Files tab answers for the file it shows.
+ */
+export function isFileSurfacePending(
+  surface: RightPanelSurface,
+  pendingSurfaceIds: ReadonlySet<string>,
+): boolean {
+  if (surface.kind === "files") {
+    return (
+      surface.relativePath !== undefined && pendingSurfaceIds.has(`file:${surface.relativePath}`)
+    );
+  }
+  return pendingSurfaceIds.has(surface.id);
+}
+
 function normalizeRevealLine(line: number | undefined): number | null {
   if (line === undefined || !Number.isFinite(line)) return null;
   return Math.max(1, Math.trunc(line));
 }
 
-export function migratePersistedRightPanelState(persistedState: unknown): {
+/**
+ * Before v15 every opened file was its own tab and opening one dropped the Files tab. Those tabs
+ * become the one Files tab, at the first one's place, showing the active (or the last) of them.
+ */
+function foldFileTabsIntoFilesTab(
+  surfaces: RightPanelSurface[],
+  activeSurfaceId: string | null,
+): { surfaces: RightPanelSurface[]; activeSurfaceId: string | null } {
+  const isWorkspaceFile = (
+    surface: RightPanelSurface,
+  ): surface is Extract<RightPanelSurface, { kind: "file" }> =>
+    surface.kind === "file" && surface.attachment === undefined;
+  const fileTabs = surfaces.filter(isWorkspaceFile);
+  if (fileTabs.length === 0) return { surfaces, activeSurfaceId };
+  const shown = fileTabs.find((surface) => surface.id === activeSurfaceId) ?? fileTabs.at(-1)!;
+  const existing = surfaces.find((surface) => surface.kind === "files");
+  const files: RightPanelSurface = {
+    id: "files",
+    kind: "files",
+    relativePath: shown.relativePath,
+    revealLine: shown.revealLine,
+    revealRequestId: shown.revealRequestId,
+  };
+  const anchor = existing ?? fileTabs[0]!;
+  return {
+    surfaces: surfaces.flatMap((surface) =>
+      surface === anchor
+        ? [files]
+        : isWorkspaceFile(surface) || surface === existing
+          ? []
+          : [surface],
+    ),
+    activeSurfaceId: fileTabs.some((surface) => surface.id === activeSurfaceId)
+      ? "files"
+      : activeSurfaceId,
+  };
+}
+
+export function migratePersistedRightPanelState(
+  persistedState: unknown,
+  version = 0,
+): {
   byThreadKey: Record<string, ThreadRightPanelState>;
 } {
   if (!persistedState || typeof persistedState !== "object") {
@@ -463,13 +550,36 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
             .map(([threadKey, threadState]) => {
               const validThreadState =
                 threadState && typeof threadState === "object" ? threadState : null;
-              const surfaces = Array.isArray(validThreadState?.surfaces)
+              const migratedSurfaces = Array.isArray(validThreadState?.surfaces)
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     // Dropped surface kinds: plans now render inline in the
                     // transcript (v9), and Overview became the resting Run
                     // details view (v14).
                     const droppedKind = (surface as { kind?: string }).kind;
                     if (droppedKind === "plan" || droppedKind === "agents") return [];
+                    if (surface.kind === "files") {
+                      if (typeof surface.relativePath !== "string") {
+                        return [{ id: "files", kind: "files" }];
+                      }
+                      return [
+                        {
+                          id: "files",
+                          kind: "files",
+                          relativePath: surface.relativePath,
+                          revealLine:
+                            typeof surface.revealLine === "number" &&
+                            Number.isFinite(surface.revealLine)
+                              ? Math.max(1, Math.trunc(surface.revealLine))
+                              : null,
+                          revealRequestId:
+                            typeof surface.revealRequestId === "number" &&
+                            Number.isSafeInteger(surface.revealRequestId) &&
+                            surface.revealRequestId >= 0
+                              ? surface.revealRequestId
+                              : 0,
+                        },
+                      ];
+                    }
                     if (surface.kind === "file") {
                       const revealLine =
                         typeof surface.revealLine === "number" &&
@@ -538,13 +648,18 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                   })
                 : [];
               const rawActiveSurfaceId = validThreadState?.activeSurfaceId;
-              const persistedActiveSurfaceId = surfaces.some(
+              const validActiveSurfaceId = migratedSurfaces.some(
                 (surface) => surface.id === rawActiveSurfaceId,
               )
                 ? (rawActiveSurfaceId ?? null)
                 : rawActiveSurfaceId === "pull-request"
-                  ? (surfaces.find((surface) => surface.kind === "pull-request")?.id ?? null)
+                  ? (migratedSurfaces.find((surface) => surface.kind === "pull-request")?.id ??
+                    null)
                   : null;
+              const { surfaces, activeSurfaceId: persistedActiveSurfaceId } =
+                version < 15
+                  ? foldFileTabsIntoFilesTab(migratedSurfaces, validActiveSurfaceId)
+                  : { surfaces: migratedSurfaces, activeSurfaceId: validActiveSurfaceId };
               // An open thread panel with no active surface rests on Run
               // details, so a dropped surface (plan, Overview) leaves it there.
               const isOpen =
@@ -679,46 +794,80 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openFile: (ref, requestedPath, line) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
-            // Workspace entry paths use '/', including on Windows.
-            const relativePath = /^[A-Za-z]:\/+$/.test(requestedPath)
-              ? requestedPath
-              : requestedPath.replace(/\/+$/, "") || requestedPath;
-            const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
-            );
-            const surfaceId = `file:${relativePath}` as const;
-            const existing = withoutStandaloneExplorer.find(
+            const relativePath = normalizeFilePath(requestedPath);
+            const kept = current.surfaces.find(
               (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
-                surface.id === surfaceId && surface.kind === "file",
+                surface.id === `file:${relativePath}` && surface.kind === "file",
             );
-            const surface = fileSurface(
+            // A file kept as its own tab is shown there, so it is never open twice.
+            if (kept) {
+              const surface = fileSurface(
+                relativePath,
+                normalizeRevealLine(line),
+                kept.revealRequestId + 1,
+              );
+              return {
+                ...current,
+                isOpen: true,
+                activeSurfaceId: surface.id,
+                surfaces: current.surfaces.map((entry) =>
+                  entry.id === surface.id ? surface : entry,
+                ),
+              };
+            }
+            const existing = current.surfaces.find(
+              (surface): surface is Extract<RightPanelSurface, { kind: "files" }> =>
+                surface.kind === "files",
+            );
+            const files: RightPanelSurface = {
+              id: "files",
+              kind: "files",
               relativePath,
-              normalizeRevealLine(line),
-              (existing?.revealRequestId ?? 0) + 1,
-            );
+              revealLine: normalizeRevealLine(line),
+              revealRequestId: (existing?.revealRequestId ?? 0) + 1,
+            };
             return {
               ...current,
               isOpen: true,
-              activeSurfaceId: surface.id,
+              activeSurfaceId: files.id,
               surfaces: existing
-                ? withoutStandaloneExplorer.map((entry) =>
-                    entry.id === surface.id ? surface : entry,
-                  )
-                : [...withoutStandaloneExplorer, surface],
+                ? current.surfaces.map((entry) => (entry.id === files.id ? files : entry))
+                : [...current.surfaces, files],
+            };
+          }),
+        ),
+      keepFileAsTab: (ref, requestedPath) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const relativePath = normalizeFilePath(requestedPath);
+            const surfaceId = `file:${relativePath}` as const;
+            const existing = current.surfaces.find((surface) => surface.id === surfaceId);
+            // The Files tab lets go of the file, so it is open in one place and the Files tab
+            // goes back to its explorer.
+            const surfaces = current.surfaces.flatMap<RightPanelSurface>((surface) =>
+              surface.kind === "files" && surface.relativePath === relativePath
+                ? [{ id: "files", kind: "files" }]
+                : [surface],
+            );
+            const filesIndex = surfaces.findIndex((surface) => surface.kind === "files");
+            const kept = fileSurface(relativePath, null, 0);
+            return {
+              ...current,
+              isOpen: true,
+              activeSurfaceId: surfaceId,
+              surfaces: existing
+                ? surfaces
+                : filesIndex < 0
+                  ? [...surfaces, kept]
+                  : [...surfaces.slice(0, filesIndex + 1), kept, ...surfaces.slice(filesIndex + 1)],
             };
           }),
         ),
       openAttachment: (ref, attachment) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
-            const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
-            );
-            return upsertSurface(
-              { ...current, surfaces: withoutStandaloneExplorer },
-              attachmentSurface(attachment),
-            );
-          }),
+          userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, attachmentSurface(attachment)),
+          ),
         ),
       openTerminal: (ref, terminalId) =>
         set((state) =>

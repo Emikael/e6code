@@ -33,6 +33,11 @@ export function normalizeFileCommentRange(range: SelectedLineRange): {
   };
 }
 
+/** "line 212" or "lines 212 to 214", for the saved comment card's heading. */
+export function formatFileCommentLines(startLine: number, endLine: number): string {
+  return startLine === endLine ? `line ${startLine}` : `lines ${startLine} to ${endLine}`;
+}
+
 export function formatFileCommentRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `L${startLine}` : `L${startLine} to L${endLine}`;
 }

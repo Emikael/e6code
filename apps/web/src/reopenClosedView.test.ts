@@ -68,6 +68,28 @@ describe("reopenClosedView", () => {
     expect(openPreview).not.toHaveBeenCalled();
   });
 
+  it("brings the Files tab back showing the file it showed", async () => {
+    const reopened = await reopenClosedView(
+      {
+        kind: "panel-tab",
+        threadRef,
+        surface: {
+          kind: "files",
+          id: "files",
+          relativePath: "src/app.ts",
+          revealLine: 7,
+          revealRequestId: 4,
+        },
+      },
+      { openPreview: vi.fn(), workspaceAvailable: true },
+    );
+    expect(reopened).toBe(true);
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
+    expect(state.surfaces).toMatchObject([
+      { id: "files", relativePath: "src/app.ts", revealLine: 7 },
+    ]);
+  });
+
   it("does not reopen workspace tabs without an available project", async () => {
     const options = {
       openPreview: vi.fn(),

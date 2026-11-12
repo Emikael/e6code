@@ -22,6 +22,8 @@ interface DiffCommentAnnotationProps {
   onDelete?: () => void;
   /** Reopens a saved comment for editing. */
   onEdit?: () => void;
+  /** The saved card's heading; file previews name the lines ("Your comment · lines 3 to 5"). */
+  heading?: string;
   placeholder?: string;
   submitLabel?: string;
   pending?: boolean;
@@ -42,6 +44,7 @@ export function DiffCommentAnnotation({
   onComment,
   onDelete,
   onEdit,
+  heading = "Your comment",
   placeholder = "Add a comment…",
   submitLabel = "Comment",
   pending = false,
@@ -72,9 +75,7 @@ export function DiffCommentAnnotation({
         onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-1">
-          <span className="min-w-0 flex-1 font-medium text-[13px] leading-[18px]">
-            Your comment
-          </span>
+          <span className="min-w-0 flex-1 font-medium text-[13px] leading-[18px]">{heading}</span>
           {onEdit ? (
             <Button variant="ghost" size="compact" onClick={onEdit}>
               Edit

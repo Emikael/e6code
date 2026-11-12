@@ -21,19 +21,19 @@ import {
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@e6tools/client-runtime/media-reference";
-import { Code2, Eye, FolderTree, Globe2, Table2, WrapTextIcon } from "lucide-react";
+import { FolderTree } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
-import { OpenInPicker } from "~/components/chat/OpenInPicker";
 import { MediaVideoPlayer } from "~/components/media/MediaVideoPlayer";
 import { MediaActions, type MediaActionSource } from "~/components/media/MediaActions";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
-import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
@@ -61,6 +61,7 @@ import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
   type FileCommentLineAnnotation,
+  formatFileCommentLines,
   formatFileCommentRange,
   nextFileCommentId,
   normalizeFileCommentRange,
@@ -80,16 +81,28 @@ import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
 import {
+  FILE_EXPLORER_COLUMN_MIN_PANEL_WIDTH,
+  fileExplorerToggleShown,
   isMarkdownPreviewFile,
+  resolveFileExplorerLayout,
   setMarkdownTaskChecked,
-  shouldShowFileExplorer,
 } from "./filePreviewMode";
-import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
-import {
-  getOptimisticProjectFileQueryData,
-  setProjectFileQueryData,
-  useProjectFileQuery,
-} from "./projectFilesQueryState";
+import { FileMoreMenu } from "./FileMoreMenu";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { useFileEditSession } from "./useFileEditSession";
+import { useThreadFilesContext } from "./useThreadFilesContext";
+import { recentFilesOutsideChanged, resolveFilesFilter } from "./threadChangedFiles";
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
+import { OpenInPicker } from "~/components/chat/OpenInPicker";
+import { openCommandPalette } from "~/commandPaletteBus";
+import { useDiffPanelStore } from "~/diffPanelStore";
+import { shortcutLabelForCommand } from "~/keybindings";
+import { useRightPanelStore } from "~/rightPanelStore";
+import { useUiStateStore } from "~/uiStateStore";
+import { DiffStat } from "../DiffStat";
+import { Button } from "../ui/button";
+import { MenuItem } from "../ui/menu";
+import { getOptimisticProjectFileQueryData, useProjectFileQuery } from "./projectFilesQueryState";
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -103,13 +116,19 @@ interface FilePreviewPanelProps {
   availableEditors: ReadonlyArray<EditorId>;
   revealLine: number | null;
   revealRequestId: number;
+  /**
+   * "files": the Files tab, with the explorer beside the file. "kept": a file kept as its own
+   * tab, which starts without an explorer.
+   */
+  variant: "files" | "kept";
   onOpenFile: (relativePath: string) => void;
+  /** "Keep as its own tab", offered by the Files tab. */
+  onKeepAsTab: (relativePath: string) => void;
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
 }
 
-const FILE_EXPLORER_STORAGE_KEY = "e6code.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "e6code.renderMarkdown";
 const RENDER_BROWSER_FILE_STORAGE_KEY = "e6code.renderBrowserFile";
 const RENDER_TABLE_STORAGE_KEY = "e6code.renderTable";
@@ -543,6 +562,27 @@ function useFileLineReveal(
   );
 }
 
+/** "4.2 MB", for the truncation notice. */
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toLocaleString(undefined, { maximumFractionDigits: 1 })} MB`;
+}
+
+/** The file line under the middle of the scrolled view, or null before the file has rendered. */
+function readCenterLine(scroller: HTMLElement, fileContainer: HTMLElement | null): number | null {
+  if (!fileContainer) return null;
+  const root = fileContainer.shadowRoot ?? fileContainer;
+  const bounds = scroller.getBoundingClientRect();
+  const middle = bounds.top + bounds.height / 2;
+  for (const element of root.querySelectorAll<HTMLElement>("[data-line]")) {
+    const rect = element.getBoundingClientRect();
+    if (rect.top <= middle && middle < rect.bottom) {
+      const line = Number(element.dataset.line);
+      return Number.isSafeInteger(line) && line > 0 ? line : null;
+    }
+  }
+  return null;
+}
+
 interface EditableFileSurfaceProps {
   environmentId: EnvironmentId;
   cwd: string;
@@ -553,7 +593,10 @@ interface EditableFileSurfaceProps {
   revealRequestId: number;
   wordWrap: boolean;
   onPostRender: FilePostRender;
-  onPendingChange: (relativePath: string, pending: boolean) => void;
+  /** The reader changed the file; the edit session shows and saves it. */
+  onEdit: (contents: string) => void;
+  /** The line at the middle of the view, read when the file is left, for Recently opened. */
+  onLeave: (line: number | null) => void;
 }
 
 interface FileSelectionOverride {
@@ -571,7 +614,8 @@ function EditableFileSurface({
   revealRequestId,
   wordWrap,
   onPostRender,
-  onPendingChange,
+  onEdit,
+  onLeave,
 }: EditableFileSurfaceProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -587,20 +631,39 @@ function EditableFileSurface({
   );
   const surfaceRef = useRef<HTMLDivElement>(null);
   const selectionFrameRef = useRef<number | null>(null);
-  const saveCoordinator = useFileSaveCoordinator({
-    environmentId,
-    cwd,
-    relativePath,
-    onPendingChange,
+  const fileContainerRef = useRef<HTMLElement | null>(null);
+  // The line at the middle of the view, kept as the reader scrolls so leaving the file can
+  // record where they were.
+  const centerLineRef = useRef<number | null>(null);
+  const onLeaveRef = useRef(onLeave);
+  useEffect(() => {
+    onLeaveRef.current = onLeave;
   });
+  useEffect(() => {
+    const scroller = surfaceRef.current?.querySelector<HTMLElement>(".file-preview-virtualizer");
+    if (!scroller) return;
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      centerLineRef.current = readCenterLine(scroller, fileContainerRef.current);
+    };
+    const onScroll = () => {
+      if (frame === null) frame = requestAnimationFrame(measure);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, []);
+  useEffect(() => () => onLeaveRef.current(centerLineRef.current), []);
   const editor = useMemo(
     () =>
       new Editor<FileCommentAnnotationGroup>({
         persistState: true,
         persistStateStorage: "inMemory",
         onChange: (file, nextLineAnnotations) => {
-          setProjectFileQueryData(environmentId, cwd, relativePath, file.contents);
-          saveCoordinator.change(file.contents);
+          onEdit(file.contents);
           if (nextLineAnnotations) {
             const remapped = remapFileCommentAnnotations(
               nextLineAnnotations as FileCommentLineAnnotation[],
@@ -625,7 +688,7 @@ function EditableFileSurface({
           }
         },
       }),
-    [addReviewComment, composerDraftTarget, cwd, environmentId, relativePath, saveCoordinator],
+    [addReviewComment, composerDraftTarget, onEdit, relativePath],
   );
 
   useEffect(
@@ -810,6 +873,7 @@ function EditableFileSurface({
   const handlePostRender = useCallback<FilePostRender>(
     (fileContainer, instance, phase) => {
       onPostRender(fileContainer, instance, phase);
+      fileContainerRef.current = phase === "unmount" ? null : fileContainer;
 
       if (selectionFrameRef.current !== null) {
         cancelAnimationFrame(selectionFrameRef.current);
@@ -872,6 +936,7 @@ function EditableFileSurface({
                     key={`${entry.id}:${entry.kind}`}
                     kind={entry.kind}
                     rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
+                    heading={`Your comment · ${formatFileCommentLines(entry.startLine, entry.endLine)}`}
                     text={entry.text}
                     onCancel={() => cancelAnnotationEntry(entry)}
                     onComment={(text) => submitAnnotationEntry(entry.id, text)}
@@ -899,7 +964,7 @@ function RenderedMarkdownSurface({
   contents,
   threadRef,
   readOnly,
-  onPendingChange,
+  onEdit,
 }: Omit<
   EditableFileSurfaceProps,
   | "resolvedTheme"
@@ -908,17 +973,11 @@ function RenderedMarkdownSurface({
   | "revealRequestId"
   | "wordWrap"
   | "onPostRender"
+  | "onLeave"
 > & {
   threadRef: ScopedThreadRef;
   readOnly: boolean;
 }) {
-  const saveCoordinator = useFileSaveCoordinator({
-    environmentId,
-    cwd,
-    relativePath,
-    onPendingChange,
-  });
-
   return (
     <ScrollArea className="min-h-0 flex-1">
       <FileMarkdownPreview
@@ -935,8 +994,7 @@ function RenderedMarkdownSurface({
                   contents;
                 const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
                 if (nextContents === currentContents) return;
-                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                saveCoordinator.change(nextContents);
+                onEdit(nextContents);
               }
         }
       />
@@ -944,19 +1002,19 @@ function RenderedMarkdownSurface({
   );
 }
 
-function renderedToggleLabel(mode: "markdown" | "html" | "table", rendered: boolean): string {
-  if (mode === "markdown") return rendered ? "Show markdown source" : "Show rendered markdown";
-  if (mode === "table") return rendered ? "Show source" : "Show table";
-  return rendered ? "Show HTML source" : "Show rendered page";
-}
-
-function initialExplorerOpen(): boolean {
-  try {
-    return getLocalStorageItem(FILE_EXPLORER_STORAGE_KEY, Schema.Boolean) ?? true;
-  } catch (error) {
-    console.error(error);
-    return true;
-  }
+/** Whether the element is narrower than the Files tab needs for its explorer column. */
+function useNarrowPanel(ref: RefObject<HTMLElement | null>): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow(entry.contentRect.width < FILE_EXPLORER_COLUMN_MIN_PANEL_WIDTH);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return narrow;
 }
 
 export default function FilePreviewPanel({
@@ -971,7 +1029,9 @@ export default function FilePreviewPanel({
   availableEditors,
   revealLine,
   revealRequestId,
+  variant,
   onOpenFile,
+  onKeepAsTab,
   onPendingChange,
   selectedFilePending,
   workspaceMutationId,
@@ -1010,12 +1070,27 @@ export default function FilePreviewPanel({
   const isDirectory = file.isNotFile && !isHostFile;
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isDirectory ? null : relativePath;
-  const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
-  const showExplorer = shouldShowFileExplorer({
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const narrow = useNarrowPanel(surfaceRef);
+  // The header button's state; see resolveFileExplorerLayout.
+  const [explorerOpen, setExplorerOpen] = useState(false);
+  const explorerLayout = resolveFileExplorerLayout({
+    variant,
     relativePath: previewPath,
-    explorerOpen,
     attachmentOpen: attachment !== undefined,
+    narrow,
+    explorerOpen,
   });
+  const showsExplorerToggle =
+    !isHostFile && previewPath !== null && fileExplorerToggleShown({ variant, narrow });
+  // A file picked from the narrow overlay closes it, so the file is what you see next.
+  const openFromExplorer = useCallback(
+    (path: string) => {
+      if (explorerLayout === "overlay") setExplorerOpen(false);
+      onOpenFile(path);
+    },
+    [explorerLayout, onOpenFile],
+  );
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
@@ -1083,6 +1158,60 @@ export default function FilePreviewPanel({
   const absolutePath =
     relativePath && attachment === undefined ? resolvePathLinkTarget(relativePath, cwd) : null;
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  // Board 15: the thread's changed files, the reader's recent files and filter, and the reader's
+  // own edits, which save themselves and can be undone.
+  const threadKey = scopedThreadKey(threadRef);
+  const threadFiles = useThreadFilesContext(threadRef, attachment === undefined ? cwd : "");
+  const storedFilter = useUiStateStore((state) => state.filesFilterByThreadKey[threadKey]);
+  const storedRecent = useUiStateStore((state) => state.recentFilesByThreadKey[threadKey]);
+  const recordRecentFile = useUiStateStore((state) => state.recordRecentFile);
+  const setFilesFilter = useUiStateStore((state) => state.setFilesFilter);
+  const filesFilter = resolveFilesFilter({
+    stored: storedFilter,
+    changedCount: threadFiles.changed.length,
+  });
+  const recentFiles = useMemo(
+    () => recentFilesOutsideChanged(storedRecent ?? [], threadFiles.changed),
+    [storedRecent, threadFiles.changed],
+  );
+  const workspaceFile = previewPath !== null && attachment === undefined && !isHostFile;
+  useEffect(() => {
+    if (workspaceFile && previewPath !== null) recordRecentFile(threadKey, previewPath, null);
+  }, [previewPath, recordRecentFile, threadKey, workspaceFile]);
+  const changedFile = workspaceFile
+    ? (threadFiles.changed.find((entry) => entry.path === previewPath) ?? null)
+    : null;
+  const editable =
+    workspaceFile && !isMedia && !isPdf && file.data !== null && !file.data.truncated;
+  const editSession = useFileEditSession({
+    environmentId,
+    cwd,
+    relativePath: editable ? previewPath : null,
+    contents: file.data?.contents ?? null,
+    serverContents: editable ? (file.serverData?.contents ?? null) : null,
+    turnKey: threadFiles.turnKey,
+    onPendingChange,
+  });
+  const viewDiff = useCallback(() => {
+    if (!changedFile) return;
+    const diffs = useDiffPanelStore.getState();
+    if (changedFile.diff.kind === "working-tree") {
+      diffs.selectGitScope(threadRef, "uncommitted");
+      diffs.requestFocus(threadRef, { kind: "file", path: changedFile.repositoryPath });
+    } else {
+      diffs.selectTurn(threadRef, changedFile.diff.turnId, changedFile.repositoryPath);
+    }
+    useRightPanelStore.getState().open(threadRef, "diff");
+  }, [changedFile, threadRef]);
+  const browseShortcut = shortcutLabelForCommand(keybindings, "filePicker.toggle");
+  // Recently opened goes back to the line the file was left at.
+  const openFromLists = useCallback(
+    (path: string, line: number | null) => {
+      if (line === null) onOpenFile(path);
+      else useRightPanelStore.getState().openFile(threadRef, path, line);
+    },
+    [onOpenFile, threadRef],
+  );
   useWorkspaceMutationRefresh({
     enabled:
       attachment === undefined &&
@@ -1104,17 +1233,21 @@ export default function FilePreviewPanel({
     currentCrumb?.scrollIntoView({ block: "nearest", inline: "end" });
   }, [relativePath]);
 
-  const toggleExplorer = () => {
-    setExplorerOpen((current) => {
-      const next = !current;
-      try {
-        setLocalStorageItem(FILE_EXPLORER_STORAGE_KEY, next, Schema.Boolean);
-      } catch (error) {
-        console.error(error);
-      }
-      return next;
-    });
-  };
+  const copyPath = useCallback(() => {
+    if (relativePath === null) return;
+    void writeTextToClipboard(relativePath, "path").then(
+      () => toastManager.add({ type: "success", title: "Path copied", description: relativePath }),
+      (error: unknown) =>
+        toastManager.add({
+          type: "error",
+          title: "Failed to copy path",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+    );
+  }, [relativePath]);
+  const canOpenInEditor =
+    absolutePath !== null &&
+    (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec");
 
   const handleOpenInBrowser = useCallback(() => {
     if (!absolutePath || !environmentHttpBaseUrl) return;
@@ -1141,226 +1274,311 @@ export default function FilePreviewPanel({
     })();
   }, [absolutePath, createAssetUrl, cwd, environmentHttpBaseUrl, openPreview, threadRef]);
 
+  const explorer =
+    explorerLayout === "none" ? null : (
+      <FileBrowserPanel
+        key={`${environmentId}:${cwd}`}
+        environmentId={environmentId}
+        cwd={cwd}
+        projectName={projectName}
+        selectedPath={relativePath}
+        selectedPathRevealId={revealRequestId}
+        onOpenFile={openFromExplorer}
+        workspaceMutationId={workspaceMutationId}
+        {...(previewPath && !isMedia && !isPdf ? { onRefreshSelectedFile: file.refresh } : {})}
+        lists={{
+          filter: filesFilter,
+          changed: threadFiles.changed,
+          recent: recentFiles,
+          onFilterChange: (filter) => setFilesFilter(threadKey, filter),
+          onOpenFile: openFromLists,
+          browseShortcut,
+          onBrowseAll: () => openCommandPalette({ open: "files" }),
+        }}
+      />
+    );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {relativePath && attachment === undefined ? (
-        <PanelSurfaceHeader>
-          <ScrollArea
-            ref={breadcrumbRef}
-            hideScrollbars
-            scrollFade
-            className="min-w-0 flex-1 rounded-none"
-            data-file-breadcrumbs
+    <div ref={surfaceRef} className="relative flex min-h-0 flex-1 overflow-hidden bg-background">
+      {/* Board 15: the explorer is a 252px column on the left, the full height of the tab. */}
+      {explorerLayout === "column" ? (
+        <aside
+          aria-label="File explorer"
+          className="flex min-h-0 w-[252px] shrink-0 border-e border-border bg-sidebar"
+        >
+          {explorer}
+        </aside>
+      ) : null}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {relativePath && attachment === undefined ? (
+          <PanelSurfaceHeader
+            actions={
+              <>
+                {/* No save word until the reader edits; then one that says it saved, and Undo. */}
+                {editSession.canUndo ? (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span className="text-muted-foreground text-xs" aria-live="polite">
+                      Your edit saved
+                    </span>
+                    <Button size="compact" variant="ghost" onClick={editSession.undo}>
+                      Undo
+                    </Button>
+                  </span>
+                ) : null}
+                {changedFile ? (
+                  <Button size="compact" variant="outline" onClick={viewDiff}>
+                    View diff
+                    {changedFile.isNew ? (
+                      <span className="text-muted-foreground text-[11px]">new</span>
+                    ) : (
+                      <DiffStat
+                        tone="neutral"
+                        notation="full"
+                        additions={changedFile.additions}
+                        deletions={changedFile.deletions}
+                        className="text-[11px] text-muted-foreground"
+                      />
+                    )}
+                  </Button>
+                ) : null}
+                {canToggleRendered && renderedMode ? (
+                  <ToggleGroup
+                    size="segmented"
+                    variant="segmented"
+                    aria-label="File view"
+                    value={[rendered ? "rendered" : "source"]}
+                    onValueChange={(next) => {
+                      const pressed = next[0] === "rendered";
+                      if (next.length === 0 || pressed === rendered) return;
+                      setRenderedPreferred(pressed);
+                      setHandledReveal(
+                        pressed && relativePath !== null
+                          ? { path: relativePath, requestId: revealRequestId }
+                          : null,
+                      );
+                    }}
+                  >
+                    <Toggle value="source">Source</Toggle>
+                    <Toggle value="rendered">Rendered</Toggle>
+                  </ToggleGroup>
+                ) : null}
+                <FileMoreMenu
+                  wordWrap={showsRawText ? wordWrap : null}
+                  onWordWrapChange={(next) => updateClientSettings({ wordWrap: next })}
+                  editor={
+                    canOpenInEditor && absolutePath
+                      ? { environmentId, keybindings, availableEditors, absolutePath }
+                      : null
+                  }
+                  onOpenInBrowser={canOpenInBrowser ? handleOpenInBrowser : null}
+                  onCopyPath={copyPath}
+                  onKeepAsTab={
+                    variant === "files" && previewPath !== null && !isHostFile
+                      ? () => onKeepAsTab(previewPath)
+                      : null
+                  }
+                >
+                  {editSession.canRevert ? (
+                    <MenuItem onClick={editSession.revert}>Revert my edits</MenuItem>
+                  ) : null}
+                </FileMoreMenu>
+              </>
+            }
           >
-            <div className="flex h-full w-max min-w-full items-center text-xs">
-              <FileBreadcrumbs
-                cwd={cwd}
+            {showsExplorerToggle ? (
+              <FileSurfaceAction
+                label={explorerOpen ? "Hide files" : "Show files"}
+                pressed={explorerOpen}
+                onPress={() => setExplorerOpen((current) => !current)}
+              >
+                <FolderTree className="size-3.5" />
+              </FileSurfaceAction>
+            ) : null}
+            <ScrollArea
+              ref={breadcrumbRef}
+              hideScrollbars
+              scrollFade
+              className="min-w-0 flex-1 rounded-none"
+              data-file-breadcrumbs
+            >
+              <div className="flex h-full w-max min-w-full items-center text-xs">
+                <FileBreadcrumbs
+                  cwd={cwd}
+                  environmentId={environmentId}
+                  onOpenFile={onOpenFile}
+                  projectName={projectName}
+                  relativePath={relativePath}
+                  workspaceMutationId={workspaceMutationId}
+                />
+              </div>
+            </ScrollArea>
+          </PanelSurfaceHeader>
+        ) : null}
+        {previewPath &&
+        attachment === undefined &&
+        !isMedia &&
+        !renderBrowserFile &&
+        file.data?.truncated ? (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-raised px-3 py-1.5 text-muted-foreground text-xs">
+            <span className="min-w-0 flex-1">
+              {`Showing the first 1 MB of ${formatMegabytes(file.data.byteLength)}.`}
+            </span>
+            {canOpenInEditor && absolutePath ? (
+              <OpenInPicker
                 environmentId={environmentId}
-                onOpenFile={onOpenFile}
-                projectName={projectName}
-                relativePath={relativePath}
+                keybindings={keybindings}
+                availableEditors={availableEditors}
+                openInCwd={absolutePath}
+                compact
+                enableShortcut={false}
+              />
+            ) : null}
+          </div>
+        ) : null}
+        {editSession.history.conflict !== null ? (
+          // Never lose the reader's edit silently: both versions stay one click away.
+          <div
+            role="status"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-1.5 text-xs"
+          >
+            <span className="min-w-0 flex-1">{`${threadFiles.agentName} changed this file too.`}</span>
+            <Button size="compact" variant="outline" onClick={editSession.keepMine}>
+              Keep mine
+            </Button>
+            <Button size="compact" variant="ghost" onClick={editSession.takeTheirs}>
+              {`Take ${threadFiles.agentName}'s`}
+            </Button>
+          </div>
+        ) : null}
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <div
+            className={cn(
+              "min-w-0 flex-1 flex-col overflow-hidden",
+              previewPath ? "flex" : "hidden",
+            )}
+          >
+            {isDirectory ? null : relativePath && attachment ? (
+              <AttachmentFilePreview
+                key={`${environmentId}:${attachment.id}`}
+                name={attachment.name}
+                mimeType={attachment.mimeType}
+                sizeBytes={attachment.sizeBytes}
+                asset={{ environmentId, attachmentId: attachment.id }}
+              />
+            ) : relativePath && isVideo && absolutePath ? (
+              <WorkspaceVideoPreview
+                key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
+                environmentId={environmentId}
+                threadRef={threadRef}
+                absolutePath={absolutePath}
+                workspaceRoot={cwd}
+                name={relativePath}
                 workspaceMutationId={workspaceMutationId}
               />
-            </div>
-          </ScrollArea>
-          {absolutePath &&
-          (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
-            <OpenInPicker
-              environmentId={environmentId}
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              openInCwd={absolutePath}
-              compact
-              enableShortcut={false}
-            />
-          ) : null}
-          {canToggleRendered && renderedMode ? (
-            <FileSurfaceAction
-              label={renderedToggleLabel(renderedMode, rendered)}
-              pressed={rendered}
-              onPress={() => {
-                const pressed = !rendered;
-                setRenderedPreferred(pressed);
-                setHandledReveal(
-                  pressed && relativePath !== null
-                    ? { path: relativePath, requestId: revealRequestId }
-                    : null,
-                );
-              }}
-            >
-              {rendered ? (
-                <Code2 className="size-3.5" />
-              ) : renderedMode === "table" ? (
-                <Table2 className="size-3.5" />
-              ) : (
-                <Eye className="size-3.5" />
-              )}
-            </FileSurfaceAction>
-          ) : null}
-          {showsRawText ? (
-            <FileSurfaceAction
-              label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-              pressed={wordWrap}
-              onPress={() => updateClientSettings({ wordWrap: !wordWrap })}
-            >
-              <WrapTextIcon className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {canOpenInBrowser ? (
-            <FileSurfaceAction label="Open file in preview browser" onPress={handleOpenInBrowser}>
-              <Globe2 className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {!isHostFile && previewPath !== null ? (
-            <FileSurfaceAction
-              label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
-              pressed={explorerOpen}
-              onPress={toggleExplorer}
-            >
-              <FolderTree className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-        </PanelSurfaceHeader>
-      ) : null}
-      {previewPath &&
-      attachment === undefined &&
-      !isMedia &&
-      !renderBrowserFile &&
-      file.data?.truncated ? (
-        <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
-          Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
-        </div>
-      ) : null}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div
-          className={cn("min-w-0 flex-1 flex-col overflow-hidden", previewPath ? "flex" : "hidden")}
-        >
-          {isDirectory ? null : relativePath && attachment ? (
-            <AttachmentFilePreview
-              key={`${environmentId}:${attachment.id}`}
-              name={attachment.name}
-              mimeType={attachment.mimeType}
-              sizeBytes={attachment.sizeBytes}
-              asset={{ environmentId, attachmentId: attachment.id }}
-            />
-          ) : relativePath && isVideo && absolutePath ? (
-            <WorkspaceVideoPreview
-              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              name={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath && isAudio && absolutePath ? (
-            <WorkspaceAudioPreview
-              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              absolutePath={absolutePath}
-              name={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath && isImage && absolutePath ? (
-            <WorkspaceImagePreview
-              key={absolutePath}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              alt={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath && renderBrowserFile && absolutePath ? (
-            <WorkspaceBrowserPreview
-              key={absolutePath}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              title={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath && file.error && file.data === null ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-              {file.error}
-            </div>
-          ) : relativePath && file.data === null ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-              <Spinner className="size-5" />
-            </div>
-          ) : relativePath && file.data ? (
-            isMarkdown && renderMarkdown ? (
-              // Markdown reconciles in place across text updates, so a file
-              // switch needs a new key or the previous file's disclosure and
-              // wrap state carries into the next document.
-              <RenderedMarkdownSurface
-                key={relativePath}
+            ) : relativePath && isAudio && absolutePath ? (
+              <WorkspaceAudioPreview
+                key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
                 environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
                 threadRef={threadRef}
-                contents={file.data.contents}
-                readOnly={isHostFile}
-                onPendingChange={onPendingChange}
-              />
-            ) : tableDelimiter && renderTable ? (
-              <DelimitedTablePreview
-                key={relativePath}
+                absolutePath={absolutePath}
                 name={relativePath}
-                text={file.data.contents}
-                delimiter={tableDelimiter}
+                workspaceMutationId={workspaceMutationId}
               />
-            ) : file.data.truncated || isHostFile ? (
-              <SourceFilePreview
-                name={relativePath}
-                text={file.data.contents}
-                cacheKey={projectFileCacheKey(cwd, relativePath, file.data.contents)}
-                onPostRender={onFilePostRender}
+            ) : relativePath && isImage && absolutePath ? (
+              <WorkspaceImagePreview
+                key={absolutePath}
+                environmentId={environmentId}
+                threadRef={threadRef}
+                absolutePath={absolutePath}
+                workspaceRoot={cwd}
+                alt={relativePath}
+                workspaceMutationId={workspaceMutationId}
               />
-            ) : (
-              <DiffWorkerPoolProvider>
-                <EditableFileSurface
-                  key={`${relativePath}:${resolvedTheme}`}
+            ) : relativePath && renderBrowserFile && absolutePath ? (
+              <WorkspaceBrowserPreview
+                key={absolutePath}
+                environmentId={environmentId}
+                threadRef={threadRef}
+                absolutePath={absolutePath}
+                workspaceRoot={cwd}
+                title={relativePath}
+                workspaceMutationId={workspaceMutationId}
+              />
+            ) : relativePath && file.error && file.data === null ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
+                {file.error}
+              </div>
+            ) : relativePath && file.data === null ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+                <Spinner className="size-5" />
+              </div>
+            ) : relativePath && file.data ? (
+              isMarkdown && renderMarkdown ? (
+                // Markdown reconciles in place across text updates, so a file
+                // switch needs a new key or the previous file's disclosure and
+                // wrap state carries into the next document.
+                <RenderedMarkdownSurface
+                  key={relativePath}
                   environmentId={environmentId}
                   cwd={cwd}
                   relativePath={relativePath}
-                  composerDraftTarget={composerDraftTarget}
+                  threadRef={threadRef}
                   contents={file.data.contents}
-                  resolvedTheme={resolvedTheme}
-                  revealRequestId={revealRequestId}
-                  wordWrap={wordWrap}
-                  onPostRender={onFilePostRender}
-                  onPendingChange={onPendingChange}
+                  readOnly={isHostFile}
+                  onEdit={editSession.edit}
                 />
-              </DiffWorkerPoolProvider>
-            )
+              ) : tableDelimiter && renderTable ? (
+                <DelimitedTablePreview
+                  key={relativePath}
+                  name={relativePath}
+                  text={file.data.contents}
+                  delimiter={tableDelimiter}
+                />
+              ) : file.data.truncated || isHostFile ? (
+                <SourceFilePreview
+                  name={relativePath}
+                  text={file.data.contents}
+                  cacheKey={projectFileCacheKey(cwd, relativePath, file.data.contents)}
+                  onPostRender={onFilePostRender}
+                />
+              ) : (
+                <DiffWorkerPoolProvider>
+                  <EditableFileSurface
+                    key={`${relativePath}:${resolvedTheme}`}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    composerDraftTarget={composerDraftTarget}
+                    contents={file.data.contents}
+                    resolvedTheme={resolvedTheme}
+                    revealRequestId={revealRequestId}
+                    wordWrap={wordWrap}
+                    onPostRender={onFilePostRender}
+                    onEdit={editSession.edit}
+                    onLeave={(line) => {
+                      if (line !== null) recordRecentFile(threadKey, relativePath, line);
+                    }}
+                  />
+                </DiffWorkerPoolProvider>
+              )
+            ) : null}
+          </div>
+          {explorerLayout === "fill" ? <div className="flex min-w-0 flex-1">{explorer}</div> : null}
+          {explorerLayout === "overlay" ? (
+            <aside
+              aria-label="File explorer"
+              className="absolute inset-y-0 start-0 z-10 flex w-[252px] max-w-[85%] border-e border-border bg-sidebar shadow-lg"
+            >
+              {explorer}
+            </aside>
           ) : null}
         </div>
-        {showExplorer ? (
-          <aside
-            className={cn(
-              "flex min-h-0 shrink-0 bg-background",
-              previewPath
-                ? "w-[min(22rem,46%)] min-w-64 border-l border-border/60"
-                : "min-w-0 flex-1",
-            )}
-          >
-            <FileBrowserPanel
-              key={`${environmentId}:${cwd}`}
-              environmentId={environmentId}
-              cwd={cwd}
-              projectName={projectName}
-              selectedPath={relativePath}
-              selectedPathRevealId={revealRequestId}
-              onOpenFile={onOpenFile}
-              workspaceMutationId={workspaceMutationId}
-              {...(previewPath && !isMedia && !isPdf
-                ? { onRefreshSelectedFile: file.refresh }
-                : {})}
-            />
-          </aside>
+        {workspaceFile && previewPath !== null && threadFiles.latestTurnPaths.has(previewPath) ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+            <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
+              {`Changed by ${threadFiles.agentName} in the latest turn.`}
+            </span>
+          </div>
         ) : null}
       </div>
     </div>

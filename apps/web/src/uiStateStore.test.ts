@@ -9,9 +9,12 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  RECENT_FILES_LIMIT,
+  recordRecentFile,
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
+  setFilesFilter,
   setProjectExpanded,
   setRunDetailsSectionOpen,
   setSidebarProjectScopeKey,
@@ -31,9 +34,49 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     runDetailsSectionOpen: {},
     focusMode: false,
     focusPanelPeek: false,
+    recentFilesByThreadKey: {},
+    filesFilterByThreadKey: {},
     ...overrides,
   };
 }
+
+describe("Files tab state per thread", () => {
+  it("keeps the last files opened, newest first, with the line each was left at", () => {
+    let state = makeUiState();
+    state = recordRecentFile(state, "env:t1", "a.ts", null);
+    state = recordRecentFile(state, "env:t1", "b.ts", null);
+    state = recordRecentFile(state, "env:t1", "a.ts", 40);
+    // Opening again without a line keeps the one it was left at.
+    state = recordRecentFile(state, "env:t1", "b.ts", null);
+    state = recordRecentFile(state, "env:t1", "a.ts", null);
+    expect(state.recentFilesByThreadKey["env:t1"]).toEqual([
+      { path: "a.ts", line: 40 },
+      { path: "b.ts", line: null },
+    ]);
+    for (const path of ["c", "d", "e", "f", "g"]) {
+      state = recordRecentFile(state, "env:t1", path, null);
+    }
+    expect(state.recentFilesByThreadKey["env:t1"]).toHaveLength(RECENT_FILES_LIMIT);
+    expect(state.recentFilesByThreadKey["env:t1"]?.[0]?.path).toBe("g");
+    expect(state.recentFilesByThreadKey["env:t2"]).toBeUndefined();
+  });
+
+  it("remembers the filter per thread and survives a reload", () => {
+    const state = setFilesFilter(makeUiState(), "env:t1", "all");
+    expect(setFilesFilter(state, "env:t1", "all")).toBe(state);
+    const reloaded = parsePersistedState({
+      filesFilterByThreadKey: { ...state.filesFilterByThreadKey, "env:t2": "bogus" as "all" },
+      recentFilesByThreadKey: {
+        "env:t1": [
+          { path: "a.ts", line: 3 },
+          { path: "", line: 1 },
+        ],
+      },
+    });
+    expect(reloaded.filesFilterByThreadKey).toEqual({ "env:t1": "all" });
+    expect(reloaded.recentFilesByThreadKey).toEqual({ "env:t1": [{ path: "a.ts", line: 3 }] });
+  });
+});
 
 describe("uiStateStore pure functions", () => {
   it("stores server timestamps without moving visit state backwards", () => {
@@ -224,6 +267,8 @@ describe("parsePersistedState", () => {
       runDetailsSectionOpen: {},
       focusMode: false,
       focusPanelPeek: false,
+      recentFilesByThreadKey: {},
+      filesFilterByThreadKey: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -355,6 +400,8 @@ describe("uiStateStore persistence", () => {
       pullRequestMergeMethod: "merge",
       runDetailsSectionOpen: {},
       focusMode: false,
+      recentFilesByThreadKey: {},
+      filesFilterByThreadKey: {},
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

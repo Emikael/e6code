@@ -8,12 +8,13 @@ import { DiffStat } from "../DiffStat";
 import { Button } from "../ui/button";
 import { DiffReviewToggle } from "./DiffReviewTick";
 
-/** The height the viewer reserves for every file header; an open file's header is taller. */
+/** The height the viewer reserves for every file header, open or folded. */
 export const DIFF_FILE_HEADER_HEIGHT = 36;
 
 /**
- * Sizes the viewer's header box to the reserved height and lets an open file's 40px header hang
- * 4px over the top of its first hunk separator, so the virtual geometry stays one fixed height.
+ * Sizes the viewer's header box to the reserved height. Open and folded headers are both this
+ * tall, so a header never hangs over its file's first line and the virtual geometry stays one
+ * fixed height.
  */
 export const DIFF_FILE_HEADER_CSS = `
 [data-diffs-header] {
@@ -21,7 +22,7 @@ export const DIFF_FILE_HEADER_CSS = `
   min-height: ${DIFF_FILE_HEADER_HEIGHT}px !important;
   padding: 0 !important;
   overflow: visible !important;
-  align-items: flex-start !important;
+  align-items: stretch !important;
 }
 [data-diffs-header]:hover {
   box-shadow: none !important;
@@ -30,8 +31,8 @@ export const DIFF_FILE_HEADER_CSS = `
 /**
  * One file's header in the Diff tab, as board 12 draws it: the fold chevron, the path in mono
  * (muted once reviewed, a link to the editor while the file is open), neutral counts, and the
- * review toggle. A folded file sits on the raised ground at 36px; the open one on the card ground
- * at 40px. A file changed since its review offers "Show only what changed" in place of counts.
+ * review toggle. Open and folded headers share the reserved 36px; the open one is told apart by
+ * its card ground (a folded one sits on the raised ground) and its link-styled path. A file changed since its review offers "Show only what changed" in place of counts.
  * Rendered into the viewer's custom header slot, so it is ordinary React and takes app classes.
  */
 export function DiffFileHeader(props: {
@@ -58,8 +59,8 @@ export function DiffFileHeader(props: {
     // The row folds and unfolds its file, as the chevron does; the controls keep their own press.
     <div
       className={cn(
-        "flex w-full min-w-0 cursor-default items-center gap-2 border-b border-border pe-2 ps-3 font-sans",
-        props.open ? "h-10 bg-card py-1" : "h-9 bg-surface-raised py-0.5",
+        "flex h-9 w-full min-w-0 cursor-default items-center gap-2 border-b border-border py-0.5 pe-2 ps-3 font-sans",
+        props.open ? "bg-card" : "bg-surface-raised",
       )}
       onClick={props.pending ? undefined : props.onToggleOpen}
     >

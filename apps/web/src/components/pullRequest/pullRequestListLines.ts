@@ -77,8 +77,8 @@ export function threadPullRequestRowWords(
     words.push({ text: "Changes requested", tone: "failed" });
   } else if (snapshot.reviewDecision === "review-required") {
     words.push({ text: "Review required", tone: "muted" });
-  } else if (snapshot.reviewDecision === null) {
-    words.push({ text: "Review not requested", tone: "muted" });
   }
+  // A null decision only means there is no verdict and no rule requires one; reviewers may
+  // already be requested, so it says nothing worth a word.
   return words;
 }

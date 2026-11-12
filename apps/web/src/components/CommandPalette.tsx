@@ -675,7 +675,9 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       onOpenCommandPalette((detail) => {
-        if (detail.open === "new-thread-in") {
+        if (detail.open === "files") {
+          toggleMode("files");
+        } else if (detail.open === "new-thread-in") {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
           openAddProject();
@@ -689,7 +691,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewThreadIn, setOpen, toggleMode],
   );
 
   return (

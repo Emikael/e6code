@@ -6,11 +6,11 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@e6tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@e6tools/shared/composerTrigger";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon, SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
@@ -22,12 +22,16 @@ import { readLocalApi } from "~/localApi";
 import { E6_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
-import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
+import { cn } from "~/lib/utils";
+import type { RecentFile } from "~/uiStateStore";
+
+import { BrowseAllFilesRow, ChangedFileLists, FilesFilterSwitch } from "./FileExplorerLists";
+import type { FilesFilter, ThreadChangedFile } from "./threadChangedFiles";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -40,6 +44,19 @@ interface FileBrowserPanelProps {
   onOpenFile: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
   workspaceMutationId: string | null;
+  /** The Changed filter and its lists, where the explorer sits beside a thread. */
+  lists?: FileExplorerListsProps | undefined;
+}
+
+export interface FileExplorerListsProps {
+  readonly filter: FilesFilter;
+  readonly changed: ReadonlyArray<ThreadChangedFile>;
+  /** Recently opened files outside the changed set. */
+  readonly recent: ReadonlyArray<RecentFile>;
+  readonly onFilterChange: (filter: FilesFilter) => void;
+  readonly onOpenFile: (path: string, line: number | null) => void;
+  readonly browseShortcut: string | null;
+  readonly onBrowseAll: () => void;
 }
 
 function treePath(entry: ProjectEntry): string {
@@ -74,8 +91,12 @@ function FileSearchField(props: {
   onValueChange: (value: string) => void;
   value: string;
 }) {
+  // Board 15: a 32px field with a visible hairline, so the input reads as one at a glance.
   return (
-    <InputGroup variant="ghost" className="h-7 min-w-0 flex-1">
+    <InputGroup className="h-8 min-w-0 flex-1 rounded-lg border-muted-foreground bg-card">
+      <InputGroupAddon>
+        <SearchIcon aria-hidden className="size-3.5 text-muted-foreground" />
+      </InputGroupAddon>
       <InputGroupInput
         type="search"
         name={props.name}
@@ -104,6 +125,7 @@ export default function FileBrowserPanel({
   onOpenFile,
   onRefreshSelectedFile,
   workspaceMutationId,
+  lists,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -347,6 +369,7 @@ export default function FileBrowserPanel({
       controller.abort();
     };
   }, [load, selectedPath]);
+  const showsLists = lists !== undefined && lists.filter === "changed" && query.trim().length === 0;
   const handleSearchValueChange = (value: string) => {
     setQuery(value);
     if (value.trim().length === 0) {
@@ -485,11 +508,10 @@ export default function FileBrowserPanel({
   return (
     <div
       ref={panelRef}
-      className="flex min-h-0 flex-1 flex-col bg-background"
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
-      <PanelSurfaceHeader>
-        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+      <div className="flex shrink-0 items-center gap-1 px-2 pt-2.5 pb-2">
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -525,7 +547,30 @@ export default function FileBrowserPanel({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-      </PanelSurfaceHeader>
+        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+      </div>
+      {lists && lists.changed.length > 0 ? (
+        <div className="flex shrink-0 px-2 pb-2.5">
+          <FilesFilterSwitch
+            filter={lists.filter}
+            changedCount={lists.changed.length}
+            onChange={lists.onFilterChange}
+          />
+        </div>
+      ) : null}
+      {showsLists && lists ? (
+        // Search always covers every file, so a query shows the tree whatever the filter.
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-2 pb-2.5">
+          <ChangedFileLists
+            changed={lists.changed}
+            recent={lists.recent}
+            selectedPath={selectedPath}
+            onOpenFile={lists.onOpenFile}
+          />
+          <span className="flex-1" />
+          <BrowseAllFilesRow shortcut={lists.browseShortcut} onBrowse={lists.onBrowseAll} />
+        </div>
+      ) : null}
       {error || pathSearch.error ? (
         <button
           type="button"
@@ -548,7 +593,7 @@ export default function FileBrowserPanel({
       <FileTree
         model={model}
         aria-label={`${projectName} files`}
-        className="min-h-0 flex-1 overflow-hidden"
+        className={cn("min-h-0 flex-1 overflow-hidden", showsLists && "hidden")}
         style={pierreTreeStyle(resolvedTheme)}
       />
     </div>

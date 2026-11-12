@@ -208,6 +208,7 @@ import { buildTemporaryWorktreeBranchName } from "@e6tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
+  isFileSurfacePending,
   pullRequestSurface,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
@@ -10468,7 +10469,7 @@ export default function ChatView(props: ChatViewProps) {
         (renderedRightPanelSurface.kind === "file" && renderedRightPanelSurface.attachment)) ? (
       <Suspense fallback={null}>
         <FilePreviewPanel
-          key={`${activeThread.environmentId}:${
+          key={`${activeThread.environmentId}:${renderedRightPanelSurface.kind}:${
             renderedRightPanelSurface.kind === "file" && renderedRightPanelSurface.attachment
               ? `attachment:${renderedRightPanelSurface.attachment.id}`
               : activeWorkspaceRoot
@@ -10480,30 +10481,20 @@ export default function ChatView(props: ChatViewProps) {
           composerDraftTarget={composerDraftTarget}
           keybindings={keybindings}
           availableEditors={availableEditors}
-          relativePath={
-            renderedRightPanelSurface.kind === "file"
-              ? renderedRightPanelSurface.relativePath
-              : null
-          }
+          variant={renderedRightPanelSurface.kind === "files" ? "files" : "kept"}
+          relativePath={renderedRightPanelSurface.relativePath ?? null}
           {...(renderedRightPanelSurface.kind === "file" && renderedRightPanelSurface.attachment
             ? { attachment: renderedRightPanelSurface.attachment }
             : {})}
-          revealLine={
-            renderedRightPanelSurface.kind === "file"
-              ? (renderedRightPanelSurface.revealLine ?? null)
-              : null
-          }
-          revealRequestId={
-            renderedRightPanelSurface.kind === "file"
-              ? renderedRightPanelSurface.revealRequestId
-              : 0
-          }
+          revealLine={renderedRightPanelSurface.revealLine ?? null}
+          revealRequestId={renderedRightPanelSurface.revealRequestId ?? 0}
           onOpenFile={openFileSurface}
+          onKeepAsTab={(path) => useRightPanelStore.getState().keepFileAsTab(activeThreadRef, path)}
           onPendingChange={handleFilePendingChange}
-          selectedFilePending={
-            renderedRightPanelSurface.kind === "file" &&
-            pendingFileSurfaceIds.has(renderedRightPanelSurface.id)
-          }
+          selectedFilePending={isFileSurfacePending(
+            renderedRightPanelSurface,
+            pendingFileSurfaceIds,
+          )}
           workspaceMutationId={workspaceMutationId}
         />
       </Suspense>

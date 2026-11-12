@@ -327,6 +327,19 @@ export function PullRequestDetailGhost({
           </div>
         </section>
       </div>
+
+      {/* The merge footer's space, so it does not pop in under an open pull request. */}
+      {!seed || seed.state === "open" ? (
+        <div
+          aria-hidden
+          className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3 py-2.5"
+        >
+          <GhostBar className="h-4 w-16" />
+          <span className="flex-1 basis-36" />
+          <GhostBar className="h-9 w-32 rounded-lg sm:h-8" />
+          <GhostBar className="h-9 w-36 rounded-lg sm:h-8" />
+        </div>
+      ) : null}
     </div>
   );
 }

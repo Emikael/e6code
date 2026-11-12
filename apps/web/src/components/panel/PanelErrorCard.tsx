@@ -1,4 +1,5 @@
 import { CircleAlertIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Button } from "../ui/button";
 
@@ -19,6 +20,8 @@ export function PanelErrorCard(props: {
   reassurance: string;
   onRetry?: (() => void) | undefined;
   retrying?: boolean;
+  /** Further ways out after Retry, such as opening the page on its host. */
+  actions?: ReactNode;
 }) {
   return (
     <div
@@ -32,11 +35,14 @@ export function PanelErrorCard(props: {
       <p className="text-sm text-muted-foreground">
         {asSentence(props.reason)} {props.reassurance}
       </p>
-      {props.onRetry ? (
-        <div className="flex items-center">
-          <Button variant="outline" size="xs" disabled={props.retrying} onClick={props.onRetry}>
-            Retry
-          </Button>
+      {props.onRetry || props.actions ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {props.onRetry ? (
+            <Button variant="outline" size="xs" disabled={props.retrying} onClick={props.onRetry}>
+              Retry
+            </Button>
+          ) : null}
+          {props.actions}
         </div>
       ) : null}
     </div>
