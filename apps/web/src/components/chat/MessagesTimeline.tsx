@@ -238,6 +238,7 @@ import {
   workEntryRawCommand,
   resolveWorkingRowStatus,
   findRevealRowIndex,
+  EARLIER_TURNS_ROW_ID,
   type TimelineRevealTarget,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
@@ -350,6 +351,7 @@ interface TimelineRowSharedState {
   openPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
+  onToggleEarlierTurns: () => void;
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean) => void;
   onToggleSpawnRow: (entryId: string, expanded: boolean) => void;
@@ -603,6 +605,8 @@ interface MessagesTimelineProps {
   frontierResolution?: ReactNode;
   /** Thread state shown after the last row: background work and sync status. */
   threadNow?: ReactNode;
+  /** Focus mode: turns before your latest message fold into one row. */
+  foldEarlierTurns?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +671,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   frontierResolution,
   threadNow,
+  foldEarlierTurns = false,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -803,6 +808,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [shouldRestoreVisibleContentPosition],
   );
 
+  // Which thread's earlier turns you opened in focus mode; another thread starts folded.
+  const [earlierTurnsOpenFor, setEarlierTurnsOpenFor] = useState<string | null>(null);
+  const earlierTurns = foldEarlierTurns
+    ? earlierTurnsOpenFor === listIdentityKey
+      ? "expanded"
+      : "folded"
+    : undefined;
+  const onToggleEarlierTurns = useCallback(() => {
+    suspendEndScrollMaintenanceForDisclosure(EARLIER_TURNS_ROW_ID);
+    setEarlierTurnsOpenFor((current) => (current === listIdentityKey ? null : listIdentityKey));
+  }, [listIdentityKey, suspendEndScrollMaintenanceForDisclosure]);
+
   const onToggleTurnFold = useCallback(
     (turnId: TurnId) => {
       suspendEndScrollMaintenanceForDisclosure(`turn-fold:${turnId}`);
@@ -921,6 +938,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         worktreeSetup,
         queuedMessages,
         turnUsageByTurnId,
+        earlierTurns,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -945,6 +963,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     worktreeSetup,
     queuedMessages,
     turnUsageByTurnId,
+    earlierTurns,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
@@ -954,8 +973,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!revealMessageRequest || revealMessageRequest.nonce === handledRevealNonceRef.current) {
       return;
     }
-    handledRevealNonceRef.current = revealMessageRequest.nonce;
     const index = findRevealRowIndex(rows, revealMessageRequest.target);
+    if (index < 0 && earlierTurns === "folded") {
+      // Folded away in focus mode: open the earlier turns, then look again.
+      setEarlierTurnsOpenFor(listIdentityKey);
+      return;
+    }
+    handledRevealNonceRef.current = revealMessageRequest.nonce;
     if (index < 0) {
       toastManager.add({
         type: "info",
@@ -970,7 +994,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       animated: !prefersReducedMotion,
       viewOffset: 24,
     });
-  }, [listRef, onManualNavigation, prefersReducedMotion, revealMessageRequest, rows]);
+  }, [
+    earlierTurns,
+    listIdentityKey,
+    listRef,
+    onManualNavigation,
+    prefersReducedMotion,
+    revealMessageRequest,
+    rows,
+  ]);
 
   // "Show in thread" from Run details: open the subagent's card, scroll to
   // it and light its row for a moment. Only requests made while this list is
@@ -1413,6 +1445,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       openPullRequest,
       onOpenTurnDiff,
       onToggleTurnFold,
+      onToggleEarlierTurns,
       onToggleWorkGroup,
       onToggleWorkEntry: suspendEndScrollMaintenanceForDisclosure,
       onToggleSpawnRow,
@@ -1451,6 +1484,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       openPullRequest,
       onOpenTurnDiff,
       onToggleTurnFold,
+      onToggleEarlierTurns,
       onToggleWorkGroup,
       suspendEndScrollMaintenanceForDisclosure,
       onToggleSpawnRow,
@@ -1973,18 +2007,20 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
             ? "pb-0"
             : row.kind === "turn-fold" || row.kind === "working"
               ? "pb-1.5"
-              : (row.kind === "message" &&
-                    row.message.role === "assistant" &&
-                    !row.showAssistantMeta) ||
-                  (row.kind === "message" && row.message.role === "reasoning") ||
-                  row.kind === "work" ||
-                  row.kind === "work-live" ||
-                  row.kind === "work-toggle" ||
-                  row.kind === "activity-group" ||
-                  row.kind === "thinking" ||
-                  row.kind === "worktree-setup"
-                ? "pb-2"
-                : "pb-4",
+              : row.kind === "earlier-turns"
+                ? "pb-4"
+                : (row.kind === "message" &&
+                      row.message.role === "assistant" &&
+                      !row.showAssistantMeta) ||
+                    (row.kind === "message" && row.message.role === "reasoning") ||
+                    row.kind === "work" ||
+                    row.kind === "work-live" ||
+                    row.kind === "work-toggle" ||
+                    row.kind === "activity-group" ||
+                    row.kind === "thinking" ||
+                    row.kind === "worktree-setup"
+                  ? "pb-2"
+                  : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
           row.kind === "assistant-meta"
           ? "group/assistant"
@@ -2009,6 +2045,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "activity-group" ? <ActivityGroupTimelineRow row={row} /> : null}
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
+      {row.kind === "earlier-turns" ? <EarlierTurnsTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
@@ -2652,6 +2689,34 @@ function TimelineRowTimestamp({
       </TooltipTrigger>
       <TooltipPopup>{formatChatTimestampTooltip(createdAt, timestampFormat)}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+/**
+ * Focus mode's "Earlier in this thread · 1 turn" (board 3): one quiet line in
+ * place of every turn before yours. A heading holding the toggle, so it reads
+ * as a section in the outline.
+ */
+function EarlierTurnsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "earlier-turns" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <h2 className="flex">
+      <button
+        type="button"
+        aria-expanded={row.expanded}
+        data-scroll-anchor-ignore
+        onClick={ctx.onToggleEarlierTurns}
+        className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-xs leading-4 text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Icon aria-hidden className="size-3.5" />
+        Earlier in this thread · {row.turnCount} {row.turnCount === 1 ? "turn" : "turns"}
+      </button>
+    </h2>
   );
 }
 

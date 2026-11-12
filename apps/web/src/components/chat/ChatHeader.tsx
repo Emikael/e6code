@@ -25,6 +25,7 @@ import {
   EyeIcon,
   FileIcon,
   FocusIcon,
+  ListChecksIcon,
   MessageCircleQuestionIcon,
   PencilIcon,
   ShieldQuestionIcon,
@@ -59,7 +60,8 @@ import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useThreadShell } from "../../state/entities";
 import { useClientSettings } from "~/hooks/useSettings";
-import { formatUpcomingTimestamp } from "~/timestampFormat";
+import { formatDayAwareTimestamp, formatUpcomingTimestamp } from "~/timestampFormat";
+import { doneSummary } from "./ThreadNowBar.logic";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
 import {
@@ -96,6 +98,8 @@ interface ChatHeaderProps {
   changedFileCount: number | null;
   /** The now bar under the header is showing; it carries the status, so the pill steps aside. */
   nowBarShown?: boolean;
+  /** The finished turn, for the focus bar's "Ready to review · worked 3m 40s · finished 14:06". */
+  doneTurn?: { readonly workedFor: string | null; readonly finishedAt: string } | null;
   /** Opens the Diff panel on the working tree. */
   onOpenChanges: () => void;
   gitCwd: string | null;
@@ -303,6 +307,23 @@ function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => vo
   );
 }
 
+/** Board 3: the focus bar names a finished turn the way the now bar does, with its times. */
+function FocusDoneCue({ workedFor, finishedAt }: { workedFor: string | null; finishedAt: string }) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const summary = doneSummary(workedFor, formatDayAwareTimestamp(finishedAt, timestampFormat));
+  return (
+    <>
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-xs leading-4 font-medium text-muted-foreground">
+        <ListChecksIcon aria-hidden className="size-3.5" />
+        Ready to review
+      </span>
+      <span className="shrink-0 font-mono text-[11px] leading-[14px] whitespace-nowrap text-muted-foreground tabular-nums">
+        {summary.charAt(0).toLowerCase() + summary.slice(1)}
+      </span>
+    </>
+  );
+}
+
 function ShortcutKeys({ label }: { label: string | null }) {
   if (!label) return null;
   return <Kbd className="h-5 bg-transparent px-1 ring-1 ring-border">{label}</Kbd>;
@@ -382,6 +403,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightPanelOpen,
   changedFileCount,
   nowBarShown = false,
+  doneTurn = null,
   onOpenChanges,
   gitCwd,
   onOpenPullRequest,
@@ -635,7 +657,11 @@ export const ChatHeader = memo(function ChatHeader({
         <h2 className="max-w-80 min-w-0 truncate text-[13px] leading-[18px] font-medium text-foreground">
           {activeThreadTitle}
         </h2>
-        {headerStatus ? <ThreadHeaderStatusPill status={headerStatus} plain /> : null}
+        {doneTurn ? (
+          <FocusDoneCue workedFor={doneTurn.workedFor} finishedAt={doneTurn.finishedAt} />
+        ) : headerStatus ? (
+          <ThreadHeaderStatusPill status={headerStatus} plain />
+        ) : null}
         {statusRegion}
         <span className="grow" />
         {isServerThread ? (

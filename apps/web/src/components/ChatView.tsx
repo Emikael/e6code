@@ -249,6 +249,8 @@ import { ThreadNowBar } from "./chat/ThreadNowBar";
 import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { selectRetryMessage } from "./chat/ThreadNowBar.logic";
+import { ThreadNextCard } from "./chat/ThreadNextCard";
+import { deriveNextCard } from "./chat/ThreadNextCard.logic";
 import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -6366,6 +6368,43 @@ export default function ChatView(props: ChatViewProps) {
   ]);
   const activeThreadSettled =
     supportsSettlement && activeThreadShell?.settledOverride === "settled";
+  // Board 3: a turn that finished with changes ends in a Next card.
+  const nextCard = useMemo(
+    () =>
+      isServerThread && !isDraftHeroState
+        ? deriveNextCard({
+            latestTurn: activeThreadShell?.latestTurn ?? null,
+            isWorking,
+            waitingOnYou: pendingApprovals.length > 0 || pendingUserInputs.length > 0,
+            settled: activeThreadSettled,
+            checkpoints: activeThread?.checkpoints ?? EMPTY_HELD_TURN_DIFF_SUMMARIES,
+          })
+        : null,
+    [
+      activeThread?.checkpoints,
+      activeThreadSettled,
+      activeThreadShell?.latestTurn,
+      isDraftHeroState,
+      isServerThread,
+      isWorking,
+      pendingApprovals.length,
+      pendingUserInputs.length,
+    ],
+  );
+  const settleFromNextCard = useCallback(() => {
+    if (!activeThreadRef) return;
+    void settleThread(activeThreadRef).then((result) => {
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to settle thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    });
+  }, [activeThreadRef, settleThread]);
   const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -7798,6 +7837,8 @@ export default function ChatView(props: ChatViewProps) {
     if (compactDisabled) return;
     await sendStandaloneMessage("/compact", "Failed to compact context.");
   };
+  // In focus the focus bar carries a finished turn (board 3); the now bar keeps every other state.
+  const showNowBar = !(focusModeActive && nowBar.state.kind === "done");
   // The now bar's Retry resends your last message as it was, only when the turn it started failed.
   const retryMessage = selectRetryMessage(timelineMessages, activeThreadShell?.latestTurn);
   const onRetryFailedTurn =
@@ -10558,7 +10599,8 @@ export default function ChatView(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             changedFileCount={isServerThread ? nowBar.changedFileCount : null}
-            nowBarShown={nowBar.state.kind !== "hidden"}
+            nowBarShown={showNowBar && nowBar.state.kind !== "hidden"}
+            doneTurn={focusModeActive && nowBar.state.kind === "done" ? nowBar.state : null}
             onOpenChanges={addDiffSurface}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
@@ -10618,7 +10660,7 @@ export default function ChatView(props: ChatViewProps) {
               {...workspaceAreaProps("conversation", 1, "Conversation")}
               className="relative flex min-h-0 flex-1 flex-col bg-background"
             >
-              {activeThreadKey ? (
+              {activeThreadKey && showNowBar ? (
                 <ThreadNowBar
                   state={nowBar.state}
                   watchKey={activeThreadKey}
@@ -10631,6 +10673,7 @@ export default function ChatView(props: ChatViewProps) {
               ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
+                foldEarlierTurns={focusModeActive}
                 nowBarAction={nowBar.state.kind === "hidden" ? undefined : nowBar.currentAction}
                 revealMessageRequest={revealMessageRequest}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
@@ -10982,6 +11025,16 @@ export default function ChatView(props: ChatViewProps) {
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {nextCard ? (
+                    <ThreadNextCard
+                      state={nextCard}
+                      reviewShortcut={shortcutLabelForCommand(keybindings, "diff.toggle")}
+                      primary={!composerHasUnsentContent}
+                      onReviewDiff={() => onOpenTurnDiff(nextCard.turnId)}
+                      onSettle={supportsSettlement ? settleFromNextCard : null}
+                      onAskForChanges={focusComposer}
+                    />
                   ) : null}
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
