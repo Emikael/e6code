@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  DISCONNECTED_COMPOSER_PLACEHOLDER,
-  resolveComposerPlaceholder,
-} from "./composerPlaceholder";
+import { resolveComposerPlaceholder } from "./composerPlaceholder";
 
 const idle = {
   approval: null,
@@ -23,7 +20,7 @@ describe("resolveComposerPlaceholder", () => {
       "Ask anything, @tag files/folders, $use skills, or / for commands",
     );
     expect(resolveComposerPlaceholder({ ...idle, phase: "disconnected" })).toBe(
-      DISCONNECTED_COMPOSER_PLACEHOLDER,
+      "Ask anything, @tag files/folders, $use skills, or / for commands",
     );
   });
 

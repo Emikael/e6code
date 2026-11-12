@@ -141,7 +141,8 @@ interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
   /**
    * The last open/close choice for the whole panel. A thread with no panel record of its own
-   * follows it, so Run details shows on every thread until the user hides the panel.
+   * follows it. A new profile starts hidden, so the thread column gets the full width until the
+   * user shows the panel.
    */
   restingOpen: boolean;
   /** Session-only count of user panel choices per thread. Automatic updates do not advance it. */
@@ -701,7 +702,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
-      restingOpen: true,
+      restingOpen: false,
       userActionRevisionByThreadKey: {},
       closeRevisionByThreadKey: {},
       getUserActionRevision: (ref) =>

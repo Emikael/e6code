@@ -750,7 +750,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   const editorAttributes = useMemo(
     () => ({
       class: cn(
-        "composer-tiptap block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
+        "composer-tiptap block max-h-50 min-h-11 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
         className,
       ),
       "data-testid": "composer-editor",

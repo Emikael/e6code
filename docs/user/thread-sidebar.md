@@ -132,8 +132,9 @@ for custom configuration.
 ## Inspect agent work
 
 On web and desktop, **Run details** is always the first tab of the right panel, and it never
-closes. Select it to come back from Diff, Terminal, Browser, Files, or another tab. Hiding the
-panel on one thread hides it on threads you have not opened tabs in, until you show it again.
+closes. Select it to come back from Diff, Terminal, Browser, Files, or another tab. The panel
+starts hidden. Showing or hiding it on one thread does the same on threads you have not opened
+tabs in.
 On mobile, tap **Run details** in a thread's top bar.
 
 Its sections answer what the agent is doing (**Plan**), what changed (**Changes**), who else is

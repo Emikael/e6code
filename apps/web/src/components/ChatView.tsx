@@ -2117,8 +2117,8 @@ export default function ChatView(props: ChatViewProps) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "uncommitted");
     }
   }, [activeThreadRef, diffOpen]);
-  // A docked panel follows the last open/close choice on threads the user has not touched, so
-  // Run details shows by default; a narrow-window sheet opens only when asked.
+  // A docked panel follows the last open/close choice on threads the user has not touched;
+  // a narrow-window sheet opens only when asked.
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(
       state.byThreadKey,
