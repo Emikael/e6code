@@ -369,7 +369,7 @@ function FocusNeedsYouPill({
     <Button
       size="sm"
       variant="ghost"
-      className="shrink-0 bg-warning-surface text-warning-foreground hover:bg-warning-surface hover:text-warning-foreground"
+      className="h-7 shrink-0 rounded-md px-2 text-xs bg-warning-surface text-warning-foreground hover:bg-warning-surface hover:text-warning-foreground sm:h-7 sm:text-xs"
       aria-label={`${count} ${count === 1 ? "thread needs" : "threads need"} you. Go to the next one`}
       onClick={() =>
         goToNextThreadThatNeedsYou({
@@ -699,6 +699,8 @@ export const ChatHeader = memo(function ChatHeader({
       showProjectScripts ? "scripts" : null,
       showOpenInPicker ? "open in" : null,
       gitInMenu ? "git" : null,
+      terminal ? "terminal" : null,
+      isServerThread ? "agent activity" : null,
     ]
       .filter(Boolean)
       .join(", "),
@@ -741,7 +743,12 @@ export const ChatHeader = memo(function ChatHeader({
             keybindings={keybindings}
           />
         ) : null}
-        <Button size="sm" variant="ghost" className="shrink-0" onClick={onToggleFocus}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="shrink-0 text-xs sm:text-xs"
+          onClick={onToggleFocus}
+        >
           Exit focus
           <ShortcutKeyCaps label={focusShortcut} />
         </Button>
@@ -750,7 +757,7 @@ export const ChatHeader = memo(function ChatHeader({
   }
   return (
     <div
-      className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
+      className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5"
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb
@@ -869,6 +876,10 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
+        {/* Board 2: Changes so far first, then Git. */}
+        {changedFileCount !== null ? (
+          <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
+        ) : null}
         {showGitActions && !gitInMenu && gitCwd ? (
           <div className="me-1 flex shrink-0 items-center">
             <GitActionsControl
@@ -878,9 +889,6 @@ export const ChatHeader = memo(function ChatHeader({
               {...(draftId ? { draftId } : {})}
             />
           </div>
-        ) : null}
-        {changedFileCount !== null ? (
-          <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
         ) : null}
         {isServerThread ? (
           <Tooltip>

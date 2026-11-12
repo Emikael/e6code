@@ -1,3 +1,8 @@
+import {
+  describePendingApprovalAsk,
+  describePendingQuestionAsk,
+} from "@e6tools/client-runtime/pending-requests";
+import type { ThreadPendingRequestSummary } from "@e6tools/contracts";
 import type { ClientSettings } from "@e6tools/contracts/settings";
 
 /**
@@ -186,6 +191,8 @@ export const THREAD_NOTIFICATION_TITLES = {
 
 interface NotificationThread {
   readonly title: string;
+  /** What a blocked thread asks; absent on older servers, which keeps the generic wording. */
+  readonly pendingRequestSummary?: ThreadPendingRequestSummary | undefined;
   readonly session: {
     readonly providerName: string | null;
     readonly lastError: string | null;
@@ -222,9 +229,9 @@ export function threadNotificationFact(
   const provider = (providerName && providerLabel(providerName)) || "The agent";
   switch (kind) {
     case "approval":
-      return `${provider} is waiting for your approval`;
+      return describePendingApprovalAsk(provider, thread.pendingRequestSummary);
     case "input":
-      return `${provider} asked you a question`;
+      return describePendingQuestionAsk(provider, thread.pendingRequestSummary);
     case "failed": {
       const error = thread.session?.lastError;
       if (!error) return `${provider} stopped`;

@@ -38,6 +38,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     recentFilesByThreadKey: {},
     filesFilterByThreadKey: {},
     focusOpenedPanelKeys: [],
+    focusReplacedSurfaceByThreadKey: {},
     agentActivityDetailByThreadKey: {},
     ...overrides,
   };
@@ -275,6 +276,7 @@ describe("parsePersistedState", () => {
       recentFilesByThreadKey: {},
       filesFilterByThreadKey: {},
       focusOpenedPanelKeys: [],
+      focusReplacedSurfaceByThreadKey: {},
       agentActivityDetailByThreadKey: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -410,6 +412,7 @@ describe("uiStateStore persistence", () => {
       recentFilesByThreadKey: {},
       filesFilterByThreadKey: {},
       focusOpenedPanelKeys: [],
+      focusReplacedSurfaceByThreadKey: {},
       agentActivityDetailByThreadKey: {},
     });
     expect(parsePersistedState(persisted)).toEqual({

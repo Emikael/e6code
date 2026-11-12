@@ -57,6 +57,7 @@ import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
+  asSentence,
   attentionCueVerb,
   formatAttentionCue,
   needsYouHeading,
@@ -68,6 +69,7 @@ import {
   type WorkingThread,
 } from "./DraftHeroFooter.logic";
 import { PlanStepMeter } from "./PlanStepMeter";
+import { StartScreenApprovalCard } from "./StartScreenApprovalCard";
 import { useWhatChangedVisible, WhatChangedCard } from "./WhatChangedCard";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
@@ -144,6 +146,9 @@ export function DraftHeroFooter({
     [router],
   );
 
+  // Only the first approval shown opens up, so the start screen holds one thread's detail.
+  const expandedApprovalKey =
+    blocked.slice(0, LIST_LIMIT).find((item) => item.kind === "approval")?.key ?? null;
   const hasLists = blocked.length > 0 || attention.review.length > 0 || working.length > 0;
   const hasProjectRows = unpushed !== null || staleSetup !== null;
   const parkedEntries = usePromptStashStore((store) => store.entries);
@@ -168,9 +173,21 @@ export function DraftHeroFooter({
       {blocked.length > 0 ? (
         <section aria-label="Needs you" className="flex flex-col gap-2">
           <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(attention.blockedCount)}</h3>
-          {blocked.slice(0, LIST_LIMIT).map((item) => (
-            <BlockedCard key={item.key} item={item} onOpen={openThread} />
-          ))}
+          {blocked
+            .slice(0, LIST_LIMIT)
+            .map((item) =>
+              item.key === expandedApprovalKey ? (
+                <StartScreenApprovalCard
+                  key={item.key}
+                  thread={item.thread}
+                  fact={blockedFact(item)}
+                  cue={<AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />}
+                  onOpen={() => openThread(item.thread)}
+                />
+              ) : (
+                <BlockedCard key={item.key} item={item} onOpen={openThread} />
+              ),
+            )}
           <MoreLine count={blocked.length - LIST_LIMIT} where="in the sidebar" />
         </section>
       ) : null}
@@ -364,7 +381,6 @@ function WorkingCue({ startedAt }: { startedAt: string }) {
   return <span className={TIME_CUE_CLASS}>{label}</span>;
 }
 
-// Approvals open their thread until phase 17 builds the inline approval card.
 const BLOCKED_ACTION = {
   approval: "Open thread",
   input: "Answer",
@@ -372,8 +388,17 @@ const BLOCKED_ACTION = {
 } as const;
 
 /**
- * One thread blocked on you. Phase 17 expands the first approval with its
- * real actions; until then every card opens its thread.
+ * "Codex wants to run 1 command", "Claude asks 1 question: …": what a blocked
+ * thread waits on, from its shell, so no row subscribes to thread detail.
+ */
+function blockedFact(item: AttentionItem): string {
+  const kind = item.kind === "approval" ? "approval" : item.kind === "input" ? "input" : "failed";
+  return threadNotificationFact(item.thread, kind, providerLabel) ?? "";
+}
+
+/**
+ * One thread blocked on you, past the first approval (which expands with its
+ * actions in StartScreenApprovalCard): its fact and a button into the thread.
  */
 const BlockedCard = memo(function BlockedCard({
   item,
@@ -383,11 +408,7 @@ const BlockedCard = memo(function BlockedCard({
   onOpen: OpenThread;
 }) {
   const kind = item.kind as keyof typeof BLOCKED_ACTION;
-  const fact = threadNotificationFact(
-    item.thread,
-    kind === "approval" ? "approval" : kind === "input" ? "input" : "failed",
-    providerLabel,
-  );
+  const fact = blockedFact(item);
   return (
     <article
       className={cn(
@@ -408,12 +429,15 @@ const BlockedCard = memo(function BlockedCard({
         <h4 className="truncate text-[13px] leading-[18px] font-medium text-foreground">
           {item.thread.title}
         </h4>
-        {fact ? <p className="truncate text-xs leading-4 text-muted-foreground">{fact}.</p> : null}
+        {fact ? (
+          <p className="truncate text-xs leading-4 text-muted-foreground">{asSentence(fact)}</p>
+        ) : null}
       </div>
       <AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />
       <Button
         size="sm"
         variant="outline"
+        className="sm:text-xs"
         aria-label={`${BLOCKED_ACTION[kind]}: ${item.thread.title}`}
         onClick={() => onOpen(item.thread)}
       >
@@ -448,6 +472,7 @@ const ReviewRow = memo(function ReviewRow({
       <Button
         size="sm"
         variant="ghost"
+        className="sm:text-xs"
         aria-label={`${isPlan ? "Review plan" : "Review diff"}: ${item.thread.title}`}
         onClick={() => onOpen(item.thread, { diff: !isPlan })}
       >

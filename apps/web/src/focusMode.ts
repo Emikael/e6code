@@ -48,3 +48,24 @@ export function focusOpenedPanelsToClose(state: {
 }): ReadonlyArray<string> {
   return state.focusMode && state.focusPanelPeek ? [] : state.focusOpenedPanelKeys;
 }
+
+/**
+ * The surface a thread's open panel showed before focus switched it (Mod+D
+ * moves an open panel to Diff). The first one recorded wins, so leaving focus
+ * shows the surface that was showing when focus began.
+ */
+export function recordFocusReplacedSurface(
+  surfaces: Readonly<Record<string, string>>,
+  threadKey: string,
+  surfaceId: string,
+): Readonly<Record<string, string>> {
+  return threadKey in surfaces ? surfaces : { ...surfaces, [threadKey]: surfaceId };
+}
+
+/** The surfaces to show again now: all of them once focus has exited, none while it lasts. */
+export function focusSurfacesToRestore(state: {
+  readonly focusMode: boolean;
+  readonly focusReplacedSurfaceByThreadKey: Readonly<Record<string, string>>;
+}): ReadonlyArray<readonly [threadKey: string, surfaceId: string]> {
+  return state.focusMode ? [] : Object.entries(state.focusReplacedSurfaceByThreadKey);
+}

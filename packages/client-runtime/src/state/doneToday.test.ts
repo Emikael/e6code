@@ -90,14 +90,29 @@ describe("selectDoneToday", () => {
     expect(row?.doneAt).toBe(at(14, 20));
   });
 
-  it("leaves out failed and stopped turns, running ones, archived threads and unsettled ones", () => {
+  it("lists a thread archived today, by its archive time", () => {
+    const rows = selectDoneToday(
+      [
+        shell("archived-today", { archivedAt: at(11), settledAt: at(10) }),
+        shell("archived-yesterday", {
+          archivedAt: at(18, 0, 11),
+          turn: { state: "completed", at: at(10) },
+        }),
+      ],
+      { startOfDayMs: START },
+    );
+    expect(rows.map((row) => [row.thread.id, row.how, row.doneAt])).toEqual([
+      ["archived-today", "archived", at(11)],
+    ]);
+  });
+
+  it("leaves out failed and stopped turns, running ones and unsettled ones", () => {
     expect(
       selectDoneToday(
         [
           shell("failed", { turn: { state: "error", at: at(10) } }),
           shell("stopped", { turn: { state: "interrupted", at: at(10) } }),
           shell("running", { turn: { state: "running", at: null } }),
-          shell("archived", { archivedAt: at(11), settledAt: at(10) }),
           shell("reopened", { settledAt: at(10), settledOverride: "active" }),
         ],
         { startOfDayMs: START },
@@ -139,5 +154,38 @@ describe("selectDoneToday", () => {
     expect(new Set(rows.map((row) => row.key)).size).toBe(2);
     expect(rows[0]?.mergedPullRequest).toEqual({ number: 412, mergedAt: at(11, 5) });
     expect(rows[1]?.mergedPullRequest).toBeNull();
+  });
+
+  it("names only a pull request merged today", () => {
+    const merged = (number: number, mergedAt: string | null) => ({
+      host: "github.com",
+      repository: "e6/e6code",
+      number,
+      url: `https://github.com/e6/e6code/pull/${number}`,
+      source: "created" as const,
+      linkedAt: at(8, 0, 10),
+      stack: null,
+      snapshot: {
+        state: "merged" as const,
+        title: "Old work",
+        headBranch: "old",
+        baseBranch: "main",
+        isDraft: false,
+        updatedAt: null,
+        syncedAt: at(9),
+        mergedAt,
+      },
+    });
+    const [row] = selectDoneToday(
+      [
+        shell("old-merge", {
+          settledAt: at(14, 20),
+          pullRequests: [merged(300, at(16, 0, 10)), merged(301, null)],
+        }),
+      ],
+      { startOfDayMs: START },
+    );
+    expect(row?.how).toBe("settled");
+    expect(row?.mergedPullRequest).toBeNull();
   });
 });

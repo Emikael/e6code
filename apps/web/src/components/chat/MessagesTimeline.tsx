@@ -335,8 +335,6 @@ interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
-  /** Opened work logs draw as a rail with one dot per step (Settings › Appearance). */
-  thinkingTimeline: boolean;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
@@ -414,8 +412,6 @@ interface WorkGroupViewState {
 const WorkGroupViewCtx = createContext<{
   state: WorkGroupViewState;
   onToggleEntry: (collapsed: boolean) => void;
-  /** Draw each entry as a step on the thinking timeline's rail. */
-  timeline: boolean;
   /** The running step, ringed on the rail. */
   liveEntryId: string | null;
 } | null>(null);
@@ -1233,8 +1229,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
-  // An opened work log is always drawn as a rail; "Agent activity" decides what opens.
-  const thinkingTimeline = true;
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1458,7 +1452,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       citationRequest: readyCitationRequest,
       listRef,
       timestampFormat,
-      thinkingTimeline,
       routeThreadKey,
       // Keep Markdown callbacks memoized during unrelated activity updates.
       threadRef: citationThreadRef,
@@ -1498,7 +1491,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       readyCitationRequest,
       listRef,
       timestampFormat,
-      thinkingTimeline,
       routeThreadKey,
       citationThreadRef,
       markdownCwd,
@@ -1544,11 +1536,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // Keyed by value: the shell object, and so this field, is new on every
   // thread-shell patch, and the activity context re-renders every row.
   const agentStateKey = agentState === null ? null : JSON.stringify(agentState);
-  const liveTimelineHeading =
-    thinkingTimeline &&
-    rows.some(
-      (row) => row.kind === "activity-group" && row.active && activityGroupHasTimelineSteps(row),
-    );
+  const liveTimelineHeading = rows.some(
+    (row) => row.kind === "activity-group" && row.active && activityGroupHasTimelineSteps(row),
+  );
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
@@ -3145,7 +3135,7 @@ function ActivityGroupTimelineRow({
   const runningWork = trailingWork.findLast(workEntryIsActiveTurnActivity);
   const liveWork = runningWork ?? trailingWork.at(-1);
   // Reasoning with no header has no step to put on a rail.
-  const timeline = ctx.thinkingTimeline && work.length > 0;
+  const timeline = work.length > 0;
   const liveEntryId = row.active ? (runningWork?.id ?? null) : null;
   const iconWork = row.active ? liveWork : work.at(-1);
   const failed = iconWork !== undefined && workEntryDisplayIndicatesToolFailure(iconWork);
@@ -3666,14 +3656,11 @@ const WorkGroupSection = memo(function WorkGroupSection({
   /** The running step; when omitted, the newest running entry of the unsettled turn. */
   liveEntryId?: string | null;
 }) {
-  const { workspaceRoot, routeThreadKey, onToggleWorkEntry, thinkingTimeline } =
-    use(TimelineRowCtx);
+  const { workspaceRoot, routeThreadKey, onToggleWorkEntry } = use(TimelineRowCtx);
   // Only a railed list that must find its own live step subscribes to activity
   // changes; collapsed and plain sections stay off that context.
   const activity =
-    isExpandedToolGroup && thinkingTimeline && liveEntryId === undefined
-      ? use(TimelineRowActivityCtx)
-      : null;
+    isExpandedToolGroup && liveEntryId === undefined ? use(TimelineRowActivityCtx) : null;
   const onToggleStandaloneEntry = useCallback(
     (collapsed: boolean) => onToggleWorkEntry(disclosureAnchorKey, collapsed),
     [disclosureAnchorKey, onToggleWorkEntry],
@@ -3701,11 +3688,11 @@ const WorkGroupSection = memo(function WorkGroupSection({
         disclosureAnchorKey={disclosureAnchorKey}
         entries={nonEmptyEntries}
         workspaceRoot={workspaceRoot}
-        timeline={thinkingTimeline}
         liveEntryId={resolvedLiveEntryId}
       />
     );
-    return thinkingTimeline && !railed ? <ThinkingTimelineRail>{list}</ThinkingTimelineRail> : list;
+    // An opened work log is always drawn as a rail; "Agent activity" decides what opens.
+    return railed ? list : <ThinkingTimelineRail>{list}</ThinkingTimelineRail>;
   }
 
   return (
@@ -3731,14 +3718,12 @@ function ExpandedWorkGroupEntries({
   disclosureAnchorKey,
   entries,
   workspaceRoot,
-  timeline,
   liveEntryId,
 }: {
   anchorKey: string;
   disclosureAnchorKey: string;
   entries: TimelineWorkEntry[];
   workspaceRoot: string | undefined;
-  timeline: boolean;
   liveEntryId: string | null;
 }) {
   const { workGroupViewState: viewState, onToggleWorkEntry } = use(TimelineRowCtx);
@@ -3766,10 +3751,9 @@ function ExpandedWorkGroupEntries({
     () => ({
       state: viewState,
       onToggleEntry: (collapsed: boolean) => onToggleWorkEntry(disclosureAnchorKey, collapsed),
-      timeline,
       liveEntryId,
     }),
-    [disclosureAnchorKey, onToggleWorkEntry, viewState, timeline, liveEntryId],
+    [disclosureAnchorKey, onToggleWorkEntry, viewState, liveEntryId],
   );
   const updateScrollFades = useCallback(() => {
     const element = listRef.current?.getScrollableNode();
@@ -4070,6 +4054,10 @@ function toolGroupSummaryIconName(
   }
 }
 
+/**
+ * A folded run of tool calls (board 2): "Read 3 files, changed 2 files" in quiet caption text
+ * with a chevron that turns when opened. A failed call is named in its accessible label.
+ */
 function WorkGroupToggleTimelineRow({
   row,
 }: {
@@ -4080,24 +4068,20 @@ function WorkGroupToggleTimelineRow({
     <button
       type="button"
       data-expanded={row.expanded ? "true" : "false"}
-      className="group/tool-group group/timeline-row relative flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-surface-raised/75 data-[expanded=true]:bg-surface-raised/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      className="group/tool-group group/timeline-row relative flex min-h-6 w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-1 text-left text-xs leading-4 text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={row.hasFailure ? `${row.summary}, tool call failed` : undefined}
       aria-expanded={row.expanded}
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-well/60 text-icon-muted ring-1 ring-border/40 transition-colors group-hover/tool-group:text-foreground">
-        <ToolActivityIconView
-          icon={row.toolIcon}
-          fallbackName={
-            row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)
-          }
-          className="size-3.5 shrink-0 stroke-[1.8]"
-          muted
-        />
-      </span>
-      <span className="min-w-0 flex-1 truncate font-medium text-secondary-label transition-colors group-hover/tool-group:text-foreground">
-        {row.summary}
-      </span>
+      <ChevronRightIcon
+        aria-hidden
+        className={cn(
+          "size-3.5 shrink-0 transition-transform duration-200",
+          row.expanded && "rotate-90",
+        )}
+      />
+      <span className="min-w-0 truncate">{row.summary}</span>
+      <span className="flex-1" />
       <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
     </button>
   );
@@ -5615,7 +5599,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     }
     setExpanded(next);
   };
-  const timeline = groupView?.timeline === true;
+  // Rows of an opened work log sit on its rail; a standalone row stays plain.
+  const timeline = groupView !== null;
   const { meta: stepMeta, inlineDiffStat } = resolveWorkRowStats(workEntry, timeline);
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";

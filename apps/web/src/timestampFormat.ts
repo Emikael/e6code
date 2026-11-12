@@ -39,6 +39,24 @@ export const { formatShortTimestamp, formatDayAwareTimestamp, formatUpcomingTime
 
 export { parseTimestampDate };
 
+/**
+ * A day as "Wed 11 Nov": weekday, day, month, in that order and without commas,
+ * whatever order the locale prefers; the names follow the host locale.
+ */
+export function formatWeekdayDayMonth(
+  date: Date,
+  locale: string | undefined = timestampLocale,
+): string {
+  const parts = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value.replace(/\.$/, "") ?? "";
+  return [part("weekday"), part("day"), part("month")].filter(Boolean).join(" ");
+}
+
 // Deliberately not the host locale: the tooltip's ordinal suffix and
 // day-before-month order below are English, so a localized month alone would
 // read "4th Juni 2026". Localizing the whole label is a separate change.

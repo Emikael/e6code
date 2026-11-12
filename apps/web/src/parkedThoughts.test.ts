@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  firstThingSource,
   formatParkedWhen,
   localDateKey,
   nextLocalDateKey,
@@ -141,5 +142,13 @@ describe("parkThought", () => {
       message: PARKED_FULL_MESSAGE,
     });
     expect(usePromptStashStore.getState().entries).toHaveLength(MAX_PARKED_THOUGHTS);
+  });
+});
+
+describe("firstThingSource", () => {
+  it("says yesterday for a line pinned for today, else the weekday of the wrap up", () => {
+    expect(firstThingSource("2026-11-12", "2026-11-12")).toBe("from yesterday's wrap up");
+    // Pinned for Tuesday 10 Nov, so written on Monday 9 Nov.
+    expect(firstThingSource("2026-11-10", "2026-11-12")).toBe("from Monday's wrap up");
   });
 });

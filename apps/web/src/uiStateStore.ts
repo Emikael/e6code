@@ -2,7 +2,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@e6tools/contracts";
 import type { AgentActivityDetail } from "@e6tools/contracts/settings";
 import { create } from "zustand";
-import { recordFocusOpenedPanel } from "./focusMode";
+import { recordFocusOpenedPanel, recordFocusReplacedSurface } from "./focusMode";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
 export const PERSISTED_STATE_KEY = "e6code:ui-state:v1";
@@ -38,6 +38,7 @@ export interface PersistedUiState {
   recentFilesByThreadKey?: Record<string, RecentFile[]>;
   filesFilterByThreadKey?: Record<string, FilesFilterChoice>;
   focusOpenedPanelKeys?: string[];
+  focusReplacedSurfaceByThreadKey?: Record<string, string>;
   agentActivityDetailByThreadKey?: Record<string, string>;
 }
 
@@ -115,6 +116,11 @@ export interface UiFocusState {
    * reload in focus still closes them again; see `focusOpenedPanelsToClose`.
    */
   focusOpenedPanelKeys: ReadonlyArray<string>;
+  /**
+   * The surface each open panel showed before focus switched it, restored when
+   * focus exits. Persisted for the same reason as `focusOpenedPanelKeys`.
+   */
+  focusReplacedSurfaceByThreadKey: Readonly<Record<string, string>>;
 }
 
 /** "Agent activity" chosen for one thread from its More menu, over the setting (F11). */
@@ -147,6 +153,7 @@ const initialState: UiState = {
   recentFilesByThreadKey: {},
   filesFilterByThreadKey: {},
   focusOpenedPanelKeys: [],
+  focusReplacedSurfaceByThreadKey: {},
   agentActivityDetailByThreadKey: {},
 };
 
@@ -342,6 +349,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     focusOpenedPanelKeys: Array.isArray(parsed.focusOpenedPanelKeys)
       ? parsed.focusOpenedPanelKeys.filter((key): key is string => typeof key === "string")
       : [],
+    focusReplacedSurfaceByThreadKey: sanitizeStringRecord(parsed.focusReplacedSurfaceByThreadKey),
     agentActivityDetailByThreadKey: sanitizeAgentActivityDetailByThreadKey(
       parsed.agentActivityDetailByThreadKey,
     ),
@@ -424,6 +432,7 @@ export function persistState(state: UiState): void {
         recentFilesByThreadKey: state.recentFilesByThreadKey,
         filesFilterByThreadKey: state.filesFilterByThreadKey,
         focusOpenedPanelKeys: [...state.focusOpenedPanelKeys],
+        focusReplacedSurfaceByThreadKey: { ...state.focusReplacedSurfaceByThreadKey },
         agentActivityDetailByThreadKey: state.agentActivityDetailByThreadKey,
       } satisfies PersistedUiState),
     );
@@ -562,6 +571,15 @@ export function setFocusPanelPeek(state: UiState, peek: boolean): UiState {
   return { ...state, focusPanelPeek: peek };
 }
 
+function sanitizeStringRecord(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string") result[key] = entry;
+  }
+  return result;
+}
+
 function sanitizeAgentActivityDetailByThreadKey(
   value: unknown,
 ): Record<string, AgentActivityDetail> {
@@ -597,6 +615,33 @@ export function noteFocusOpenedPanel(state: UiState, threadKey: string): UiState
   const focusOpenedPanelKeys = recordFocusOpenedPanel(state.focusOpenedPanelKeys, threadKey);
   if (state.focusPanelPeek && focusOpenedPanelKeys === state.focusOpenedPanelKeys) return state;
   return { ...state, focusPanelPeek: true, focusOpenedPanelKeys };
+}
+
+/** Focus switched this thread's open panel away from `surfaceId`; show it again on exit. */
+export function noteFocusReplacedSurface(
+  state: UiState,
+  threadKey: string,
+  surfaceId: string,
+): UiState {
+  if (!state.focusMode) return state;
+  const focusReplacedSurfaceByThreadKey = recordFocusReplacedSurface(
+    state.focusReplacedSurfaceByThreadKey,
+    threadKey,
+    surfaceId,
+  );
+  if (focusReplacedSurfaceByThreadKey === state.focusReplacedSurfaceByThreadKey) return state;
+  return { ...state, focusReplacedSurfaceByThreadKey };
+}
+
+/** The surfaces for `restored` were shown again, so they leave the record. */
+export function clearFocusReplacedSurfaces(
+  state: UiState,
+  restored: ReadonlyArray<string>,
+): UiState {
+  if (restored.length === 0) return state;
+  const next = { ...state.focusReplacedSurfaceByThreadKey };
+  for (const key of restored) delete next[key];
+  return { ...state, focusReplacedSurfaceByThreadKey: next };
 }
 
 /** The panels in `closed` are closed again, so they leave the list. */
@@ -697,6 +742,8 @@ interface UiStateStore extends UiState {
   noteFocusOpenedPanel: (threadKey: string) => void;
   setThreadAgentActivityDetail: (threadKey: string, detail: AgentActivityDetail | null) => void;
   clearFocusOpenedPanels: (closed: ReadonlyArray<string>) => void;
+  noteFocusReplacedSurface: (threadKey: string, surfaceId: string) => void;
+  clearFocusReplacedSurfaces: (restored: ReadonlyArray<string>) => void;
   toggleFocusMode: () => void;
   setFocusPanelPeek: (peek: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -729,6 +776,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setThreadAgentActivityDetail: (threadKey, detail) =>
     set((state) => setThreadAgentActivityDetail(state, threadKey, detail)),
   clearFocusOpenedPanels: (closed) => set((state) => clearFocusOpenedPanels(state, closed)),
+  noteFocusReplacedSurface: (threadKey, surfaceId) =>
+    set((state) => noteFocusReplacedSurface(state, threadKey, surfaceId)),
+  clearFocusReplacedSurfaces: (restored) =>
+    set((state) => clearFocusReplacedSurfaces(state, restored)),
   toggleFocusMode: () => set((state) => setFocusMode(state, !state.focusMode)),
   setFocusPanelPeek: (peek) => set((state) => setFocusPanelPeek(state, peek)),
   setProjectExpanded: (projectIds, expanded) =>

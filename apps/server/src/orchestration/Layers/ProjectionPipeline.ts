@@ -54,6 +54,10 @@ import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/Projectio
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
 import {
+  summarizePendingRequests,
+  type OpenUserInputRequest,
+} from "../ThreadPendingRequestSummary.ts";
+import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
@@ -160,13 +164,18 @@ function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
 
 /**
  * Open user-input requests replayed from the thread's lifecycle activities:
- * how many are unresolved and when the oldest of them was asked.
+ * how many are unresolved, when the oldest of them was asked, and the
+ * question texts of each open request, oldest first.
  */
 function derivePendingUserInputFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
-): { readonly count: number; readonly earliestRequestedAt: string | null } {
-  // Request id -> when it was first asked.
-  const openRequestIds = new Map<string, string>();
+): {
+  readonly count: number;
+  readonly earliestRequestedAt: string | null;
+  readonly openRequests: ReadonlyArray<OpenUserInputRequest>;
+} {
+  // Request id -> when it was first asked, and what.
+  const openRequests = new Map<string, { requestedAt: string; questions: string[] }>();
   const ordered = [...activities].toSorted(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) ||
@@ -185,12 +194,17 @@ function derivePendingUserInputFromActivities(
     const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
 
     if (activity.kind === "user-input.requested") {
-      if (!openRequestIds.has(requestId)) openRequestIds.set(requestId, activity.createdAt);
+      if (!openRequests.has(requestId)) {
+        openRequests.set(requestId, {
+          requestedAt: activity.createdAt,
+          questions: extractQuestionTexts(payload?.questions),
+        });
+      }
       continue;
     }
 
     if (activity.kind === "user-input.resolved") {
-      openRequestIds.delete(requestId);
+      openRequests.delete(requestId);
       continue;
     }
 
@@ -202,17 +216,30 @@ function derivePendingUserInputFromActivities(
         detail.includes("unknown pending user input request") ||
         detail.includes("unknown pending codex user input request"))
     ) {
-      openRequestIds.delete(requestId);
+      openRequests.delete(requestId);
     }
   }
 
-  let earliestRequestedAt: string | null = null;
-  for (const requestedAt of openRequestIds.values()) {
-    if (earliestRequestedAt === null || requestedAt < earliestRequestedAt) {
-      earliestRequestedAt = requestedAt;
-    }
+  const open = [...openRequests.values()].toSorted((left, right) =>
+    left.requestedAt.localeCompare(right.requestedAt),
+  );
+  return {
+    count: open.length,
+    earliestRequestedAt: open[0]?.requestedAt ?? null,
+    openRequests: open.map((request) => ({ questions: request.questions })),
+  };
+}
+
+/** The `question` texts of a `user-input.requested` payload, skipping malformed entries. */
+function extractQuestionTexts(questions: unknown): string[] {
+  if (!Array.isArray(questions)) return [];
+  const texts: string[] = [];
+  for (const question of questions) {
+    if (typeof question !== "object" || question === null) continue;
+    const text = (question as Record<string, unknown>).question;
+    if (typeof text === "string") texts.push(text);
   }
-  return { count: openRequestIds.size, earliestRequestedAt };
+  return texts;
 }
 
 function earliestIsoTime(left: string | null, right: string | null): string | null {
@@ -608,6 +635,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         ]);
 
       const pendingUserInput = derivePendingUserInputFromActivities(activities);
+      // Only a blocked thread pays for the per-request kinds.
+      const pendingApprovalKinds =
+        pendingApprovals.count > 0
+          ? yield* projectionPendingApprovalRepository.listPendingKindsByThreadId({ threadId })
+          : [];
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
@@ -618,6 +650,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           pendingApprovals.earliestCreatedAt,
           pendingUserInput.earliestRequestedAt,
         ),
+        pendingRequestSummary: summarizePendingRequests({
+          approvals: pendingApprovalKinds,
+          userInputs: pendingUserInput.openRequests,
+        }),
         hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
       });
     });
@@ -660,6 +696,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             pendingRequestSince: null,
+            pendingRequestSummary: null,
             hasActionableProposedPlan: 0,
             deletedAt: null,
           });

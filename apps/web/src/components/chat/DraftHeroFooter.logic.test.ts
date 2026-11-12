@@ -4,6 +4,7 @@ import { projectScriptHash } from "@e6tools/shared/projectScripts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  asSentence,
   formatAttentionCue,
   needsYouHeading,
   planSegments,
@@ -223,5 +224,15 @@ describe("workingCaption", () => {
         resetAt,
       ),
     ).toBe("Retrying · attempt 2 of 10");
+  });
+});
+
+describe("asSentence", () => {
+  it("adds a period unless the fact already ends a sentence", () => {
+    expect(asSentence("Codex wants to run 1 command")).toBe("Codex wants to run 1 command.");
+    expect(asSentence("Claude asks 1 question: spring, or a fade?")).toBe(
+      "Claude asks 1 question: spring, or a fade?",
+    );
+    expect(asSentence("Claude asks 1 question: keep it…")).toBe("Claude asks 1 question: keep it…");
   });
 });

@@ -22,6 +22,11 @@ export function needsYouHeading(blockedCount: number): string {
     : `Needs you · ${blockedCount} agents are blocked`;
 }
 
+/** Ends a fact with a period unless it already ends a sentence ("…fade?"). */
+export function asSentence(fact: string): string {
+  return /[.?!…]$/.test(fact) ? fact : `${fact}.`;
+}
+
 /**
  * "asked 4m ago", "ready 26m ago", "finished just now". Past a day the age
  * names the day ("asked Tue") instead of growing.

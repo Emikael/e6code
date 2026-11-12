@@ -3,6 +3,7 @@ import {
   type OrchestrationThreadActivity,
   ProviderApprovalOption,
   ProviderRequestKind,
+  type ThreadPendingRequestSummary,
   UserInputQuestion,
 } from "@e6tools/contracts";
 import * as Option from "effect/Option";
@@ -41,6 +42,41 @@ export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, stri
   "mcp-elicitation": "wants app access",
   permission: "wants an app permission",
 };
+
+const plural = (count: number, word: string) => `${count} ${count === 1 ? word : `${word}s`}`;
+
+/**
+ * What a blocked thread's agent wants, from the shell's request summary:
+ * "Codex wants to run 1 command", "Claude wants to change files". Without a
+ * summary (an older server, or a request the adapter could not name) it says
+ * "Codex is waiting for your approval". No trailing period.
+ */
+export function describePendingApprovalAsk(
+  provider: string,
+  summary: ThreadPendingRequestSummary | undefined,
+): string {
+  const kind = summary?.approvalKind;
+  if (kind === "command") {
+    return `${provider} wants to run ${plural(summary?.approvalKindCount ?? 1, "command")}`;
+  }
+  if (kind !== undefined && isProviderRequestKind(kind)) {
+    return `${provider} ${SUBAGENT_APPROVAL_PHRASE[kind]}`;
+  }
+  return `${provider} is waiting for your approval`;
+}
+
+/**
+ * What a blocked thread's agent asks, from the shell's request summary:
+ * "Claude asks 1 question: keep the spring animation, or cut to a fade?".
+ * Without the question text it says "Claude asked you a question".
+ */
+export function describePendingQuestionAsk(
+  provider: string,
+  summary: ThreadPendingRequestSummary | undefined,
+): string {
+  if (!summary?.question) return `${provider} asked you a question`;
+  return `${provider} asks ${plural(Math.max(1, summary.questionCount), "question")}: ${summary.question}`;
+}
 
 /** What a subagent is blocked on: the oldest pending request that names it. */
 export type SubagentUserRequest =

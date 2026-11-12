@@ -11,6 +11,7 @@ import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
+import { useApprovalResponder } from "./chat/useApprovalResponder";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
 import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
 import {
@@ -1616,9 +1617,6 @@ export default function ChatView(props: ChatViewProps) {
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
-  const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
-    reportFailure: false,
-  });
   const respondToThreadUserInput = useAtomCommand(threadEnvironment.respondToUserInput, {
     reportFailure: false,
   });
@@ -1821,7 +1819,6 @@ export default function ChatView(props: ChatViewProps) {
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
-  const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
   const userInputResponsesInFlight = useRef(new Set<string>());
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
@@ -7862,8 +7859,8 @@ export default function ChatView(props: ChatViewProps) {
     if (compactDisabled) return;
     await sendStandaloneMessage("/compact", "Failed to compact context.");
   };
-  // In focus the focus bar carries a finished turn (board 3); the now bar keeps every other state.
-  const showNowBar = !(focusModeActive && nowBar.state.kind === "done");
+  // Board 3 has no now bar: in focus the focus bar carries the thread's state.
+  const showNowBar = !focusModeActive;
   // The elapsed time's tooltip lists how long this thread's earlier turns took.
   const earlierTurnsCue = useMemo(
     () =>
@@ -9359,34 +9356,12 @@ export default function ChatView(props: ChatViewProps) {
   // of starting a new turn the moment the interrupted one settles.
   restoreQueuedMessagesRef.current = restoreQueuedMessagesToComposer;
 
-  const onRespondToApproval = useCallback(
-    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision, feedback?: string) => {
-      if (!activeThreadId) return;
-
-      setRespondingRequestIds((existing) =>
-        existing.includes(requestId) ? existing : [...existing, requestId],
-      );
-      const result = await respondToThreadApproval({
-        environmentId,
-        input: {
-          threadId: activeThreadId,
-          requestId,
-          decision,
-          ...(feedback !== undefined ? { feedback } : {}),
-        },
-      });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : "Failed to submit approval decision.",
-        );
-      }
-      setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
-      return result;
-    },
-    [activeThreadId, environmentId, respondToThreadApproval, setThreadError],
-  );
+  // Shared with the start screen's approval card.
+  const { respondingRequestIds, respond: onRespondToApproval } = useApprovalResponder({
+    environmentId,
+    threadId: activeThreadId ?? null,
+    onError: setThreadError,
+  });
 
   const onRespondToUserInput = useCallback(
     async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {

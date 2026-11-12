@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { focusOpenedPanelsToClose, resolveFocusLayout } from "./focusMode";
+import { focusOpenedPanelsToClose, focusSurfacesToRestore, resolveFocusLayout } from "./focusMode";
 import {
   clearFocusOpenedPanels,
+  clearFocusReplacedSurfaces,
   noteFocusOpenedPanel,
+  noteFocusReplacedSurface,
   parsePersistedState,
   setFocusMode,
   setFocusPanelPeek,
@@ -103,5 +105,29 @@ describe("panels focus opened", () => {
   it("records nothing outside focus", () => {
     const base = parsePersistedState({});
     expect(noteFocusOpenedPanel(base, "env:a")).toBe(base);
+  });
+});
+
+describe("surfaces focus switched", () => {
+  const inFocus = setFocusMode(parsePersistedState({}), true);
+
+  it("shows the surface from when focus began once focus exits", () => {
+    // Mod+D moved an open panel from Files to Diff, then a tab click moved it again.
+    const switched = noteFocusReplacedSurface(
+      noteFocusReplacedSurface(inFocus, "env:a", "files"),
+      "env:a",
+      "diff",
+    );
+    expect(focusSurfacesToRestore(switched)).toEqual([]);
+    const exited = setFocusMode(switched, false);
+    expect(focusSurfacesToRestore(exited)).toEqual([["env:a", "files"]]);
+    expect(clearFocusReplacedSurfaces(exited, ["env:a"]).focusReplacedSurfaceByThreadKey).toEqual(
+      {},
+    );
+  });
+
+  it("records nothing outside focus", () => {
+    const base = parsePersistedState({});
+    expect(noteFocusReplacedSurface(base, "env:a", "files")).toBe(base);
   });
 });

@@ -25,15 +25,16 @@ export const FirstThingTodayCard = memo(function FirstThingTodayCard() {
       aria-label="First thing today"
       className="flex flex-wrap items-center gap-2.5 rounded-xl border bg-surface-raised py-2 ps-3.5 pe-2"
     >
-      <span className="inline-flex h-5 shrink-0 items-center rounded-md border border-input px-1.5 text-[11px] leading-[14px] font-medium text-muted-foreground">
+      <span className="inline-flex h-5 shrink-0 items-center rounded-sm border border-input px-1.5 text-[11px] leading-[14px] font-medium text-muted-foreground">
         First thing today
       </span>
-      <p className="min-w-0 flex-1 basis-60 truncate text-sm leading-5 text-foreground">
+      <p className="min-w-0 flex-1 basis-60 truncate text-sm leading-[22px] text-foreground">
         {entry.prompt}
       </p>
       <Button
         size="sm"
         variant="outline"
+        className="text-xs sm:text-xs"
         onClick={() => {
           void putInComposer(entry.prompt, entry.projectKey).then((placed) => {
             if (placed) usePromptStashStore.getState().takeEntry(entry.id);

@@ -33,7 +33,7 @@ import { nextLocalDateKey } from "../parkedThoughts";
 import { PARKED_FULL_MESSAGE, usePromptStashStore } from "../promptStashStore";
 import { readEnvironmentSupportsSnooze, useProjects, useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
-import { formatShortTimestamp } from "../timestampFormat";
+import { formatShortTimestamp, formatWeekdayDayMonth } from "../timestampFormat";
 import { resolveWorkingStartedAt } from "./Sidebar.logic";
 import { resolveSnoozePresets } from "./Sidebar.snooze";
 import { BlockedDiamond } from "./SidebarNeedsYou";
@@ -106,13 +106,7 @@ function DoneTodayDialog({ onClose }: { onClose: () => void }) {
         <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.015em]">
           Done today
         </DialogTitle>
-        <span className={META_CLASS}>
-          {new Date(nowMs).toLocaleDateString(undefined, {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-          })}
-        </span>
+        <span className={META_CLASS}>{formatWeekdayDayMonth(new Date(nowMs))}</span>
         <span className="grow" />
         <DialogClose
           aria-label="Close"
@@ -156,6 +150,7 @@ function DoneTodayDialog({ onClose }: { onClose: () => void }) {
                 <Button
                   size="sm"
                   variant="ghost"
+                  className="text-xs sm:text-xs"
                   aria-label={`Open ${row.thread.title}`}
                   onClick={() => openThread(row.thread)}
                 >
@@ -292,11 +287,17 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
             <Button
               size="sm"
               variant="outline"
-              className="self-start"
+              className="max-w-full self-start text-xs sm:text-xs"
               onClick={() => void snoozeAll()}
             >
               <ClockIcon aria-hidden className="size-3.5" />
-              {wrapUpSnoozeLabel(snoozable.length, tomorrowMorning.whenLabel)}
+              <span className="truncate">
+                {wrapUpSnoozeLabel({
+                  snoozable: snoozable.map((thread) => thread.title),
+                  listedCount: stillOpen.length,
+                  whenLabel: tomorrowMorning.whenLabel,
+                })}
+              </span>
             </Button>
           ) : null}
         </div>
@@ -320,10 +321,12 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
       </div>
       <span className="grow" />
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" className="text-[13px] sm:text-[13px]" onClick={onClose}>
           Not now
         </Button>
-        <Button onClick={wrapUp}>Wrap up</Button>
+        <Button className="text-[13px] sm:text-[13px]" onClick={wrapUp}>
+          Wrap up
+        </Button>
       </div>
     </aside>
   );
