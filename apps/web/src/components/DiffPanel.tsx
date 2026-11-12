@@ -66,6 +66,7 @@ import {
   pagingStepLabel,
   replyLabel,
 } from "./diffs/diffPaging.logic";
+import { PanelErrorCard } from "./panel/PanelErrorCard";
 import { DiffRailKeyHint, DiffReviewFooter } from "./diffs/DiffReviewFooter";
 import { useDiffPaging } from "./diffs/useDiffPaging";
 import type { DiffLineMarker } from "./diffs/AnnotatableCodeView";
@@ -1484,13 +1485,19 @@ export default function DiffPanel({
                     {selectedGitSource?.files ? " Totals include all changes." : ""}
                   </p>
                 )}
-                {selectedPatchError && !renderablePatch && (
-                  <div className="px-3">
-                    <p className="mb-2 text-[11px] text-error/80">{selectedPatchError}</p>
-                  </div>
-                )}
                 {!renderablePatch && !lazySource ? (
-                  isLoadingSelectedPatch ? (
+                  selectedPatchError && !isLoadingSelectedPatch ? (
+                    <div className="p-3">
+                      <PanelErrorCard
+                        title="Could not load this diff"
+                        reason={selectedPatchError}
+                        reassurance="Your changes are not affected."
+                        onRetry={
+                          selectedTurn ? activeCheckpointDiff.refresh : refreshDiffFromUserAction
+                        }
+                      />
+                    </div>
+                  ) : isLoadingSelectedPatch ? (
                     <DiffPanelLoadingState
                       label={
                         selectedTurn

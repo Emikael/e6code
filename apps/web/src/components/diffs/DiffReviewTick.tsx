@@ -39,7 +39,8 @@ export function DiffReviewTick(props: {
 }
 
 /**
- * A file header's "Mark reviewed" / "Reviewed" toggle. Advisory: it gates nothing, and pressing it
+ * A file header's "Mark reviewed" / "Reviewed" toggle, with "Changed since review" before it when
+ * the file changed after its mark. Advisory: it gates nothing, and pressing it
  * again takes the mark back. The pressed state carries the selected edge, since a wash alone
  * is too faint to see.
  */
@@ -51,7 +52,7 @@ export function DiffReviewToggle(props: {
   readonly onToggle: (path: string, reviewed: boolean) => void;
 }) {
   const reviewed = props.status === "reviewed";
-  return (
+  const toggle = (
     <Button
       type="button"
       size="compact"
@@ -71,5 +72,14 @@ export function DiffReviewToggle(props: {
       <DiffReviewTick status={props.status} decorative />
       {reviewed ? "Reviewed" : "Mark reviewed"}
     </Button>
+  );
+  if (props.status !== "changed") return toggle;
+  // As in the rail: a file the agent changed again says so, so the empty box is not read as
+  // never reviewed.
+  return (
+    <>
+      <span className="shrink-0 font-sans text-muted-foreground text-xs">Changed since review</span>
+      {toggle}
+    </>
   );
 }

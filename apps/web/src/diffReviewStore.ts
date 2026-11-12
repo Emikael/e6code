@@ -101,6 +101,40 @@ export function diffReviewStatus(
 
 type DiffReviewMarks = Readonly<Record<string, DiffReviewMark>>;
 
+/** Every mark one thread holds for each path, whatever scope it was made in. */
+export function diffReviewMarksByPath(
+  marks: DiffReviewMarks,
+  threadKey: string,
+): ReadonlyMap<string, ReadonlyArray<DiffReviewMark>> {
+  const prefix = `${threadKey}${KEY_SEPARATOR}`;
+  const byPath = new Map<string, DiffReviewMark[]>();
+  for (const [key, mark] of Object.entries(marks)) {
+    if (!key.startsWith(prefix)) continue;
+    const rest = key.slice(prefix.length);
+    const separator = rest.indexOf(KEY_SEPARATOR);
+    if (separator < 0) continue;
+    const path = rest.slice(separator + 1);
+    const list = byPath.get(path);
+    if (list) list.push(mark);
+    else byPath.set(path, [mark]);
+  }
+  return byPath;
+}
+
+/**
+ * A file's status across the marks of every scope: reviewed when any mark proves it unchanged,
+ * else what the newest mark says. A mark that cannot be checked counts as unreviewed, as in Diff.
+ */
+export function diffReviewStatusAcrossScopes(
+  marks: ReadonlyArray<DiffReviewMark> | undefined,
+  current: DiffReviewFingerprint,
+): DiffReviewStatus {
+  if (!marks || marks.length === 0) return "unreviewed";
+  if (marks.some((mark) => diffReviewStatus(mark, current) === "reviewed")) return "reviewed";
+  const newest = marks.reduce((latest, mark) => (mark.at > latest.at ? mark : latest));
+  return diffReviewStatus(newest, current);
+}
+
 /** Adds or replaces a mark, dropping the oldest marks past `limit`. */
 export function withDiffReviewMark(
   marks: DiffReviewMarks,
@@ -287,6 +321,41 @@ export function useDiffReviewView(options: {
 }
 
 function noop() {}
+
+/**
+ * Review status for files listed outside the Diff, such as Run details' working tree, counting a
+ * mark made in any scope of the thread.
+ */
+export function useThreadDiffReviewStatuses(options: {
+  readonly threadKey: string | null;
+  readonly files: ReadonlyArray<DiffReviewFile>;
+}): { readonly statusOf: (path: string) => DiffReviewStatus; readonly viewedCount: number } {
+  const { threadKey, files } = options;
+  const marks = useDiffReviewStore((state) => state.marks);
+  const byPath = useMemo(
+    () => (threadKey ? diffReviewMarksByPath(marks, threadKey) : new Map()),
+    [marks, threadKey],
+  );
+  const statuses = useMemo(
+    () =>
+      new Map(
+        files.map((file) => [
+          file.path,
+          diffReviewStatusAcrossScopes(byPath.get(file.path), file.fingerprint),
+        ]),
+      ),
+    [byPath, files],
+  );
+  const statusOf = useCallback(
+    (path: string): DiffReviewStatus => statuses.get(path) ?? "unreviewed",
+    [statuses],
+  );
+  const viewedCount = useMemo(
+    () => [...statuses.values()].filter((status) => status === "reviewed").length,
+    [statuses],
+  );
+  return { statusOf, viewedCount };
+}
 
 // Each app tab keeps marks in memory; adopt another tab's writes instead of overwriting them on
 // the next mark.
