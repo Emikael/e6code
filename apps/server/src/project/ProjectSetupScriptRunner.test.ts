@@ -28,6 +28,7 @@ const makeProject = (scripts: OrchestrationProject["scripts"]): OrchestrationPro
 
 const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
   Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+    getParkedState: () => Effect.die("unused"),
     getUserInputActivity: () => Effect.die("unused"),
     getApprovalRequestTurnId: () => Effect.die("unused"),
     listActivitiesByKind: () => Effect.die("unused"),

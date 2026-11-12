@@ -3,6 +3,7 @@ import {
   MAX_SCRIPT_ID_LENGTH,
   SCRIPT_RUN_COMMAND_PATTERN,
   MessageId,
+  PARKED_LIST_ID,
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
@@ -45,6 +46,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { decideParkedCommand } from "./parked.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -222,6 +224,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   Crypto.Crypto
 > {
   switch (command.type) {
+    case "parked.thought.add":
+    case "parked.thought.update":
+    case "parked.entry.remove":
+    case "parked.note.set":
+    case "parked.import": {
+      const occurredAt = yield* nowIso;
+      const decision = decideParkedCommand({ command, readModel, occurredAt });
+      if (!decision.ok) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: decision.detail,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "parked",
+          aggregateId: PARKED_LIST_ID,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        ...decision.event,
+      } as PlannedOrchestrationEvent;
+    }
+
     case "project.create": {
       yield* requireProjectAbsent({
         readModel,

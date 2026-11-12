@@ -75,6 +75,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
@@ -193,6 +194,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
@@ -286,6 +288,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
@@ -364,6 +367,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
@@ -427,6 +431,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),

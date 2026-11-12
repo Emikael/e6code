@@ -24,6 +24,8 @@ import { useResolveClassNames } from "uniwind";
 import { AppText as Text } from "./components/AppText";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
+import { ParkedQueueWorker } from "./features/parked/ParkedQueueWorker";
+import { ParkedRouteScreen } from "./features/parked/ParkedRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
@@ -229,6 +231,13 @@ const SettingsContentStack = createNativeStackNavigator({
       linking: "environment-new",
       options: {
         title: "Add Environment",
+      },
+    }),
+    SettingsParked: createNativeStackScreen({
+      screen: ParkedRouteScreen,
+      linking: "parked",
+      options: {
+        title: "Parked",
       },
     }),
     SettingsArchive: createNativeStackScreen({
@@ -526,6 +535,7 @@ function RootStackLayout(props: {
   return (
     <HardwareKeyboardCommandProvider pathname={pathname}>
       <ThreadOutboxDrainWorker />
+      <ParkedQueueWorker />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
         <AdaptiveWorkspaceLayout

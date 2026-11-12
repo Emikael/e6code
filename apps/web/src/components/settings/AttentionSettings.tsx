@@ -14,20 +14,37 @@ import {
   type RecapTrigger,
 } from "@e6tools/contracts/settings";
 
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import {
+  getClientSettings,
+  useClientSettings,
+  useUpdateClientSettings,
+} from "../../hooks/useSettings";
+import { unlockNotificationAudio } from "../../threadNotifications";
+import { toastManager } from "../ui/toast";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import { AttentionCard, AttentionStartingPoints, ATTENTION_ROW_CLASS } from "./AttentionCard";
-import { ATTENTION_PRESETS, resolveAttentionPreset } from "./attentionPresets";
+import {
+  AttentionCard,
+  AttentionSegmented,
+  AttentionStartingPoints,
+  ATTENTION_ROW_CLASS,
+} from "./AttentionCard";
+import {
+  ATTENTION_PRESETS,
+  presetSideEffects,
+  presetUndoValues,
+  resolveAttentionPreset,
+  type AttentionPreset,
+} from "./attentionPresets";
 import { SettingResetButton, SettingsPageContainer, SettingsRow } from "./settingsLayout";
-import { NotificationSettingsSection } from "./NotificationSettings";
+import { NotificationSettingsSection, requestSystemNotifications } from "./NotificationSettings";
 import { searchableSetting } from "./settingsSearch";
 
-/** Board 6's segmented control: a well with the chosen option raised and outlined. */
-export const ATTENTION_SEGMENT_GROUP_CLASS = "rounded-lg bg-surface-well p-0.5";
-export const ATTENTION_SEGMENT_CLASS =
-  "h-[26px] px-2.5 data-pressed:bg-card data-pressed:shadow-none data-pressed:ring-1 data-pressed:ring-inset data-pressed:ring-primary-edge dark:data-pressed:bg-card";
+const PRESET_TITLES = {
+  quiet: "Quiet",
+  standard: "Standard",
+  detailed: "Detailed",
+} satisfies Record<AttentionPreset, string>;
 
 const RECAP_TRIGGER_LABELS = {
   "after-break": "After a break",
@@ -61,15 +78,21 @@ const BREAK_REMINDER_OPTIONS: ReadonlyArray<{
 const breakReminderLabel = (value: BreakReminderMinutes) =>
   BREAK_REMINDER_OPTIONS.find((option) => option.value === value)?.label ?? "Off";
 
-const AGENT_ACTIVITY_LABELS = {
-  summary: "Summary",
-  live: "Live",
-} satisfies Record<AgentActivityDetail, string>;
+const AGENT_ACTIVITY_OPTIONS: ReadonlyArray<{
+  readonly value: AgentActivityDetail;
+  readonly label: string;
+}> = [
+  { value: "summary", label: "Summary" },
+  { value: "live", label: "Live" },
+];
 
-const COMPOSER_CONTROLS_LABELS = {
-  compact: "Compact",
-  full: "Full",
-} satisfies Record<ComposerControls, string>;
+const COMPOSER_CONTROLS_OPTIONS: ReadonlyArray<{
+  readonly value: ComposerControls;
+  readonly label: string;
+}> = [
+  { value: "compact", label: "Compact" },
+  { value: "full", label: "Full" },
+];
 
 export function AttentionSettingsPanel() {
   const needsYouSectionEnabled = useClientSettings((s) => s.needsYouSectionEnabled);
@@ -83,14 +106,27 @@ export function AttentionSettingsPanel() {
   const breakReminderMinutes = useClientSettings((s) => s.breakReminderMinutes);
   const startingPoint = useClientSettings(resolveAttentionPreset);
   const updateSettings = useUpdateClientSettings();
+  // A starting point changes several controls at once, so it offers Undo.
+  const choosePreset = (preset: AttentionPreset) => {
+    const previous = presetUndoValues(getClientSettings());
+    const effects = presetSideEffects(previous, preset);
+    // Inside the click, as the Sound switch does, or the browser keeps audio locked.
+    if (effects.unlockAudio) unlockNotificationAudio();
+    updateSettings(ATTENTION_PRESETS[preset]);
+    if (effects.requestNotifications) void requestSystemNotifications();
+    toastManager.add({
+      type: "success",
+      title: `${PRESET_TITLES[preset]} starting point on`,
+      description: "Each control below can still be changed on its own.",
+      actionProps: { children: "Undo", onClick: () => updateSettings(previous) },
+    });
+  };
 
   return (
-    <SettingsPageContainer className="gap-6">
-      <AttentionStartingPoints
-        selected={startingPoint}
-        onSelect={(preset) => updateSettings(ATTENTION_PRESETS[preset])}
-      />
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] items-start gap-4">
+    // Board 6: an 880px page with 32px above the header.
+    <SettingsPageContainer className="max-w-[880px] gap-6 sm:pt-8">
+      <AttentionStartingPoints selected={startingPoint} onSelect={choosePreset} />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] gap-4">
         <NotificationSettingsSection />
 
         <AttentionCard id="attention-start-and-layout" title="Start and layout">
@@ -178,24 +214,12 @@ export function AttentionSettingsPanel() {
               ) : null
             }
             control={
-              <ToggleGroup
-                aria-label="Composer controls"
-                variant="segmented"
-                className={ATTENTION_SEGMENT_GROUP_CLASS}
-                value={[composerControls]}
-                onValueChange={(next) => {
-                  const value = next[0];
-                  if (value === "compact" || value === "full") {
-                    updateSettings({ composerControls: value });
-                  }
-                }}
-              >
-                {Object.entries(COMPOSER_CONTROLS_LABELS).map(([value, label]) => (
-                  <Toggle key={value} value={value} className={ATTENTION_SEGMENT_CLASS}>
-                    {label}
-                  </Toggle>
-                ))}
-              </ToggleGroup>
+              <AttentionSegmented
+                label="Composer controls"
+                value={composerControls}
+                options={COMPOSER_CONTROLS_OPTIONS}
+                onChange={(value) => updateSettings({ composerControls: value })}
+              />
             }
           />
         </AttentionCard>
@@ -257,24 +281,12 @@ export function AttentionSettingsPanel() {
               ) : null
             }
             control={
-              <ToggleGroup
-                aria-label="Agent activity"
-                variant="segmented"
-                className={ATTENTION_SEGMENT_GROUP_CLASS}
-                value={[agentActivityDetail]}
-                onValueChange={(next) => {
-                  const value = next[0];
-                  if (value === "summary" || value === "live") {
-                    updateSettings({ agentActivityDetail: value });
-                  }
-                }}
-              >
-                {Object.entries(AGENT_ACTIVITY_LABELS).map(([value, label]) => (
-                  <Toggle key={value} value={value} className={ATTENTION_SEGMENT_CLASS}>
-                    {label}
-                  </Toggle>
-                ))}
-              </ToggleGroup>
+              <AttentionSegmented
+                label="Agent activity"
+                value={agentActivityDetail}
+                options={AGENT_ACTIVITY_OPTIONS}
+                onChange={(value) => updateSettings({ agentActivityDetail: value })}
+              />
             }
           />
           <SettingsRow

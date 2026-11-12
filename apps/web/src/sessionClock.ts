@@ -11,6 +11,13 @@ const SESSION_CLOCK_STORAGE_KEY = "e6code:session-clock:v1";
 const MINUTE_MS = 60_000;
 /** "Remind me in 30m". */
 export const BREAK_SNOOZE_MINUTES = 30;
+/**
+ * No interaction for this long counts as a real break: the next interaction
+ * starts a new session, so the reminder does not keep returning all day. Longer
+ * than the recap's 5-minute break, because reading a long reply without a click
+ * is not a break.
+ */
+export const SESSION_BREAK_MINUTES = 15;
 
 export interface SessionClockState {
   /** `localDateKey` of the day the session belongs to. */
@@ -19,13 +26,34 @@ export interface SessionClockState {
   readonly startedAt: number;
   /** Epoch ms before which the break reminder stays quiet (snoozed or dismissed). */
   readonly quietUntil: number | null;
+  /** Epoch ms of the latest interaction, to the minute. */
+  readonly lastActiveAt: number;
 }
 
-/** The session for `nowMs`: the stored one if it is today's, else one starting now. */
+/**
+ * The session still running at `nowMs`, or null when it belongs to another day
+ * or a break has passed since its last interaction. A page left open overnight
+ * then shows nothing until the next interaction starts today's session.
+ */
+export function liveSession(
+  stored: SessionClockState | null,
+  nowMs: number,
+): SessionClockState | null {
+  if (!stored || stored.day !== localDateKey(nowMs) || stored.startedAt > nowMs) return null;
+  if (nowMs - stored.lastActiveAt > SESSION_BREAK_MINUTES * MINUTE_MS) return null;
+  return stored;
+}
+
+/**
+ * The session after an interaction at `nowMs`: the running one, with its last
+ * activity moved on once a minute at most, or a new one starting now.
+ */
 export function resolveSession(stored: SessionClockState | null, nowMs: number): SessionClockState {
-  const day = localDateKey(nowMs);
-  if (stored && stored.day === day && stored.startedAt <= nowMs) return stored;
-  return { day, startedAt: nowMs, quietUntil: null };
+  const live = liveSession(stored, nowMs);
+  if (!live)
+    return { day: localDateKey(nowMs), startedAt: nowMs, quietUntil: null, lastActiveAt: nowMs };
+  if (nowMs - live.lastActiveAt < MINUTE_MS) return live;
+  return { ...live, lastActiveAt: nowMs };
 }
 
 /** "Session 1h 30m", in whole minutes. */
@@ -69,6 +97,8 @@ function readStored(): SessionClockState | null {
       day: parsed.day,
       startedAt: parsed.startedAt,
       quietUntil: typeof parsed.quietUntil === "number" ? parsed.quietUntil : null,
+      lastActiveAt:
+        typeof parsed.lastActiveAt === "number" ? parsed.lastActiveAt : parsed.startedAt,
     };
   } catch {
     return null;
@@ -100,6 +130,7 @@ function noteInteraction(): void {
 }
 
 let tracking = false;
+const LISTENER_OPTIONS = { capture: true, passive: true } as const;
 
 /**
  * Begins counting on this device. Called only while the clock or the reminder
@@ -109,8 +140,23 @@ export function ensureSessionTracking(): void {
   if (tracking || typeof window === "undefined") return;
   tracking = true;
   commit(resolveSession(readStored(), Date.now()));
-  window.addEventListener("pointerdown", noteInteraction, { capture: true, passive: true });
-  window.addEventListener("keydown", noteInteraction, { capture: true, passive: true });
+  window.addEventListener("pointerdown", noteInteraction, LISTENER_OPTIONS);
+  window.addEventListener("keydown", noteInteraction, LISTENER_OPTIONS);
+}
+
+/** With the clock and the reminder both off: stop listening and forget the session. */
+export function stopSessionTracking(): void {
+  if (typeof window !== "undefined") {
+    window.removeEventListener("pointerdown", noteInteraction, LISTENER_OPTIONS);
+    window.removeEventListener("keydown", noteInteraction, LISTENER_OPTIONS);
+  }
+  tracking = false;
+  try {
+    localStorage.removeItem(SESSION_CLOCK_STORAGE_KEY);
+  } catch {
+    // Nothing stored, or storage is blocked; either way nothing is kept.
+  }
+  useSessionClockStore.setState({ session: null });
 }
 
 export function quietSessionReminder(minutes: number): void {

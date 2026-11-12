@@ -1,11 +1,13 @@
 import type {
+  OrchestrationAggregateKind,
   OrchestrationClientOrigin,
   OrchestrationEvent,
   OrchestrationReadModel,
+  ParkedListId,
   ProjectId,
   ThreadId,
 } from "@e6tools/contracts";
-import { OrchestrationCommand } from "@e6tools/contracts";
+import { OrchestrationCommand, PARKED_LIST_ID } from "@e6tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -62,10 +64,16 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: OrchestrationAggregateKind;
+  readonly aggregateId: ProjectId | ThreadId | ParkedListId;
 } {
   switch (command.type) {
+    case "parked.thought.add":
+    case "parked.thought.update":
+    case "parked.entry.remove":
+    case "parked.note.set":
+    case "parked.import":
+      return { aggregateKind: "parked", aggregateId: PARKED_LIST_ID };
     case "project.create":
     case "project.meta.update":
     case "project.delete":

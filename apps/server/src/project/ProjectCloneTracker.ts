@@ -443,7 +443,11 @@ const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
  */
 export const rejectCommandsDuringClone = (
   tracker: ProjectCloneTracker["Service"],
-  command: { readonly type: string; readonly projectId?: ProjectId; readonly bootstrap?: unknown },
+  command: {
+    readonly type: string;
+    readonly projectId?: ProjectId | null;
+    readonly bootstrap?: unknown;
+  },
 ): Effect.Effect<void, OrchestrationDispatchCommandError> =>
   Effect.gen(function* () {
     const projectId =

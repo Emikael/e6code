@@ -95,6 +95,14 @@
       "types": "./src/rpc/index.ts",
       "default": "./src/rpc/index.ts"
     },
+    "./parked-sync": {
+      "types": "./src/parked/parkedSync.ts",
+      "default": "./src/parked/parkedSync.ts"
+    },
+    "./state/parked": {
+      "types": "./src/state/parked.ts",
+      "default": "./src/state/parked.ts"
+    },
     "./operations": {
       "types": "./src/operations/index.ts",
       "default": "./src/operations/index.ts"

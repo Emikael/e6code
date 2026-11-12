@@ -5,18 +5,53 @@
  * how to turn them off. Review settings and Got it both retire it for good.
  */
 import { useRouter } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useEffect } from "react";
 
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
-import { useThreadShells } from "~/state/entities";
+import {
+  clientSettingsExistedBeforeLoad,
+  useClientSettings,
+  useClientSettingsHydrated,
+  useUpdateClientSettings,
+} from "~/hooks/useSettings";
+import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "~/state/entities";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
-import { offersNewLook, shouldShowWhatChanged } from "./WhatChangedCard.logic";
+import {
+  decideAttentionIntro,
+  offersNewLook,
+  shouldShowWhatChanged,
+} from "./WhatChangedCard.logic";
 
 export function useWhatChangedVisible(): boolean {
   const dismissed = useClientSettings((settings) => settings.attentionIntroDismissed);
-  const threads = useThreadShells();
-  return useMemo(() => shouldShowWhatChanged({ dismissed, threads }), [dismissed, threads]);
+  return shouldShowWhatChanged({ dismissed });
+}
+
+/**
+ * Decides once, at the app root, whether this profile is one that used E6 Code
+ * before the redesign, and stores the answer. Renders nothing.
+ */
+export function AttentionIntroDecision() {
+  const decided = useClientSettings((settings) => settings.attentionIntroDismissed);
+  const hydrated = useClientSettingsHydrated();
+  // Once decided, nothing here subscribes to threads again.
+  return hydrated && decided === undefined ? <PendingAttentionIntroDecision /> : null;
+}
+
+function PendingAttentionIntroDecision() {
+  const threadsLoaded = useAllEnvironmentShellsBootstrapped();
+  const threadCount = useThreadShells().length;
+  const updateSettings = useUpdateClientSettings();
+  useEffect(() => {
+    const decision = decideAttentionIntro({
+      decided: undefined,
+      storedSettingsExisted: clientSettingsExistedBeforeLoad(),
+      threadsLoaded,
+      threadCount,
+    });
+    if (decision) updateSettings(decision);
+  }, [threadsLoaded, threadCount, updateSettings]);
+  return null;
 }
 
 export function WhatChangedCard() {

@@ -9,6 +9,7 @@ import IconAlertCircle from "@tabler/icons-react-native/IconAlertCircle";
 import IconAlertTriangle from "@tabler/icons-react-native/IconAlertTriangle";
 import IconApps from "@tabler/icons-react-native/IconApps";
 import IconArchive from "@tabler/icons-react-native/IconArchive";
+import IconInbox from "@tabler/icons-react-native/IconInbox";
 import IconArrowBackUp from "@tabler/icons-react-native/IconArrowBackUp";
 import IconArrowDown from "@tabler/icons-react-native/IconArrowDown";
 import IconArrowForwardUp from "@tabler/icons-react-native/IconArrowForwardUp";
@@ -215,6 +216,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "textformat.size": IconTypography,
   "textformat.size.larger": IconTextIncrease,
   "textformat.size.smaller": IconTextDecrease,
+  tray: IconInbox,
   "tray.and.arrow.up": IconUpload,
   trash: IconTrash,
   "wifi.slash": IconWifiOff,

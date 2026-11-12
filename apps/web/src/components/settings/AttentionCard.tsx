@@ -129,3 +129,70 @@ export function AttentionStartingPoints({
     </div>
   );
 }
+
+/**
+ * Board 6's two-option control: a well with the chosen option raised and
+ * outlined. It is one choice, so it is a radio group: Tab reaches the chosen
+ * option and arrow keys move and choose, as the starting points do.
+ */
+export function AttentionSegmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ readonly value: T; readonly label: string }>;
+  onChange: (value: T) => void;
+}) {
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const step =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? 1
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? -1
+          : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    const nextIndex = (index + step + options.length) % options.length;
+    const next = options[nextIndex];
+    if (!next) return;
+    optionRefs.current[nextIndex]?.focus();
+    onChange(next.value);
+  };
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="inline-flex shrink-0 gap-0.5 rounded-lg bg-surface-well p-0.5"
+    >
+      {options.map((option, index) => {
+        const checked = option.value === value;
+        return (
+          <button
+            key={option.value}
+            ref={(element) => {
+              optionRefs.current[index] = element;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            tabIndex={checked ? 0 : -1}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            className={cn(
+              "h-[26px] cursor-pointer rounded-md px-2.5 text-xs leading-4 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              checked
+                ? "bg-card text-foreground ring-1 ring-inset ring-primary-edge"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

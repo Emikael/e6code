@@ -548,8 +548,12 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.catchDecoding(() => Effect.succeedSome("off" as const)),
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
-  /** Hides the one-time "What changed" card on the start screen. */
-  attentionIntroDismissed: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * The one-time "What changed" card. Absent until the first load of the
+   * attention redesign decides it once: false (show) for an existing profile,
+   * true for a fresh one. Dismissing it sets true.
+   */
+  attentionIntroDismissed: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),

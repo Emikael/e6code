@@ -59,6 +59,8 @@ let clientSettingsHydrationPromise: Promise<void> | null = null;
 let clientSettingsHydrationGeneration = 0;
 let clientSettingsPersistenceQueue: Promise<void> = Promise.resolve();
 let deferredClientSettingsPatchCount = 0;
+/** Whether storage held a settings object when this page load hydrated; null before then. */
+let clientSettingsStoredBeforeLoad: boolean | null = null;
 
 function emitClientSettingsChange() {
   for (const listener of clientSettingsListeners) {
@@ -133,6 +135,7 @@ async function hydrateClientSettings(): Promise<void> {
       if (hydrationGeneration !== clientSettingsHydrationGeneration) {
         return;
       }
+      clientSettingsStoredBeforeLoad = persistedSettings != null;
       if (persistedSettings) {
         replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
       }
@@ -272,6 +275,14 @@ export function getClientSettings(): ClientSettings {
  * that open a preview must await this or they bake the built-in viewport, zoom
  * and appearance into a tab that never picks up the user's saved values.
  */
+/**
+ * Whether this profile had stored settings when the page loaded, as read by
+ * hydration. Null until hydration has read storage.
+ */
+export function clientSettingsExistedBeforeLoad(): boolean | null {
+  return clientSettingsStoredBeforeLoad;
+}
+
 export function ensureClientSettingsHydrated(): Promise<void> {
   return hydrateClientSettings();
 }

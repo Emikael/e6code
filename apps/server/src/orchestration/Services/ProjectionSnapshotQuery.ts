@@ -15,6 +15,7 @@ import type {
   OrchestrationMessage,
   OrchestrationProject,
   OrchestrationProjectShell,
+  OrchestrationParkedState,
   OrchestrationReadModel,
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -110,6 +111,9 @@ export interface ProjectionSnapshotQueryShape {
     OrchestrationReadModel,
     ProjectionRepositoryError
   >;
+
+  /** The environment's Parked list, with the ids of thoughts removed from it. */
+  readonly getParkedState: () => Effect.Effect<OrchestrationParkedState, ProjectionRepositoryError>;
 
   /**
    * Read the latest orchestration projection snapshot.
