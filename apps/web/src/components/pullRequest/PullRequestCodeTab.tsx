@@ -1770,6 +1770,7 @@ function PullRequestCodeTab({
                   })
                 : ""
           }
+          primaryOutline={false}
           // Comments here go into the pull request review, which the Review button sends.
           reply={null}
           primary={

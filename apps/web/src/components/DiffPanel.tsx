@@ -78,6 +78,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { shortcutLabelForCommand } from "../keybindings";
 import { dispatchSnapShotComposerFocus } from "../lib/desktopSnapShot";
+import { stripInlineContextReferences } from "../lib/composerContextReferences";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import {
   diffLastSeenKey,
@@ -1137,6 +1138,12 @@ export default function DiffPanel({
   const commentCount = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.reviewComments.length ?? 0,
   );
+  // While the composer holds text, Send owns the screen's one filled button.
+  const composerHasText = useComposerDraftStore(
+    (store) =>
+      stripInlineContextReferences(store.getComposerDraft(composerDraftTarget)?.prompt ?? "").trim()
+        .length > 0,
+  );
   const { settleThread } = useThreadActions();
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const threadSettled = activeThread?.settledOverride === "settled";
@@ -1492,7 +1499,7 @@ export default function DiffPanel({
         <>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {showPinnedBanner ? (
-              <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-surface-raised py-1.5 ps-3 pe-2">
+              <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-surface-raised px-3 py-1.5">
                 <span className="flex shrink-0 items-center gap-2 font-medium text-primary-text text-xs">
                   <span
                     aria-hidden
@@ -1700,6 +1707,7 @@ export default function DiffPanel({
                     : null
                 }
                 primary={footerPrimary}
+                primaryOutline={composerHasText}
               />
             ) : null}
           </div>

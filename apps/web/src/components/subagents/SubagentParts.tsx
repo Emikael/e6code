@@ -8,6 +8,7 @@ import type { ProviderDriverKind } from "@e6tools/contracts";
 import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import {
   formatSubagentElapsed,
+  formatSubagentElapsedMinutes,
   type RuntimeSubagent,
   subagentActivityText,
   SUBAGENT_STATUS_LABEL,
@@ -219,13 +220,17 @@ export function SubagentTile({
 export function SubagentElapsed({
   agent,
   className,
+  minutes = false,
 }: {
   agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt" | "updatedAt">;
   className?: string;
+  /** Whole minutes, updated once a minute, where one ticking element per screen is the rule. */
+  minutes?: boolean;
 }) {
   const textRef = useRef<HTMLSpanElement>(null);
-  // Live rows rewrite their own text each second; the render only seeds it.
+  // Live rows rewrite their own text each second (or minute); the render only seeds it.
   const [mountedAt] = useState(Date.now);
+  const format = minutes ? formatSubagentElapsedMinutes : formatSubagentElapsed;
   const live = subagentElapsedIsLive(agent.status);
   const { status, startedAt, completedAt, updatedAt } = agent;
 
@@ -234,18 +239,18 @@ export function SubagentElapsed({
     const update = () => {
       const ms = subagentElapsedMs({ status, startedAt, completedAt, updatedAt }, Date.now());
       if (textRef.current) {
-        textRef.current.textContent = ms === null ? "–" : formatSubagentElapsed(ms);
+        textRef.current.textContent = ms === null ? "–" : format(ms);
       }
     };
     update();
-    const id = setInterval(update, 1000);
+    const id = setInterval(update, minutes ? 60_000 : 1000);
     return () => clearInterval(id);
-  }, [live, status, startedAt, completedAt, updatedAt]);
+  }, [format, live, minutes, status, startedAt, completedAt, updatedAt]);
 
   const ms = subagentElapsedMs(agent, mountedAt);
   return (
     <span ref={textRef} className={cn("tabular-nums", className)}>
-      {ms === null ? "–" : formatSubagentElapsed(ms)}
+      {ms === null ? "–" : format(ms)}
     </span>
   );
 }

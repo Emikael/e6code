@@ -7,6 +7,7 @@ import {
   foldSubagentActivities,
   describeSpawnBatchStatus,
   formatSubagentElapsed,
+  formatSubagentElapsedMinutes,
   formatSubagentFileCount,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
@@ -1108,6 +1109,12 @@ describe("subagent presentation", () => {
     expect(formatSubagentElapsed(19_000)).toBe("19s");
     expect(formatSubagentElapsed(65_000)).toBe("1m 05s");
     expect(formatSubagentElapsed(7_380_000)).toBe("2h 03m");
+  });
+
+  it("formats elapsed time in whole minutes for rows that update once a minute", () => {
+    expect(formatSubagentElapsedMinutes(19_000)).toBe("<1m");
+    expect(formatSubagentElapsedMinutes(65_000)).toBe("1m");
+    expect(formatSubagentElapsedMinutes(7_380_000)).toBe("2h 03m");
   });
 
   it("lets a workflow coordinator's own outcome lead the batch line", () => {
