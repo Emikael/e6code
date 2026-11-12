@@ -337,9 +337,11 @@ describe("ClientSettings notifications", () => {
   });
 
   it.each(["notifications-and-sound", true, null])(
-    "rejects unsupported notification choice %s",
+    "stores the default for unsupported notification choice %s and rejects it in a patch",
     (attentionNotifications) => {
-      expect(() => decodeClientSettings({ attentionNotifications })).toThrow();
+      expect(decodeClientSettings({ attentionNotifications }).attentionNotifications).toBe(
+        "blocked",
+      );
       expect(() => decodeClientSettingsPatch({ attentionNotifications })).toThrow();
     },
   );
@@ -430,6 +432,24 @@ describe("ClientSettings session clock, break reminder and intro card", () => {
       decodeClientSettingsPatch({ breakReminderMinutes: 90, sessionClockEnabled: true }),
     ).toEqual({ breakReminderMinutes: 90, sessionClockEnabled: true });
     expect(decodeClientSettings({ breakReminderMinutes: 40 }).breakReminderMinutes).toBe("off");
+  });
+});
+
+describe("ClientSettings values from a newer build", () => {
+  it.each([
+    ["attentionNotifications", "blocked"],
+    ["recapTrigger", "after-break"],
+    ["composerControls", "compact"],
+    ["interfaceMotion", "system"],
+  ] as const)("decodes an unknown %s to its default and keeps the rest", (key, fallback) => {
+    const decoded = decodeClientSettings({
+      [key]: "from-a-newer-build",
+      chatWidth: "wide",
+      breakReminderMinutes: 50,
+    });
+    expect(decoded[key]).toBe(fallback);
+    expect(decoded.chatWidth).toBe("wide");
+    expect(decoded.breakReminderMinutes).toBe(50);
   });
 });
 
