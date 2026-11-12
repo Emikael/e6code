@@ -22,6 +22,7 @@ import {
   EllipsisIcon,
   FileIcon,
   FocusIcon,
+  NotebookPenIcon,
   PanelBottomIcon,
   PencilIcon,
   SquarePenIcon,
@@ -37,6 +38,7 @@ import {
 } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { SessionClockCue } from "./SessionClockCue";
+import { requestThreadNote, useThreadNoteActionLabel } from "./ThreadRecapCard";
 import {
   isTrailingDoubleClick,
   resolveSidebarThreadStatus,
@@ -576,6 +578,7 @@ export const ChatHeader = memo(function ChatHeader({
     },
     [commitRename],
   );
+  const noteActionLabel = useThreadNoteActionLabel(isServerThread ? activeThreadKey : null);
   const headerActions = (
     <>
       {activeProject ? (
@@ -648,6 +651,11 @@ export const ChatHeader = memo(function ChatHeader({
       ) : null}
       {isServerThread ? (
         <>
+          <MenuSeparator />
+          <MenuItem density={menuDensity} onClick={() => requestThreadNote(activeThreadKey)}>
+            <NotebookPenIcon className="size-4" />
+            <MenuItemLabel>{noteActionLabel}</MenuItemLabel>
+          </MenuItem>
           <MenuSeparator />
           <MenuGroup>
             <MenuGroupLabel>Agent activity</MenuGroupLabel>

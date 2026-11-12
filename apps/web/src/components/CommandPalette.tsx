@@ -64,6 +64,7 @@ import {
   InboxIcon,
   CheckIcon,
   HistoryIcon,
+  NotebookPenIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
   CircleStopIcon,
@@ -250,6 +251,7 @@ import { readPullRequestListPreferences } from "~/components/pullRequest/pullReq
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
 import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 import { useThreadRecapStore } from "~/threadRecapStore";
+import { requestThreadNote, useThreadNoteActionLabel } from "./chat/ThreadRecapCard";
 import { openCaptureBar, openParkedListDialog } from "~/parkedThoughts";
 import { openDoneToday } from "./DoneTodayDialog";
 
@@ -830,6 +832,11 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const noteActionLabel = useThreadNoteActionLabel(
+    activeThread
+      ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
+      : null,
+  );
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -2283,6 +2290,17 @@ function OpenCommandPaletteDialog(props: {
       icon: <HistoryIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         useThreadRecapStore.getState().requestRecap(activeThreadKey);
+      },
+    });
+    // The recap can be set to Never; the note to self stays reachable here and in the header.
+    actionItems.push({
+      kind: "action",
+      value: "action:thread-note",
+      searchTerms: ["note", "note to self", "remember", "reminder", "come back", "recap"],
+      title: noteActionLabel,
+      icon: <NotebookPenIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        requestThreadNote(activeThreadKey);
       },
     });
   }

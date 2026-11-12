@@ -82,7 +82,8 @@ changed. It is built from the thread itself, with no model call. Change when it 
 **Show where you left off**: **After a break**, **Always**, or **Never**. To see it at any time,
 choose **Where was I?** in the command palette.
 
-Use **Add note** in that recap to leave yourself a note for the next time you open the thread. A
+Use **Add note** in that recap, **Add note to self** in the thread header's menu, or the same
+command in the command palette to leave yourself a note for the next time you open the thread. A
 note to self stays with its thread, including when the thread is archived, and shows only in that
 thread's recap.
 

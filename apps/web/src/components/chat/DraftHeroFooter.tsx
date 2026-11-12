@@ -317,7 +317,6 @@ function MoreLine({ count, where }: { count: number; where: string }) {
   );
 }
 
-/** The minute clock reads "2026-11-11T14:02" in UTC; give it back its zone. */
 /**
  * Board 1: up to two parked thoughts under the composer, then "N more". A chip
  * puts its thought in this composer and leaves Parked; "N more" opens the list.
@@ -376,6 +375,7 @@ function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; 
 const PARKED_CHIP_CLASS =
   "inline-flex h-6 cursor-pointer items-center rounded-md bg-secondary px-2 text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
+/** The minute clock reads "2026-11-11T14:02" in UTC; give it back its zone. */
 function minuteToIso(minute: string): string {
   return `${minute}:00.000Z`;
 }

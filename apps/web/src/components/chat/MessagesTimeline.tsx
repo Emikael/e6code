@@ -5400,7 +5400,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
                 </Fragment>
               ))}
               <span className="text-muted-foreground"> · </span>
-              <SubagentElapsed agent={batchSpan} className="text-muted-foreground" />
+              <SubagentElapsed agent={batchSpan} minutes className="text-muted-foreground" />
             </span>
           </span>
         </span>
@@ -5478,7 +5478,11 @@ function SubagentInlineRow({
             {agent.title}
           </span>
           <SubagentStatusWord tone={tone} />
-          <SubagentElapsed agent={agent} className="shrink-0 text-xs text-muted-foreground" />
+          <SubagentElapsed
+            agent={agent}
+            minutes
+            className="shrink-0 text-xs text-muted-foreground"
+          />
         </span>
         <SubagentActivityLine agent={agent} tone={tone} />
       </span>
@@ -5532,6 +5536,7 @@ function SubagentBatchRow({
           <SubagentStatusWord tone={tone} className="hidden @[26rem]/spawn:inline-flex" />
           <SubagentElapsed
             agent={agent}
+            minutes
             className="min-w-14 shrink-0 text-right text-xs text-muted-foreground"
           />
         </span>
