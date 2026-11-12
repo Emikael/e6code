@@ -35,6 +35,19 @@ describe("focus.toggle", () => {
   });
 });
 
+describe("capture.park", () => {
+  it("binds Mod+Alt+P to Park a thought, and leaves Mod+S to the composer's stash", () => {
+    expect(DEFAULT_KEYBINDINGS.filter((binding) => binding.key === "mod+alt+p")).toEqual([
+      { key: "mod+alt+p", command: "capture.park" },
+    ]);
+    expect(
+      DEFAULT_KEYBINDINGS.filter((binding) => binding.key === "mod+s").map(
+        (binding) => binding.command,
+      ),
+    ).toEqual(["composer.stash"]);
+  });
+});
+
 describe("Diff review keys", () => {
   it("answer V, J and K only while the Diff tab has focus and no field does", () => {
     expect(

@@ -27,6 +27,8 @@ import {
   activityGroupHasTimelineSteps,
   formatWorkingTimer,
   findSubagentSpawnRow,
+  findRevealRowIndex,
+  EARLIER_TURNS_ROW_ID,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
@@ -4278,5 +4280,104 @@ describe("activityGroupHasTimelineSteps", () => {
         entries: [{ kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("findRevealRowIndex", () => {
+  const step = (id: string, turnId: string) => ({
+    id,
+    createdAt: "2026-11-11T14:02:00.000Z",
+    label: "Read file",
+    tone: "tool" as const,
+    turnId: TurnId.make(turnId),
+  });
+  const rows: MessagesTimelineRow[] = [
+    {
+      kind: "turn-fold",
+      id: "fold",
+      createdAt: "2026-11-11T14:00:00.000Z",
+      turnId: TurnId.make("turn-1"),
+      label: "Worked for 1m",
+      expanded: false,
+    },
+    {
+      kind: "work",
+      id: "work",
+      createdAt: "2026-11-11T14:02:00.000Z",
+      groupedEntries: [step("s2", "turn-2")],
+      isExpandedToolGroup: false,
+    },
+  ];
+
+  it("finds the row that shows the step", () => {
+    expect(findRevealRowIndex(rows, { kind: "step", entryId: "s2", turnId: "turn-2" })).toBe(1);
+  });
+
+  it("falls back to the row that holds the step's folded turn", () => {
+    expect(findRevealRowIndex(rows, { kind: "step", entryId: "s1", turnId: "turn-1" })).toBe(0);
+  });
+
+  it("reports a step that is not loaded", () => {
+    expect(findRevealRowIndex(rows, { kind: "step", entryId: "s0", turnId: null })).toBe(-1);
+  });
+});
+
+describe("earlier-turn fold", () => {
+  const message = (id: string, role: "user" | "assistant", minute: number) =>
+    ({
+      id: `${id}-entry`,
+      kind: "message",
+      createdAt: `2026-01-01T00:0${minute}:00Z`,
+      message: {
+        id: MessageId.make(id),
+        role,
+        text: `${role} ${id}`,
+        turnId: null,
+        createdAt: `2026-01-01T00:0${minute}:00Z`,
+        updatedAt: `2026-01-01T00:0${minute}:00Z`,
+        streaming: false,
+      },
+    }) as const;
+  const derive = (
+    timelineEntries: ReadonlyArray<ReturnType<typeof message>>,
+    earlierTurns: "folded" | "expanded" | undefined,
+  ) =>
+    deriveMessagesTimelineRows({
+      timelineEntries,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      earlierTurns,
+    });
+  const thread = [
+    message("u1", "user", 1),
+    message("a1", "assistant", 2),
+    message("u2", "user", 3),
+    message("a2", "assistant", 4),
+    message("u3", "user", 5),
+    message("a3", "assistant", 6),
+  ];
+  const messageIds = (rows: ReadonlyArray<MessagesTimelineRow>) =>
+    rows.flatMap((row) => (row.kind === "message" ? [row.message.id] : []));
+
+  it("folds every turn before your latest message into one row", () => {
+    const rows = derive(thread, "folded");
+    expect(rows[0]).toMatchObject({ kind: "earlier-turns", turnCount: 2, expanded: false });
+    expect(messageIds(rows)).toEqual(["u3", "a3"]);
+  });
+
+  it("keeps the row on top when opened, with every turn under it", () => {
+    const rows = derive(thread, "expanded");
+    expect(rows[0]).toMatchObject({ id: EARLIER_TURNS_ROW_ID, expanded: true });
+    expect(messageIds(rows)).toEqual(["u1", "a1", "u2", "a2", "u3", "a3"]);
+  });
+
+  it("adds nothing to a single turn or outside focus mode", () => {
+    expect(derive(thread.slice(0, 2), "folded").map((row) => row.kind)).toEqual([
+      "message",
+      "message",
+    ]);
+    expect(derive(thread, undefined).some((row) => row.kind === "earlier-turns")).toBe(false);
   });
 });

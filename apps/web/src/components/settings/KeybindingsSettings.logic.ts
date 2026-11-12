@@ -287,6 +287,7 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
   if (command === "thread.nextNeedsYou") return "Thread: Next That Needs You";
   if (command === "focus.toggle") return "Focus Mode: Enter or Exit";
+  if (command === "capture.park") return "Park a Thought";
   if (command === "workspace.focusNext") return "Focus Next Workspace Area";
   if (command === "workspace.focusPrevious") return "Focus Previous Workspace Area";
   const raw = String(command);

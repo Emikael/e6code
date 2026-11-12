@@ -8,7 +8,10 @@ import {
 import { removeLocalStorageItem } from "./hooks/useLocalStorage";
 
 import {
+  MAX_PARKED_THOUGHTS,
   MAX_STASH_ENTRIES,
+  parkedEntryKind,
+  selectThreadNote,
   PROMPT_STASH_STORAGE_KEY,
   MAX_STASH_ENTRY_ATTACHMENT_CHARS,
   partitionStashAttachments,
@@ -40,6 +43,10 @@ function makeEntry(input: {
         : [],
     droppedImageNames: [],
   };
+}
+
+function thought(id: string): PromptStashEntry {
+  return { ...makeEntry({ id, prompt: `thought ${id}` }), kind: "thought" };
 }
 
 function resetPromptStashStore() {
@@ -135,16 +142,94 @@ describe("promptStashStore", () => {
     expect(usePromptStashStore.getState().takeEntry("citation-stash").entry).toBeNull();
   });
 
-  it("evicts the oldest entry past the cap and returns it", () => {
+  it("refuses a draft past the cap instead of evicting the oldest", () => {
     const store = usePromptStashStore.getState();
     for (let index = 0; index < MAX_STASH_ENTRIES; index += 1) {
-      expect(store.stashEntry(makeEntry({ id: `entry-${index}` })).evicted).toBeNull();
+      expect(store.stashEntry(makeEntry({ id: `entry-${index}` })).refused).toBe(false);
     }
-    const { evicted } = store.stashEntry(makeEntry({ id: "overflow" }));
-    expect(evicted?.id).toBe("entry-0");
+    const result = store.stashEntry(makeEntry({ id: "overflow" }));
+    expect(result).toEqual({ refused: true, written: false, durable: false });
     const entries = usePromptStashStore.getState().entries;
     expect(entries).toHaveLength(MAX_STASH_ENTRIES);
-    expect(entries[0]?.id).toBe("overflow");
+    expect(entries.some((entry) => entry.id === "entry-0")).toBe(true);
+    expect(entries.some((entry) => entry.id === "overflow")).toBe(false);
+  });
+
+  it("keeps a separate cap of 200 for thoughts and refuses the 201st", () => {
+    const store = usePromptStashStore.getState();
+    for (let index = 0; index < MAX_STASH_ENTRIES; index += 1) {
+      store.stashEntry(makeEntry({ id: `draft-${index}` }));
+    }
+    for (let index = 0; index < MAX_PARKED_THOUGHTS; index += 1) {
+      expect(store.stashEntry(thought(`thought-${index}`)).refused).toBe(false);
+    }
+    expect(store.stashEntry(thought("one-too-many")).refused).toBe(true);
+    // Thoughts never count against the drafts, whose images keep their own budget.
+    expect(usePromptStashStore.getState().entries).toHaveLength(
+      MAX_STASH_ENTRIES + MAX_PARKED_THOUGHTS,
+    );
+  });
+
+  it("round-trips kinds and their keys through storage", () => {
+    writePromptStashStorageForTest(
+      JSON.stringify({
+        version: 2,
+        state: {
+          entries: [
+            { ...makeEntry({ id: "t" }), kind: "thought", projectKey: "env:project" },
+            { ...makeEntry({ id: "n" }), kind: "note", threadKey: "env:thread" },
+            { ...makeEntry({ id: "p" }), kind: "thought", pinnedFor: "2026-11-12" },
+          ],
+        },
+      }),
+    );
+    const entries = usePromptStashStore.getState().entries;
+    expect(entries.map((entry) => [entry.id, parkedEntryKind(entry)])).toEqual([
+      ["t", "thought"],
+      ["n", "note"],
+      ["p", "thought"],
+    ]);
+    expect(entries[0]?.projectKey).toBe("env:project");
+    expect(entries[1]?.threadKey).toBe("env:thread");
+    expect(entries[2]?.pinnedFor).toBe("2026-11-12");
+  });
+
+  it("reads v2 entries written before kinds existed as drafts", () => {
+    writePromptStashStorageForTest(
+      JSON.stringify({
+        version: 2,
+        state: { entries: [makeEntry({ id: "old", attachmentChars: 8 })] },
+      }),
+    );
+    const [entry] = usePromptStashStore.getState().entries;
+    expect(entry && parkedEntryKind(entry)).toBe("draft");
+    expect(entry?.attachments).toHaveLength(1);
+  });
+
+  it("keeps one note per thread, replaced on edit and removed when emptied", () => {
+    const store = usePromptStashStore.getState();
+    store.setThreadNote("env:thread", "Check dark mode on Android after this.");
+    store.setThreadNote("env:thread", "  Check dark mode on iOS too.  ");
+    let entries = usePromptStashStore.getState().entries;
+    expect(entries).toHaveLength(1);
+    expect(selectThreadNote(entries, "env:thread")?.prompt).toBe("Check dark mode on iOS too.");
+    store.setThreadNote("env:thread", "   ");
+    entries = usePromptStashStore.getState().entries;
+    expect(selectThreadNote(entries, "env:thread")).toBeNull();
+  });
+
+  it("puts an entry back where it was on Undo", () => {
+    const store = usePromptStashStore.getState();
+    store.stashEntry(thought("a"));
+    store.stashEntry(thought("b"));
+    store.stashEntry(thought("c"));
+    const { entry } = store.takeEntry("b");
+    store.restoreEntry(entry!, 1);
+    expect(usePromptStashStore.getState().entries.map((candidate) => candidate.id)).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
   });
 
   // This test environment has no `localStorage`, so the store runs on its

@@ -1175,14 +1175,6 @@ export function resolveWorkingStartedAt(
   return firstValidTimestamp(thread.session?.updatedAt);
 }
 
-export function formatWorkingDurationLabel(elapsedMs: number): string {
-  const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
 const LIVE_STATUS_DOT_CLASS = "rounded-full bg-primary ring-2 ring-primary-surface";
 /** Blocked on you: a small rotated square, as on the newer sidebar. */
 const BLOCKED_STATUS_DOT_CLASS = "rounded-[1px] rotate-45 scale-[0.8] bg-warning-foreground";

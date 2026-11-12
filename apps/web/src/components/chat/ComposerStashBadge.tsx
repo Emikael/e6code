@@ -5,7 +5,7 @@ import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 
 /**
- * Bookmark tab that shows the stash count beside the composer's other attachments
+ * Bookmark tab that shows the Parked count beside the composer's other attachments
  * and opens the stash menu.
  *
  * On save the badge gives one quiet acknowledgement: it lifts to full
@@ -43,7 +43,7 @@ export const ComposerStashBadge = memo(function ComposerStashBadge(props: {
       <ComposerBanner.Row
         render={<button type="button" />}
         data-prompt-stash-badge="true"
-        aria-label={`Stashed prompts: ${props.count}. Open stash.`}
+        aria-label={`Parked: ${props.count}. Open Parked.`}
         aria-expanded={props.menuOpen}
         className={cn(
           "transition-colors duration-200",
@@ -58,7 +58,7 @@ export const ComposerStashBadge = memo(function ComposerStashBadge(props: {
         <ComposerBanner.Icon>
           <BookmarkIcon />
         </ComposerBanner.Icon>
-        <ComposerBanner.Content>Stash</ComposerBanner.Content>
+        <ComposerBanner.Content>Parked</ComposerBanner.Content>
         <ComposerBanner.Actions>{count}</ComposerBanner.Actions>
       </ComposerBanner.Row>
     </ComposerBanner.Root>

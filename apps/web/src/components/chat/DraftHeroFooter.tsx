@@ -30,6 +30,9 @@ import {
 import { memo, useCallback, useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { useParkedActions } from "~/hooks/useParkedActions";
+import { localDateKey, openParkedList, selectParkedChips } from "~/parkedThoughts";
+import { usePromptStashStore, type PromptStashEntry } from "~/promptStashStore";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useThreadAttention } from "~/hooks/useThreadAttention";
 import { shortcutLabelForCommand } from "~/keybindings";
@@ -46,6 +49,7 @@ import { resolveWorkingStartedAt } from "../Sidebar.logic";
 import { BlockedDiamond } from "../SidebarNeedsYou";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   attentionCueVerb,
   formatAttentionCue,
@@ -135,10 +139,15 @@ export function DraftHeroFooter({
 
   const hasLists = blocked.length > 0 || attention.review.length > 0 || working.length > 0;
   const hasProjectRows = unpushed !== null || staleSetup !== null;
-  if (!hasLists && !hasProjectRows && hints.length === 0) return null;
+  const parkedEntries = usePromptStashStore((store) => store.entries);
+  const nowMinute = useNowMinute();
+  const today = localDateKey(Date.parse(minuteToIso(nowMinute)));
+  const parked = useMemo(() => selectParkedChips(parkedEntries, today), [parkedEntries, today]);
+  if (!hasLists && !hasProjectRows && hints.length === 0 && parked.chips.length === 0) return null;
   return (
     // Sits in the start screen's flow; long lists scroll the page with it.
     <div className="flex flex-col gap-6">
+      {parked.chips.length > 0 ? <ParkedChips chips={parked.chips} more={parked.more} /> : null}
       {blocked.length > 0 ? (
         <section aria-label="Needs you" className="flex flex-col gap-2">
           <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(attention.blockedCount)}</h3>
@@ -257,6 +266,50 @@ function MoreLine({ count, where }: { count: number; where: string }) {
 }
 
 /** The minute clock reads "2026-11-11T14:02" in UTC; give it back its zone. */
+/**
+ * Board 1: up to two parked thoughts under the composer, then "N more". A chip
+ * puts its thought in this composer and leaves Parked; "N more" opens the list.
+ */
+function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; more: number }) {
+  const { putInComposer } = useParkedActions();
+  return (
+    <section aria-label="Parked" className="-mt-3 flex flex-wrap items-center gap-1.5">
+      <h3 className={LIST_HEADING_CLASS}>Parked</h3>
+      {chips.map((entry) => (
+        <Tooltip key={entry.id}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Put in composer: ${entry.prompt}`}
+                className={cn(PARKED_CHIP_CLASS, "max-w-62.5")}
+                onClick={() => {
+                  void putInComposer(entry.prompt, entry.projectKey).then((placed) => {
+                    if (placed) usePromptStashStore.getState().takeEntry(entry.id);
+                  });
+                }}
+              />
+            }
+          >
+            <span className="truncate">{entry.prompt}</span>
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" className="max-w-80">
+            Put in composer: {entry.prompt}
+          </TooltipPopup>
+        </Tooltip>
+      ))}
+      {more > 0 ? (
+        <button type="button" className={PARKED_CHIP_CLASS} onClick={openParkedList}>
+          {more} more
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+const PARKED_CHIP_CLASS =
+  "inline-flex h-6 cursor-pointer items-center rounded-md bg-secondary px-2 text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+
 function minuteToIso(minute: string): string {
   return `${minute}:00.000Z`;
 }

@@ -49,12 +49,14 @@ export interface ThreadRecapFile {
 }
 
 export interface ThreadRecap {
-  /** The previous visit: "changed since 14:02". */
+  /** The previous visit on this device's clock: "changed since 14:02". */
   readonly since: string;
   readonly youAsked: { readonly messageId: string; readonly text: string } | null;
   readonly sinceThen: {
     /** "Claude read 3 files and changed 2 files." */
     readonly summary: string | null;
+    /** The first step after the visit, which the summary links to. */
+    readonly firstStep: { readonly entryId: string; readonly turnId: string | null } | null;
     readonly files: ReadonlyArray<ThreadRecapFile>;
     readonly moreFiles: number;
   } | null;
@@ -91,16 +93,25 @@ export function latestThreadActivityAt(input: {
  * Whether opening the thread shows the recap. It needs a previous visit and
  * something logged after it; "after-break" also needs that visit to be at
  * least five minutes ago, so switching back and forth stays quiet.
+ *
+ * Two clocks meet here. `previousVisitAt` and `nowMs` are this device's, so
+ * they decide the break. Activity times are the server's, so "something new"
+ * compares them with `previousSeenActivityAt`, the newest activity you had
+ * already seen, and a remote server's skewed clock cannot hide or repeat work.
+ * Without that cursor (an older visit record) the visit time stands in.
  */
 export function shouldShowThreadRecap(input: {
   readonly trigger: RecapTrigger;
   readonly previousVisitAt: string | null;
+  readonly previousSeenActivityAt?: string | null | undefined;
   readonly latestActivityAt: string | null;
   readonly nowMs: number;
 }): boolean {
   if (input.trigger === "never" || !input.previousVisitAt || !input.latestActivityAt) return false;
   const visitMs = Date.parse(input.previousVisitAt);
-  if (!Number.isFinite(visitMs) || !isAfter(input.latestActivityAt, visitMs)) return false;
+  const cursorMs = Date.parse(input.previousSeenActivityAt ?? input.previousVisitAt);
+  if (!Number.isFinite(visitMs) || !Number.isFinite(cursorMs)) return false;
+  if (!isAfter(input.latestActivityAt, cursorMs)) return false;
   return input.trigger === "always" || input.nowMs - visitMs >= RECAP_BREAK_MS;
 }
 
@@ -149,12 +160,15 @@ function changedFilesSince(
 }
 
 /**
- * Builds the recap for a thread last seen at `since`. Null when every row is
- * empty. `activityCount` is how many activities thread detail returned; at
- * the cap the summary is prefixed "At least", because older steps are cut.
+ * Builds the recap for a thread whose newest seen activity is `since` (the
+ * server's clock). `visitedAt` is when you left, on this device's clock, for
+ * the header; it defaults to `since`. Null when every row is empty.
+ * `activityCount` is how many activities thread detail returned; at the cap
+ * the summary is prefixed "At least", because older steps are cut.
  */
 export function deriveThreadRecap(input: {
   readonly since: string;
+  readonly visitedAt?: string | undefined;
   readonly messages: ReadonlyArray<RecapMessage>;
   readonly workLogEntries: ReadonlyArray<WorkLogEntry>;
   readonly checkpoints: ReadonlyArray<RecapCheckpoint>;
@@ -183,11 +197,12 @@ export function deriveThreadRecap(input: {
       ? null
       : {
           summary,
+          firstStep: steps[0] ? { entryId: steps[0].id, turnId: steps[0].turnId ?? null } : null,
           files: files.slice(0, MAX_RECAP_FILES),
           moreFiles: Math.max(0, files.length - MAX_RECAP_FILES),
         };
   const youAsked = selectRecapAsk(input.messages);
   const note = input.note?.trim() ? input.note.trim() : null;
   if (youAsked === null && sinceThen === null && note === null) return null;
-  return { since: input.since, youAsked, sinceThen, note };
+  return { since: input.visitedAt ?? input.since, youAsked, sinceThen, note };
 }

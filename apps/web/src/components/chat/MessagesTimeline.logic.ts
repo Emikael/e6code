@@ -498,6 +498,14 @@ export type MessagesTimelineRow =
       label: string;
     }
   | {
+      /** Focus mode: "Earlier in this thread · 2 turns", standing in for every turn before yours. */
+      kind: "earlier-turns";
+      id: string;
+      createdAt: string;
+      turnCount: number;
+      expanded: boolean;
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -1082,6 +1090,11 @@ export function deriveMessagesTimelineRows(input: {
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
   /** Settled turns' tokens and cost, appended to their "Worked for ..." row. */
   turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined;
+  /**
+   * Focus mode folds every turn before your latest message into one row;
+   * "expanded" keeps that row and shows the turns under it. Absent: no fold.
+   */
+  earlierTurns?: "folded" | "expanded" | undefined;
 }): MessagesTimelineRow[] {
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
@@ -1593,7 +1606,7 @@ export function deriveMessagesTimelineRows(input: {
       createdAt: input.activeTurnStartedAt,
     });
   }
-  const rows = attachTrailingToolGroupsToAssistant(nextRows);
+  const rows = foldEarlierTurns(attachTrailingToolGroupsToAssistant(nextRows), input.earlierTurns);
   input.queuedMessages?.forEach((queuedMessage, index) => {
     rows.push({
       kind: "queued-message",
@@ -1607,6 +1620,38 @@ export function deriveMessagesTimelineRows(input: {
 }
 
 export const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
+export const EARLIER_TURNS_ROW_ID = "earlier-turns-row";
+
+/**
+ * Focus mode (board 3): every row before your latest message gives way to one
+ * "Earlier in this thread · N turns" row, N being your earlier messages. With
+ * nothing earlier the rows are returned as they are. Expanded, the row stays
+ * on top so the way back is where you clicked.
+ */
+export function foldEarlierTurns(
+  rows: MessagesTimelineRow[],
+  mode: "folded" | "expanded" | undefined,
+): MessagesTimelineRow[] {
+  if (mode === undefined) return rows;
+  let latestUserIndex = -1;
+  let firstUserCreatedAt = "";
+  let turnCount = 0;
+  for (const [index, row] of rows.entries()) {
+    if (row.kind !== "message" || row.message.role !== "user") continue;
+    if (latestUserIndex >= 0) turnCount += 1;
+    else firstUserCreatedAt = row.createdAt;
+    latestUserIndex = index;
+  }
+  if (turnCount === 0) return rows;
+  const foldRow: MessagesTimelineRow = {
+    kind: "earlier-turns",
+    id: EARLIER_TURNS_ROW_ID,
+    createdAt: firstUserCreatedAt,
+    turnCount,
+    expanded: mode === "expanded",
+  };
+  return mode === "expanded" ? [foldRow, ...rows] : [foldRow, ...rows.slice(latestUserIndex)];
+}
 
 type MessagesTimelineRowsInput = Parameters<typeof deriveMessagesTimelineRows>[0];
 
@@ -1758,6 +1803,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "context-compaction": {
       const bc = b as typeof a;
       return a.createdAt === bc.createdAt && a.label === bc.label;
+    }
+
+    case "earlier-turns": {
+      const be = b as typeof a;
+      return a.turnCount === be.turnCount && a.expanded === be.expanded;
     }
 
     case "proposed-plan":
@@ -1930,6 +1980,47 @@ export function findSubagentSpawnRow(
     }
   }
   return null;
+}
+
+/** Where a reveal request scrolls: a message, or a logged step (the recap's "Since then"). */
+export type TimelineRevealTarget =
+  | { readonly kind: "message"; readonly messageId: string }
+  | { readonly kind: "step"; readonly entryId: string; readonly turnId: string | null };
+
+/**
+ * The row to scroll to for a reveal target, or -1 when it is not loaded. A
+ * step folded out of view lands on the row that holds its turn instead.
+ */
+export function findRevealRowIndex(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  target: TimelineRevealTarget,
+): number {
+  if (target.kind === "message") {
+    return rows.findIndex((row) => row.kind === "message" && row.message.id === target.messageId);
+  }
+  const holdsEntry = rows.findIndex((row) => {
+    switch (row.kind) {
+      case "work":
+        return row.groupedEntries.some((entry) => entry.id === target.entryId);
+      case "work-live":
+        return (
+          row.entry.id === target.entryId ||
+          row.groupedEntries.some((entry) => entry.id === target.entryId)
+        );
+      case "activity-group":
+        return row.entries.some(
+          (entry) => entry.kind === "work" && entry.entry.id === target.entryId,
+        );
+      default:
+        return false;
+    }
+  });
+  if (holdsEntry >= 0 || target.turnId === null) return holdsEntry;
+  return rows.findIndex(
+    (row) =>
+      (row.kind === "turn-fold" || row.kind === "activity-group" || row.kind === "work-toggle") &&
+      row.turnId === target.turnId,
+  );
 }
 
 /** What the working row says while a turn runs. */
