@@ -28,6 +28,7 @@ import {
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
   shortcutLabelForCommand,
+  shortcutLabelKeys,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
   threadJumpCommandForIndex,
@@ -450,6 +451,17 @@ describe("split/new/close terminal shortcuts", () => {
         platform: "Linux",
       }),
     );
+  });
+});
+
+describe("shortcutLabelKeys", () => {
+  it("gives each key its own cap", () => {
+    assert.deepEqual(shortcutLabelKeys("\u2325\u2318N"), ["\u2325", "\u2318", "N"]);
+    assert.deepEqual(shortcutLabelKeys("\u2318Space"), ["\u2318", "Space"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Alt+N"), ["Ctrl", "Alt", "N"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl++"), ["Ctrl", "+"]);
+    assert.deepEqual(shortcutLabelKeys("+"), ["+"]);
+    assert.deepEqual(shortcutLabelKeys("Esc"), ["Esc"]);
   });
 });
 

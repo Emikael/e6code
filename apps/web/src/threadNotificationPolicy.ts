@@ -79,10 +79,25 @@ interface HeldThreadNotice {
 }
 
 /**
+ * Focus mode holds other finished threads only while it is showing: on a
+ * thread's route, with the setting on. On Settings, the start screen or a
+ * draft the stored flag waits, so finishes follow the usual pause rules.
+ */
+export function isFocusHoldActive(input: {
+  readonly focusMode: boolean;
+  readonly focusHoldsFinished: boolean;
+  readonly openThreadKey: string | null;
+}): boolean {
+  return input.focusMode && input.focusHoldsFinished && input.openThreadKey !== null;
+}
+
+/**
  * Splits what was held when a breakpoint comes. Items for the thread you
  * have open, or opened after they were held, are dropped: you have seen them.
- * Blocked items and watched finishes get their own toast; other finishes
- * share one digest. Focus mode keeps the finishes for later.
+ * A held approval, question or failure whose thread is no longer blocked
+ * (answered in another window, retried) is dropped too. Blocked items and
+ * watched finishes get their own toast; other finishes share one digest.
+ * Focus mode keeps the finishes for later.
  */
 export function selectHeldForFlush<T extends HeldThreadNotice>(
   held: ReadonlyArray<T>,
@@ -90,6 +105,8 @@ export function selectHeldForFlush<T extends HeldThreadNotice>(
     readonly openThreadKey: string | null;
     readonly visitedAtMsByKey: ReadonlyMap<string, number>;
     readonly focusHold: boolean;
+    /** Whether the thread is still blocked on you now. */
+    readonly isStillBlocked: (key: string) => boolean;
   },
 ): { readonly own: T[]; readonly digest: T[]; readonly keep: T[] } {
   const own: T[] = [];
@@ -99,8 +116,9 @@ export function selectHeldForFlush<T extends HeldThreadNotice>(
     if (notice.key === input.openThreadKey) continue;
     const visitedAtMs = input.visitedAtMsByKey.get(notice.key);
     if (visitedAtMs !== undefined && visitedAtMs >= notice.heldAtMs) continue;
-    if (notice.kind !== "completion") own.push(notice);
-    else if (input.focusHold) keep.push(notice);
+    if (notice.kind !== "completion") {
+      if (input.isStillBlocked(notice.key)) own.push(notice);
+    } else if (input.focusHold) keep.push(notice);
     else if (notice.watched) own.push(notice);
     else digest.push(notice);
   }

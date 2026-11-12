@@ -7,6 +7,7 @@ import {
   groupThreadDeliveries,
   nextDigestFlushAtMs,
   resolveThreadNotificationDelivery,
+  isFocusHoldActive,
   selectHeldForFlush,
   threadNotificationBody,
   type ThreadNotificationContext,
@@ -152,6 +153,7 @@ describe("selectHeldForFlush", () => {
       openThreadKey: null,
       visitedAtMsByKey: none,
       focusHold: false,
+      isStillBlocked: () => true,
     });
     expect(result.own.map((item) => item.key)).toEqual(["a", "w"]);
     expect(result.digest.map((item) => item.key)).toEqual(["d", "c"]);
@@ -171,6 +173,7 @@ describe("selectHeldForFlush", () => {
         ["before", 5],
       ]),
       focusHold: false,
+      isStillBlocked: () => true,
     });
     expect(result.own).toEqual([]);
     expect(result.digest.map((item) => item.key)).toEqual(["before"]);
@@ -182,9 +185,33 @@ describe("selectHeldForFlush", () => {
       openThreadKey: null,
       visitedAtMsByKey: none,
       focusHold: true,
+      isStillBlocked: () => true,
     });
     expect(result.own.map((item) => item.key)).toEqual(["a"]);
     expect(result.keep.map((item) => item.key)).toEqual(["w"]);
+  });
+
+  it("drops a held approval that was answered elsewhere", () => {
+    const held = [notice("answered", "approval", 1), notice("waiting", "approval", 2)];
+    const result = selectHeldForFlush(held, {
+      openThreadKey: null,
+      visitedAtMsByKey: none,
+      focusHold: false,
+      isStillBlocked: (key) => key === "waiting",
+    });
+    expect(result.own.map((item) => item.key)).toEqual(["waiting"]);
+    expect(result.keep).toEqual([]);
+  });
+});
+
+describe("isFocusHoldActive", () => {
+  it("holds only while focus is showing a thread and the setting is on", () => {
+    const on = { focusMode: true, focusHoldsFinished: true, openThreadKey: "env:t" };
+    expect(isFocusHoldActive(on)).toBe(true);
+    // Settings, the start screen and drafts have no open thread: focus waits there.
+    expect(isFocusHoldActive({ ...on, openThreadKey: null })).toBe(false);
+    expect(isFocusHoldActive({ ...on, focusHoldsFinished: false })).toBe(false);
+    expect(isFocusHoldActive({ ...on, focusMode: false })).toBe(false);
   });
 });
 

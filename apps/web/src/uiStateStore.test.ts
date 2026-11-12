@@ -31,6 +31,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     runDetailsSectionOpen: {},
     focusMode: false,
     focusPanelPeek: false,
+    focusOpenedPanelKeys: [],
     ...overrides,
   };
 }
@@ -224,6 +225,7 @@ describe("parsePersistedState", () => {
       runDetailsSectionOpen: {},
       focusMode: false,
       focusPanelPeek: false,
+      focusOpenedPanelKeys: [],
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -355,6 +357,7 @@ describe("uiStateStore persistence", () => {
       pullRequestMergeMethod: "merge",
       runDetailsSectionOpen: {},
       focusMode: false,
+      focusOpenedPanelKeys: [],
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

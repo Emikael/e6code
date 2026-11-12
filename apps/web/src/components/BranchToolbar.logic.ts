@@ -61,11 +61,16 @@ export function shouldShowComposerContextStrip(input: {
   showEnvironmentIndicator: boolean;
   /** A collapsed composer's controls currently fit in their measured strip host. */
   hostsRestingComposerControls: boolean;
+  /**
+   * The thread header already names the branch: a server thread with compact
+   * composer controls (board 2). The strip then only hosts resting controls.
+   * Drafts keep it, since that is where a new thread picks its branch.
+   */
+  branchInHeader?: boolean;
 }): boolean {
-  return (
-    input.hasActiveProject &&
-    (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)
-  );
+  if (!input.hasActiveProject) return false;
+  if (input.branchInHeader) return input.hostsRestingComposerControls;
+  return input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls;
 }
 
 // Labels collapse to icons when the strip's content no longer fits. A small

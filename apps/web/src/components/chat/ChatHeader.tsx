@@ -27,6 +27,7 @@ import {
   FocusIcon,
   ListChecksIcon,
   MessageCircleQuestionIcon,
+  PanelBottomIcon,
   PencilIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
@@ -73,12 +74,20 @@ import {
 import { cn } from "~/lib/utils";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
-import { Kbd } from "../ui/kbd";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
 import { useRouter } from "@tanstack/react-router";
 import { useThreadAttention } from "~/hooks/useThreadAttention";
 import { goToNextThreadThatNeedsYou } from "~/lib/needsYouNavigation";
 import { shortcutLabelForCommand } from "~/keybindings";
-import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuItemLabel,
+  MenuPopup,
+  MenuSeparator,
+  MenuShortcut,
+  MenuTrigger,
+} from "../ui/menu";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -116,6 +125,13 @@ interface ChatHeaderProps {
   /** Focus mode turns the header into the focus bar (board 3). */
   focusMode: boolean;
   onToggleFocus: () => void;
+  /** The terminal drawer toggle, in the More menu (board 2 shows only the panel toggle). */
+  terminal?: {
+    readonly available: boolean;
+    readonly open: boolean;
+    readonly shortcutLabel: string | null;
+    readonly onToggle: () => void;
+  } | null;
 }
 
 /**
@@ -324,11 +340,6 @@ function FocusDoneCue({ workedFor, finishedAt }: { workedFor: string | null; fin
   );
 }
 
-function ShortcutKeys({ label }: { label: string | null }) {
-  if (!label) return null;
-  return <Kbd className="h-5 bg-transparent px-1 ring-1 ring-border">{label}</Kbd>;
-}
-
 /**
  * "1 needs you · Next" in the focus bar: the sidebar's Needs you count is
  * hidden in focus, so this pill carries it, and only while another thread is
@@ -362,9 +373,9 @@ function FocusNeedsYouPill({
         })
       }
     >
-      {count} needs you
+      {count} {count === 1 ? "needs" : "need"} you
       <span className="text-xs font-normal opacity-85">Next</span>
-      <ShortcutKeys label={shortcut} />
+      <ShortcutKeyCaps label={shortcut} />
     </Button>
   );
 }
@@ -415,9 +426,11 @@ export const ChatHeader = memo(function ChatHeader({
   onDeleteProjectScript,
   focusMode,
   onToggleFocus,
+  terminal = null,
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
-  // Scripts, Open in and Git live in one quiet menu on every viewport; phones get touch rows.
+  // Scripts, Open in and the terminal live in one quiet menu; Git has its own slot, except on
+  // phones, where it joins the menu. Phones get touch rows.
   const menuDensity = isMobile ? "touch" : "default";
   const [actionsOpen, setActionsOpen] = useState(false);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -444,6 +457,8 @@ export const ChatHeader = memo(function ChatHeader({
   });
   const showProjectScripts = activeProjectScripts;
   const showGitActions = Boolean(activeProjectName && gitCwd);
+  // Git keeps its own reserved slot in the header (F8); phones fold it into More.
+  const gitInMenu = showGitActions && isMobile;
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -572,7 +587,7 @@ export const ChatHeader = memo(function ChatHeader({
             <SquarePenIcon className="size-4" />
             <MenuItemLabel className="truncate">New thread in {projectDetail}</MenuItemLabel>
           </MenuItem>
-          {showProjectScripts || showOpenInPicker || showGitActions ? <MenuSeparator /> : null}
+          {showProjectScripts || showOpenInPicker || gitInMenu ? <MenuSeparator /> : null}
         </>
       ) : null}
       {showProjectScripts && (
@@ -605,7 +620,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
-      {showGitActions && gitCwd && (
+      {gitInMenu && gitCwd && (
         <>
           {(showProjectScripts || showOpenInPicker) && <MenuSeparator />}
           <GitActionsControl
@@ -618,17 +633,35 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
+      {terminal ? (
+        <>
+          {(activeProject || showProjectScripts || showOpenInPicker || gitInMenu) && (
+            <MenuSeparator />
+          )}
+          <MenuItem
+            density={menuDensity}
+            disabled={!terminal.available}
+            onClick={terminal.onToggle}
+          >
+            <PanelBottomIcon className="size-4" />
+            <MenuItemLabel>{terminal.open ? "Hide terminal" : "Show terminal"}</MenuItemLabel>
+            {terminal.shortcutLabel ? <MenuShortcut>{terminal.shortcutLabel}</MenuShortcut> : null}
+          </MenuItem>
+        </>
+      ) : null}
     </>
   );
   const hasHeaderActions =
-    activeProject !== null || Boolean(showProjectScripts || showOpenInPicker || showGitActions);
+    activeProject !== null ||
+    terminal !== null ||
+    Boolean(showProjectScripts || showOpenInPicker || gitInMenu);
   // "More: scripts, open in", naming only what the menu holds here.
   const moreMenuLabel = [
     "More",
     [
       showProjectScripts ? "scripts" : null,
       showOpenInPicker ? "open in" : null,
-      showGitActions ? "git" : null,
+      gitInMenu ? "git" : null,
     ]
       .filter(Boolean)
       .join(", "),
@@ -672,7 +705,7 @@ export const ChatHeader = memo(function ChatHeader({
         ) : null}
         <Button size="sm" variant="ghost" className="shrink-0" onClick={onToggleFocus}>
           Exit focus
-          <ShortcutKeys label={focusShortcut} />
+          <ShortcutKeyCaps label={focusShortcut} />
         </Button>
       </div>
     );
@@ -697,12 +730,12 @@ export const ChatHeader = memo(function ChatHeader({
         ) : null}
         {/* The title sizes to its text so the branch sits right after it; the title still
             truncates first, and the status pill holds the right edge. */}
-        <WorkspaceBreadcrumbItem current className="min-w-10 shrink text-[15px] font-semibold">
+        <WorkspaceBreadcrumbItem current className="min-w-10 shrink text-sm font-semibold">
           {renamingTitle !== null ? (
             <input
               autoFocus
               aria-label="Thread title"
-              className="min-w-0 flex-1 rounded-sm bg-transparent text-[15px] font-semibold text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-semibold text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
               defaultValue={renamingTitle}
               onBlur={(event) => {
                 if (renameCommittedRef.current) return;
@@ -783,19 +816,29 @@ export const ChatHeader = memo(function ChatHeader({
         ) : null}
       </WorkspaceBreadcrumb>
       {statusRegion}
-      {/* Which machine runs this thread, and whether it is reachable, as a dot and a word.
-          Never hidden: narrow headers drop only the machine name. */}
+      {/* Which machine runs this thread, as a dot and a word, only while it is not reachable.
+          Narrow headers drop only the machine name. */}
       <EnvironmentConnectionChip environmentId={activeThreadEnvironmentId} />
       <div
         data-chat-header-actions
         className={cn(
           "flex shrink-0 items-center justify-end",
-          // Reserve two panel toggles plus their 4px gaps and 1px edge inset.
-          // The page header adds 8px more right padding at sm.
-          rightPanelOpen ? "pr-0" : "pr-[calc(--spacing(18)+1px)] sm:pr-[calc(--spacing(14)+1px)]",
+          // Reserve the right panel toggle plus its 4px gap and 1px edge inset; the terminal
+          // toggle lives in More. The page header adds 8px more right padding at sm.
+          rightPanelOpen ? "pr-0" : "pr-[calc(--spacing(9)+1px)] sm:pr-[calc(--spacing(6)+1px)]",
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
+        {showGitActions && !gitInMenu && gitCwd ? (
+          <div className="me-1 flex shrink-0 items-center">
+            <GitActionsControl
+              gitCwd={gitCwd}
+              activeThreadRef={activeThreadRef}
+              onOpenPullRequest={onOpenPullRequest}
+              {...(draftId ? { draftId } : {})}
+            />
+          </div>
+        ) : null}
         {changedFileCount !== null ? (
           <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
         ) : null}
@@ -819,7 +862,7 @@ export const ChatHeader = memo(function ChatHeader({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {/* Scripts, Open in and Git sit in one quiet menu. It stays mounted while closed, so
+        {/* Scripts, Open in and the terminal sit in one quiet menu. It stays mounted while closed, so
             their keybindings, command palette entries and open dialogs keep working. */}
         <Menu open={actionsOpen} onOpenChange={setActionsOpen}>
           <MenuTrigger

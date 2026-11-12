@@ -7,12 +7,13 @@ import { CheckIcon, CircleAlertIcon, MessageCircleQuestionIcon } from "lucide-re
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
-import { useBlockedThreadCount } from "../hooks/useThreadAttention";
+import { getThreadAttention, useBlockedThreadCount } from "../hooks/useThreadAttention";
 import { useEnvironments } from "../state/environments";
 import { environmentShell } from "../state/shell";
 import {
   finishedDigestTitle,
   groupThreadDeliveries,
+  isFocusHoldActive,
   nextDigestFlushAtMs,
   resolveThreadNotificationDelivery,
   selectHeldForFlush,
@@ -52,11 +53,6 @@ interface HeldNotice extends ThreadNotice {
 interface PassEntry {
   readonly notice: ThreadNotice;
   readonly isOpenThread: boolean;
-}
-
-/** Focus mode holds other finished threads until you exit it, unless the setting is off. */
-function isFocusHoldActive() {
-  return useUiStateStore.getState().focusMode && getClientSettings().focusHoldsFinished;
 }
 
 const providerLabel = (name: string) =>
@@ -106,6 +102,16 @@ export function ThreadNotificationCoordinator() {
   const openThreadKey = useRef<string | null>(null);
   /** When each thread was last opened in this window. */
   const visitedAtMs = useRef(new Map<string, number>());
+  /** Focus mode holds other finished threads while it shows a thread, unless the setting is off. */
+  const focusHoldActive = useCallback(
+    () =>
+      isFocusHoldActive({
+        focusMode: useUiStateStore.getState().focusMode,
+        focusHoldsFinished: getClientSettings().focusHoldsFinished,
+        openThreadKey: openThreadKey.current,
+      }),
+    [],
+  );
 
   const openThread = useCallback(
     (environmentId: EnvironmentId, threadId: ThreadId) =>
@@ -142,7 +148,8 @@ export function ThreadNotificationCoordinator() {
         title: finishedDigestTitle(notices.length),
         data: {
           hideCopyButton: true,
-          leadingIcon: noticeIcon("completion"),
+          // Board 7 draws the digest's tick at 16px; single notices use 14px.
+          leadingIcon: <CheckIcon aria-hidden className="size-4 text-success-foreground" />,
           actionVariant: "ghost",
           actionSize: "sm",
         },
@@ -198,7 +205,11 @@ export function ThreadNotificationCoordinator() {
     const { own, digest, keep } = selectHeldForFlush([...held.current.values()], {
       openThreadKey: openThreadKey.current,
       visitedAtMsByKey: visitedAtMs.current,
-      focusHold: isFocusHoldActive(),
+      focusHold: focusHoldActive(),
+      isStillBlocked: (key) => {
+        const { blocked, earlier } = getThreadAttention();
+        return blocked.some((item) => item.key === key) || earlier.some((item) => item.key === key);
+      },
     });
     held.current = new Map(keep.map((notice) => [notice.key, notice]));
     // Blocked items and the thread you were waiting on get their own toast; the rest share one.
@@ -206,7 +217,7 @@ export function ThreadNotificationCoordinator() {
     const [only] = digest;
     if (digest.length === 1 && only) showToast(only);
     else if (digest.length > 1) showDigestToast(digest);
-  }, [showDigestToast, showToast]);
+  }, [focusHoldActive, showDigestToast, showToast]);
 
   const scheduleFlush = useCallback(() => {
     window.clearTimeout(flushTimer.current);
@@ -217,7 +228,7 @@ export function ThreadNotificationCoordinator() {
     const flushAt = nextDigestFlushAtMs({
       oldestHeldAtMs: oldest,
       lastInputAtMs: lastInputAtMs.current,
-      focusHold: isFocusHoldActive(),
+      focusHold: focusHoldActive(),
     });
     if (flushAt === null) return;
     flushTimer.current = window.setTimeout(
@@ -226,14 +237,14 @@ export function ThreadNotificationCoordinator() {
         const due = nextDigestFlushAtMs({
           oldestHeldAtMs: oldest,
           lastInputAtMs: lastInputAtMs.current,
-          focusHold: isFocusHoldActive(),
+          focusHold: focusHoldActive(),
         });
         if (due !== null && due > Date.now()) scheduleFlush();
         else flushDigest();
       },
       Math.max(0, flushAt - Date.now()),
     );
-  }, [flushDigest]);
+  }, [flushDigest, focusHoldActive]);
 
   /** Applies the policy to every event of one snapshot pass, then delivers them together. */
   const deliverPass = useCallback(() => {
@@ -243,7 +254,7 @@ export function ThreadNotificationCoordinator() {
     const windowFocused = isWindowFocused();
     const anotherWindowFocused = isAnotherWindowFocused();
     const osAvailable = systemNotificationsAvailable();
-    const focusHold = isFocusHoldActive();
+    const focusHold = focusHoldActive();
     const now: Array<{ notice: ThreadNotice; delivery: "os" | "toast" }> = [];
     let heldAny = false;
     let blockedDelivered = false;
@@ -294,7 +305,14 @@ export function ThreadNotificationCoordinator() {
       }
     }
     if (heldAny) scheduleFlush();
-  }, [raiseSystemNotification, scheduleFlush, showDigestToast, showSystemNotification, showToast]);
+  }, [
+    focusHoldActive,
+    raiseSystemNotification,
+    scheduleFlush,
+    showDigestToast,
+    showSystemNotification,
+    showToast,
+  ]);
 
   const deliver = useCallback(
     (notice: ThreadNotice, options: { readonly isOpenThread: boolean }) => {

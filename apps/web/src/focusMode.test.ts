@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveFocusLayout } from "./focusMode";
+import { focusOpenedPanelsToClose, resolveFocusLayout } from "./focusMode";
 import {
+  clearFocusOpenedPanels,
+  noteFocusOpenedPanel,
   parsePersistedState,
   setFocusMode,
   setFocusPanelPeek,
@@ -66,5 +68,40 @@ describe("focus state", () => {
 
   it("ignores a malformed stored value", () => {
     expect(parsePersistedState({ focusMode: "yes" as unknown as boolean }).focusMode).toBe(false);
+  });
+});
+
+describe("panels focus opened", () => {
+  const inFocus = setFocusMode(parsePersistedState({}), true);
+
+  it("closes a panel focus opened once the peek ends, and keeps one that was open before", () => {
+    // Mod+D on a thread whose panel was closed: it peeks and is remembered.
+    const peeking = noteFocusOpenedPanel(inFocus, "env:a");
+    expect(peeking.focusPanelPeek).toBe(true);
+    expect(focusOpenedPanelsToClose(peeking)).toEqual([]);
+    // Hiding the peek, or leaving focus, closes it again.
+    const hidden = setFocusPanelPeek(peeking, false);
+    expect(focusOpenedPanelsToClose(hidden)).toEqual(["env:a"]);
+    expect(focusOpenedPanelsToClose(setFocusMode(peeking, false))).toEqual(["env:a"]);
+    expect(clearFocusOpenedPanels(hidden, ["env:a"]).focusOpenedPanelKeys).toEqual([]);
+    // A panel that was already open only peeks; nothing is recorded to close.
+    expect(
+      focusOpenedPanelsToClose(setFocusPanelPeek(setFocusPanelPeek(inFocus, true), false)),
+    ).toEqual([]);
+  });
+
+  it("still closes them after a reload in focus", () => {
+    const peeking = noteFocusOpenedPanel(inFocus, "env:a");
+    const persisted: PersistedUiState = {
+      focusMode: peeking.focusMode,
+      focusOpenedPanelKeys: [...peeking.focusOpenedPanelKeys],
+    };
+    const reloaded = parsePersistedState(JSON.parse(JSON.stringify(persisted)));
+    expect(focusOpenedPanelsToClose(reloaded)).toEqual(["env:a"]);
+  });
+
+  it("records nothing outside focus", () => {
+    const base = parsePersistedState({});
+    expect(noteFocusOpenedPanel(base, "env:a")).toBe(base);
   });
 });

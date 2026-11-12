@@ -1,6 +1,7 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@e6tools/contracts";
 import { create } from "zustand";
+import { recordFocusOpenedPanel } from "./focusMode";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
 export const PERSISTED_STATE_KEY = "e6code:ui-state:v1";
@@ -33,6 +34,7 @@ export interface PersistedUiState {
   pullRequestMergeMethod?: string;
   runDetailsSectionOpen?: Record<string, boolean>;
   focusMode?: boolean;
+  focusOpenedPanelKeys?: string[];
 }
 
 export interface UiProjectState {
@@ -79,6 +81,11 @@ export interface UiFocusState {
    * until closed. Not persisted: a reload in focus starts with it closed.
    */
   focusPanelPeek: boolean;
+  /**
+   * Threads whose right panel focus opened from closed. Persisted, so a
+   * reload in focus still closes them again; see `focusOpenedPanelsToClose`.
+   */
+  focusOpenedPanelKeys: ReadonlyArray<string>;
 }
 
 export interface UiState
@@ -101,6 +108,7 @@ const initialState: UiState = {
   runDetailsSectionOpen: {},
   focusMode: false,
   focusPanelPeek: false,
+  focusOpenedPanelKeys: [],
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -209,6 +217,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     runDetailsSectionOpen: sanitizeRunDetailsSectionOpen(parsed.runDetailsSectionOpen),
     focusMode: parsed.focusMode === true,
     focusPanelPeek: false,
+    focusOpenedPanelKeys: Array.isArray(parsed.focusOpenedPanelKeys)
+      ? parsed.focusOpenedPanelKeys.filter((key): key is string => typeof key === "string")
+      : [],
   };
 }
 
@@ -285,6 +296,7 @@ export function persistState(state: UiState): void {
         pullRequestMergeMethod: state.pullRequestMergeMethod,
         runDetailsSectionOpen: state.runDetailsSectionOpen,
         focusMode: state.focusMode,
+        focusOpenedPanelKeys: [...state.focusOpenedPanelKeys],
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -422,6 +434,23 @@ export function setFocusPanelPeek(state: UiState, peek: boolean): UiState {
   return { ...state, focusPanelPeek: peek };
 }
 
+/** The panel was closed until focus opened it: show it, and close it again afterwards. */
+export function noteFocusOpenedPanel(state: UiState, threadKey: string): UiState {
+  if (!state.focusMode) return state;
+  const focusOpenedPanelKeys = recordFocusOpenedPanel(state.focusOpenedPanelKeys, threadKey);
+  if (state.focusPanelPeek && focusOpenedPanelKeys === state.focusOpenedPanelKeys) return state;
+  return { ...state, focusPanelPeek: true, focusOpenedPanelKeys };
+}
+
+/** The panels in `closed` are closed again, so they leave the list. */
+export function clearFocusOpenedPanels(state: UiState, closed: ReadonlyArray<string>): UiState {
+  if (closed.length === 0) return state;
+  return {
+    ...state,
+    focusOpenedPanelKeys: state.focusOpenedPanelKeys.filter((key) => !closed.includes(key)),
+  };
+}
+
 export function resolveProjectExpanded(
   projectExpandedById: Readonly<Record<string, boolean>>,
   preferenceKeys: readonly string[],
@@ -508,6 +537,8 @@ interface UiStateStore extends UiState {
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setRunDetailsSectionOpen: (section: RunDetailsSectionId, open: boolean) => void;
   setFocusMode: (focusMode: boolean) => void;
+  noteFocusOpenedPanel: (threadKey: string) => void;
+  clearFocusOpenedPanels: (closed: ReadonlyArray<string>) => void;
   toggleFocusMode: () => void;
   setFocusPanelPeek: (peek: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -534,6 +565,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setRunDetailsSectionOpen: (section, open) =>
     set((state) => setRunDetailsSectionOpen(state, section, open)),
   setFocusMode: (focusMode) => set((state) => setFocusMode(state, focusMode)),
+  noteFocusOpenedPanel: (threadKey) => set((state) => noteFocusOpenedPanel(state, threadKey)),
+  clearFocusOpenedPanels: (closed) => set((state) => clearFocusOpenedPanels(state, closed)),
   toggleFocusMode: () => set((state) => setFocusMode(state, !state.focusMode)),
   setFocusPanelPeek: (peek) => set((state) => setFocusPanelPeek(state, peek)),
   setProjectExpanded: (projectIds, expanded) =>

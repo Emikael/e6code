@@ -127,6 +127,18 @@ still offering **Undo** in a notification, such as an unpin, settle, snooze, or
 archive. Its default rule skips text fields and terminals so native undo keeps
 working there.
 
+`thread.nextNeedsYou` (`mod+alt+n` by default) opens the next thread that needs you:
+blocked threads first, then those to review.
+
+`focus.toggle` (`mod+alt+z` by default) enters focus mode on an open thread and leaves it
+from anywhere, Settings included. Escape does not leave focus mode.
+
+`capture.park` (`mod+alt+p` by default) parks a thought from any screen without leaving it.
+Inside the composer, `mod+s` parks the draft you are writing instead.
+
+On some Windows keyboard layouts `ctrl+alt` acts as AltGr; if one of these shortcuts types a
+character instead, choose another binding in Settings.
+
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread).

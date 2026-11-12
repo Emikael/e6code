@@ -135,3 +135,19 @@ export function shouldReserveContextWindowMeter(input: {
     input.providerReportsContextWindow !== false
   );
 }
+
+/** The compact composer's meter appears from this share of the window used. */
+export const CONTEXT_WINDOW_NEAR_FULL_PERCENT = 80;
+
+/**
+ * Whether the composer shows the context meter. Compact controls keep it out
+ * of the footer until the window nears its warning level; Run details' Usage
+ * section always has it. Full controls show it whenever it is enabled.
+ */
+export function shouldShowContextWindowMeter(input: {
+  readonly usedPercentage: number | null;
+  readonly compact: boolean;
+}): boolean {
+  if (!input.compact) return true;
+  return input.usedPercentage !== null && input.usedPercentage >= CONTEXT_WINDOW_NEAR_FULL_PERCENT;
+}

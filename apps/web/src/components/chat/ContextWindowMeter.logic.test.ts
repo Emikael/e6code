@@ -8,6 +8,7 @@ import {
   resolveContextWindowModelDisplayName,
   shouldOfferResumeCompaction,
   shouldReserveContextWindowMeter,
+  shouldShowContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 
 function claudeProvider(input: {
@@ -284,5 +285,14 @@ describe("shouldReserveContextWindowMeter", () => {
     expect(shouldReserveContextWindowMeter({ ...loadingStartedThread, meterEnabled: false })).toBe(
       false,
     );
+  });
+});
+
+describe("shouldShowContextWindowMeter", () => {
+  it("keeps the compact footer quiet until the window nears full", () => {
+    expect(shouldShowContextWindowMeter({ usedPercentage: 40, compact: true })).toBe(false);
+    expect(shouldShowContextWindowMeter({ usedPercentage: null, compact: true })).toBe(false);
+    expect(shouldShowContextWindowMeter({ usedPercentage: 85, compact: true })).toBe(true);
+    expect(shouldShowContextWindowMeter({ usedPercentage: 40, compact: false })).toBe(true);
   });
 });

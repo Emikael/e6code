@@ -204,6 +204,26 @@ export function formatShortcutLabel(
   return parts.join("+");
 }
 
+/**
+ * One key cap per key of a label from `formatShortcutLabel`: "⌥⌘N" becomes
+ * ["⌥", "⌘", "N"], "Ctrl+Alt+N" becomes ["Ctrl", "Alt", "N"].
+ */
+export function shortcutLabelKeys(label: string): string[] {
+  if (label.includes("+") && label.length > 1) {
+    const parts = label.split("+");
+    // A trailing "+" key ("Ctrl++") leaves an empty last part.
+    return parts.at(-1) === "" ? [...parts.slice(0, -2), "+"] : parts;
+  }
+  const keys: string[] = [];
+  let index = 0;
+  while (index < label.length && "\u2303\u2325\u21e7\u2318".includes(label[index]!)) {
+    keys.push(label[index]!);
+    index += 1;
+  }
+  if (index < label.length) keys.push(label.slice(index));
+  return keys;
+}
+
 export function shortcutLabelForCommand(
   keybindings: ResolvedKeybindingsConfig,
   command: KeybindingCommand | null,

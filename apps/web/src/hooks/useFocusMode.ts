@@ -1,6 +1,9 @@
+import { parseScopedThreadKey } from "@e6tools/client-runtime/environment";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
+import { focusOpenedPanelsToClose } from "../focusMode";
+import { useRightPanelStore } from "../rightPanelStore";
 import { useUiStateStore } from "../uiStateStore";
 
 /**
@@ -42,6 +45,41 @@ export function useFocusPanelPeek(
       setFocusPanelPeek(false);
       return;
     }
-    if (!prior.isOpen || prior.activeSurfaceId !== activeSurfaceId) setFocusPanelPeek(true);
+    if (!prior.isOpen && threadKey) {
+      // Focus opened a closed panel; it closes again when the peek ends.
+      useUiStateStore.getState().noteFocusOpenedPanel(threadKey);
+    } else if (prior.activeSurfaceId !== activeSurfaceId) {
+      setFocusPanelPeek(true);
+    }
   }, [activeSurfaceId, focusModeActive, isOpen, threadKey]);
+}
+
+/**
+ * Closes the right panels focus opened once nothing peeks any more: the peek
+ * was hidden, the thread switched, focus exited (from any route) or a reload
+ * dropped the peek. Mount once, at the root.
+ */
+export function useCloseFocusOpenedPanels(): void {
+  useEffect(() => {
+    const settle = (state: Parameters<typeof focusOpenedPanelsToClose>[0]) => {
+      const keys = focusOpenedPanelsToClose(state);
+      if (keys.length === 0) return;
+      const { close } = useRightPanelStore.getState();
+      for (const key of keys) {
+        const ref = parseScopedThreadKey(key);
+        if (ref) close(ref);
+      }
+      useUiStateStore.getState().clearFocusOpenedPanels(keys);
+    };
+    settle(useUiStateStore.getState());
+    return useUiStateStore.subscribe((state, previous) => {
+      if (
+        state.focusMode !== previous.focusMode ||
+        state.focusPanelPeek !== previous.focusPanelPeek ||
+        state.focusOpenedPanelKeys !== previous.focusOpenedPanelKeys
+      ) {
+        settle(state);
+      }
+    });
+  }, []);
 }

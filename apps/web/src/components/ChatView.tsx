@@ -3987,6 +3987,7 @@ export default function ChatView(props: ChatViewProps) {
   // Keep a hidden, off-flow strip mounted for existing threads so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
+  const composerControlsSetting = useClientSettings((settings) => settings.composerControls);
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     hasActiveProject: activeProject !== null,
     isGitRepo,
@@ -3998,6 +3999,7 @@ export default function ChatView(props: ChatViewProps) {
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
+    branchInHeader: routeKind === "server" && composerControlsSetting === "compact",
   });
   const terminalShortcutLabelOptions = useMemo(
     () => ({
@@ -10294,6 +10296,8 @@ export default function ChatView(props: ChatViewProps) {
 
   const panelToggleControls = (
     <PanelLayoutControls
+      // The terminal toggle lives in the header's More menu (board 2).
+      showTerminalControl={false}
       terminalAvailable={activeProject !== null}
       terminalOpen={terminalUiState.terminalOpen}
       terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
@@ -10306,7 +10310,12 @@ export default function ChatView(props: ChatViewProps) {
         rightPanelOpen && activeRightPanelSurface === null ? 0 : agentPanelModel.liveCount
       }
       onToggleTerminal={toggleTerminalVisibility}
-      onToggleRightPanel={toggleRightPanel}
+      // In focus the peeking panel hides without a write, like Mod+Alt+B.
+      onToggleRightPanel={
+        focusModeActive
+          ? () => useUiStateStore.getState().setFocusPanelPeek(false)
+          : toggleRightPanel
+      }
     />
   );
   const panelLayoutControls = (
@@ -10568,7 +10577,11 @@ export default function ChatView(props: ChatViewProps) {
           data-chat-header
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
-          className="relative border-b border-border bg-background"
+          className={cn(
+            "relative border-b border-border bg-background",
+            // Board 3: the focus bar is at least 48px and wraps rather than clipping.
+            focusModeActive && "h-auto min-h-12 py-2",
+          )}
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span
@@ -10613,6 +10626,12 @@ export default function ChatView(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
             focusMode={focusModeActive}
             onToggleFocus={toggleFocusMode}
+            terminal={{
+              available: activeProject !== null,
+              open: terminalUiState.terminalOpen,
+              shortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+              onToggle: toggleTerminalVisibility,
+            }}
           />
         </WorkspacePageHeader>
 
