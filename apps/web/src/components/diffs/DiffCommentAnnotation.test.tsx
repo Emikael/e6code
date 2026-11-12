@@ -21,7 +21,7 @@ describe("DiffCommentAnnotation", () => {
     expect(markup).not.toContain("font-mono");
     expect(markup).not.toContain("Local comment");
     expect(markup).not.toContain("on +78");
-    expect(markup).toContain("⌘/Ctrl Enter to send");
+    expect(markup).toMatch(/(⌘|Ctrl\+)Enter to attach/);
     expect(markup).toContain("Add a comment…");
     expect(markup).toContain(">Comment</button>");
     expect(markup).toContain("autofocus");
@@ -39,6 +39,7 @@ describe("DiffCommentAnnotation", () => {
         text=""
         {...callbacks}
         submitLabel="Add to review"
+        submitHint="add to review"
         secondaryAction={{
           label: "Add to agent",
           onAction: vi.fn(),
@@ -48,6 +49,7 @@ describe("DiffCommentAnnotation", () => {
 
     expect(markup).toContain("Add a comment…");
     expect(markup).toContain(">Add to review</button>");
+    expect(markup).toMatch(/Enter to add to review/);
     expect(markup.match(/<button[^>]*disabled[^>]*>Add to review<\/button>/)).not.toBeNull();
     expect(markup.match(/<button[^>]*disabled[^>]*>Add to agent<\/button>/)).not.toBeNull();
   });

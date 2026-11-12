@@ -145,7 +145,9 @@ export function PullRequestReviewBar({
           <Button
             key={verdict.value}
             size="xs"
-            variant={verdict.value === "comment" ? "outline" : "default"}
+            // Every verdict sends at once, so none is filled: on the Code tab the review footer's
+            // step holds the screen's one fill (`panelFill.ts`).
+            variant="outline"
             disabled={pending || !canSubmit(verdict.value)}
             onClick={() => void submit(verdict)}
           >

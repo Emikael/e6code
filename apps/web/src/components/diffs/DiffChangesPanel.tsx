@@ -438,8 +438,10 @@ export function DiffChangesPanel({
         <Tooltip>
           <TooltipTrigger
             render={
+              // Outline: the review footer's step holds the screen's one fill (`panelFill.ts`).
               <Button
                 size="xs"
+                variant="outline"
                 className="w-full"
                 disabled={commitDisabledReason !== null || busy}
                 onClick={() => void commit()}

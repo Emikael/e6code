@@ -80,6 +80,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import { shortcutLabelForCommand } from "../keybindings";
 import { dispatchSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { useComposerHasText } from "../hooks/useComposerHasText";
+import { panelFillHolder } from "./panel/panelFill";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import {
   diffLastSeenKey,
@@ -1149,6 +1150,7 @@ export default function DiffPanel({
   );
   // While the composer holds text, Send owns the screen's one filled button.
   const composerHasText = useComposerHasText(composerDraftTarget);
+  const [commentDraftOpen, setCommentDraftOpen] = useState(false);
   const { settleThread } = useThreadActions();
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const threadSettled = activeThread?.settledOverride === "settled";
@@ -1634,6 +1636,7 @@ export default function DiffPanel({
                         sectionId={reviewSectionId}
                         sectionTitle={reviewSectionTitle}
                         composerDraftTarget={composerDraftTarget}
+                        onCommentDraftOpenChange={setCommentDraftOpen}
                         headerHeight={DIFF_FILE_HEADER_HEIGHT}
                         unsafeCSSExtra={DIFF_FILE_HEADER_CSS}
                         renderCustomHeader={(fileDiff, fileKey) => {
@@ -1712,7 +1715,14 @@ export default function DiffPanel({
                     : null
                 }
                 primary={footerPrimary}
-                primaryOutline={composerHasText}
+                primaryOutline={
+                  panelFillHolder({
+                    view: { kind: "diff" },
+                    composerHasText,
+                    commentDraftOpen,
+                    reviewStepPending: footerPrimary !== null,
+                  }) !== "review-step"
+                }
               />
             ) : null}
           </div>

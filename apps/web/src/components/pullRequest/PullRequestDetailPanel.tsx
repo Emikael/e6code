@@ -132,7 +132,11 @@ import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import { DiffPanelLoadingState } from "../DiffPanelShell";
 import { PanelErrorCard } from "../panel/PanelErrorCard";
-import type { PullRequestAgentSelectionInput } from "./PullRequestCodeTab";
+import { panelFillHolder } from "../panel/panelFill";
+import type {
+  PullRequestAgentSelectionInput,
+  PullRequestCodeFillInputs,
+} from "./PullRequestCodeTab";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
 import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
 import { PullRequestCommentComposer } from "./PullRequestCommentComposer";
@@ -588,6 +592,12 @@ export function PullRequestDetailPanel({
       : null;
   const [threadPickerOpen, setThreadPickerOpen] = useState(false);
   const [tab, setTab] = useState<DetailTab>("summary");
+  // What the Code tab says about its own review footer and comment draft, which decides whether
+  // the merge button may hold the screen's one fill while the Code tab is shown.
+  const [codeFillInputs, setCodeFillInputs] = useState<PullRequestCodeFillInputs>({
+    reviewStepPending: false,
+    commentDraftOpen: false,
+  });
   const [timelineOrder, setTimelineOrder] = useState<"newest" | "oldest">("newest");
   const [codeCommitScope, setCodeCommitScope] = useState<{
     readonly pullRequestKey: string;
@@ -1827,9 +1837,20 @@ export function PullRequestDetailPanel({
                 ? "Merge when ready is on"
                 : null;
   const mergeButtonLabel = pendingAction === "merge" ? "Merging..." : selectedMergeMethodLabel;
-  // The fill goes to the merge only once everything is met; until then the card holds the next
-  // action and the merge stays outlined.
-  const mergeTakesFill = nextStep?.kind === "ready" && !composerHasText;
+  // One fill per screen: the merge holds it only once everything is met, and on the Code tab only
+  // once the review footer has no step left; until then the card or the review step holds it.
+  const fillHolder = panelFillHolder({
+    view: {
+      kind: "pull-request",
+      tab,
+      nextStepHasAction: nextStep?.primary != null,
+      mergeReady: nextStep?.kind === "ready",
+    },
+    composerHasText,
+    commentDraftOpen: tab === "code" && codeFillInputs.commentDraftOpen,
+    reviewStepPending: tab === "code" && codeFillInputs.reviewStepPending,
+  });
+  const mergeTakesFill = fillHolder === "merge";
 
   const mergeFooter =
     detail?.state === "open" ? (
@@ -2583,7 +2604,7 @@ export function PullRequestDetailPanel({
                             step={nextStep}
                             pending={handoff !== null || actionPending}
                             onAction={runNextStepAction}
-                            primaryOutline={composerHasText}
+                            primaryOutline={fillHolder !== "next-step"}
                             renderAction={(action, primary) =>
                               action.kind === "request-review" ? (
                                 <PullRequestReviewerPicker
@@ -2698,6 +2719,7 @@ export function PullRequestDetailPanel({
                     onRefresh={refreshDetail}
                     refreshToken={codeRefreshToken}
                     composerHasText={composerHasText}
+                    onFillInputsChange={setCodeFillInputs}
                   />
                 </Suspense>
               </div>

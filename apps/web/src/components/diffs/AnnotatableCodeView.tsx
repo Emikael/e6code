@@ -8,7 +8,7 @@ import type {
 } from "@pierre/diffs";
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { ScopedThreadRef } from "@e6tools/contracts";
-import { useCallback, useMemo, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { fnv1a32 } from "~/lib/diffRendering";
@@ -134,6 +134,8 @@ interface AnnotatableCodeViewProps {
     scrollTop: number,
     viewer: NonNullable<ReturnType<AnnotatableCodeViewHandle["getInstance"]>>,
   ) => void;
+  /** Told whether a comment draft is open, which takes the screen's fill (`panelFill.ts`). */
+  onCommentDraftOpenChange?: (open: boolean) => void;
 }
 
 interface DiffSelectionContext {
@@ -155,6 +157,7 @@ export function AnnotatableCodeView({
   headerHeight,
   marker = null,
   onScroll,
+  onCommentDraftOpenChange,
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -307,6 +310,11 @@ export function AnnotatableCodeView({
   }, []);
 
   const hasOpenComment = draft !== null;
+  useEffect(() => {
+    if (!onCommentDraftOpenChange) return;
+    onCommentDraftOpenChange(hasOpenComment);
+    return () => onCommentDraftOpenChange(false);
+  }, [hasOpenComment, onCommentDraftOpenChange]);
   return (
     <StyledDiffCodeView<DiffCommentAnnotationGroup>
       key={codeViewKey}
