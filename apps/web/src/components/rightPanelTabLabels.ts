@@ -17,6 +17,8 @@ export interface SurfaceTitleState {
   readonly runningTerminalIds?: ReadonlySet<string>;
   /** Terminals whose process stopped while out of view, until they are looked at. */
   readonly finishedTerminalIds?: ReadonlySet<string>;
+  /** Whether a device tab's device is running, once known. */
+  readonly deviceRunning?: boolean;
   /** Terminal tab names by surface id when several terminal tabs are open (`terminalTabNames`). */
   readonly terminalTabNames?: ReadonlyMap<string, string>;
   /** The resolved lifecycle of a pull request tab, once known. */
@@ -120,7 +122,11 @@ export function surfaceTitleParts(
     case "pull-requests":
       return { name: "Pull requests", state: null };
     case "device":
-      return { name: surface.title ?? surface.target?.name ?? "Device", state: null };
+      // Board 18: "iPhone 16 · running" while the device runs.
+      return {
+        name: surface.title ?? surface.target?.name ?? "Device",
+        state: state.deviceRunning ? "running" : null,
+      };
     case "preview":
       return { name: previewTitle(surface, sessions), state: null };
   }

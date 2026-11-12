@@ -205,3 +205,16 @@ describe("terminal tab names", () => {
     expect([...names.values()]).toEqual(["Terminal 1", "Terminal 2"]);
   });
 });
+
+describe("device tab labels", () => {
+  const device: RightPanelSurface = { id: "device:mac:iphone", kind: "device", title: "iPhone 16" };
+
+  it("says running while the device runs", () => {
+    expect(surfaceTitle(device, NO_SESSIONS, NO_LABELS, { deviceRunning: true })).toBe(
+      "iPhone 16 · running",
+    );
+    expect(surfaceTitle(device, NO_SESSIONS, NO_LABELS, { deviceRunning: false })).toBe(
+      "iPhone 16",
+    );
+  });
+});
