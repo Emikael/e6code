@@ -38,7 +38,12 @@ export function PanelErrorCard(props: {
       {props.onRetry || props.actions ? (
         <div className="flex flex-wrap items-center gap-2">
           {props.onRetry ? (
-            <Button variant="outline" size="xs" disabled={props.retrying} onClick={props.onRetry}>
+            <Button
+              variant="outline"
+              size="compact"
+              disabled={props.retrying}
+              onClick={props.onRetry}
+            >
               Retry
             </Button>
           ) : null}
