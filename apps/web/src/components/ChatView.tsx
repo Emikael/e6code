@@ -1748,6 +1748,9 @@ export default function ChatView(props: ChatViewProps) {
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
   const [restingComposerControlsVisible, setRestingComposerControlsVisible] = useState(false);
+  const [providerSendUnavailableReason, setProviderSendUnavailableReason] = useState<string | null>(
+    null,
+  );
   const citeAssistantText = useCallback(
     (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => {
       const inserted = composerRef.current?.citeAssistantText(citation, sourceAnchor) ?? false;
@@ -7852,7 +7855,7 @@ export default function ChatView(props: ChatViewProps) {
   const retryUnavailableReason =
     activeEnvironmentUnavailable || selectedProviderEntry === undefined
       ? "The agent is not available right now, so Retry cannot send."
-      : null;
+      : providerSendUnavailableReason;
 
   const queuedMessages = useQueuedMessages(activeThreadKey ?? "");
   // Puts queued messages back into the composer, e.g. after Stop or a failed
@@ -10677,9 +10680,13 @@ export default function ChatView(props: ChatViewProps) {
                   watchKey={activeThreadKey}
                   onRetry={onRetryFailedTurn}
                   retryUnavailableReason={retryUnavailableReason}
-                  onReviewDiff={() => {
-                    if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
-                  }}
+                  onReviewDiff={
+                    nextCard
+                      ? null
+                      : () => {
+                          if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
+                        }
+                  }
                 />
               ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
@@ -11178,6 +11185,7 @@ export default function ChatView(props: ChatViewProps) {
                               isGitRepo || showComposerEnvironmentIndicator
                             }
                             onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
+                            onProviderSendUnavailableReasonChange={setProviderSendUnavailableReason}
                             timelineOverflows={timelineOverflows}
                             onComposerOverlayHeightChange={publishComposerOverlayHeight}
                             onRestingChange={onComposerRestingChange}

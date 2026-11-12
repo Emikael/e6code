@@ -42,7 +42,11 @@ export const ThreadNextCard = memo(function ThreadNextCard({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant={primary ? "default" : "outline"} onClick={onReviewDiff}>
+        <Button
+          variant={primary ? "default" : "outline"}
+          className="sm:text-[13px]"
+          onClick={onReviewDiff}
+        >
           Review diff
           {reviewShortcut ? (
             <Kbd
@@ -56,12 +60,12 @@ export const ThreadNextCard = memo(function ThreadNextCard({
           ) : null}
         </Button>
         {onSettle ? (
-          <Button variant="outline" onClick={onSettle}>
+          <Button variant="outline" className="sm:text-[13px]" onClick={onSettle}>
             <CheckIcon aria-hidden />
             Settle thread
           </Button>
         ) : null}
-        <Button variant="ghost" onClick={onAskForChanges}>
+        <Button variant="ghost" className="sm:text-[13px]" onClick={onAskForChanges}>
           Ask for changes
         </Button>
       </div>

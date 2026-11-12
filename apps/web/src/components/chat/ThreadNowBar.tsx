@@ -40,7 +40,8 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   onRetry: (() => void) | null;
   /** Why Retry cannot send right now (the provider is unavailable); the button stays, disabled. */
   retryUnavailableReason?: string | null;
-  onReviewDiff: () => void;
+  /** Absent while the Next card under the timeline already offers Review diff. */
+  onReviewDiff: (() => void) | null;
 }) {
   if (state.kind === "hidden") return null;
   return (
@@ -136,7 +137,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
               Ready to review
             </span>
             <DoneText workedFor={state.workedFor} finishedAt={state.finishedAt} />
-            {state.hasChanges ? (
+            {state.hasChanges && onReviewDiff ? (
               <Button size="sm" variant="outline" className="sm:text-xs" onClick={onReviewDiff}>
                 Review diff
               </Button>

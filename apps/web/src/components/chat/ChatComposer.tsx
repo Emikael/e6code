@@ -1472,6 +1472,11 @@ export interface ChatComposerProps {
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
   onRestingControlsVisibilityChange: (visible: boolean) => void;
+  /**
+   * Why this composer's provider cannot take a message (no provider, Antigravity not signed
+   * in), or null when it can. Sends from outside the composer (Retry) follow the same rule.
+   */
+  onProviderSendUnavailableReasonChange: (reason: string | null) => void;
   /** Whether the timeline has more content than fits above the composer. */
   timelineOverflows: boolean;
   onComposerOverlayHeightChange: (height: number) => void;
@@ -1601,6 +1606,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     restingControlsHost,
     restingControlsHaveLeadingContext,
     onRestingControlsVisibilityChange,
+    onProviderSendUnavailableReasonChange,
     timelineOverflows,
     onComposerOverlayHeightChange,
     onRestingChange,
@@ -4838,6 +4844,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
   }, [isComposerResting, onRestingChange]);
+  // The same rule `getSendContext().providerAvailable` applies, said in words.
+  const providerSendUnavailableReason =
+    multipleModelSelections !== null
+      ? null
+      : noProviderAvailable
+        ? "The agent is not available right now, so Retry cannot send."
+        : providerSendBlockReason;
+  useLayoutEffect(() => {
+    onProviderSendUnavailableReasonChange(providerSendUnavailableReason);
+  }, [providerSendUnavailableReason, onProviderSendUnavailableReasonChange]);
   const restingImagePreviewCounts = getRestingComposerImagePreviewCounts(
     standaloneComposerImages.length,
   );

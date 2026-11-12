@@ -31,7 +31,12 @@ import { memo, useCallback, useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useParkedActions } from "~/hooks/useParkedActions";
-import { localDateKey, openParkedList, selectParkedChips } from "~/parkedThoughts";
+import {
+  localDateKey,
+  openParkedList,
+  removeParkedEntry,
+  selectParkedChips,
+} from "~/parkedThoughts";
 import { usePromptStashStore, type PromptStashEntry } from "~/promptStashStore";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useThreadAttention } from "~/hooks/useThreadAttention";
@@ -50,6 +55,7 @@ import { BlockedDiamond } from "../SidebarNeedsYou";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { toastManager } from "../ui/toast";
 import {
   attentionCueVerb,
   formatAttentionCue,
@@ -271,7 +277,7 @@ function MoreLine({ count, where }: { count: number; where: string }) {
  * puts its thought in this composer and leaves Parked; "N more" opens the list.
  */
 function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; more: number }) {
-  const { putInComposer } = useParkedActions();
+  const { putInComposer, takeBackFromComposer } = useParkedActions();
   return (
     <section aria-label="Parked" className="-mt-3 flex flex-wrap items-center gap-1.5">
       <h3 className={LIST_HEADING_CLASS}>Parked</h3>
@@ -285,7 +291,21 @@ function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; 
                 className={cn(PARKED_CHIP_CLASS, "max-w-62.5")}
                 onClick={() => {
                   void putInComposer(entry.prompt, entry.projectKey).then((placed) => {
-                    if (placed) usePromptStashStore.getState().takeEntry(entry.id);
+                    if (!placed) return;
+                    const removed = removeParkedEntry(entry.id);
+                    if (!removed) return;
+                    // Undo puts the thought back in Parked and takes it out of the composer.
+                    toastManager.add({
+                      type: "success",
+                      title: "Put in composer",
+                      actionProps: {
+                        children: "Undo",
+                        onClick: () => {
+                          usePromptStashStore.getState().restoreEntry(removed.entry, removed.index);
+                          takeBackFromComposer(removed.entry.prompt);
+                        },
+                      },
+                    });
                   });
                 }}
               />

@@ -821,6 +821,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     suspendEndScrollMaintenanceForDisclosure(EARLIER_TURNS_ROW_ID);
     setEarlierTurnsOpenFor((current) => (current === listIdentityKey ? null : listIdentityKey));
   }, [listIdentityKey, suspendEndScrollMaintenanceForDisclosure]);
+  // A link into the thread (a citation, "Show in thread") opens whatever hides its target:
+  // the cited turn's own fold and, in focus mode, the earlier-turns fold around it.
+  const openEarlierTurns = useCallback(
+    () => setEarlierTurnsOpenFor(listIdentityKey),
+    [listIdentityKey],
+  );
+  const expandCitedTurnAndEarlier = useCallback(
+    (turnId: TurnId) => {
+      expandCitedTurn(turnId);
+      if (earlierTurns === "folded") openEarlierTurns();
+    },
+    [earlierTurns, expandCitedTurn, openEarlierTurns],
+  );
 
   const onToggleTurnFold = useCallback(
     (turnId: TurnId) => {
@@ -978,7 +991,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const index = findRevealRowIndex(rows, revealMessageRequest.target);
     if (index < 0 && earlierTurns === "folded") {
       // Folded away in focus mode: open the earlier turns, then look again.
-      setEarlierTurnsOpenFor(listIdentityKey);
+      openEarlierTurns();
       return;
     }
     handledRevealNonceRef.current = revealMessageRequest.nonce;
@@ -998,9 +1011,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     });
   }, [
     earlierTurns,
-    listIdentityKey,
     listRef,
     onManualNavigation,
+    openEarlierTurns,
     prefersReducedMotion,
     revealMessageRequest,
     rows,
@@ -1010,6 +1023,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // it and light its row for a moment. Only requests made while this list is
   // mounted count; an older one is not replayed.
   const [highlight, setHighlight] = useState<SubagentThreadTarget | null>(null);
+  // A "Show in thread" that waits for the earlier-turns fold to open.
+  const [subagentTargetAfterUnfold, setSubagentTargetAfterUnfold] =
+    useState<SubagentThreadTarget | null>(null);
   const highlightedSubagentId = highlight?.agentId ?? null;
   // A ref, refreshed after every commit, so the store callback below always
   // reads this render's rows. (useEffectEvent kept the first render's rows
@@ -1033,6 +1049,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         new Set(agent?.parentAgentId ? [agentId, agent.parentAgentId] : [agentId]),
       );
       if (!match) {
+        if (earlierTurns === "folded") {
+          // Only folded away in focus mode: open the earlier turns, then look again.
+          openEarlierTurns();
+          setSubagentTargetAfterUnfold(target);
+          return;
+        }
         toastManager.add({
           type: "info",
           title: "Not in the loaded part of the thread",
@@ -1072,6 +1094,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }),
     [],
   );
+  useEffect(() => {
+    if (subagentTargetAfterUnfold === null || earlierTurns === "folded") return;
+    setSubagentTargetAfterUnfold(null);
+    showSubagentInThreadRef.current(subagentTargetAfterUnfold);
+  }, [earlierTurns, rows, subagentTargetAfterUnfold]);
   useEffect(() => {
     if (highlight === null) return;
     const timer = window.setTimeout(() => setHighlight(null), 2000);
@@ -1221,7 +1248,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     viewport: timelineViewportElement,
     historyLoading: citationHistoryLoading,
     loadEarlier,
-    onExpandTurn: expandCitedTurn,
+    onExpandTurn: expandCitedTurnAndEarlier,
     onManualNavigation,
   });
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
@@ -1639,7 +1666,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               topFadeEnabled && "topbar-scroll-fade",
             )}
             ListHeaderComponent={
-              loadEarlier !== null ? (
+              // While focus mode folds the earlier turns, loading more would only grow the
+              // fold's count; the header comes back once the fold is open.
+              loadEarlier !== null && earlierTurns !== "folded" ? (
                 <TimelineLoadEarlierHeader
                   loading={loadEarlier.loading}
                   onLoadEarlier={loadEarlier.onLoadEarlier}

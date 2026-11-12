@@ -143,15 +143,23 @@ export function removeParkedEntry(
 export const useCaptureBarStore = create<{
   readonly open: boolean;
   readonly listOpen: boolean;
+  /** The list as a dialog, for when the sidebar is out of reach (focus, collapsed). */
+  readonly listDialogOpen: boolean;
   readonly setOpen: (open: boolean) => void;
   readonly setListOpen: (open: boolean) => void;
+  readonly setListDialogOpen: (open: boolean) => void;
 }>()((set) => ({
   open: false,
   listOpen: false,
+  listDialogOpen: false,
   setOpen: (open) => set({ open }),
   setListOpen: (listOpen) => set({ listOpen }),
+  setListDialogOpen: (listDialogOpen) => set({ listDialogOpen }),
 }));
 
 export const openCaptureBar = () => useCaptureBarStore.getState().setOpen(true);
 
 export const openParkedList = () => useCaptureBarStore.getState().setListOpen(true);
+
+/** The Parked list as a dialog (command palette), reachable without the sidebar. */
+export const openParkedListDialog = () => useCaptureBarStore.getState().setListDialogOpen(true);

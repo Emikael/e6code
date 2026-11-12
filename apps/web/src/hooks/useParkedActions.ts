@@ -85,11 +85,36 @@ export function useParkedActions() {
     [router, startThreadWith],
   );
 
+  /**
+   * Undo for `putInComposer`: takes the text back out of the composer on screen, but only
+   * while it is still the composer's last paragraph as placed, so later typing is never lost.
+   */
+  const takeBackFromComposer = useCallback(
+    (text: string) => {
+      const target = readRouteTarget(router);
+      if (!target) return;
+      const composerTarget = target.kind === "server" ? target.threadRef : target.draftId;
+      const store = useComposerDraftStore.getState();
+      const current = store.getComposerDraft(composerTarget)?.prompt ?? "";
+      if (current === text) store.setPrompt(composerTarget, "");
+      else if (current.endsWith(`\n\n${text}`)) {
+        store.setPrompt(composerTarget, current.slice(0, -(text.length + 2)));
+      }
+    },
+    [router],
+  );
+
   /** `scopedProjectKey` of the project on screen, for a thought parked here. */
   const currentProjectKey = useCallback((): string | null => {
     const projectRef = readRouteProjectRef(readRouteTarget(router));
     return projectRef ? scopedProjectKey(projectRef) : null;
   }, [router]);
 
-  return { startThreadWith, putInComposer, currentProjectKey, resolveProject };
+  return {
+    startThreadWith,
+    putInComposer,
+    takeBackFromComposer,
+    currentProjectKey,
+    resolveProject,
+  };
 }

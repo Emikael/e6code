@@ -911,14 +911,26 @@ function deriveTurnFolds(input: {
               lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
+    // "· 5 steps" (boards 2 and 3): the tool work the fold hides, as the thinking timeline counts it.
+    let stepCount = 0;
+    for (const entry of group.entries) {
+      if (
+        hiddenEntryIds.has(entry.id) &&
+        entry.kind === "work" &&
+        entry.entry.sourceActivityKind !== "context-compaction"
+      ) {
+        stepCount += 1;
+      }
+    }
+    const heading = isLatestInterruptedTurn
+      ? duration
+        ? `You stopped after ${duration}`
+        : "You stopped this response"
+      : duration
+        ? `Worked for ${duration}`
+        : "Worked";
     const label = appendTurnUsage(
-      isLatestInterruptedTurn
-        ? duration
-          ? `You stopped after ${duration}`
-          : "You stopped this response"
-        : duration
-          ? `Worked for ${duration}`
-          : "Worked",
+      stepCount > 0 ? `${heading} · ${stepCount} step${stepCount === 1 ? "" : "s"}` : heading,
       input.turnUsageByTurnId?.get(turnId),
     );
 

@@ -1826,7 +1826,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(foldRow?.turnId).toBe("turn-1");
     expect(foldRow?.expanded).toBe(false);
     // User message boundary (00:00:00) → terminal message updatedAt (00:00:22).
-    expect(foldRow?.label).toBe("Worked for 22s");
+    expect(foldRow?.label).toBe("Worked for 22s · 1 step");
     expect(collapsedRows.map((row) => row.id)).toEqual([
       "user-entry",
       "turn-fold:turn-1",
@@ -1898,21 +1898,21 @@ describe("deriveMessagesTimelineRows", () => {
         ...(turnUsageByTurnId ? { turnUsageByTurnId } : {}),
       }).find((row) => row.kind === "turn-fold")?.label;
 
-    expect(foldLabel(undefined)).toBe("Worked for 22s");
+    expect(foldLabel(undefined)).toBe("Worked for 22s · 1 step");
     expect(
       foldLabel(
         new Map([
           [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" }],
         ]),
       ),
-    ).toBe("Worked for 22s · 48.6K tokens · $0.12");
+    ).toBe("Worked for 22s · 1 step · 48.6K tokens · $0.12");
     expect(
       foldLabel(
         new Map([
           [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" }],
         ]),
       ),
-    ).toBe("Worked for 22s · 48.6K tokens · ≈$0.12");
+    ).toBe("Worked for 22s · 1 step · 48.6K tokens · ≈$0.12");
   });
 
   it("shows usage on the final answer only when its turn has no fold row", () => {
@@ -1973,7 +1973,7 @@ describe("deriveMessagesTimelineRows", () => {
 
     const withTools = rowsFor([user, toolCall, answer]);
     expect(withTools.find((row) => row.kind === "turn-fold")?.label).toBe(
-      "Worked for 22s · 48.6K tokens · $0.12",
+      "Worked for 22s · 1 step · 48.6K tokens · $0.12",
     );
     expect(answerUsage(withTools)).toBeUndefined();
   });
@@ -2606,7 +2606,7 @@ describe("deriveMessagesTimelineRows", () => {
     );
     // User message (00:00:00) → trailing work entry (00:00:12).
     expect(foldRow?.turnId).toBe("turn-1");
-    expect(foldRow?.label).toBe("Worked for 12s");
+    expect(foldRow?.label).toBe("Worked for 12s · 2 steps");
   });
 
   it("uses latest-turn timings and the stopped label for an interrupted latest turn", () => {
@@ -2641,7 +2641,7 @@ describe("deriveMessagesTimelineRows", () => {
       expect.objectContaining({
         kind: "turn-fold",
         turnId: "turn-1",
-        label: "You stopped after 47s",
+        label: "You stopped after 47s · 1 step",
         expanded: false,
       }),
     ]);

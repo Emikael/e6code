@@ -5,29 +5,36 @@
  * draft" (decision 8).
  */
 import { useAtomValue } from "@effect/atom-react";
-import { scopedProjectKey, scopeProjectRef } from "@e6tools/client-runtime/environment";
+import { parseScopedProjectKey } from "@e6tools/client-runtime/environment";
 import { ChevronDownIcon, InboxIcon } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { useParkedActions } from "../hooks/useParkedActions";
+import { useClientSettings } from "../hooks/useSettings";
 import { isMacPlatform } from "@e6tools/shared/keybindings";
-import { resolveShortcutCommand } from "../keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { selectProjectGroupingSettings } from "../logicalProject";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { parkThought, useCaptureBarStore } from "../parkedThoughts";
 import { usePromptStashStore } from "../promptStashStore";
+import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { useProjects } from "../state/entities";
+import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { captureProjectOptions } from "./CaptureBar.logic";
+import { ShortcutKeyCaps } from "./ShortcutKeyCaps";
+import { ParkedListDialogHost } from "./sidebar/SidebarParked";
 import { Button } from "./ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "./ui/dialog";
 import { Kbd } from "./ui/kbd";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { toastManager } from "./ui/toast";
 
-/** Root coordinator: the Mod+Alt+P listener and the one capture bar. */
+/** Root coordinator: the Mod+Alt+P listener, the one capture bar and the Parked dialog. */
 export function CaptureBarHost() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const open = useCaptureBarStore((store) => store.open);
@@ -61,30 +68,51 @@ export function CaptureBarHost() {
   }, [keybindings]);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {open ? <CaptureBar onClose={() => setOpen(false)} /> : null}
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        {open ? <CaptureBar onClose={() => setOpen(false)} /> : null}
+      </Dialog>
+      <ParkedListDialogHost />
+    </>
   );
 }
 
 function CaptureBar({ onClose }: { onClose: () => void }) {
   const { startThreadWith, currentProjectKey } = useParkedActions();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const projects = useProjects();
+  const { environments } = useEnvironments();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const inputId = useId();
   const [text, setText] = useState("");
+  const [starting, setStarting] = useState(false);
   // The project on screen when it opened; the thought keeps it.
   const [projectKey, setProjectKey] = useState<string | null>(() => currentProjectKey());
-  const projectOptions = useMemo(
-    () =>
-      projects.map((project) => ({
-        key: scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
-        title: project.title,
-      })),
-    [projects],
+  // One row per project as the app's other pickers group them, each parking into the
+  // member on this machine when there is one.
+  const projectOptions = useMemo(() => {
+    const labelById = new Map(
+      environments.map((environment) => [environment.environmentId, environment.label] as const),
+    );
+    return captureProjectOptions({
+      groups: buildSidebarProjectSnapshots({
+        projects,
+        settings: projectGroupingSettings,
+        primaryEnvironmentId,
+        resolveEnvironmentLabel: (environmentId) => labelById.get(environmentId) ?? null,
+      }),
+      primaryEnvironmentId,
+      preferredProjectRef: projectKey ? parseScopedProjectKey(projectKey) : null,
+    });
+  }, [environments, primaryEnvironmentId, projectGroupingSettings, projectKey, projects]);
+  const selectedOption = projectOptions.find((option) =>
+    option.memberKeys.includes(projectKey ?? ""),
   );
-  const projectTitle =
-    projectOptions.find((option) => option.key === projectKey)?.title ?? "No project";
+  const projectTitle = selectedOption?.label ?? "No project";
   const empty = text.trim().length === 0;
+  const openShortcut = shortcutLabelForCommand(keybindings, "capture.park");
+  const mac = isMacPlatform(navigator.platform);
 
   const park = () => {
     if (empty) return;
@@ -116,19 +144,24 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
     });
   };
 
+  // The bar closes only once the thread exists, so a failure leaves the text where it was.
   const startThread = async () => {
-    if (empty) return;
-    onClose();
-    if (!(await startThreadWith(text.trim(), projectKey))) {
-      // Nothing was lost: park it instead and say so.
-      const result = parkThought(text, projectKey);
-      toastManager.add({
-        type: "error",
-        title: "Could not start a thread",
-        description:
-          result.kind === "parked" ? "The thought was parked instead." : "Add a project first.",
-      });
+    if (empty || starting) return;
+    setStarting(true);
+    const started = await startThreadWith(text.trim(), projectKey).catch(() => false);
+    setStarting(false);
+    if (started) {
+      onClose();
+      return;
     }
+    toastManager.add({
+      type: "error",
+      title: "Could not start a thread",
+      description:
+        projectOptions.length === 0
+          ? "Add a project first. Your text is still in the bar, so you can park it."
+          : "Your text is still in the bar. Try again, or park it.",
+    });
   };
 
   return (
@@ -171,18 +204,20 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
         <div className="h-px bg-border" />
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Menu>
-            <MenuTrigger render={<Button type="button" size="sm" variant="ghost" />}>
+            <MenuTrigger
+              render={<Button type="button" size="sm" variant="ghost" className="sm:text-xs" />}
+            >
               {projectTitle}
               <ChevronDownIcon aria-hidden className="size-3.5" />
             </MenuTrigger>
             <MenuPopup align="start">
               <MenuRadioGroup
-                value={projectKey ?? ""}
+                value={selectedOption?.key ?? ""}
                 onValueChange={(value) => setProjectKey(value === "" ? null : String(value))}
               >
                 {projectOptions.map((option) => (
                   <MenuRadioItem key={option.key} value={option.key} closeOnClick>
-                    {option.title}
+                    {option.label}
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -193,24 +228,27 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
             type="button"
             size="sm"
             variant="ghost"
-            disabled={empty}
+            className="sm:text-xs"
+            disabled={empty || starting}
+            aria-keyshortcuts={mac ? "Meta+Enter" : "Control+Enter"}
             onClick={() => void startThread()}
           >
             Start a thread instead
-            <ShortcutHint label={isMacPlatform(navigator.platform) ? "⌘↵" : "Ctrl+↵"} />
+            <ShortcutKeyCaps label={mac ? "⌘↵" : "Ctrl+↵"} />
           </Button>
-          <Button type="submit" size="sm" disabled={empty}>
+          <Button type="submit" size="sm" className="sm:text-xs" disabled={empty || starting}>
             Park
-            <Kbd className="h-4 min-w-4 bg-transparent px-1 text-primary-foreground ring-1 ring-primary-foreground">
+            <Kbd className="h-4 min-w-4 rounded border border-primary-foreground bg-transparent px-1 text-[11px] text-primary-foreground">
               ↵
             </Kbd>
           </Button>
         </div>
       </form>
+      {/* Says how to come back without the bar, and that nothing behind it stopped. */}
+      <p className="px-5 pb-3 text-xs text-muted-foreground">
+        {openShortcut ? `Opens from anywhere with ${openShortcut}. ` : null}
+        The thread you are in keeps going and you stay where you are.
+      </p>
     </DialogPopup>
   );
-}
-
-function ShortcutHint({ label }: { label: string }) {
-  return <Kbd className="h-5 bg-transparent px-1 ring-1 ring-border">{label}</Kbd>;
 }
