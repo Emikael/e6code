@@ -4201,9 +4201,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Files remain tied to the environment that owns their uploaded bytes.
   const parkedEntries = usePromptStashStore((state) => state.entries);
-  // Drafts and parked thoughts both come back into a composer; notes stay with their recap.
+  // The composer's own menu holds only drafts parked with Mod+S. Thoughts live in the
+  // sidebar's Parked list (with its Undo and count); notes stay with their recap.
   const stashQueue = useMemo(
-    () => parkedEntries.filter((entry) => parkedEntryKind(entry) !== "note"),
+    () => parkedEntries.filter((entry) => parkedEntryKind(entry) === "draft"),
     [parkedEntries],
   );
   const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
@@ -4591,7 +4592,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (prompt.length === 0 && images.length === 0 && files.length === 0) {
       const entries = usePromptStashStore
         .getState()
-        .entries.filter((candidate) => parkedEntryKind(candidate) !== "note");
+        .entries.filter((candidate) => parkedEntryKind(candidate) === "draft");
       const entry = entries.length === 1 ? entries[0] : undefined;
       if (entry && !entry.pendingImageCount) {
         await restoreStashEntry(entry);

@@ -238,6 +238,50 @@ describe("promptStashStore", () => {
     expect(usePromptStashStore.getState().entries).toHaveLength(1);
   });
 
+  it("keeps what another tab parked since this tab last read the list", () => {
+    const store = usePromptStashStore.getState();
+    store.stashEntry(thought("mine"));
+    // Another tab of the origin parks a thought and writes the whole list.
+    writePromptStashStorageForTest(
+      JSON.stringify({ version: 2, state: { entries: [thought("theirs"), thought("mine")] } }),
+      { rehydrate: false },
+    );
+    store.stashEntry(thought("later"));
+    expect(usePromptStashStore.getState().entries.map((entry) => entry.id)).toEqual([
+      "later",
+      "theirs",
+      "mine",
+    ]);
+    store.setThreadNote("env:thread", "A note");
+    store.takeEntry("mine");
+    writePromptStashStorageForTest(JSON.stringify({ version: 2, state: { entries: [] } }), {
+      rehydrate: false,
+    });
+    // A later write starts from the stored list, not this tab's stale copy.
+    store.stashEntry(thought("fresh"));
+    expect(usePromptStashStore.getState().entries.map((entry) => entry.id)).toEqual(["fresh"]);
+  });
+
+  it("keeps this tab's own pending image count across a re-read", () => {
+    const store = usePromptStashStore.getState();
+    store.stashEntry({ ...makeEntry({ id: "encoding" }), pendingImageCount: 1 });
+    store.stashEntry(thought("other"));
+    const encoding = usePromptStashStore
+      .getState()
+      .entries.find((entry) => entry.id === "encoding");
+    expect(encoding?.pendingImageCount).toBe(1);
+    expect(encoding?.unreadableImageNames).toBeUndefined();
+    store.finalizeEntryImages("encoding", {
+      attachments: [],
+      droppedImageNames: [],
+      unreadableImageNames: [],
+    });
+    expect(
+      usePromptStashStore.getState().entries.find((entry) => entry.id === "encoding")
+        ?.pendingImageCount,
+    ).toBe(0);
+  });
+
   it("puts an entry back where it was on Undo", () => {
     const store = usePromptStashStore.getState();
     store.stashEntry(thought("a"));
