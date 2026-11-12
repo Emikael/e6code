@@ -31,6 +31,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadLinkedPullRequest,
+  ThreadPendingRequestSummary,
   ThreadTitleState,
   ThreadId,
   ThreadPullRequestSnapshot,
@@ -169,6 +170,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    pendingRequestSummary: Schema.NullOr(Schema.fromJsonString(ThreadPendingRequestSummary)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -656,6 +658,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -699,6 +702,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -774,6 +778,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -1381,6 +1386,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -2883,6 +2889,9 @@ pending_approval_requests AS (
                         ...(row.pendingRequestSince
                           ? { pendingRequestSince: row.pendingRequestSince }
                           : {}),
+                        ...(row.pendingRequestSummary
+                          ? { pendingRequestSummary: row.pendingRequestSummary }
+                          : {}),
                         hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
                         backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
                           row.threadId,
@@ -3070,6 +3079,9 @@ pending_approval_requests AS (
                   hasPendingUserInput: row.pendingUserInputCount > 0,
                   ...(row.pendingRequestSince
                     ? { pendingRequestSince: row.pendingRequestSince }
+                    : {}),
+                  ...(row.pendingRequestSummary
+                    ? { pendingRequestSummary: row.pendingRequestSummary }
                     : {}),
                   hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
                   backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
@@ -3444,6 +3456,9 @@ pending_approval_requests AS (
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
         ...(threadRow.value.pendingRequestSince
           ? { pendingRequestSince: threadRow.value.pendingRequestSince }
+          : {}),
+        ...(threadRow.value.pendingRequestSummary
+          ? { pendingRequestSummary: threadRow.value.pendingRequestSummary }
           : {}),
         hasActionableProposedPlan: threadRow.value.hasActionableProposedPlan > 0,
         backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(

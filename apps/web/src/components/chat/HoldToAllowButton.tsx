@@ -29,6 +29,8 @@ interface HoldToAllowButtonProps {
   shortcutEnabled: boolean;
   /** Show "Hold ⌘↵" in the tooltip; defaults to `shortcutEnabled`. */
   showShortcutHint?: boolean;
+  /** "xs" beside the composer; "default" on the start screen's approval card. */
+  size?: "xs" | "default";
   onConfirm: () => void;
 }
 
@@ -45,6 +47,7 @@ export function HoldToAllowButton({
   disabled,
   shortcutEnabled,
   showShortcutHint = shortcutEnabled,
+  size = "xs",
   onConfirm,
 }: HoldToAllowButtonProps) {
   const [holding, setHolding] = useState(false);
@@ -108,7 +111,7 @@ export function HoldToAllowButton({
   const shortcut = isMacPlatform(navigator.platform) ? "⌘↵" : "Ctrl+↵";
   const button = (
     <Button
-      size="xs"
+      size={size}
       variant="destructive-outline"
       disabled={disabled}
       aria-describedby={descriptionId}

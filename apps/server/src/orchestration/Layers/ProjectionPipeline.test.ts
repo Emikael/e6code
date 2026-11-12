@@ -10,6 +10,7 @@ import {
   ThreadId,
   type ThreadPullRequestSnapshot,
   ThreadLinkedPullRequest,
+  ThreadPendingRequestSummary,
   TurnId,
   ProviderInstanceId,
 } from "@e6tools/contracts";
@@ -3904,6 +3905,195 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         payload: { requestId: "pending-since-question-2", answers: {} },
       });
       assert.isNull(yield* readPendingSince);
+    }),
+  );
+
+  it.effect("summarizes what the open requests ask on the thread shell", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-pending-summary");
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const appendActivity = (input: {
+        readonly id: string;
+        readonly at: string;
+        readonly kind: string;
+        readonly payload: Record<string, unknown>;
+      }) =>
+        appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make(`evt-${input.id}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: input.at,
+          commandId: CommandId.make(`cmd-${input.id}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-${input.id}`),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make(`activity-${input.id}`),
+              tone: "info",
+              kind: input.kind,
+              summary: input.kind,
+              payload: input.payload,
+              turnId: null,
+              createdAt: input.at,
+            },
+          },
+        });
+      const readRawSummary = sql<{ readonly summary: string | null }>`
+        SELECT pending_request_summary_json AS "summary"
+        FROM projection_threads
+        WHERE thread_id = 'thread-pending-summary'
+      `.pipe(Effect.map((rows) => rows[0]?.summary ?? null));
+      const decodeSummary = Schema.decodeUnknownEffect(
+        Schema.fromJsonString(ThreadPendingRequestSummary),
+      );
+      const readSummary = readRawSummary.pipe(
+        Effect.flatMap((raw) => (raw === null ? Effect.succeed(null) : decodeSummary(raw))),
+      );
+      const question = (id: string, text: string) => ({
+        id,
+        header: "Choice",
+        question: text,
+        options: [{ label: "Yes", description: "Yes" }],
+      });
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-pending-summary-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-pending-summary"),
+        occurredAt: "2026-04-01T09:00:00.000Z",
+        commandId: CommandId.make("cmd-pending-summary-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-summary-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-pending-summary"),
+          title: "Pending summary",
+          workspaceRoot: "/tmp/project-pending-summary",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-04-01T09:00:00.000Z",
+          updatedAt: "2026-04-01T09:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-pending-summary-thread"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-04-01T09:00:01.000Z",
+        commandId: CommandId.make("cmd-pending-summary-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-summary-thread"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-pending-summary"),
+          title: "Pending summary",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-04-01T09:00:01.000Z",
+          updatedAt: "2026-04-01T09:00:01.000Z",
+        },
+      });
+      assert.isNull(yield* readSummary);
+
+      // Two command approvals (one named only by its native request type) and a file change.
+      yield* appendActivity({
+        id: "pending-summary-command",
+        at: "2026-04-01T09:01:00.000Z",
+        kind: "approval.requested",
+        payload: {
+          requestId: "pending-summary-command",
+          requestKind: "command",
+          requestType: "command_execution_approval",
+          detail: "vp test run apps/server/src/relay",
+        },
+      });
+      yield* appendActivity({
+        id: "pending-summary-edit",
+        at: "2026-04-01T09:02:00.000Z",
+        kind: "approval.requested",
+        payload: { requestId: "pending-summary-edit", requestKind: "file-change" },
+      });
+      yield* appendActivity({
+        id: "pending-summary-legacy-command",
+        at: "2026-04-01T09:03:00.000Z",
+        kind: "approval.requested",
+        payload: {
+          requestId: "pending-summary-legacy-command",
+          requestType: "exec_command_approval",
+        },
+      });
+      assert.deepEqual(yield* readSummary, {
+        approvalCount: 3,
+        approvalKind: "command",
+        approvalKindCount: 2,
+        userInputCount: 0,
+        questionCount: 0,
+      });
+
+      // A question with a long, multi-line text is cut to one short line.
+      const longText = `Keep the spring animation,\n or cut to a fade? ${"x".repeat(200)}`;
+      yield* appendActivity({
+        id: "pending-summary-question",
+        at: "2026-04-01T09:04:00.000Z",
+        kind: "user-input.requested",
+        payload: {
+          requestId: "pending-summary-question",
+          questions: [question("q1", longText), question("q2", "And the easing?")],
+        },
+      });
+      const withQuestion = yield* readSummary;
+      assert.strictEqual(withQuestion?.userInputCount, 1);
+      assert.strictEqual(withQuestion?.questionCount, 2);
+      const questionText = withQuestion?.question ?? "";
+      assert.strictEqual(questionText.length, 160);
+      assert.isTrue(questionText.startsWith("Keep the spring animation, or cut to a fade?"));
+      assert.isTrue(questionText.endsWith("…"));
+
+      // Resolving the oldest approval names the next kind; the command text never rides along.
+      yield* appendActivity({
+        id: "pending-summary-command-resolved",
+        at: "2026-04-01T09:05:00.000Z",
+        kind: "approval.resolved",
+        payload: { requestId: "pending-summary-command", decision: "accept" },
+      });
+      const afterResolve = yield* readSummary;
+      assert.strictEqual(afterResolve?.approvalCount, 2);
+      assert.strictEqual(afterResolve?.approvalKind, "file-change");
+      assert.strictEqual(afterResolve?.approvalKindCount, 1);
+      assert.notInclude((yield* readRawSummary) ?? "", "vp test run");
+
+      // Nothing left pending clears it.
+      for (const [id, kind, requestId] of [
+        ["pending-summary-edit-resolved", "approval.resolved", "pending-summary-edit"],
+        ["pending-summary-legacy-resolved", "approval.resolved", "pending-summary-legacy-command"],
+        ["pending-summary-question-resolved", "user-input.resolved", "pending-summary-question"],
+      ] as const) {
+        yield* appendActivity({
+          id,
+          at: "2026-04-01T09:06:00.000Z",
+          kind,
+          payload: { requestId, decision: "accept", answers: {} },
+        });
+      }
+      assert.isNull(yield* readSummary);
     }),
   );
 

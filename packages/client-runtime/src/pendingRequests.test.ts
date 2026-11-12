@@ -2,6 +2,8 @@ import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/cont
 import { describe, expect, it } from "vite-plus/test";
 import {
   derivePendingRequests,
+  describePendingApprovalAsk,
+  describePendingQuestionAsk,
   describeSubagentUserRequest,
   subagentUserRequests,
 } from "./pendingRequests.ts";
@@ -585,5 +587,68 @@ describe.each(["approval", "user-input"])("%s request completion", (requestKind)
       approvals: [],
       userInputs: [],
     });
+  });
+});
+
+describe("pending request asks from the shell summary", () => {
+  const base = { approvalCount: 1, userInputCount: 0, questionCount: 0 };
+
+  it("names the oldest approval's kind, counting commands", () => {
+    expect(
+      describePendingApprovalAsk("Codex", {
+        ...base,
+        approvalKind: "command",
+        approvalKindCount: 1,
+      }),
+    ).toBe("Codex wants to run 1 command");
+    expect(
+      describePendingApprovalAsk("Codex", {
+        ...base,
+        approvalCount: 3,
+        approvalKind: "command",
+        approvalKindCount: 2,
+      }),
+    ).toBe("Codex wants to run 2 commands");
+    expect(
+      describePendingApprovalAsk("Claude", {
+        ...base,
+        approvalKind: "file-change",
+        approvalKindCount: 2,
+      }),
+    ).toBe("Claude wants to change files");
+  });
+
+  it("falls back to generic wording without a summary or for an unknown kind", () => {
+    expect(describePendingApprovalAsk("Codex", undefined)).toBe(
+      "Codex is waiting for your approval",
+    );
+    expect(describePendingApprovalAsk("Grok", base)).toBe("Grok is waiting for your approval");
+    expect(
+      describePendingApprovalAsk("Grok", {
+        ...base,
+        approvalKind: "teleport",
+        approvalKindCount: 1,
+      }),
+    ).toBe("Grok is waiting for your approval");
+  });
+
+  it("quotes the question with the count of questions", () => {
+    expect(
+      describePendingQuestionAsk("Claude", {
+        approvalCount: 0,
+        userInputCount: 1,
+        questionCount: 1,
+        question: "keep the spring animation, or cut to a fade?",
+      }),
+    ).toBe("Claude asks 1 question: keep the spring animation, or cut to a fade?");
+    expect(
+      describePendingQuestionAsk("Claude", {
+        approvalCount: 0,
+        userInputCount: 1,
+        questionCount: 3,
+        question: "Spring or fade?",
+      }),
+    ).toBe("Claude asks 3 questions: Spring or fade?");
+    expect(describePendingQuestionAsk("Claude", undefined)).toBe("Claude asked you a question");
   });
 });

@@ -932,6 +932,32 @@ export const ThreadUsageTotal = Schema.Struct({
 });
 export type ThreadUsageTotal = typeof ThreadUsageTotal.Type;
 
+/** Longest question text a shell carries; the server cuts longer ones with "…". */
+export const PENDING_REQUEST_QUESTION_MAX_CHARS = 160;
+
+/**
+ * What a blocked thread is waiting on, small enough to ride on every shell so
+ * the start screen, notifications and mobile can say it without subscribing
+ * to the thread: "Codex wants to run 1 command", "Claude asks 1 question:
+ * …". It never carries command text, output or file contents; those stay in
+ * thread detail.
+ *
+ * `approvalKind` is the oldest open approval's `ProviderRequestKind`, kept a
+ * plain string so a kind this client does not know decodes and falls back to
+ * generic wording. `approvalKindCount` counts the open approvals of that kind.
+ */
+export const ThreadPendingRequestSummary = Schema.Struct({
+  approvalCount: NonNegativeInt,
+  approvalKind: Schema.optional(TrimmedNonEmptyString),
+  approvalKindCount: Schema.optional(NonNegativeInt),
+  userInputCount: NonNegativeInt,
+  /** Questions across the open user-input requests. */
+  questionCount: NonNegativeInt,
+  /** The oldest open request's first question, cut to `PENDING_REQUEST_QUESTION_MAX_CHARS`. */
+  question: Schema.optional(TrimmedNonEmptyString),
+});
+export type ThreadPendingRequestSummary = typeof ThreadPendingRequestSummary.Type;
+
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -984,6 +1010,12 @@ export const OrchestrationThreadShell = Schema.Struct({
    * `updatedAt`.
    */
   pendingRequestSince: Schema.optional(IsoDateTime),
+  /**
+   * What the pending requests ask (see ThreadPendingRequestSummary). Omitted
+   * when nothing is pending or the adapter gave nothing to summarize; clients
+   * then fall back to generic wording, as they do on older servers.
+   */
+  pendingRequestSummary: Schema.optional(ThreadPendingRequestSummary),
   hasActionableProposedPlan: Schema.Boolean,
   /**
    * Native background work alive after the turn settles: "working" while

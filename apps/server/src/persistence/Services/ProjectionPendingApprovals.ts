@@ -77,6 +77,18 @@ export interface ProjectionPendingApprovalRepositoryShape {
   >;
 
   /**
+   * What each pending approval asks, oldest first: the `requestKind` and
+   * `requestType` its `approval.requested` activity carried, null when the
+   * activity is gone or named neither.
+   */
+  readonly listPendingKindsByThreadId: (
+    input: ListProjectionPendingApprovalsInput,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly requestKind: string | null; readonly requestType: string | null }>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read a pending approval row by request id.
    */
   readonly getByRequestId: (

@@ -281,6 +281,34 @@ describe("threadNotificationBody", () => {
     );
   });
 
+  it("says what a blocked agent asks when the shell carries it (board 7)", () => {
+    const approval = {
+      ...thread,
+      pendingRequestSummary: {
+        approvalCount: 1,
+        approvalKind: "command",
+        approvalKindCount: 1,
+        userInputCount: 0,
+        questionCount: 0,
+      },
+    };
+    expect(threadNotificationBody(approval, "approval", label)).toBe(
+      "Fix tunnel reconnect loop · Codex wants to run 1 command",
+    );
+    const question = {
+      ...thread,
+      pendingRequestSummary: {
+        approvalCount: 0,
+        userInputCount: 1,
+        questionCount: 1,
+        question: "keep the spring animation, or cut to a fade?",
+      },
+    };
+    expect(threadNotificationBody(question, "input", label)).toBe(
+      "Fix tunnel reconnect loop · Codex asks 1 question: keep the spring animation, or cut to a fade?",
+    );
+  });
+
   it("names the failure's first line, shortened", () => {
     const failed = {
       ...thread,

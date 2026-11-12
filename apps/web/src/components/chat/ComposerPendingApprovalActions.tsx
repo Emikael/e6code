@@ -11,6 +11,7 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { DEFAULT_APPROVAL_OPTIONS, layoutApprovalActions } from "./approvalActions";
 import { HoldToAllowButton } from "./HoldToAllowButton";
 
 interface ComposerPendingApprovalActionsProps {
@@ -31,13 +32,6 @@ interface ComposerPendingApprovalActionsProps {
   ) => Promise<unknown>;
 }
 
-const DEFAULT_APPROVAL_OPTIONS = [
-  { decision: "cancel", label: "Cancel" },
-  { decision: "decline", label: "Decline" },
-  { decision: "acceptForSession", label: "Always allow this session" },
-  { decision: "accept", label: "Approve" },
-] satisfies ReadonlyArray<ProviderApprovalOption>;
-
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
   isResponding,
@@ -51,15 +45,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
     (option) => option.decision === "decline" || option.decision === "accept",
   );
   // A destructive command is allowed one hold at a time, never for the session.
-  const moreOptions = options.filter(
-    (option) =>
-      option.decision !== "decline" &&
-      option.decision !== "accept" &&
-      !(
-        destructive !== null &&
-        (option.decision === "acceptForSession" || option.decision === "acceptAlways")
-      ),
-  );
+  const moreOptions = layoutApprovalActions(options, destructive).more;
 
   return (
     <>

@@ -1933,6 +1933,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
+      const summary = {
+        approvalCount: 1,
+        approvalKind: "command",
+        approvalKindCount: 1,
+        userInputCount: 0,
+        questionCount: 0,
+      };
+      const summaryJson =
+        '{"approvalCount":1,"approvalKind":"command","approvalKindCount":1,"userInputCount":0,"questionCount":0}';
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
@@ -1958,12 +1967,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
             branch, worktree_path, latest_turn_id, latest_user_message_at,
             pending_approval_count, pending_user_input_count, pending_request_since,
+            pending_request_summary_json,
             has_actionable_proposed_plan, created_at, updated_at, archived_at, deleted_at
           )
           VALUES (
             ${threadId}, 'project-1', 'Thread', '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access', 'default', NULL, NULL, NULL, NULL,
-            ${pendingSince === null ? 0 : 1}, 0, ${pendingSince}, 0,
+            ${pendingSince === null ? 0 : 1}, 0, ${pendingSince},
+            ${pendingSince === null ? null : summaryJson}, 0,
             '2026-04-02T00:00:02.000Z', '2026-04-02T00:00:03.000Z', NULL, NULL
           )
         `;
@@ -1984,6 +1995,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         "2026-04-02T00:00:04.000Z",
       );
       assert.isFalse("pendingRequestSince" in (shellOf("thread-idle") ?? {}));
+      // The request summary rides the same way.
+      assert.deepEqual(
+        blocked._tag === "Some" ? blocked.value.pendingRequestSummary : "missing",
+        summary,
+      );
+      assert.deepEqual(shellOf("thread-blocked")?.pendingRequestSummary, summary);
+      assert.isFalse("pendingRequestSummary" in (shellOf("thread-idle") ?? {}));
     }),
   );
 
