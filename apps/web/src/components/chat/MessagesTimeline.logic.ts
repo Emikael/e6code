@@ -1090,13 +1090,13 @@ function buildRevertTurnCountByUserMessageId(input: {
  * The disclosure set holds groups the reader opened, plus a marker for each
  * group the reader folded although it opens by itself.
  */
-export const workGroupFoldedKey = (groupId: string) => `folded:${groupId}`;
+const workGroupFoldedKey = (groupId: string) => `folded:${groupId}`;
 
 /**
  * Must be on screen while it happens, whatever "Agent activity" says: an
  * approval request, or a command that is hard to undo.
  */
-export function workEntryStaysVisible(
+function workEntryStaysVisible(
   entry: Pick<WorkLogEntry, "sourceActivityKind" | "command" | "rawCommand">,
 ): boolean {
   if (entry.sourceActivityKind === "approval.requested") return true;
@@ -1731,7 +1731,7 @@ export const EARLIER_TURNS_ROW_ID = "earlier-turns-row";
  * nothing earlier the rows are returned as they are. Expanded, the row stays
  * on top so the way back is where you clicked.
  */
-export function foldEarlierTurns(
+function foldEarlierTurns(
   rows: MessagesTimelineRow[],
   mode: "folded" | "expanded" | undefined,
 ): MessagesTimelineRow[] {

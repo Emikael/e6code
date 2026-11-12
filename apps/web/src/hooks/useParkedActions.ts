@@ -20,7 +20,7 @@ function readRouteTarget(router: ReturnType<typeof useRouter>): ThreadRouteTarge
 }
 
 /** The project of the thread or draft on screen, else null (Settings, Pull requests). */
-export function readRouteProjectRef(target: ThreadRouteTarget | null): ScopedProjectRef | null {
+function readRouteProjectRef(target: ThreadRouteTarget | null): ScopedProjectRef | null {
   if (target?.kind === "server") {
     const shell = readThreadShell(target.threadRef);
     return shell ? scopeProjectRef(shell.environmentId, shell.projectId) : null;

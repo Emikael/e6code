@@ -26,7 +26,7 @@ export type DiffPagingStep =
   | { readonly kind: "done" };
 
 /** The next file not reviewed after `from`, wrapping past the last file; null when none is. */
-export function nextUnreviewedFile(files: readonly DiffPagingFile[], from: number): number | null {
+function nextUnreviewedFile(files: readonly DiffPagingFile[], from: number): number | null {
   for (let offset = 1; offset < files.length; offset += 1) {
     const index = (from + offset) % files.length;
     if (!files[index]!.reviewed) return index;

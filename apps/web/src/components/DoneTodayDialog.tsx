@@ -49,7 +49,7 @@ import { Dialog, DialogClose, DialogPopup, DialogTitle } from "./ui/dialog";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 /** Whether Done today is open. The sidebar row and the palette open it. */
-export const useDoneTodayStore = create<{
+const useDoneTodayStore = create<{
   readonly open: boolean;
   readonly setOpen: (open: boolean) => void;
 }>()((set) => ({ open: false, setOpen: (open) => set({ open }) }));

@@ -17,7 +17,7 @@ import {
 import { randomUUID } from "./lib/utils";
 
 /** Start screen chips before "N more" (board 1). */
-export const PARKED_CHIP_LIMIT = 2;
+const PARKED_CHIP_LIMIT = 2;
 
 /** "2026-11-12" in local time, the shape of `pinnedFor`. */
 export function localDateKey(ms: number): string {

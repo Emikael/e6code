@@ -42,7 +42,7 @@ export interface PendingUserInput {
  * What a named subagent is asking for, after its title: "Share link API
  * wants to run a command". Shared so every approval surface says the same.
  */
-export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
   command: "wants to run a command",
   "file-read": "wants to read a file",
   "file-change": "wants to change files",
@@ -51,7 +51,7 @@ export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, stri
 };
 
 /** What any agent's unnamed request says after its name: "OpenCode is waiting for your approval". */
-export const GENERIC_APPROVAL_PHRASE = "is waiting for your approval";
+const GENERIC_APPROVAL_PHRASE = "is waiting for your approval";
 
 /** The kind to word an approval by, or null when it named none: use the generic phrase. */
 export function approvalWordingKind(

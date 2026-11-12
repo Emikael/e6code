@@ -137,7 +137,7 @@ export function shouldReserveContextWindowMeter(input: {
 }
 
 /** The compact composer's meter appears from this share of the window used. */
-export const CONTEXT_WINDOW_NEAR_FULL_PERCENT = 80;
+const CONTEXT_WINDOW_NEAR_FULL_PERCENT = 80;
 
 /**
  * Whether the composer shows the context meter. Compact controls keep it out

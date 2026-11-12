@@ -61,7 +61,7 @@ export function approvalSentLabel(agent: string): string {
 }
 
 /** "Already answered. Waiting for Codex.": another surface or device answered first. */
-export function approvalAlreadyAnsweredLabel(agent: string): string {
+function approvalAlreadyAnsweredLabel(agent: string): string {
   return `Already answered. Waiting for ${agent}.`;
 }
 

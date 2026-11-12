@@ -90,7 +90,7 @@ export interface UiPullRequestState {
 }
 
 /** The collapsible sections of Run details, in the order they render. */
-export const RUN_DETAILS_SECTIONS = ["plan", "changes", "subagents", "usage"] as const;
+const RUN_DETAILS_SECTIONS = ["plan", "changes", "subagents", "usage"] as const;
 export type RunDetailsSectionId = (typeof RUN_DETAILS_SECTIONS)[number];
 
 export interface UiRunDetailsState {

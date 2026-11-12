@@ -127,7 +127,7 @@ export interface ThreadChangedFolder {
 }
 
 /** The parent folder of a workspace path, "" at the root. */
-export function fileFolder(path: string): string {
+function fileFolder(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? "" : path.slice(0, slash);
 }

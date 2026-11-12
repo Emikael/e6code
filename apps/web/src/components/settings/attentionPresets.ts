@@ -45,11 +45,7 @@ export const ATTENTION_PRESETS: Readonly<Record<AttentionPreset, PresetValues>> 
   },
 };
 
-export const ATTENTION_PRESET_ORDER: ReadonlyArray<AttentionPreset> = [
-  "quiet",
-  "standard",
-  "detailed",
-];
+const ATTENTION_PRESET_ORDER: ReadonlyArray<AttentionPreset> = ["quiet", "standard", "detailed"];
 
 /** The starting point the current values match, or null when they match none. */
 export function resolveAttentionPreset<T extends PresetValues>(

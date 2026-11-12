@@ -49,9 +49,6 @@ export type ParkedDecision =
   | { readonly ok: true; readonly event: PlannedParkedEvent }
   | { readonly ok: false; readonly detail: string };
 
-export const isParkedCommand = (command: OrchestrationCommand): command is ParkedCommand =>
-  command.type.startsWith("parked.");
-
 export function parkedStateOf(readModel: Pick<OrchestrationReadModel, "parked">) {
   return readModel.parked ?? EMPTY_PARKED_STATE;
 }

@@ -19,7 +19,7 @@ export const RECAP_BREAK_MS = 5 * 60 * 1_000;
 export const THREAD_DETAIL_ACTIVITY_CAP = 500;
 
 /** "You asked" prefers a message at least this long, so "ok" or "go on" never stands for the work. */
-export const RECAP_ASK_MIN_LENGTH = 40;
+const RECAP_ASK_MIN_LENGTH = 40;
 
 const MAX_RECAP_FILES = 3;
 

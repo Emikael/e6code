@@ -1046,11 +1046,6 @@ export function subagentTone(
   return agent.waitingOn.kind === "approval" ? "approval" : "question";
 }
 
-/** Tones where the subagent waits on the user. */
-export function isSubagentWaitingTone(tone: SubagentStatusTone): boolean {
-  return tone === "approval" || tone === "question";
-}
-
 export const SUBAGENT_STATUS_LABEL: Readonly<Record<SubagentStatusTone, string>> = {
   approval: "Needs approval",
   question: "Needs your answer",

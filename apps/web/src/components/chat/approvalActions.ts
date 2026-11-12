@@ -17,12 +17,10 @@ export function approvalMoreLabel(
 
 // Shared with mobile, so both clients answer by the same rules.
 export {
-  APPROVAL_SWAP_GUARD_MS,
   approvalActivationAllowed,
   approvalAnsweredLabel,
   approvalAnswerAnnouncement,
   approvalAwayFromThread,
-  approvalSentLabel,
   DEFAULT_APPROVAL_OPTIONS,
   firstUnansweredRequest,
   layoutApprovalActions,

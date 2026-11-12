@@ -11,7 +11,7 @@ import { AttentionCard, ATTENTION_ROW_CLASS } from "./AttentionCard";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-export const ATTENTION_NOTIFICATION_LABELS = {
+const ATTENTION_NOTIFICATION_LABELS = {
   blocked: "When an agent is blocked",
   all: "For every update",
   off: "Off",

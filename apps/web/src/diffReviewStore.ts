@@ -43,7 +43,7 @@ export interface DiffReviewMark extends DiffReviewFingerprint {
 export type DiffReviewStatus = "reviewed" | "changed" | "unreviewed";
 
 /** Marks kept on this device; past this, the oldest are dropped. */
-export const MAX_DIFF_REVIEW_MARKS = 4000;
+const MAX_DIFF_REVIEW_MARKS = 4000;
 
 const KEY_SEPARATOR = "\u0000";
 
@@ -150,7 +150,7 @@ export function withDiffReviewMark(
   return next;
 }
 
-export function withoutDiffReviewMark(marks: DiffReviewMarks, key: string): DiffReviewMarks {
+function withoutDiffReviewMark(marks: DiffReviewMarks, key: string): DiffReviewMarks {
   if (!(key in marks)) return marks;
   const { [key]: _removed, ...rest } = marks;
   return rest;
@@ -197,7 +197,7 @@ export function lastSeenChangeIndex(
 }
 
 /** Positions kept on this device; past this, the oldest are dropped. */
-export const MAX_DIFF_LAST_SEEN = 400;
+const MAX_DIFF_LAST_SEEN = 400;
 
 export function diffLastSeenKey(threadKey: string, scope: string): string {
   return [threadKey, scope].join(KEY_SEPARATOR);

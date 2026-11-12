@@ -49,7 +49,7 @@ const PARKED_STORED_TEXT_MAX_CHARS = 8_000;
  * already sent once (`sentAt`) is skipped instead, so a device that was away
  * longer still cannot bring one back, and keeps its copy rather than losing it.
  */
-export const PARKED_TOMBSTONE_MAX_AGE_DAYS = 90;
+const PARKED_TOMBSTONE_MAX_AGE_DAYS = 90;
 export const PARKED_TOMBSTONE_MAX_AGE_MS = PARKED_TOMBSTONE_MAX_AGE_DAYS * 24 * 60 * 60 * 1_000;
 
 /** The oldest removal time (ISO, as stored) still remembered at `nowMs`. */
@@ -192,7 +192,7 @@ export const OrchestrationParkedStreamItem = Schema.Union([
 export type OrchestrationParkedStreamItem = typeof OrchestrationParkedStreamItem.Type;
 
 /** Whether an entry id is a note's (`parkedNoteId`). */
-export const isParkedNoteId = (id: string): boolean => id.startsWith("note:");
+const isParkedNoteId = (id: string): boolean => id.startsWith("note:");
 
 /**
  * Folds stream items into the list a client shows. Newest first, the order the

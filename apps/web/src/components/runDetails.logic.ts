@@ -58,7 +58,7 @@ export interface SubagentsLiveWork {
   readonly closedInTurnId: string | null;
 }
 
-export const NO_LIVE_SUBAGENT_WORK: SubagentsLiveWork = { liveTurnId: null, closedInTurnId: null };
+const NO_LIVE_SUBAGENT_WORK: SubagentsLiveWork = { liveTurnId: null, closedInTurnId: null };
 
 /**
  * Whether a Run details section is open. Plan and Changes start open; Usage and Subagents start

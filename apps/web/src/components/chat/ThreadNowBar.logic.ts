@@ -88,10 +88,7 @@ function earliest(times: ReadonlyArray<string>): string {
 }
 
 /** "Codex wants to run 1 command", "Claude wants to change files". */
-export function approvalAskText(
-  provider: string,
-  approvals: NowBarInput["pendingApprovals"],
-): string {
+function approvalAskText(provider: string, approvals: NowBarInput["pendingApprovals"]): string {
   const [first] = approvals;
   if (!first) return `${provider} is waiting for your approval`;
   const kind = approvalWordingKind(first);
@@ -105,7 +102,7 @@ export function approvalAskText(
 }
 
 /** "Claude asks 1 question: keep the spring animation, or cut to a fade?" */
-export function inputAskText(provider: string, inputs: NowBarInput["pendingUserInputs"]): string {
+function inputAskText(provider: string, inputs: NowBarInput["pendingUserInputs"]): string {
   const questions = inputs.flatMap((input) => input.questions);
   const [first] = questions;
   if (!first) return `${provider} asked you a question`;

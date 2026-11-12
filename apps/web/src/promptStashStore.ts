@@ -49,7 +49,7 @@ export const PROMPT_STASH_STORAGE_KEY = "e6code:prompt-stash:v2";
  */
 export const PARKED_CACHE_STORAGE_KEY = "e6code:parked-cache:v1";
 /** The user's answer, per environment, to saving parked thoughts and notes there. */
-export const PARKED_CONSENT_STORAGE_KEY = "e6code:parked-consent:v1";
+const PARKED_CONSENT_STORAGE_KEY = "e6code:parked-consent:v1";
 /**
  * v1 bucketed entries into per-provider-instance queues and stored a model
  * selection with each prompt. The stash is provider-agnostic now, so the old
@@ -64,7 +64,7 @@ export const MAX_STASH_ENTRIES = 20;
 /** Text-only thoughts parked from the capture bar (Mod+Alt+P). */
 export const MAX_PARKED_THOUGHTS = 200;
 /** Notes to self, one per thread, shown in the recap. */
-export const MAX_THREAD_NOTES = 200;
+const MAX_THREAD_NOTES = 200;
 
 /**
  * What an entry is. Drafts are composer snapshots, thoughts come from the
@@ -74,7 +74,7 @@ export const MAX_THREAD_NOTES = 200;
 export type ParkedEntryKind = "draft" | "thought" | "note";
 
 /** The cap for each kind. Past it a new entry is refused; nothing is evicted (decision 10). */
-export const PARKED_CAPS: Readonly<Record<ParkedEntryKind, number>> = {
+const PARKED_CAPS: Readonly<Record<ParkedEntryKind, number>> = {
   draft: MAX_STASH_ENTRIES,
   thought: MAX_PARKED_THOUGHTS,
   note: MAX_THREAD_NOTES,
@@ -595,7 +595,7 @@ function composeEntries(snapshot: StashSnapshot): ReadonlyArray<PromptStashEntry
  * Null for drafts. Whether anything may go there is a separate question
  * (`mayParkIn`).
  */
-export function parkedEntryHome(
+function parkedEntryHome(
   entry: Pick<PromptStashEntry, "kind" | "projectKey" | "threadKey" | "parkedTarget">,
   primaryEnvironmentId: string | null,
 ): string | null {
@@ -638,7 +638,7 @@ function toImportEntry(entry: PromptStashEntry, environmentId: string): ParkedIm
  * as one upload; empty until the user accepted that environment. The server
  * keeps one copy however often it is sent.
  */
-export function selectParkedImport(
+function selectParkedImport(
   snapshot: Pick<StashSnapshot, "entries">,
   environmentId: string,
   context: { readonly consents: ParkedConsents; readonly primaryEnvironmentId: string | null },

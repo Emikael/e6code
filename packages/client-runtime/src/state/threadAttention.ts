@@ -28,7 +28,7 @@ const KIND_ORDER: Readonly<Record<ThreadAttentionKind, number>> = {
 };
 
 /** Blocked rows older than this fold into one "Earlier" row. */
-export const THREAD_ATTENTION_STALE_MS = 24 * 60 * 60 * 1_000;
+const THREAD_ATTENTION_STALE_MS = 24 * 60 * 60 * 1_000;
 
 export type ThreadAttentionShell = Pick<
   OrchestrationThreadShell,
@@ -99,7 +99,7 @@ function isLatestTurnSettled(thread: Pick<OrchestrationThreadShell, "session" | 
  * user. `lastVisitedAt` is this device's last visit; without one a finished
  * turn is not reported as unseen, matching the sidebar's unread rule.
  */
-export function resolveThreadAttentionKind(
+function resolveThreadAttentionKind(
   thread: ThreadAttentionShell,
   lastVisitedAt: string | null | undefined,
 ): ThreadAttentionKind | null {
