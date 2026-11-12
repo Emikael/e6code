@@ -259,12 +259,20 @@ export function describeAttentionAgeSpoken(since: string, now: string): string {
  * Where "Go to next thread that needs you" lands: Blocked (Earlier
  * included), then To review, starting after the open thread and wrapping.
  * The open thread itself is skipped; null when nothing else is waiting.
+ * `scope: "blocked"` walks Blocked and Earlier only, for a control that
+ * counts only those (focus mode's "1 needs you · Next"), so the count and
+ * the walk agree.
  */
 export function nextNeedsYouTarget<T extends ThreadAttentionShell>(
   attention: Pick<ThreadAttention<T>, "blocked" | "earlier" | "review">,
   currentKey: string | null,
+  options: { readonly scope?: "blocked" | "all" } = {},
 ): ThreadAttentionItem<T> | null {
-  const order = [...attention.blocked, ...attention.earlier, ...attention.review];
+  const order = [
+    ...attention.blocked,
+    ...attention.earlier,
+    ...(options.scope === "blocked" ? [] : attention.review),
+  ];
   const currentIndex =
     currentKey === null ? -1 : order.findIndex((item) => item.key === currentKey);
   for (let step = 1; step <= order.length; step += 1) {

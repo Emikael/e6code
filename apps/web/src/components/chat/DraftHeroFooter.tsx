@@ -51,8 +51,13 @@ import { threadNotificationFact } from "~/threadNotificationPolicy";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatShortTimestamp, formatUpcomingTimestamp } from "~/timestampFormat";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
-import { resolveWorkingStartedAt } from "../Sidebar.logic";
+import {
+  resolveWorkingStartedAt,
+  runningThreadMarkKind,
+  THREAD_STATUS_MARKS,
+} from "../Sidebar.logic";
 import { BlockedDiamond } from "../SidebarNeedsYou";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "../ThreadStatusMarker";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -103,6 +108,7 @@ export function DraftHeroFooter({
   unpushed,
   setupProject,
   onOpenSourceControl,
+  composerHasText,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   /** Commits on the project's branch that its remote lacks. */
@@ -111,6 +117,8 @@ export function DraftHeroFooter({
   setupProject: Parameters<typeof selectStaleSetupThread>[1];
   /** Opens Run details, where Commit pushes or opens a pull request. */
   onOpenSourceControl: () => void;
+  /** The composer holds a draft: Send has the screen's one fill, so Approve gives it up. */
+  composerHasText: boolean;
 }) {
   const router = useRouter();
   const threads = useThreadShells();
@@ -192,6 +200,7 @@ export function DraftHeroFooter({
                     <AttentionCue verb={attentionCueVerb(item.kind)} since={since} />
                   )}
                   onOpen={() => openThread(item.thread)}
+                  composerHasText={composerHasText}
                 />
               ) : (
                 <BlockedCard key={item.key} item={item} onOpen={openThread} />
@@ -308,7 +317,6 @@ function MoreLine({ count, where }: { count: number; where: string }) {
   );
 }
 
-/** The minute clock reads "2026-11-11T14:02" in UTC; give it back its zone. */
 /**
  * Board 1: up to two parked thoughts under the composer, then "N more". A chip
  * puts its thought in this composer and leaves Parked; "N more" opens the list.
@@ -367,6 +375,7 @@ function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; 
 const PARKED_CHIP_CLASS =
   "inline-flex h-6 cursor-pointer items-center rounded-md bg-secondary px-2 text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
+/** The minute clock reads "2026-11-11T14:02" in UTC; give it back its zone. */
 function minuteToIso(minute: string): string {
   return `${minute}:00.000Z`;
 }
@@ -501,6 +510,8 @@ const WorkingRow = memo(function WorkingRow({
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const { thread } = row;
   const progress = thread.agentState ? null : thread.planProgress;
+  // Retrying and waiting on a usage limit are neutral, as in the sidebar; the caption names them.
+  const markKind = runningThreadMarkKind(thread);
   const caption = workingCaption(thread, (resetsAt) =>
     formatUpcomingTimestamp(resetsAt, timestampFormat),
   );
@@ -515,9 +526,13 @@ const WorkingRow = memo(function WorkingRow({
         )}
       >
         <span
-          aria-hidden
-          className="mx-1 size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
-        />
+          className={cn(
+            "mx-1 inline-flex w-2 shrink-0 justify-center",
+            THREAD_STATUS_TONE_TEXT[THREAD_STATUS_MARKS[markKind].tone],
+          )}
+        >
+          <ThreadStatusMarker kind={markKind} marker={THREAD_STATUS_MARKS[markKind].marker} />
+        </span>
         <span className="min-w-0 shrink truncate text-[13px] leading-[18px] font-medium text-foreground">
           {thread.title}
         </span>

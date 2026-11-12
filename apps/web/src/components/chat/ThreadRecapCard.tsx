@@ -26,7 +26,17 @@ import { PARKED_INPUT_MAX_CHARS, parkedLengthCount } from "~/parkedThoughts";
 import { useThreadRecapStore } from "~/threadRecapStore";
 import { formatDayAwareTimestamp } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
+import { create } from "zustand";
+
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { toastManager } from "../ui/toast";
 
 export interface ThreadRecapSource {
@@ -78,8 +88,17 @@ export function ThreadRecapHost({
   onOpenFile,
   onOpenChanges,
   attachedNotSent,
+  hidden = false,
+  onShowingChange,
 }: {
   threadKey: string;
+  /**
+   * Another card holds the slot above the composer (the permission prompt):
+   * the recap waits, undismissed, until it is free.
+   */
+  hidden?: boolean;
+  /** Whether a recap applies now (shown or waiting), so the Next card can give way to it. */
+  onShowingChange?: (showing: boolean) => void;
   /** "1 comment not sent": attached items waiting in this thread's composer, kept live. */
   attachedNotSent: string | null;
   /** False while thread detail loads; the recap waits so it sees the whole log. */
@@ -184,20 +203,30 @@ export function ThreadRecapHost({
     };
   }, [noteSeen, threadKey]);
 
-  if (!current.recap) return null;
+  const showing = Boolean(current.recap);
+  useEffect(() => {
+    onShowingChange?.(showing);
+  }, [onShowingChange, showing]);
+  useEffect(() => () => onShowingChange?.(false), [onShowingChange]);
+
+  const noteDialog = <ThreadNoteDialog threadKey={threadKey} />;
+  if (!current.recap || hidden) return noteDialog;
   return (
-    // A recap for another thread, or one asked for again, arrives as a new card.
-    <ThreadRecapCard
-      key={`${threadKey}:${current.handledRequest}`}
-      threadKey={threadKey}
-      recap={current.recap}
-      onDismiss={() => setState({ ...current, recap: null })}
-      onOpenMessage={onOpenMessage}
-      onOpenStep={onOpenStep}
-      onOpenFile={onOpenFile}
-      onOpenChanges={onOpenChanges}
-      attachedNotSent={attachedNotSent}
-    />
+    <>
+      {noteDialog}
+      {/* A recap for another thread, or one asked for again, arrives as a new card. */}
+      <ThreadRecapCard
+        key={`${threadKey}:${current.handledRequest}`}
+        threadKey={threadKey}
+        recap={current.recap}
+        onDismiss={() => setState({ ...current, recap: null })}
+        onOpenMessage={onOpenMessage}
+        onOpenStep={onOpenStep}
+        onOpenFile={onOpenFile}
+        onOpenChanges={onOpenChanges}
+        attachedNotSent={attachedNotSent}
+      />
+    </>
   );
 }
 
@@ -211,6 +240,61 @@ const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
 /** The thread's note to self, kept with parked thoughts in this browser. */
 const readThreadNote = (threadKey: string) =>
   selectThreadNote(usePromptStashStore.getState().entries, threadKey)?.prompt ?? null;
+
+/** Saves a note to self (empty removes it), saying so when storage refuses it. */
+function saveThreadNote(threadKey: string, text: string) {
+  const result = usePromptStashStore.getState().setThreadNote(threadKey, text);
+  if (result.refused) toastManager.add({ type: "error", title: THREAD_NOTES_FULL_MESSAGE });
+  else if (!result.written) toastManager.add({ type: "error", title: "Could not save the note" });
+}
+
+const useNoteRequest = create<{ readonly threadKey: string | null }>(() => ({ threadKey: null }));
+
+/**
+ * Opens the note-to-self editor for a thread, from the thread header's More
+ * menu or the command palette: the recap is not the only way in, since it
+ * can be set to Never.
+ */
+export function requestThreadNote(threadKey: string) {
+  useNoteRequest.setState({ threadKey });
+}
+
+/** "Add note to self" or "Edit note", for the thread's menus. */
+export function useThreadNoteActionLabel(threadKey: string | null): string {
+  const hasNote = usePromptStashStore((store) =>
+    threadKey === null ? false : selectThreadNote(store.entries, threadKey) !== null,
+  );
+  return hasNote ? "Edit note" : "Add note to self";
+}
+
+function ThreadNoteDialog({ threadKey }: { threadKey: string }) {
+  const requested = useNoteRequest((state) => state.threadKey === threadKey);
+  const close = () => useNoteRequest.setState({ threadKey: null });
+  return (
+    <Dialog open={requested} onOpenChange={(open) => (open ? undefined : close())}>
+      {requested ? (
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Note to self</DialogTitle>
+            <DialogDescription>
+              For when you come back. It shows in this thread's recap.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <NoteEditor
+              id={`thread-note-${threadKey}`}
+              initial={readThreadNote(threadKey) ?? ""}
+              onDone={(text) => {
+                close();
+                if (text !== null) saveThreadNote(threadKey, text);
+              }}
+            />
+          </DialogPanel>
+        </DialogPopup>
+      ) : null}
+    </Dialog>
+  );
+}
 
 /** One line for a note to self: Enter saves (empty removes it), Escape keeps the old one. */
 function NoteEditor({
@@ -378,12 +462,7 @@ function ThreadRecapCard({
             initial={note ?? ""}
             onDone={(text) => {
               setEditingNote(false);
-              if (text === null) return;
-              const result = usePromptStashStore.getState().setThreadNote(threadKey, text);
-              if (result.refused)
-                toastManager.add({ type: "error", title: THREAD_NOTES_FULL_MESSAGE });
-              else if (!result.written)
-                toastManager.add({ type: "error", title: "Could not save the note" });
+              if (text !== null) saveThreadNote(threadKey, text);
             }}
           />
         </div>

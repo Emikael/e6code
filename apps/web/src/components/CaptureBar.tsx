@@ -233,6 +233,10 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
                 value={selectedOption?.key ?? ""}
                 onValueChange={(value) => setProjectKey(value === "" ? null : String(value))}
               >
+                {/* A project once picked can be cleared again. */}
+                <MenuRadioItem value="" closeOnClick>
+                  No project
+                </MenuRadioItem>
                 {projectOptions.map((option) => (
                   <MenuRadioItem key={option.key} value={option.key} closeOnClick>
                     {option.label}

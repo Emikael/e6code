@@ -149,6 +149,7 @@ export function approvalAwayFromThread(
 type AnswerState = "sending" | "sent";
 type ThreadAnswers = ReadonlyMap<ApprovalRequestId, AnswerState>;
 const NO_ANSWERS: ThreadAnswers = new Map();
+const emptyAnswers = (): ThreadAnswers => NO_ANSWERS;
 
 /** The key the answered store files a thread under. */
 export function approvalAnswersKey(environmentId: EnvironmentId, threadId: ThreadId): string {
@@ -170,14 +171,25 @@ export function createApprovalAnswerStore() {
     else threads.set(key, next);
     for (const listener of listeners) listener();
   };
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const forThread = (key: string): ThreadAnswers => threads.get(key) ?? NO_ANSWERS;
   return {
-    subscribe(listener: () => void): () => void {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe,
     /** The thread's answered requests; the same map until one of them changes. */
-    forThread(key: string): ThreadAnswers {
-      return threads.get(key) ?? NO_ANSWERS;
+    forThread,
+    /**
+     * The arguments for React's `useSyncExternalStore`, server snapshot
+     * included: a server render (or a test that renders to a string) has
+     * answered nothing yet, so it reads the empty state.
+     * Use as `useSyncExternalStore(...approvalAnswers.threadSource(key))`.
+     */
+    threadSource(
+      key: string,
+    ): readonly [typeof subscribe, () => ThreadAnswers, () => ThreadAnswers] {
+      return [subscribe, () => forThread(key), emptyAnswers];
     },
     /**
      * Claims a request before its answer is sent. False when any surface

@@ -45,8 +45,8 @@ switch thread, return to the window, or stop typing for 20 seconds) and arrive t
 **Hold other finished threads until a pause** to hear about each one as it finishes. **Sound**
 plays one short sound when an agent is blocked.
 
-The first time an agent works in a browser, a card in the thread offers to turn system
-notifications on. Browsers keep this permission per address, so a new address or tunnel asks
+While an agent works in a browser, a card in the thread offers to turn system notifications on,
+until you answer it. Browsers keep this permission per address, so a new address or tunnel asks
 again. Without system notifications, what reached you while you were away appears in the app when
 you return. The **Notify me** row says whether this browser allows system notifications and how to
 turn them on. For phones, see [Mobile notifications](./mobile-notifications.md).
@@ -82,7 +82,8 @@ changed. It is built from the thread itself, with no model call. Change when it 
 **Show where you left off**: **After a break**, **Always**, or **Never**. To see it at any time,
 choose **Where was I?** in the command palette.
 
-Use **Add note** in that recap to leave yourself a note for the next time you open the thread. A
+Use **Add note** in that recap, **Add note to self** in the thread header's menu, or the same
+command in the command palette to leave yourself a note for the next time you open the thread. A
 note to self stays with its thread, including when the thread is archived, and shows only in that
 thread's recap.
 

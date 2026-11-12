@@ -4249,7 +4249,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (filesToVerify.some((file) => file.environmentId !== environmentId)) {
         toastManager.add({
           type: "error",
-          title: "Stashed files belong to another environment",
+          title: "Parked files belong to another environment",
           description: "Restore this prompt in the environment that received its files.",
         });
         return;
@@ -4289,7 +4289,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!durable) {
         toastManager.add({
           type: "warning",
-          title: "Restored prompt may reappear in the stash",
+          title: "Restored prompt may reappear in Parked",
           description:
             "Browser storage rejected the update, so this entry could still be there after a reload.",
           data: { hideCopyButton: true },
@@ -4491,7 +4491,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const missingImageReasons: string[] = [];
       if (entry.droppedImageNames.length > 0) {
         missingImageReasons.push(
-          `${entry.droppedImageNames.join(", ")} exceeded the stash size limit when this prompt was saved.`,
+          `${entry.droppedImageNames.join(", ")} exceeded the Parked size limit when this prompt was parked.`,
         );
       }
       if (entry.unreadableImageNames && entry.unreadableImageNames.length > 0) {
@@ -4511,7 +4511,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       if (expiredFileNames.length > 0) {
         missingImageReasons.push(
-          `${expiredFileNames.join(", ")}: stashed files are kept for 24 hours and this upload expired. Attach the file again.`,
+          `${expiredFileNames.join(", ")}: parked files are kept for 24 hours and this upload expired. Attach the file again.`,
         );
       }
       if (missingImageReasons.length > 0) {
@@ -4563,7 +4563,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!durable) {
         toastManager.add({
           type: "warning",
-          title: "Stash entry may come back",
+          title: "Parked draft may come back",
           description:
             "Browser storage rejected the delete, so this prompt could reappear after a reload.",
           data: { hideCopyButton: true },
@@ -4580,7 +4580,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       toastManager.add({
         type: "info",
         title: "Still bringing a pasted attachment into this message.",
-        description: "Stash again once its chip resolves.",
+        description: "Park it again once its chip resolves.",
       });
       return;
     }
@@ -4617,7 +4617,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (composerFileNeedsReattach(file)) {
         toastManager.add({
           type: "error",
-          title: "Attach dropped files again or remove them before stashing",
+          title: "Attach dropped files again or remove them before parking",
         });
         return;
       }
@@ -4625,7 +4625,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (upload?.status !== "ready" || upload.environmentId !== environmentId) {
         toastManager.add({
           type: "error",
-          title: "Wait for file uploads before stashing this prompt",
+          title: "Wait for file uploads before parking this prompt",
         });
         return;
       }
@@ -4689,7 +4689,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!written) {
         toastManager.add({
           type: "error",
-          title: "Could not stash this prompt",
+          title: "Could not park this prompt",
           description:
             "Browser storage rejected the write, so the composer was left as-is. Free up site data and try again.",
           data: { hideCopyButton: true },
@@ -4702,9 +4702,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!durable) {
         toastManager.add({
           type: "warning",
-          title: "Stashed prompt will not survive a reload",
+          title: "Parked prompt will not survive a reload",
           description:
-            "Browser storage is unavailable, so this stash is kept in memory only for this session.",
+            "Browser storage is unavailable, so this parked draft is kept in memory only for this session.",
           data: { hideCopyButton: true },
         });
       }
@@ -4773,9 +4773,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (!imagesDurable && durable && images.length > 0) {
           toastManager.add({
             type: "warning",
-            title: "Stashed images were not saved",
+            title: "Parked images were not saved",
             description:
-              "The prompt was stashed, but browser storage rejected its images. They will be missing if you reload.",
+              "The prompt was parked, but browser storage rejected its images. They will be missing if you reload.",
             data: { hideCopyButton: true },
           });
         }
@@ -4785,7 +4785,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         // them evaporate.
         toastManager.add({
           type: "warning",
-          title: "Stashed images did not attach",
+          title: "Parked images did not attach",
           description: `That prompt was restored or deleted before ${kept.length} image${kept.length === 1 ? "" : "s"} finished saving. Re-attach ${kept.length === 1 ? "it" : "them"} if you still need ${kept.length === 1 ? "it" : "them"}.`,
           data: { hideCopyButton: true },
         });

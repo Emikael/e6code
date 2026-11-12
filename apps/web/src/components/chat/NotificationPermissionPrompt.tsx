@@ -1,5 +1,5 @@
 import { BellIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useClientSettings } from "../../hooks/useSettings";
 import { canRequestSystemNotifications } from "../../threadNotifications";
@@ -17,14 +17,17 @@ function readNotNowAt(): number | null {
   }
 }
 
+/** "Not now" in this page, for when storage is unavailable. */
+let notNowThisPageAt: number | null = null;
+
 function currentPermission(): NotificationPermission | null {
   return typeof Notification === "undefined" ? null : Notification.permission;
 }
 
-// Once offered, the prompt stays until answered, even after the turn ends.
-let offeredThisSession = false;
-
-/** The inline permission card for the composer banner stack, or null. */
+/**
+ * The inline permission card for the composer banner stack while a turn
+ * runs, or null. It goes when the turn ends and returns on the next send.
+ */
 export function useNotificationPermissionBannerItem(input: {
   readonly working: boolean;
   /** "Claude", "Codex"; null when the provider is unknown. */
@@ -32,22 +35,18 @@ export function useNotificationPermissionBannerItem(input: {
 }): ComposerBannerStackItem | null {
   const attentionNotifications = useClientSettings((settings) => settings.attentionNotifications);
   const [answerTick, setAnswerTick] = useState(0);
-  const eligible = useMemo(() => {
+  const { working } = input;
+  const offer = useMemo(() => {
     void answerTick;
     return shouldOfferNotificationPermission({
+      working,
       supported: canRequestSystemNotifications(),
       permission: currentPermission(),
       attentionNotifications,
-      notNowAtMs: readNotNowAt(),
+      notNowAtMs: readNotNowAt() ?? notNowThisPageAt,
       nowMs: Date.now(),
     });
-  }, [answerTick, attentionNotifications]);
-  const [offered, setOffered] = useState(offeredThisSession);
-  useEffect(() => {
-    if (!eligible || !input.working || offered) return;
-    offeredThisSession = true;
-    setOffered(true);
-  }, [eligible, input.working, offered]);
+  }, [answerTick, attentionNotifications, working]);
 
   const turnOn = useCallback(() => {
     void Notification.requestPermission()
@@ -55,19 +54,18 @@ export function useNotificationPermissionBannerItem(input: {
       .finally(() => setAnswerTick((tick) => tick + 1));
   }, []);
   const notNow = useCallback(() => {
+    notNowThisPageAt = Date.now();
     try {
       window.localStorage.setItem(NOT_NOW_STORAGE_KEY, String(Date.now()));
     } catch {
-      // Storage is unavailable; the prompt still hides for this session.
+      // Storage is unavailable; the prompt still hides for this page.
     }
-    offeredThisSession = false;
-    setOffered(false);
     setAnswerTick((tick) => tick + 1);
   }, []);
 
   const { providerLabel } = input;
   return useMemo(() => {
-    if (!eligible || !offered) return null;
+    if (!offer) return null;
     return {
       id: "notification-permission",
       variant: "default",
@@ -85,5 +83,5 @@ export function useNotificationPermissionBannerItem(input: {
         </>
       ),
     };
-  }, [eligible, notNow, offered, providerLabel, turnOn]);
+  }, [notNow, offer, providerLabel, turnOn]);
 }

@@ -156,6 +156,38 @@ describe("resolveThreadHeaderStatus", () => {
     expect(label({ session: { ...session, status: "error", lastError: "boom" } })).toBe("Failed");
   });
 
+  it("draws each state with the sidebar's mark and tone", () => {
+    const mark = (thread: Partial<Parameters<typeof resolveThreadHeaderStatus>[0]>) => {
+      const status = resolve(thread);
+      return status === null
+        ? null
+        : { kind: status.kind, marker: status.marker, tone: status.tone };
+    };
+    // Approval is the blocked-on-you diamond, never a shield.
+    expect(mark({ hasPendingApprovals: true, session })).toEqual({
+      kind: "approval",
+      marker: "diamond",
+      tone: "warning",
+    });
+    // A usage limit waits on the clock and a retry on the provider: neutral, not amber or live.
+    expect(mark({ session, agentState: { kind: "rate-limited" } })).toEqual({
+      kind: "paused",
+      marker: "icon",
+      tone: "muted",
+    });
+    expect(mark({ session, agentState: { kind: "retrying" } })).toEqual({
+      kind: "retrying",
+      marker: "ring",
+      tone: "muted",
+    });
+    expect(mark({ session })).toEqual({ kind: "working", marker: "live", tone: "live" });
+    expect(mark({ latestTurn: completedTurn })).toEqual({
+      kind: "done",
+      marker: "check",
+      tone: "success",
+    });
+  });
+
   it("reads Done only after a completed turn", () => {
     expect(label({ latestTurn: completedTurn })).toBe("Done");
     expect(label({ latestTurn: { ...completedTurn, state: "interrupted" } })).toBeNull();

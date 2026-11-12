@@ -19,13 +19,7 @@ import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/model
 import { canSnooze } from "@e6tools/client-runtime/state/thread-settled";
 import type { ThreadAttentionItem } from "@e6tools/client-runtime/state/thread-attention";
 import { useRouter } from "@tanstack/react-router";
-import {
-  CheckIcon,
-  CircleAlertIcon,
-  ClockIcon,
-  MessageCircleQuestionIcon,
-  XIcon,
-} from "lucide-react";
+import { CheckIcon, ClockIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useMemo, useState } from "react";
 import { create } from "zustand";
 
@@ -40,11 +34,16 @@ import { readEnvironmentSupportsSnooze, useProjects, useThreadShells } from "../
 import { useEnvironments } from "../state/environments";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { formatShortTimestamp, formatWeekdayDayMonth } from "../timestampFormat";
-import { resolveWorkingStartedAt } from "./Sidebar.logic";
+import {
+  resolveWorkingStartedAt,
+  runningThreadMarkKind,
+  THREAD_STATUS_MARKS,
+} from "./Sidebar.logic";
 import { resolveSnoozePresets } from "./Sidebar.snooze";
-import { BlockedDiamond } from "./SidebarNeedsYou";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "./ThreadStatusMarker";
 import { selectWorkingThreads } from "./chat/DraftHeroFooter.logic";
 import { doneTodayMeta, wrapUpSnoozeLabel } from "./DoneTodayDialog.logic";
+import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from "./ui/dialog";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -317,7 +316,11 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
                 kind={entry.item.kind}
               />
             ) : (
-              <StillOpenRow key={entry.key} title={entry.thread.title} kind="working" />
+              <StillOpenRow
+                key={entry.key}
+                title={entry.thread.title}
+                kind={runningThreadMarkKind(entry.thread)}
+              />
             ),
           )}
           {snoozable.length > 0 && tomorrowMorning && !snoozed ? (
@@ -371,48 +374,35 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
   );
 }
 
-const STILL_OPEN_STATUS = {
+const STILL_OPEN_LABEL = {
   approval: "Needs approval",
   input: "Needs your answer",
   failed: "Failed",
   working: "Working",
+  retrying: "Retrying",
+  paused: "Waiting for usage limit",
 } as const;
 
+/** One still-open thread, marked from the sidebar's status table. */
 function StillOpenRow({
   title,
   kind,
 }: {
   title: string;
-  kind: "approval" | "input" | "failed" | "plan" | "done" | "working";
+  kind: "approval" | "input" | "failed" | "plan" | "done" | "working" | "retrying" | "paused";
 }) {
   if (kind === "plan" || kind === "done") return null;
+  const { marker, tone } = THREAD_STATUS_MARKS[kind];
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="inline-flex w-4 shrink-0 justify-center">
-        {kind === "approval" ? (
-          <BlockedDiamond />
-        ) : kind === "input" ? (
-          <MessageCircleQuestionIcon aria-hidden className="size-3.5 text-warning-foreground" />
-        ) : kind === "failed" ? (
-          <CircleAlertIcon aria-hidden className="size-3.5 text-destructive-foreground" />
-        ) : (
-          <span
-            aria-hidden
-            className="size-2 rounded-full bg-primary ring-3 ring-primary-surface"
-          />
-        )}
+      <span
+        className={cn("inline-flex w-4 shrink-0 justify-center", THREAD_STATUS_TONE_TEXT[tone])}
+      >
+        <ThreadStatusMarker kind={kind} marker={marker} className="size-3.5" />
       </span>
       <span className={`${TITLE_CLASS} min-w-0 flex-1`}>{title}</span>
-      <span
-        className={
-          kind === "working"
-            ? "shrink-0 text-xs leading-4 font-medium text-primary-text"
-            : kind === "failed"
-              ? "shrink-0 text-xs leading-4 font-medium text-destructive-foreground"
-              : "shrink-0 text-xs leading-4 font-medium text-warning-foreground"
-        }
-      >
-        {STILL_OPEN_STATUS[kind]}
+      <span className={cn("shrink-0 text-xs leading-4 font-medium", THREAD_STATUS_TONE_TEXT[tone])}>
+        {STILL_OPEN_LABEL[kind]}
       </span>
     </div>
   );

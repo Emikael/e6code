@@ -17,12 +17,16 @@ import { buildThreadRouteParams } from "~/threadRoutes";
 export function goToNextThreadThatNeedsYou(input: {
   readonly attention: ThreadAttention<EnvironmentThreadShell>;
   readonly currentThreadKey: string | null;
+  /** "blocked" walks only threads blocked on you, for a control that counts only those. */
+  readonly scope?: "blocked" | "all";
   readonly navigate: (options: {
     to: "/$environmentId/$threadId";
     params: ReturnType<typeof buildThreadRouteParams>;
   }) => unknown;
 }): void {
-  const target = nextNeedsYouTarget(input.attention, input.currentThreadKey);
+  const target = nextNeedsYouTarget(input.attention, input.currentThreadKey, {
+    scope: input.scope ?? "all",
+  });
   if (target === null) {
     toastManager.add(
       stackedThreadToast({

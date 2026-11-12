@@ -51,9 +51,7 @@ export function useApprovalResponder(input: {
     reportFailure: false,
   });
   const key = threadId ? approvalAnswersKey(environmentId, threadId) : NO_THREAD;
-  const answers = useSyncExternalStore(approvalAnswers.subscribe, () =>
-    approvalAnswers.forThread(key),
-  );
+  const answers = useSyncExternalStore(...approvalAnswers.threadSource(key));
 
   // Forget answers whose request the provider resolved.
   useEffect(() => {

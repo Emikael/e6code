@@ -41,7 +41,7 @@ export interface ThreadNotificationContext {
   readonly systemNotificationsAvailable: boolean;
   /** The thread is the one open in this window. */
   readonly isOpenThread: boolean;
-  /** You sent the turn that just ended and asked to hear when it finishes. */
+  /** You are waiting on this thread's turn; see `isThreadWatched`. */
   readonly watched: boolean;
   /** Focus mode holds finished threads until you exit it. */
   readonly focusHold: boolean;
@@ -62,7 +62,7 @@ export function resolveThreadNotificationDelivery(
     return context.systemNotificationsAvailable ? "os" : "held";
   }
 
-  const watched = context.watched && settings.notifyWatchedThreads;
+  const { watched } = context;
   // In focus mode only the focused thread's own completion comes through.
   if (context.focusHold && !isOpenThread) return "digest";
   if (watched || settings.attentionNotifications === "all") {
@@ -74,6 +74,37 @@ export function resolveThreadNotificationDelivery(
   // notification; with nobody looking they wait for the window to return.
   if (!windowFocused || settings.holdFinishedUntilBreakpoint) return "digest";
   return "toast";
+}
+
+/**
+ * How a thread came to be waited on: "sent" follows the "Tell me when my
+ * thread finishes" setting; "on" and "off" are the now bar's toggle, which
+ * overrides it for that thread (what Settings promises: "Change it per
+ * thread from the now bar").
+ */
+export type ThreadWatchChoice = "sent" | "on" | "off";
+
+/** Whether you are waiting on a thread's turn. Nothing is watched while notifications are off. */
+export function isThreadWatched(
+  choice: ThreadWatchChoice | undefined,
+  settings: Pick<ClientSettings, "attentionNotifications" | "notifyWatchedThreads">,
+): boolean {
+  if (settings.attentionNotifications === "off") return false;
+  if (choice === "on") return true;
+  if (choice === "sent") return settings.notifyWatchedThreads;
+  return false;
+}
+
+/**
+ * The focus caption under the composer: what focus holds back and what
+ * still reaches you, true for the current settings. Null when focus holds
+ * nothing back.
+ */
+export function focusHoldCaption(
+  settings: Pick<ClientSettings, "focusHoldsFinished" | "attentionNotifications">,
+): string | null {
+  if (!settings.focusHoldsFinished || settings.attentionNotifications === "off") return null;
+  return "Finished threads are held until you exit focus. Blocked agents and failures still come through.";
 }
 
 interface HeldThreadNotice {

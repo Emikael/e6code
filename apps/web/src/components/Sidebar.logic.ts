@@ -522,7 +522,7 @@ export interface ThreadStatusPill {
     | "Needs approval"
     | "Needs your answer"
     | "Paused"
-    | "Plan Ready";
+    | "Plan ready";
   colorClass: string;
   /** Static fill. Live work adds a ring instead of animating. */
   dotClass: string;
@@ -532,7 +532,7 @@ export interface ThreadStatusPill {
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
 // then active work, then the actionable plan prompt, then passive
-// monitoring. A Monitoring sibling must never hide a Plan Ready thread. A
+// monitoring. A Monitoring sibling must never hide a plan-ready thread. A
 // usage-limit pause outranks Working so a stalled sibling is not hidden.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Needs approval": 7,
@@ -540,7 +540,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Paused: 5,
   Working: 4,
   Connecting: 4,
-  "Plan Ready": 3,
+  "Plan ready": 3,
   Monitoring: 2,
   Completed: 1,
 };
@@ -918,25 +918,76 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
  * for screen readers and the hover card when the row abbreviates. The marker
  * always sits beside words, so no status is told by colour alone.
  */
-export interface SidebarRowStatus {
-  readonly kind:
-    | "working"
-    | "retrying"
-    | "paused"
-    | "monitoring"
-    | "approval"
-    | "input"
-    | "failed"
-    | "woke"
-    | "done";
-  readonly label: string;
-  readonly detail: string | null;
-  readonly fullLabel?: string;
+export type ThreadStatusMarkKind =
+  | "working"
+  | "retrying"
+  | "paused"
+  | "monitoring"
+  | "approval"
+  | "input"
+  | "failed"
+  | "woke"
+  | "done";
+
+export interface ThreadStatusMark {
   /** `live` is the primary dot with a halo, `diamond` the blocked-on-you
       square, `ring` a hollow dot; plain marks take the tone's colour. */
   readonly marker: "live" | "diamond" | "dot" | "ring" | "check" | "icon";
   /** Semantic role for the words; the marker takes the matching fill. */
   readonly tone: "live" | "warning" | "muted" | "success" | "failed";
+}
+
+/**
+ * The one status table: how every surface that names a thread's state (the
+ * sidebar, the thread header and focus bar, the start screen, Wrap up) draws
+ * it. Amber is blocked on you only; waiting on the clock (a usage limit) or
+ * on the provider (a retry) is neutral; only a live agent takes the accent.
+ * `ThreadStatusMarker` draws the marker.
+ */
+export const THREAD_STATUS_MARKS = {
+  working: { marker: "live", tone: "live" },
+  retrying: { marker: "ring", tone: "muted" },
+  paused: { marker: "icon", tone: "muted" },
+  monitoring: { marker: "icon", tone: "muted" },
+  approval: { marker: "diamond", tone: "warning" },
+  input: { marker: "icon", tone: "warning" },
+  failed: { marker: "icon", tone: "failed" },
+  woke: { marker: "icon", tone: "warning" },
+  done: { marker: "check", tone: "success" },
+} as const satisfies Record<ThreadStatusMarkKind, ThreadStatusMark>;
+
+/** Which running state a working or paused thread is in: live, retrying, or waiting on a usage limit. */
+export function runningStatusMarkKind(
+  status: "working" | "paused",
+  agentState: SidebarThreadSummary["agentState"],
+): "working" | "retrying" | "paused" {
+  if (status === "paused") return "paused";
+  return agentState?.kind === "retrying" ? "retrying" : "working";
+}
+
+/** The mark of a thread that is running (session running or starting), from the status table. */
+export function runningThreadMarkKind(
+  thread: Parameters<typeof resolveSidebarThreadStatus>[0],
+): "working" | "retrying" | "paused" {
+  return runningStatusMarkKind(
+    resolveSidebarThreadStatus(thread) === "paused" ? "paused" : "working",
+    thread.agentState,
+  );
+}
+
+export interface SidebarRowStatus extends ThreadStatusMark {
+  readonly kind: ThreadStatusMarkKind;
+  readonly label: string;
+  readonly detail: string | null;
+  readonly fullLabel?: string;
+}
+
+function markedStatus(
+  kind: ThreadStatusMarkKind,
+  label: string,
+  detail: string | null = null,
+): SidebarRowStatus {
+  return { kind, label, detail, ...THREAD_STATUS_MARKS[kind] };
 }
 
 /**
@@ -965,55 +1016,24 @@ export function resolveSidebarRowStatus(input: {
         planProgress: input.planProgress,
         formatResetTime: input.formatResetTime,
       });
-      if (input.status === "paused") {
-        // Waiting on the clock, not on you: neutral, never amber.
-        return { kind: "paused", ...running, marker: "icon", tone: "muted" };
-      }
-      if (input.agentState?.kind === "retrying") {
-        return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
-      }
-      return { kind: "working", ...running, marker: "live", tone: "live" };
+      // Waiting on the clock or on a retry, not on you: neutral, never amber.
+      const kind = runningStatusMarkKind(input.status, input.agentState);
+      return { kind, ...running, ...THREAD_STATUS_MARKS[kind] };
     }
     case "monitoring":
-      return {
-        kind: "monitoring",
-        label: "Monitoring",
-        detail: null,
-        marker: "icon",
-        tone: "muted",
-      };
+      return markedStatus("monitoring", "Monitoring");
     case "approval":
-      return {
-        kind: "approval",
-        label: "Needs approval",
-        detail: null,
-        marker: "diamond",
-        tone: "warning",
-      };
+      return markedStatus("approval", "Needs approval");
     case "input":
-      return {
-        kind: "input",
-        label: "Needs your answer",
-        detail: null,
-        marker: "icon",
-        tone: "warning",
-      };
+      return markedStatus("input", "Needs your answer");
     case "failed":
-      return { kind: "failed", label: "Failed", detail: null, marker: "icon", tone: "failed" };
+      return markedStatus("failed", "Failed");
     case "ready":
       break;
   }
-  if (input.isWoke) {
-    return { kind: "woke", label: "Woke", detail: null, marker: "icon", tone: "warning" };
-  }
+  if (input.isWoke) return markedStatus("woke", "Woke");
   if (input.isUnread || input.latestTurnCompleted) {
-    return {
-      kind: "done",
-      label: "Done",
-      detail: input.timeLabel === "" ? null : input.timeLabel,
-      marker: "check",
-      tone: "success",
-    };
+    return markedStatus("done", "Done", input.timeLabel === "" ? null : input.timeLabel);
   }
   return null;
 }
@@ -1241,7 +1261,7 @@ export function resolveThreadStatusPill(input: {
     thread.hasActionableProposedPlan;
   if (hasPlanReadyPrompt) {
     return {
-      label: "Plan Ready",
+      label: "Plan ready",
       colorClass: "text-muted-foreground",
       dotClass: "rounded-full bg-muted-foreground",
     };

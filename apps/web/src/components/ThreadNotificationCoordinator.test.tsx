@@ -1,3 +1,4 @@
+import type { ThreadPendingRequestSummary } from "@e6tools/contracts";
 import type { ClientSettings } from "@e6tools/contracts/settings";
 import * as Option from "effect/Option";
 import { act } from "react";
@@ -21,10 +22,22 @@ const state = vi.hoisted(() => ({
   } as Settings,
   active: { environmentId: "one", threadId: "elsewhere" } as Record<string, string>,
   focused: true,
+  /** Another window of the app has focus (shared over the window-focus channel). */
+  anotherWindowFocused: false,
+  secureContext: true,
+  /** Keys the sidebar still counts as blocked on you. */
+  blockedKeys: [] as string[],
   shells: new Map<string, unknown>(),
   environmentIds: ["one"],
   blockedCount: 0,
-  add: vi.fn((_toast: { title: string; description?: string; actionProps?: unknown }) => "toast"),
+  add: vi.fn(
+    (_toast: {
+      title: string;
+      description?: string;
+      actionProps?: unknown;
+      data?: { activate?: { onActivate: () => void } };
+    }) => "toast",
+  ),
   close: vi.fn(),
   navigate: vi.fn(),
   sound: vi.fn(),
@@ -42,6 +55,14 @@ vi.mock("../hooks/useSettings", () => ({
 }));
 vi.mock("../hooks/useThreadAttention", () => ({
   useBlockedThreadCount: () => state.blockedCount,
+  getThreadAttention: () => ({
+    blocked: state.blockedKeys.map((key) => ({ key })),
+    earlier: [],
+  }),
+}));
+vi.mock("../windowFocusChannel", () => ({
+  shareWindowFocus: () => () => undefined,
+  isAnotherWindowFocused: () => state.anotherWindowFocused,
 }));
 vi.mock("../state/environments", () => ({
   useEnvironments: () => ({
@@ -61,7 +82,8 @@ import { useThreadWatchStore } from "../threadWatchStore";
 import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
 
 class TestNotification extends EventTarget {
-  static permission = "granted";
+  /** A fresh profile has not been asked yet. */
+  static permission: NotificationPermission = "default";
   static sent: TestNotification[] = [];
   close = vi.fn();
   get tag() {
@@ -81,6 +103,7 @@ const baseThread = {
   archivedAt: null as string | null,
   hasPendingApprovals: false,
   hasPendingUserInput: false,
+  pendingRequestSummary: undefined as ThreadPendingRequestSummary | undefined,
   session: null as { status: string; providerName: string; lastError: string | null } | null,
   latestTurn: {
     turnId: "turn",
@@ -114,6 +137,11 @@ async function render() {
 
 const titles = () => state.add.mock.calls.map(([toast]) => toast.title);
 
+/** The user allowed system notifications. */
+function grantNotifications() {
+  TestNotification.permission = "granted";
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
@@ -126,18 +154,25 @@ beforeEach(() => {
   };
   state.active = { environmentId: "one", threadId: "elsewhere" };
   state.focused = true;
+  state.anotherWindowFocused = false;
+  state.secureContext = true;
+  state.blockedKeys = [];
   state.environmentIds = ["one"];
   state.blockedCount = 0;
   state.shells.clear();
   setThreads("one", [{ id: "a" }, { id: "b" }]);
-  TestNotification.permission = "granted";
+  TestNotification.permission = "default";
   TestNotification.sent = [];
   useThreadWatchStore.setState({ watched: {}, sendSequence: 0 });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("Notification", TestNotification);
   vi.stubGlobal(
     "window",
-    Object.assign(new EventTarget(), { focus: vi.fn(), setTimeout, clearTimeout }),
+    Object.defineProperty(
+      Object.assign(new EventTarget(), { focus: vi.fn(), setTimeout, clearTimeout }),
+      "isSecureContext",
+      { get: () => state.secureContext },
+    ),
   );
   vi.stubGlobal(
     "document",
@@ -164,19 +199,81 @@ describe("blocked agents", () => {
     expect(state.add.mock.calls[0]?.[0].description).toBe(
       "Fix the login form · The agent is waiting for your approval",
     );
-    (state.add.mock.calls[0]![0].actionProps as { onClick: () => void }).onClick();
+    // The toast carries no button; activating the toast itself opens the thread.
+    expect(state.add.mock.calls[0]?.[0].actionProps).toBeUndefined();
+    state.add.mock.calls[0]![0].data!.activate!.onActivate();
     expect(state.navigate).toHaveBeenCalledWith({
       to: "/$environmentId/$threadId",
       params: { environmentId: "one", threadId: "a" },
     });
   });
 
-  it("send a system notification on a fresh profile while the window is away", async () => {
+  it("send a system notification while the window is away, without the question", async () => {
+    grantNotifications();
     state.focused = false;
     await render();
-    setThreads("one", [{ id: "a", hasPendingUserInput: true }, { id: "b" }]);
+    setThreads("one", [
+      {
+        id: "a",
+        hasPendingUserInput: true,
+        pendingRequestSummary: {
+          approvalCount: 0,
+          userInputCount: 1,
+          questionCount: 1,
+          question: "Which database password should I use?",
+        },
+      },
+      { id: "b" },
+    ]);
     await render();
-    expect(TestNotification.sent.map((n) => n.title)).toEqual(["Input needed"]);
+    expect(TestNotification.sent.map((n) => [n.title, n.options.body])).toEqual([
+      ["Input needed", "Fix the login form · The agent asks 1 question"],
+    ]);
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["on a fresh profile", () => undefined],
+    [
+      "outside a secure context",
+      () => {
+        grantNotifications();
+        state.secureContext = false;
+      },
+    ],
+  ])("hold a blocked agent %s, then toast it when you return", async (_, setup) => {
+    setup();
+    state.focused = false;
+    await render();
+    setThreads("one", [{ id: "a", hasPendingApprovals: true }, { id: "b" }]);
+    state.blockedKeys = ["one:a"];
+    await render();
+    expect(TestNotification.sent).toHaveLength(0);
+    expect(state.add).not.toHaveBeenCalled();
+    state.focused = true;
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(titles()).toEqual(["Approval needed"]);
+  });
+
+  it("drop a held blocked agent that was answered before you returned", async () => {
+    state.focused = false;
+    await render();
+    setThreads("one", [{ id: "a", hasPendingApprovals: true }, { id: "b" }]);
+    await render();
+    // Answered in another window: no longer blocked.
+    state.focused = true;
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  it("leave a blocked agent to the window you are working in", async () => {
+    grantNotifications();
+    state.focused = false;
+    state.anotherWindowFocused = true;
+    await render();
+    setThreads("one", [{ id: "a", hasPendingApprovals: true }, { id: "b" }]);
+    await render();
+    expect(TestNotification.sent).toHaveLength(0);
     expect(state.add).not.toHaveBeenCalled();
   });
 
@@ -258,9 +355,10 @@ describe("finished threads", () => {
   });
 
   it("call you back for the thread you sent a message to, then stop watching it", async () => {
+    grantNotifications();
     state.focused = false;
     await render();
-    useThreadWatchStore.getState().noteSent("one:a", true);
+    useThreadWatchStore.getState().noteSent("one:a");
     setThreads("one", [finished("a"), { id: "b" }]);
     await render();
     expect(TestNotification.sent.map((n) => n.options.body)).toEqual([
@@ -269,17 +367,30 @@ describe("finished threads", () => {
     expect(useThreadWatchStore.getState().watched).toEqual({});
   });
 
+  it("call you back under Quiet when you asked from the now bar", async () => {
+    grantNotifications();
+    state.settings = { ...state.settings, notifyWatchedThreads: false };
+    state.focused = false;
+    await render();
+    useThreadWatchStore.getState().noteSent("one:a");
+    useThreadWatchStore.getState().choose("one:a", true);
+    setThreads("one", [finished("a"), { id: "b" }]);
+    await render();
+    expect(TestNotification.sent.map((n) => n.title)).toEqual(["Thread completed"]);
+  });
+
   it("show the watched thread on its own when you send your next message", async () => {
     await render();
-    await act(async () => useThreadWatchStore.getState().noteSent("one:a", true));
+    await act(async () => useThreadWatchStore.getState().noteSent("one:a"));
     setThreads("one", [finished("a"), finished("b")]);
     await render();
     expect(state.add).not.toHaveBeenCalled();
-    await act(async () => useThreadWatchStore.getState().noteSent("one:b", true));
+    await act(async () => useThreadWatchStore.getState().noteSent("one:b"));
     expect(titles()).toEqual(["Thread completed", "Thread completed"]);
   });
 
   it("notify at once with every update", async () => {
+    grantNotifications();
     state.settings = { ...state.settings, attentionNotifications: "all" };
     state.focused = false;
     await render();
@@ -302,6 +413,7 @@ describe("finished threads", () => {
 
 describe("environments and the dock", () => {
   it("closes system notifications from an environment that leaves", async () => {
+    grantNotifications();
     state.focused = false;
     state.environmentIds = ["one", "two"];
     setThreads("two", [{ id: "a" }]);
@@ -309,6 +421,7 @@ describe("environments and the dock", () => {
     setThreads("one", [{ id: "a", hasPendingApprovals: true }]);
     setThreads("two", [{ id: "a", hasPendingApprovals: true }]);
     await render();
+    expect(TestNotification.sent).toHaveLength(2);
     const [removed, retained] = TestNotification.sent;
     expect(removed?.tag).not.toBe(retained?.tag);
     state.environmentIds = ["two"];
