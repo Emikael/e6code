@@ -553,6 +553,26 @@ export type ClientSettings = typeof ClientSettingsSchema.Type;
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
 
+/**
+ * Carries a choice made under a retired key into its fresh key before
+ * decoding. Run it on stored client settings, not on patches. The old key is
+ * dropped on the next save, so this applies once.
+ *
+ * - `notificationMode` "sound" or "notifications-and-sound" turns on
+ *   `attentionSoundEnabled`, so nobody loses the sound they chose.
+ */
+export function carryRetiredClientSettings(stored: unknown): unknown {
+  if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return stored;
+  const mode: unknown = Reflect.get(stored, "notificationMode");
+  if (
+    (mode === "sound" || mode === "notifications-and-sound") &&
+    !Object.hasOwn(stored, "attentionSoundEnabled")
+  ) {
+    return { ...stored, attentionSoundEnabled: true };
+  }
+  return stored;
+}
+
 // ── Server Settings (server-authoritative) ────────────────────
 
 const UsageModelTokenPrice = Schema.Number.check(

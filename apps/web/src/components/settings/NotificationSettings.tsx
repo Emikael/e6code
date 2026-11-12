@@ -1,9 +1,10 @@
 import type { AttentionNotifications } from "@e6tools/contracts/settings";
 import { DEFAULT_CLIENT_SETTINGS } from "@e6tools/contracts/settings";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
 import { canRequestSystemNotifications, unlockNotificationAudio } from "../../threadNotifications";
+import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
@@ -17,20 +18,89 @@ export const ATTENTION_NOTIFICATION_LABELS = {
 
 const NOTIFY_ME_DESCRIPTION = "Approvals, questions and failures count as blocked.";
 
+type SystemNotificationState = NotificationPermission | "unsupported";
+
+function readSystemNotificationState(): SystemNotificationState {
+  return canRequestSystemNotifications() ? Notification.permission : "unsupported";
+}
+
+/**
+ * The browser's notification permission for this origin. It can change in the
+ * browser's own site settings, so it is read again when the window regains
+ * focus and when the Permissions API reports a change.
+ */
+function useSystemNotificationState(): [SystemNotificationState, () => void] {
+  const [state, setState] = useState(readSystemNotificationState);
+  const refresh = useCallback(() => setState(readSystemNotificationState()), []);
+  useEffect(() => {
+    window.addEventListener("focus", refresh);
+    let status: PermissionStatus | null = null;
+    let disposed = false;
+    void navigator.permissions
+      ?.query({ name: "notifications" })
+      .then((result) => {
+        if (disposed) return;
+        status = result;
+        status.addEventListener("change", refresh);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", refresh);
+      status?.removeEventListener("change", refresh);
+    };
+  }, [refresh]);
+  return [state, refresh];
+}
+
 /** Asks the browser for system notifications; returns a note when they are unavailable. */
 async function requestSystemNotifications(): Promise<string | null> {
-  if (!canRequestSystemNotifications()) {
-    return "System notifications need a supported browser over HTTPS, or the desktop app. In-app notices still appear.";
-  }
-  if (Notification.permission === "granted") return null;
+  if (!canRequestSystemNotifications()) return null;
+  if (Notification.permission !== "default") return null;
   try {
-    const permission = await Notification.requestPermission();
-    return permission === "granted"
-      ? null
-      : "Allow notifications in your browser or system settings to get them while E6 Code is in the background.";
+    await Notification.requestPermission();
+    return null;
   } catch {
     return "System notifications are unavailable in this browser. In-app notices still appear.";
   }
+}
+
+/**
+ * One line under Notify me that says whether this browser will show system
+ * notifications, with the way to turn them on. Nothing while they work.
+ */
+function SystemNotificationStatus({
+  state,
+  onRequest,
+}: {
+  state: SystemNotificationState;
+  onRequest: () => void;
+}) {
+  if (state === "granted") return null;
+  if (state === "unsupported") {
+    return (
+      <span>
+        System notifications need HTTPS or the desktop app. Until then they appear in E6 Code when
+        you come back.
+      </span>
+    );
+  }
+  if (state === "denied") {
+    return (
+      <span>
+        This browser blocks notifications from E6 Code. Allow them in the site settings next to the
+        address bar, then come back. Until then they appear in E6 Code when you return.
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      System notifications are not on in this browser.
+      <Button size="sm" variant="outline" onClick={onRequest}>
+        Turn on
+      </Button>
+    </span>
+  );
 }
 
 /** Settings → Attention → Notifications. Per device, like the permission it relies on. */
@@ -41,19 +111,26 @@ export function NotificationSettingsSection() {
   const attentionSoundEnabled = useClientSettings((s) => s.attentionSoundEnabled);
   const updateSettings = useUpdateClientSettings();
   const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+  const [systemState, refreshSystemState] = useSystemNotificationState();
+  const requestPermission = () =>
+    void requestSystemNotifications().then((message) => {
+      setPermissionMessage(message);
+      refreshSystemState();
+    });
 
   return (
     <SettingsSection id="attention-notifications" title="Notifications">
       <SettingsRow
         {...searchableSetting("attention-notifications")}
         description={
-          permissionMessage ? (
-            <>
-              {NOTIFY_ME_DESCRIPTION} {permissionMessage}
-            </>
-          ) : (
-            NOTIFY_ME_DESCRIPTION
-          )
+          permissionMessage
+            ? `${NOTIFY_ME_DESCRIPTION} ${permissionMessage}`
+            : NOTIFY_ME_DESCRIPTION
+        }
+        status={
+          attentionNotifications !== "off" ? (
+            <SystemNotificationStatus state={systemState} onRequest={requestPermission} />
+          ) : null
         }
         resetAction={
           attentionNotifications !== DEFAULT_CLIENT_SETTINGS.attentionNotifications ? (
@@ -74,7 +151,7 @@ export function NotificationSettingsSection() {
               if (value !== "blocked" && value !== "all" && value !== "off") return;
               updateSettings({ attentionNotifications: value });
               setPermissionMessage(null);
-              if (value !== "off") void requestSystemNotifications().then(setPermissionMessage);
+              if (value !== "off") requestPermission();
             }}
           >
             <SelectTrigger

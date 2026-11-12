@@ -1,8 +1,18 @@
-import { ClientSettingsSchema, type ClientSettings } from "@e6tools/contracts";
+import {
+  carryRetiredClientSettings,
+  ClientSettingsSchema,
+  type ClientSettings,
+} from "@e6tools/contracts";
+import * as Schema from "effect/Schema";
 
-import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  LocalStorageOperationError,
+  setLocalStorageItem,
+} from "./hooks/useLocalStorage";
 
 const CLIENT_SETTINGS_STORAGE_KEY = "e6code:client-settings:v1";
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
@@ -13,7 +23,17 @@ export function readBrowserClientSettings(): ClientSettings | null {
     return null;
   }
 
-  return getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema);
+  const stored = getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, Schema.Unknown);
+  if (stored === null) return null;
+  try {
+    return decodeClientSettings(carryRetiredClientSettings(stored));
+  } catch (cause) {
+    throw new LocalStorageOperationError({
+      operation: "decode",
+      storageKey: CLIENT_SETTINGS_STORAGE_KEY,
+      cause,
+    });
+  }
 }
 
 export function writeBrowserClientSettings(settings: ClientSettings): void {

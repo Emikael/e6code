@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
+  carryRetiredClientSettings,
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
@@ -300,6 +301,31 @@ describe("ClientSettings notifications", () => {
     const encoded = encodeClientSettings(decoded);
     expect(encoded).not.toHaveProperty("notificationMode");
     expect(encoded).not.toHaveProperty("inAppNotificationsEnabled");
+  });
+
+  it.each(["sound", "notifications-and-sound"])(
+    "keeps sound for people who chose %s, once",
+    (notificationMode) => {
+      const carried = decodeClientSettings(carryRetiredClientSettings({ notificationMode }));
+      expect(carried.attentionSoundEnabled).toBe(true);
+      const saved = encodeClientSettings({ ...carried, attentionSoundEnabled: false });
+      expect(saved).not.toHaveProperty("notificationMode");
+      expect(decodeClientSettings(carryRetiredClientSettings(saved)).attentionSoundEnabled).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(["notifications", "off"])("leaves sound off for %s", (notificationMode) => {
+    const carried = decodeClientSettings(carryRetiredClientSettings({ notificationMode }));
+    expect(carried.attentionSoundEnabled).toBe(false);
+  });
+
+  it("does not override a sound choice already made", () => {
+    const stored = { notificationMode: "sound", attentionSoundEnabled: false };
+    expect(decodeClientSettings(carryRetiredClientSettings(stored)).attentionSoundEnabled).toBe(
+      false,
+    );
   });
 
   it.each(["blocked", "all", "off"])("round-trips %s", (attentionNotifications) => {

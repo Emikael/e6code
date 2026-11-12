@@ -183,7 +183,10 @@ the window, or stop typing for 20 seconds) and arrive together.
 
 The first time an agent works in a browser, a card in the thread offers to turn
 system notifications on. Browsers keep this permission per address, so a new
-address or tunnel asks again. Change what notifies you, holding, and sound in
-**Settings → Attention → Notifications**. With notifications off, the sidebar's
+address or tunnel asks again. Without system notifications, what reached you
+while you were away appears in the app when you return. Change what notifies
+you, holding, and sound in **Settings → Attention → Notifications**, which also
+says whether this browser allows system notifications and how to turn them on.
+With notifications off, the sidebar's
 Needs you section and the tab title still show what is waiting. For phones, see
 [Mobile notifications](mobile-notifications.md).

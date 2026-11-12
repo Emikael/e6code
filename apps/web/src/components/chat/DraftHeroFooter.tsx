@@ -27,7 +27,7 @@ import {
   RefreshCwIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
@@ -121,14 +121,17 @@ export function DraftHeroFooter({
     return shortcut ? [{ shortcut, label }] : [];
   });
 
-  const openThread: OpenThread = (thread, options) => {
-    const ref = scopeThreadRef(thread.environmentId, thread.id);
-    if (options?.diff) useRightPanelStore.getState().open(ref, "diff");
-    void router.navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(ref),
-    });
-  };
+  const openThread = useCallback<OpenThread>(
+    (thread, options) => {
+      const ref = scopeThreadRef(thread.environmentId, thread.id);
+      if (options?.diff) useRightPanelStore.getState().open(ref, "diff");
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(ref),
+      });
+    },
+    [router],
+  );
 
   const hasLists = blocked.length > 0 || attention.review.length > 0 || working.length > 0;
   const hasProjectRows = unpushed !== null || staleSetup !== null;
@@ -277,8 +280,9 @@ function WorkingCue({ startedAt }: { startedAt: string }) {
   return <span className={TIME_CUE_CLASS}>{label}</span>;
 }
 
+// Approvals open their thread until phase 17 builds the inline approval card.
 const BLOCKED_ACTION = {
-  approval: "Review",
+  approval: "Open thread",
   input: "Answer",
   failed: "Open thread",
 } as const;
@@ -323,7 +327,12 @@ const BlockedCard = memo(function BlockedCard({
         {fact ? <p className="truncate text-xs leading-4 text-muted-foreground">{fact}.</p> : null}
       </div>
       <AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />
-      <Button size="sm" variant="outline" onClick={() => onOpen(item.thread)}>
+      <Button
+        size="sm"
+        variant="outline"
+        aria-label={`${BLOCKED_ACTION[kind]}: ${item.thread.title}`}
+        onClick={() => onOpen(item.thread)}
+      >
         {BLOCKED_ACTION[kind]}
       </Button>
     </article>
@@ -352,7 +361,12 @@ const ReviewRow = memo(function ReviewRow({
         {reviewCaption(isPlan ? "plan" : "done", item.thread.latestTurn?.diffStat)}
       </span>
       <AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />
-      <Button size="xs" variant="ghost" onClick={() => onOpen(item.thread, { diff: !isPlan })}>
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={`${isPlan ? "Review plan" : "Review diff"}: ${item.thread.title}`}
+        onClick={() => onOpen(item.thread, { diff: !isPlan })}
+      >
         {isPlan ? "Review plan" : "Review diff"}
       </Button>
     </li>
