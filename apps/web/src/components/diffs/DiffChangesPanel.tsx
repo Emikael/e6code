@@ -33,7 +33,7 @@ import {
 
 import type { DiffReviewStatus } from "~/diffReviewStore";
 import { readLocalApi } from "~/localApi";
-import { cn, randomUUID } from "~/lib/utils";
+import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { useGitStackedAction } from "~/state/sourceControlActions";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
@@ -468,9 +468,11 @@ export function DiffChangesPanel({
           </TooltipTrigger>
           <TooltipPopup side="bottom">
             {commitDisabledReason ??
-              (stagedCount > 0
-                ? "Commits only staged changes. ⌘↵"
-                : "Stages every change, then commits. ⌘↵")}
+              `${
+                stagedCount > 0
+                  ? "Commits only staged changes."
+                  : "Stages every change, then commits."
+              } ${isMacPlatform(navigator.platform) ? "⌘↵" : "Ctrl+Enter"}`}
           </TooltipPopup>
         </Tooltip>
       </div>
