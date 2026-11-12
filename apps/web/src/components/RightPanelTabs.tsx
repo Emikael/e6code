@@ -1327,7 +1327,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     if (activeTab && next.includes(activeId)) {
       activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
-    setStripWidth(Math.floor(viewport.clientWidth));
+    // The room the strip has: its own width plus whatever the bar leaves free beside it. Its own
+    // width alone would follow a narrowed tab down and never let it grow back.
+    const spare =
+      viewport
+        .closest("[data-right-panel-tabbar]")
+        ?.querySelector<HTMLElement>("[data-tab-strip-spare]")?.clientWidth ?? 0;
+    setStripWidth(Math.floor(viewport.clientWidth + spare));
     setHiddenTabIds((current) =>
       current.length === next.length && current.every((id, index) => id === next[index])
         ? current
@@ -1872,7 +1878,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             </MenuPopup>
           </Menu>
         ) : null}
-        <span aria-hidden className="min-w-0 flex-1" />
+        <span aria-hidden data-tab-strip-spare className="min-w-0 flex-1" />
         {props.layoutControls}
         {ownsDesktopTitleBar && !props.layoutControls ? (
           <span aria-hidden className="hidden w-24 shrink-0 wco:block" />
