@@ -248,6 +248,8 @@ import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
 import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
+import { selectRetryMessage } from "./chat/ThreadNowBar.logic";
+import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
 import {
@@ -353,10 +355,8 @@ import {
   markPromotedDraftThreadByRef,
   restoreFailedBackgroundDraftThread,
   useComposerDraftStore,
-  useEffectiveComposerModelState,
   DraftId,
 } from "../composerDraftStore";
-import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import {
   formatTerminalContextLabel,
   type TerminalContextDraft,
@@ -3780,24 +3780,6 @@ export default function ChatView(props: ChatViewProps) {
     captureDraftHeroComposerRect,
   ] = useDraftHeroLayoutTransition(isDraftHeroState);
 
-  // The new-thread hero names the model the composer will send to, so read
-  // the same effective selection the composer's picker shows.
-  const { selectedModel: draftHeroModelSlug } = useEffectiveComposerModelState({
-    threadRef: composerDraftTarget,
-    providers: providerStatuses,
-    selectedProvider,
-    selectedInstanceId: activeProviderInstanceId,
-    threadModelSelection: activeThread?.modelSelection,
-    projectModelSelection: activeProjectDefaultModelSelection,
-    settings,
-  });
-  const draftHeroModel = selectedProviderEntry?.snapshot?.models.find(
-    (model) => model.slug === draftHeroModelSlug,
-  );
-  const draftHeroAgentLabel = draftHeroModel
-    ? getTriggerDisplayModelName(draftHeroModel)
-    : (selectedProviderEntry?.displayName ?? null);
-
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.workspaceRoot },
@@ -3966,7 +3948,7 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
   const [revealMessageRequest, setRevealMessageRequest] = useState<{
-    readonly messageId: string;
+    readonly target: TimelineRevealTarget;
     readonly nonce: number;
   } | null>(null);
   useLayoutEffect(() => {
@@ -7816,19 +7798,16 @@ export default function ChatView(props: ChatViewProps) {
     if (compactDisabled) return;
     await sendStandaloneMessage("/compact", "Failed to compact context.");
   };
-  // The now bar's Retry resends your last message as it was. A message with
-  // attachments cannot be resent as text alone, so it gets no Retry.
-  const lastUserMessage = timelineMessages.findLast((message) => message.role === "user") ?? null;
-  const retryText =
-    lastUserMessage &&
-    (lastUserMessage.attachments?.length ?? 0) === 0 &&
-    lastUserMessage.text.trim()
-      ? lastUserMessage.text
-      : null;
+  // The now bar's Retry resends your last message as it was, only when the turn it started failed.
+  const retryMessage = selectRetryMessage(timelineMessages, activeThreadShell?.latestTurn);
   const onRetryFailedTurn =
-    retryText === null || isWorking
+    retryMessage === null || isWorking
       ? null
-      : () => void sendStandaloneMessage(retryText, "Failed to retry.");
+      : () => void sendStandaloneMessage(retryMessage.text, "Failed to retry.");
+  const retryUnavailableReason =
+    activeEnvironmentUnavailable || selectedProviderEntry === undefined
+      ? "The agent is not available right now, so Retry cannot send."
+      : null;
 
   const queuedMessages = useQueuedMessages(activeThreadKey ?? "");
   // Puts queued messages back into the composer, e.g. after Stop or a failed
@@ -10579,6 +10558,7 @@ export default function ChatView(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             changedFileCount={isServerThread ? nowBar.changedFileCount : null}
+            nowBarShown={nowBar.state.kind !== "hidden"}
             onOpenChanges={addDiffSurface}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
@@ -10643,6 +10623,7 @@ export default function ChatView(props: ChatViewProps) {
                   state={nowBar.state}
                   watchKey={activeThreadKey}
                   onRetry={onRetryFailedTurn}
+                  retryUnavailableReason={retryUnavailableReason}
                   onReviewDiff={() => {
                     if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
                   }}
@@ -10970,7 +10951,13 @@ export default function ChatView(props: ChatViewProps) {
             >
               <div
                 ref={attachDraftHeroTransitionGroupRef}
-                className="w-full ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)] sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]"
+                className={cn(
+                  "w-full ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)]",
+                  // Board 1 gives the start screen 24px sides; the docked composer keeps 20px.
+                  isDraftHeroState
+                    ? "sm:ps-[calc(env(safe-area-inset-left)+1.5rem)] sm:pe-[calc(env(safe-area-inset-right)+1.5rem)]"
+                    : "sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]",
+                )}
               >
                 <div
                   data-chat-composer-stack="true"
@@ -10992,9 +10979,6 @@ export default function ChatView(props: ChatViewProps) {
                           draftId={draftId}
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
-                          agentLabel={draftHeroAgentLabel}
-                          envMode={envMode}
-                          branch={activeThreadBranch ?? gitStatusQuery.data?.refName ?? null}
                         />
                       </div>
                     </div>
@@ -11006,7 +10990,13 @@ export default function ChatView(props: ChatViewProps) {
                       source={recapSource}
                       onOpenMessage={(messageId) =>
                         setRevealMessageRequest((previous) => ({
-                          messageId,
+                          target: { kind: "message", messageId },
+                          nonce: (previous?.nonce ?? 0) + 1,
+                        }))
+                      }
+                      onOpenStep={(step) =>
+                        setRevealMessageRequest((previous) => ({
+                          target: { kind: "step", ...step },
                           nonce: (previous?.nonce ?? 0) + 1,
                         }))
                       }
@@ -11050,6 +11040,7 @@ export default function ChatView(props: ChatViewProps) {
                             isServerThread={isServerThread}
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
+                            commandMenuBelow={isDraftHeroState}
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}
                             phase={phase}
                             isConnecting={isConnecting}

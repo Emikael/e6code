@@ -7,13 +7,13 @@
  */
 import { formatAttentionAge } from "@e6tools/client-runtime/state/thread-attention";
 import { BellIcon, CircleAlertIcon, ListChecksIcon, MessageCircleQuestionIcon } from "lucide-react";
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { useThreadWatchStore } from "~/threadWatchStore";
-import { formatShortTimestamp } from "~/timestampFormat";
+import { formatDayAwareTimestamp, formatShortTimestamp } from "~/timestampFormat";
 import { BlockedDiamond } from "../SidebarNeedsYou";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -30,6 +30,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   state,
   watchKey,
   onRetry,
+  retryUnavailableReason = null,
   onReviewDiff,
 }: {
   state: NowBarState;
@@ -37,6 +38,8 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   watchKey: string;
   /** Sends the last request again; absent when it cannot be resent as it was. */
   onRetry: (() => void) | null;
+  /** Why Retry cannot send right now (the provider is unavailable); the button stays, disabled. */
+  retryUnavailableReason?: string | null;
   onReviewDiff: () => void;
 }) {
   if (state.kind === "hidden") return null;
@@ -102,7 +105,25 @@ export const ThreadNowBar = memo(function ThreadNowBar({
                 {state.text}
               </TooltipPopup>
             </Tooltip>
-            {onRetry ? (
+            {onRetry && retryUnavailableReason ? (
+              <Tooltip>
+                <TooltipTrigger render={<span className="shrink-0" />}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="sm:text-xs"
+                    disabled
+                    aria-describedby="now-bar-retry-reason"
+                  >
+                    Retry
+                  </Button>
+                  <span id="now-bar-retry-reason" className="sr-only">
+                    {retryUnavailableReason}
+                  </span>
+                </TooltipTrigger>
+                <TooltipPopup side="bottom">{retryUnavailableReason}</TooltipPopup>
+              </Tooltip>
+            ) : onRetry ? (
               <Button size="sm" variant="outline" className="sm:text-xs" onClick={onRetry}>
                 Retry
               </Button>
@@ -131,43 +152,65 @@ function DoneText({ workedFor, finishedAt }: { workedFor: string | null; finishe
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   return (
     <span className={cn(TEXT_CLASS, "tabular-nums")}>
-      {doneSummary(workedFor, formatShortTimestamp(finishedAt, timestampFormat))}
+      {doneSummary(workedFor, formatDayAwareTimestamp(finishedAt, timestampFormat))}
     </span>
   );
 }
 
-function elapsedText(startedAt: string): string {
-  const reading = formatNowBarElapsed(startedAt, Date.now());
-  if (reading === null) return "";
-  return "day" in reading ? `since ${reading.day}` : reading.elapsed;
+function readElapsed(startedAt: string) {
+  return formatNowBarElapsed(startedAt, Date.now());
 }
 
 /**
  * "2m 10s · since 14:02". The seconds are the one ticking element in the app:
  * they are written through a ref, so the bar never re-renders per second, and
- * they hold a fixed width so nothing beside them shifts.
+ * they hold a fixed width so nothing beside them shifts. The tick stops while
+ * the page is hidden. Past a day the whole cue becomes "since Tue".
  */
 function ElapsedCue({ startedAt }: { startedAt: string }) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const textRef = useRef<HTMLSpanElement>(null);
-  const initial = elapsedText(startedAt);
-  const pastDay = initial.startsWith("since ");
+  const initial = readElapsed(startedAt);
+  const [pastDay, setPastDay] = useState<string | null>(null);
+  const day = pastDay ?? (initial !== null && "day" in initial ? initial.day : null);
 
   useEffect(() => {
-    if (pastDay) return;
+    if (day !== null) return;
+    let id: ReturnType<typeof setInterval> | null = null;
     const update = () => {
-      if (textRef.current) textRef.current.textContent = elapsedText(startedAt);
+      const reading = readElapsed(startedAt);
+      if (reading === null) return;
+      if ("day" in reading) {
+        stop();
+        setPastDay(reading.day);
+        return;
+      }
+      if (textRef.current) textRef.current.textContent = reading.elapsed;
     };
-    update();
-    const id = setInterval(update, 1_000);
-    return () => clearInterval(id);
-  }, [pastDay, startedAt]);
+    const stop = () => {
+      if (id !== null) clearInterval(id);
+      id = null;
+    };
+    const start = () => {
+      if (id !== null || document.visibilityState === "hidden") return;
+      update();
+      id = setInterval(update, 1_000);
+    };
+    const onVisibilityChange = () => (document.visibilityState === "hidden" ? stop() : start());
+    start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stop();
+    };
+  }, [day, startedAt]);
 
-  if (pastDay) return <span className={TIME_CUE_CLASS}>{initial}</span>;
+  if (initial === null) return null;
+  if (day !== null) return <span className={TIME_CUE_CLASS}>since {day}</span>;
   return (
     <span className={TIME_CUE_CLASS}>
       <span ref={textRef} className="inline-block min-w-[7ch] text-end">
-        {initial}
+        {"elapsed" in initial ? initial.elapsed : ""}
       </span>
       {` · since ${formatShortTimestamp(startedAt, timestampFormat)}`}
     </span>
@@ -189,7 +232,12 @@ function WatchToggle({ watchKey }: { watchKey: string }) {
       size="sm"
       variant="ghost"
       aria-pressed={watched}
-      className={cn("sm:text-xs", watched && "border-primary-edge")}
+      className={cn(
+        "sm:text-xs",
+        // Board 2: pressed is the secondary fill, a primary-edge line and a foreground icon.
+        watched &&
+          "border-primary-edge bg-secondary text-foreground hover:bg-secondary [--control-icon-color:var(--foreground)]",
+      )}
       onClick={() => useThreadWatchStore.getState().setWatched(watchKey, !watched)}
     >
       <BellIcon aria-hidden className="size-3.5" />

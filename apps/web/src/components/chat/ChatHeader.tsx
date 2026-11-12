@@ -94,6 +94,8 @@ interface ChatHeaderProps {
   rightPanelOpen: boolean;
   /** Files the agent has changed in this thread; null hides the slot (drafts). */
   changedFileCount: number | null;
+  /** The now bar under the header is showing; it carries the status, so the pill steps aside. */
+  nowBarShown?: boolean;
   /** Opens the Diff panel on the working tree. */
   onOpenChanges: () => void;
   gitCwd: string | null;
@@ -379,6 +381,7 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   rightPanelOpen,
   changedFileCount,
+  nowBarShown = false,
   onOpenChanges,
   gitCwd,
   onOpenPullRequest,
@@ -745,7 +748,9 @@ export const ChatHeader = memo(function ChatHeader({
             <ThreadHeaderBranch branch={headerBranch} />
           </li>
         ) : null}
-        {renamingTitle === null && headerStatus ? (
+        {/* The now bar says the same thing in more words (board 2); the live region below
+            still announces status changes. */}
+        {renamingTitle === null && headerStatus && !nowBarShown ? (
           <li className="ms-auto flex shrink-0 items-center">
             <ThreadHeaderStatusPill status={headerStatus} />
           </li>

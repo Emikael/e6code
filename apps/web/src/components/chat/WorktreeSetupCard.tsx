@@ -15,7 +15,9 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+
+import { useNowMinute } from "~/hooks/useNowMinute";
 
 import { Button } from "~/components/ui/button";
 import { MiddleTruncate } from "../ui/middle-truncate";
@@ -40,17 +42,21 @@ function stageElapsedMs(stage: WorktreeSetupStage, nowMs: number): number | null
 }
 
 /**
- * Ticks once a second while any stage runs so elapsed labels stay live
- * without pushing a React commit through the timeline for every second.
+ * The time on the shared minute clock while any stage runs: only the now bar
+ * ticks in seconds (F5), so a running stage shows whole minutes.
  */
 function useNowWhile(active: boolean): number {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(id);
-  }, [active]);
-  return nowMs;
+  const nowMinute = useNowMinute();
+  const [idleNowMs] = useState(() => Date.now());
+  return active ? Math.max(Date.parse(`${nowMinute}:00.000Z`), idleNowMs) : idleNowMs;
+}
+
+/** "<1m", "4m", "1h 5m": a running stage's elapsed time in whole minutes. */
+function formatRunningElapsed(elapsedMs: number): string {
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function StageIcon({ status }: { status: WorktreeSetupStage["status"] }) {
@@ -193,7 +199,7 @@ function StageRow({
       ) : null}
       {elapsed !== null && stage.status !== "skipped" && stage.status !== "pending" ? (
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-          {formatDuration(elapsed)}
+          {running ? formatRunningElapsed(elapsed) : formatDuration(elapsed)}
         </span>
       ) : null}
     </div>

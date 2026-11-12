@@ -1,3 +1,4 @@
+import { TurnId } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { WorkLogEntry } from "./workLogEntries.ts";
@@ -65,6 +66,18 @@ describe("shouldShowThreadRecap", () => {
     expect(shouldShowThreadRecap({ ...base, previousVisitAt: null })).toBe(false);
   });
 
+  it("decides what is new on the server's clock and the break on this device's", () => {
+    // This device's clock runs 30 minutes behind the server's.
+    const skewed = {
+      ...base,
+      previousVisitAt: at(2),
+      previousSeenActivityAt: at(40),
+      nowMs: Date.parse(at(2)) + RECAP_BREAK_MS,
+    };
+    expect(shouldShowThreadRecap({ ...skewed, latestActivityAt: at(40) })).toBe(false);
+    expect(shouldShowThreadRecap({ ...skewed, latestActivityAt: at(41) })).toBe(true);
+  });
+
   it("follows the setting", () => {
     const soon = { ...base, nowMs: Date.parse(at(3)) };
     expect(shouldShowThreadRecap({ ...soon, trigger: "always" })).toBe(true);
@@ -120,6 +133,20 @@ describe("deriveThreadRecap", () => {
       note: null,
     });
     expect(deriveThreadRecap({ ...input, messages: [] })).toBeNull();
+  });
+
+  it("heads the card with the visit time and links the summary to the first new step", () => {
+    const recap = deriveThreadRecap({
+      ...input,
+      visitedAt: at(30),
+      workLogEntries: [
+        step("s1", 1),
+        step("s2", 3, { turnId: TurnId.make("turn-2") }),
+        step("s3", 4),
+      ],
+    });
+    expect(recap?.since).toBe(at(30));
+    expect(recap?.sinceThen?.firstStep).toEqual({ entryId: "s2", turnId: "turn-2" });
   });
 
   it("summarizes only the steps after the visit, with the files they changed", () => {

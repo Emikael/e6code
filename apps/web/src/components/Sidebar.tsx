@@ -24,6 +24,7 @@ import {
 } from "@e6tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@e6tools/client-runtime/state/thread-sort";
 import { joinThreadRowStatus } from "@e6tools/client-runtime/state/agent-state";
+import { formatAttentionAge } from "@e6tools/client-runtime/state/thread-attention";
 import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
@@ -173,7 +174,6 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
-  formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
   isSidebarNestedLinkClick,
@@ -365,17 +365,13 @@ function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
   }
 }
 
-// Self-ticking so only this span re-renders each second, not the whole row.
+// On the shared minute clock: only the now bar ticks in seconds (F5).
 function WorkingDuration(props: { startedAt: string | null }) {
-  const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (Number.isNaN(startedMs)) return;
-    const id = window.setInterval(() => setTick((tick) => tick + 1), 1_000);
-    return () => window.clearInterval(id);
-  }, [startedMs]);
-  if (Number.isNaN(startedMs)) return null;
-  return <span className="tabular-nums">{formatWorkingDurationLabel(Date.now() - startedMs)}</span>;
+  const nowMinute = useNowMinute();
+  if (props.startedAt === null) return null;
+  const age = formatAttentionAge(props.startedAt, `${nowMinute}:00.000Z`);
+  if (age === "") return null;
+  return <span className="tabular-nums">{age === "now" ? "<1m" : age}</span>;
 }
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new Map();

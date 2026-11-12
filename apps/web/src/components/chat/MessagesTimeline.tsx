@@ -237,6 +237,8 @@ import {
   buildToolCallExpandedBody,
   workEntryRawCommand,
   resolveWorkingRowStatus,
+  findRevealRowIndex,
+  type TimelineRevealTarget,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
@@ -532,8 +534,11 @@ interface MessagesTimelineProps {
   activeTurnStartedAt: string | null;
   /** The now bar's current action; see {@link TimelineRowActivityState.nowBarAction}. */
   nowBarAction?: string | null | undefined;
-  /** Scrolls to a message once per nonce, e.g. the recap's "You asked". */
-  revealMessageRequest?: { readonly messageId: string; readonly nonce: number } | null;
+  /** Scrolls to a message or step once per nonce, e.g. the recap's "You asked". */
+  revealMessageRequest?: {
+    readonly target: TimelineRevealTarget;
+    readonly nonce: number;
+  } | null;
   /** Live bootstrap progress for this thread, or null when none is tracked. */
   worktreeSetup?: WorktreeSetupSnapshot | null;
   onCancelWorktreeSetup?: () => void;
@@ -950,9 +955,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
     handledRevealNonceRef.current = revealMessageRequest.nonce;
-    const index = rows.findIndex(
-      (row) => row.kind === "message" && row.message.id === revealMessageRequest.messageId,
-    );
+    const index = findRevealRowIndex(rows, revealMessageRequest.target);
     if (index < 0) {
       toastManager.add({
         type: "info",

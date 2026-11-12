@@ -42,21 +42,12 @@ interface DraftHeroHeadlineProps {
   readonly draftId: DraftId | null;
   readonly activeProjectRef: ScopedProjectRef | null;
   readonly activeProjectTitle: string | null;
-  /** The model the composer sends to, such as "Claude Opus"; null before one resolves. */
-  readonly agentLabel: string | null;
-  /** Where the first message runs: the project's checkout or a new worktree. */
-  readonly envMode: "local" | "worktree";
-  /** The new worktree's base, or the checkout's branch; null when unknown. */
-  readonly branch: string | null;
 }
 
 export function DraftHeroHeadline({
   draftId,
   activeProjectRef,
   activeProjectTitle,
-  agentLabel,
-  envMode,
-  branch,
 }: DraftHeroHeadlineProps) {
   const projects = useProjects();
   const threads = useThreadShells();
@@ -281,25 +272,6 @@ export function DraftHeroHeadline({
           <>Add a project to start</>
         )}
       </h1>
-      {hasResolvedProject ? (
-        <p className="max-w-xl text-center text-sm text-balance text-muted-foreground sm:text-left">
-          {agentLabel ? (
-            <>
-              <span className="text-foreground">{agentLabel}</span>
-              {envMode === "worktree" ? " works in a new worktree" : " works in the project folder"}
-              {branch ? (
-                <>
-                  {envMode === "worktree" ? " off " : " on "}
-                  <span className="font-mono text-[0.8125rem] text-foreground">{branch}</span>
-                </>
-              ) : null}
-              . You can steer, approve and stop it at any time.
-            </>
-          ) : (
-            "Describe a task to start. You can steer, approve and stop the agent at any time."
-          )}
-        </p>
-      ) : null}
     </div>
   );
 }

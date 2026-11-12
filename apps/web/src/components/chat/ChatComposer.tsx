@@ -333,7 +333,9 @@ function ComposerVideoThumbnail({ file }: { file: File }) {
 }
 
 type ComposerCommandMenuPosition = {
-  bottom: number;
+  /** Distance from the viewport's bottom edge (opening upward) or top edge (opening downward). */
+  offset: number;
+  below: boolean;
   left: number;
   maxHeight: number;
   width: number;
@@ -837,11 +839,27 @@ function composerCommandMenuPositionsEqual(
   b: ComposerCommandMenuPosition,
 ): boolean {
   return (
-    a.bottom === b.bottom && a.left === b.left && a.maxHeight === b.maxHeight && a.width === b.width
+    a.offset === b.offset &&
+    a.below === b.below &&
+    a.left === b.left &&
+    a.maxHeight === b.maxHeight &&
+    a.width === b.width
   );
 }
 
-function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children: ReactNode }) {
+/** Space a menu needs below the composer before it opens downward. */
+const MIN_MENU_SPACE_BELOW_PX = 200;
+
+function ComposerCommandMenuLayer(props: {
+  anchor: HTMLElement | null;
+  /**
+   * Open below the composer when there is room: the start screen's composer sits near
+   * the top, where a menu opening upward would cover the header.
+   */
+  preferBelow?: boolean;
+  children: ReactNode | ((placement: "attached" | "floating") => ReactNode);
+}) {
+  const preferBelow = props.preferBelow ?? false;
   const [position, setPosition] = useState<ComposerCommandMenuPosition | null>(null);
 
   useLayoutEffect(() => {
@@ -867,12 +885,23 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
       // the canvas between the drawer mask and the composer's foreground edge.
       // Mirrors --chat-composer-attachment-overlap: calc(1rem + 1px).
       const composerOverlap = rootFontSizePx + 1;
-      const next = {
-        bottom: window.innerHeight - rect.top - composerOverlap,
-        left: rect.left + drawerInset,
-        maxHeight: Math.max(96, rect.top - 24 + composerOverlap),
-        width: Math.max(0, rect.width - drawerInset * 2),
-      };
+      const spaceBelow = window.innerHeight - rect.bottom - 24;
+      const next =
+        preferBelow && spaceBelow >= MIN_MENU_SPACE_BELOW_PX
+          ? {
+              offset: rect.bottom + 6,
+              below: true,
+              left: rect.left,
+              maxHeight: spaceBelow - 6,
+              width: rect.width,
+            }
+          : {
+              offset: window.innerHeight - rect.top - composerOverlap,
+              below: false,
+              left: rect.left + drawerInset,
+              maxHeight: Math.max(96, rect.top - 24 + composerOverlap),
+              width: Math.max(0, rect.width - drawerInset * 2),
+            };
       setPosition((current) =>
         current && composerCommandMenuPositionsEqual(current, next) ? current : next,
       );
@@ -900,7 +929,7 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [props.anchor]);
+  }, [preferBelow, props.anchor]);
 
   if (!position) return null;
 
@@ -909,13 +938,15 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
       className="pointer-events-auto fixed z-40 flex flex-col"
       data-composer-drawer-layer="true"
       style={{
-        bottom: position.bottom,
+        ...(position.below ? { top: position.offset } : { bottom: position.offset }),
         left: position.left,
         maxHeight: position.maxHeight,
         width: position.width,
       }}
     >
-      {props.children}
+      {typeof props.children === "function"
+        ? props.children(position.below ? "floating" : "attached")
+        : props.children}
     </div>,
     document.body,
   );
@@ -1354,6 +1385,8 @@ export interface ChatComposerProps {
   isServerThread: boolean;
   isLocalDraftThread: boolean;
   forceExpandedOnMobile: boolean;
+  /** The start screen: the / and @ menus open below the composer when there is room. */
+  commandMenuBelow?: boolean;
   projectSelectionRequired: boolean;
 
   // Session phase
@@ -1518,6 +1551,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isServerThread: _isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
+    commandMenuBelow = false,
     projectSelectionRequired,
     phase,
     isConnecting,
@@ -6349,17 +6383,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               )}
 
               {composerMenuOpen && !isComposerApprovalState && (
-                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
-                  <ComposerCommandMenu
-                    items={composerMenuItems}
-                    resolvedTheme={resolvedTheme}
-                    isLoading={isComposerMenuLoading}
-                    triggerKind={composerTriggerKind}
-                    emptyStateText={composerMenuEmptyState}
-                    activeItemId={activeComposerMenuItem?.id ?? null}
-                    onHighlightedItemChange={onComposerMenuItemHighlighted}
-                    onSelect={onSelectComposerItem}
-                  />
+                <ComposerCommandMenuLayer
+                  anchor={composerMenuAnchor}
+                  preferBelow={commandMenuBelow}
+                >
+                  {(placement) => (
+                    <ComposerCommandMenu
+                      items={composerMenuItems}
+                      resolvedTheme={resolvedTheme}
+                      isLoading={isComposerMenuLoading}
+                      triggerKind={composerTriggerKind}
+                      emptyStateText={composerMenuEmptyState}
+                      activeItemId={activeComposerMenuItem?.id ?? null}
+                      onHighlightedItemChange={onComposerMenuItemHighlighted}
+                      onSelect={onSelectComposerItem}
+                      placement={placement}
+                    />
+                  )}
                 </ComposerCommandMenuLayer>
               )}
 

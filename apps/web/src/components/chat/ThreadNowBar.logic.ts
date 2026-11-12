@@ -212,6 +212,43 @@ export function formatNowBarElapsed(
   return { elapsed: `${seconds}s` };
 }
 
+/**
+ * The message the failed bar's Retry sends again, or null when Retry would
+ * repeat something already answered. Only a turn that itself ended in error
+ * qualifies (a provider that crashed while idle leaves a completed turn), and
+ * only your last message from that turn, or one sent after the last answered
+ * turn. A message with attachments cannot be resent as text, so it gets none.
+ */
+export function selectRetryMessage<
+  Message extends {
+    readonly role: string;
+    readonly text: string;
+    readonly turnId?: TurnId | null | undefined;
+    readonly attachments?: ReadonlyArray<unknown> | undefined;
+  },
+>(
+  messages: ReadonlyArray<Message>,
+  latestTurn: { readonly turnId: TurnId; readonly state: string } | null | undefined,
+): Message | null {
+  if (latestTurn?.state !== "error") return null;
+  let lastUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]!.role === "user") {
+      lastUserIndex = index;
+      break;
+    }
+  }
+  const message = messages[lastUserIndex];
+  if (!message || !message.text.trim() || (message.attachments?.length ?? 0) > 0) return null;
+  if (message.turnId === latestTurn.turnId) return message;
+  if (message.turnId) return null;
+  // Not yet bound to a turn: retry only if no other turn answered after it.
+  const answeredAfter = messages
+    .slice(lastUserIndex + 1)
+    .some((later) => later.role === "assistant" && later.turnId !== latestTurn.turnId);
+  return answeredAfter ? null : message;
+}
+
 /** "Worked 3m 40s · finished 14:06", or "Finished 14:06" when the start is unknown. */
 export function doneSummary(workedFor: string | null, finishedClock: string): string {
   return workedFor === null

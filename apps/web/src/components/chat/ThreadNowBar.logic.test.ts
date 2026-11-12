@@ -8,6 +8,7 @@ import {
   doneSummary,
   formatNowBarElapsed,
   selectCurrentAction,
+  selectRetryMessage,
   type NowBarInput,
 } from "./ThreadNowBar.logic";
 
@@ -222,5 +223,56 @@ describe("countChangedFiles", () => {
         "/repo",
       ),
     ).toBe(3);
+  });
+});
+
+describe("selectRetryMessage", () => {
+  const failedTurn = { turnId: TurnId.make("turn-2"), state: "error" };
+  const asked = (turnId: string | null, text = "Fix the relay test") => ({
+    role: "user",
+    text,
+    turnId: turnId === null ? null : TurnId.make(turnId),
+  });
+  const answer = (turnId: string) => ({
+    role: "assistant",
+    text: "Done.",
+    turnId: TurnId.make(turnId),
+  });
+
+  it("retries your message from the turn that failed", () => {
+    const message = asked("turn-2");
+    expect(selectRetryMessage([asked("turn-1"), answer("turn-1"), message], failedTurn)).toBe(
+      message,
+    );
+  });
+
+  it("offers nothing when the latest turn completed, even if the session errored later", () => {
+    expect(
+      selectRetryMessage([asked("turn-2"), answer("turn-2")], {
+        turnId: TurnId.make("turn-2"),
+        state: "completed",
+      }),
+    ).toBeNull();
+  });
+
+  it("offers nothing when your last message belongs to an earlier, answered turn", () => {
+    expect(selectRetryMessage([asked("turn-1"), answer("turn-1")], failedTurn)).toBeNull();
+  });
+
+  it("retries a message not yet bound to a turn when nothing answered it", () => {
+    const message = asked(null);
+    expect(selectRetryMessage([asked("turn-1"), answer("turn-1"), message], failedTurn)).toBe(
+      message,
+    );
+  });
+
+  it("offers nothing for an unbound message that another turn answered", () => {
+    expect(selectRetryMessage([asked(null), answer("turn-1")], failedTurn)).toBeNull();
+  });
+
+  it("offers nothing for a message with attachments", () => {
+    expect(
+      selectRetryMessage([{ ...asked("turn-2"), attachments: [{ id: "image" }] }], failedTurn),
+    ).toBeNull();
   });
 });
