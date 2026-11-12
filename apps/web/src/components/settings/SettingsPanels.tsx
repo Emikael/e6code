@@ -715,6 +715,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.composerControls !== DEFAULT_UNIFIED_SETTINGS.composerControls
         ? ["Composer controls"]
         : []),
+      ...(settings.interfaceMotion !== DEFAULT_UNIFIED_SETTINGS.interfaceMotion ? ["Motion"] : []),
       ...(settings.focusHoldsFinished !== DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished
         ? ["Hold finished threads in focus mode"]
         : []),
@@ -863,6 +864,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarElapsedTimeEnabled,
       settings.recapTrigger,
       settings.composerControls,
+      settings.interfaceMotion,
       settings.focusHoldsFinished,
       settings.openThreadReminderAt,
       settings.sessionClockEnabled,
@@ -972,6 +974,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarElapsedTimeEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled,
       recapTrigger: DEFAULT_UNIFIED_SETTINGS.recapTrigger,
       composerControls: DEFAULT_UNIFIED_SETTINGS.composerControls,
+      interfaceMotion: DEFAULT_UNIFIED_SETTINGS.interfaceMotion,
       focusHoldsFinished: DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished,
       openThreadReminderAt: DEFAULT_UNIFIED_SETTINGS.openThreadReminderAt,
       sessionClockEnabled: DEFAULT_UNIFIED_SETTINGS.sessionClockEnabled,

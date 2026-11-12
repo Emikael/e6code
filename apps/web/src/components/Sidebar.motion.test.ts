@@ -67,9 +67,9 @@ class TestRow {
 
 function fixture(rows: TestRow[]) {
   const media = { matches: false };
+  vi.stubGlobal("window", { matchMedia: () => media });
   const parent = {
     children: rows,
-    ownerDocument: { defaultView: { matchMedia: () => media } },
     getBoundingClientRect: () => ({ top: 0 }),
     append(node: TestRow) {
       parent.children.push(node);

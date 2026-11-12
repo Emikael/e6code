@@ -1,6 +1,8 @@
 import type { IconNode, MorphIconProps } from "morphicons/react";
 import { createElement, lazy, Suspense } from "react";
 
+import { useReducedMotion } from "~/hooks/useReducedMotion";
+
 // The morphing runtime loads after first paint; until then the same shape draws statically.
 const LazyMorphIcon = lazy(() =>
   import("morphicons/react").then((module) => ({ default: module.MorphIcon })),
@@ -10,11 +12,10 @@ const LazyMorphIcon = lazy(() =>
  * Renders `lucide` icon data and morphs between shapes when `icon` changes. Its svg is not a
  * `.lucide` element, so it takes the app's lighter icon stroke here.
  */
-export function MorphIcon({
-  reducedMotion = "user",
-  strokeWidth = 1.75,
-  ...props
-}: MorphIconProps) {
+export function MorphIcon({ reducedMotion, strokeWidth = 1.75, ...props }: MorphIconProps) {
+  // The Motion setting can force the reduced path that "user" otherwise takes from the system.
+  const forcedReduced = useReducedMotion();
+  reducedMotion ??= forcedReduced ? "always" : "user";
   return (
     <Suspense fallback={<StaticIcon {...props} strokeWidth={strokeWidth} />}>
       <LazyMorphIcon reducedMotion={reducedMotion} strokeWidth={strokeWidth} {...props} />

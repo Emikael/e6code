@@ -1,3 +1,5 @@
+import { prefersReducedMotion } from "~/lib/motion";
+
 export const DRAFT_HERO_TRANSITION_ANIMATION_ID = "e6-draft-hero-transition";
 export const DRAFT_HERO_TRANSITION_DURATION_MS = 180;
 export const DRAFT_HERO_TRANSITION_EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
@@ -47,9 +49,7 @@ export async function runMobileComposerTransition(
 
   const transitionDocument = document as ComposerViewTransitionDocument;
   const mobileViewport = window.matchMedia?.("(max-width: 639px)").matches ?? false;
-  const prefersReducedMotion =
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  if (!mobileViewport || prefersReducedMotion || !transitionDocument.startViewTransition) {
+  if (!mobileViewport || prefersReducedMotion() || !transitionDocument.startViewTransition) {
     await update();
     return;
   }

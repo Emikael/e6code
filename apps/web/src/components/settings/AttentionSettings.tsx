@@ -10,6 +10,7 @@ import {
   type AgentActivityDetail,
   type BreakReminderMinutes,
   type ComposerControls,
+  type InterfaceMotion,
   type OpenThreadReminderAt,
   type RecapTrigger,
 } from "@e6tools/contracts/settings";
@@ -94,11 +95,20 @@ const COMPOSER_CONTROLS_OPTIONS: ReadonlyArray<{
   { value: "full", label: "Full" },
 ];
 
+const INTERFACE_MOTION_OPTIONS: ReadonlyArray<{
+  readonly value: InterfaceMotion;
+  readonly label: string;
+}> = [
+  { value: "system", label: "System" },
+  { value: "reduced", label: "Reduced" },
+];
+
 export function AttentionSettingsPanel() {
   const needsYouSectionEnabled = useClientSettings((s) => s.needsYouSectionEnabled);
   const sidebarElapsedTimeEnabled = useClientSettings((s) => s.sidebarElapsedTimeEnabled);
   const recapTrigger = useClientSettings((s) => s.recapTrigger);
   const composerControls = useClientSettings((s) => s.composerControls);
+  const interfaceMotion = useClientSettings((s) => s.interfaceMotion);
   const focusHoldsFinished = useClientSettings((s) => s.focusHoldsFinished);
   const openThreadReminderAt = useClientSettings((s) => s.openThreadReminderAt);
   const agentActivityDetail = useClientSettings((s) => s.agentActivityDetail);
@@ -219,6 +229,29 @@ export function AttentionSettingsPanel() {
                 value={composerControls}
                 options={COMPOSER_CONTROLS_OPTIONS}
                 onChange={(value) => updateSettings({ composerControls: value })}
+              />
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("interface-motion")}
+            className={ATTENTION_ROW_CLASS}
+            description="Reduced turns every transition into an instant change."
+            resetAction={
+              interfaceMotion !== DEFAULT_CLIENT_SETTINGS.interfaceMotion ? (
+                <SettingResetButton
+                  label="motion"
+                  onClick={() =>
+                    updateSettings({ interfaceMotion: DEFAULT_CLIENT_SETTINGS.interfaceMotion })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <AttentionSegmented
+                label="Motion"
+                value={interfaceMotion}
+                options={INTERFACE_MOTION_OPTIONS}
+                onChange={(value) => updateSettings({ interfaceMotion: value })}
               />
             }
           />

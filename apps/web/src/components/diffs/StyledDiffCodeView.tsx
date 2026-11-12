@@ -241,7 +241,8 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
    Departing content cuts, the same one-way rule the pull request chrome fold follows. */
 [data-diff],
 [data-file] {
-  transition: opacity 200ms ease-out;
+  /* The Motion setting reaches into this shadow root through the inherited variable. */
+  transition: var(--reduced-motion-transition, opacity 200ms ease-out);
 }
 
 @starting-style {

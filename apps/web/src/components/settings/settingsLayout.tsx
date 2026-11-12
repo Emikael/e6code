@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import { SettingsGroup } from "./SettingsGroup";
 import { InfoIcon, Undo2Icon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@e6tools/contracts";
@@ -77,7 +78,7 @@ function SettingsSearchTargetProvider({
 }
 
 function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): void {
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotion = prefersReducedMotion();
   const markedScrollTarget =
     typeof target.querySelector === "function"
       ? target.querySelector<HTMLElement>(":scope > [data-settings-scroll-target]")
@@ -89,12 +90,12 @@ function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): vo
       : target);
 
   scrollTarget.scrollIntoView({
-    behavior: prefersReducedMotion ? "auto" : "smooth",
+    behavior: reducedMotion ? "auto" : "smooth",
     block: "center",
   });
   target.focus({ preventScroll: true });
   target.classList.remove("settings-search-target-pulse");
-  if (!highlight || prefersReducedMotion) return;
+  if (!highlight || reducedMotion) return;
   void target.offsetWidth;
   target.classList.add("settings-search-target-pulse");
   // The class also suppresses the focus outline (the pulse is the destination

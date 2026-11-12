@@ -243,6 +243,13 @@ export const ComposerControls = Schema.Literals(["compact", "full"]);
 export type ComposerControls = typeof ComposerControls.Type;
 
 /**
+ * Attention page, "Motion". `system` follows the operating system's
+ * reduced-motion preference; `reduced` takes the reduced path regardless.
+ */
+export const InterfaceMotion = Schema.Literals(["system", "reduced"]);
+export type InterfaceMotion = typeof InterfaceMotion.Type;
+
+/**
  * Attention page, "Agent activity". `summary` keeps a working agent's tool
  * calls and thinking folded to one line; `live` opens them as they happen.
  */
@@ -534,6 +541,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   composerControls: ComposerControls.pipe(
     Schema.withDecodingDefault(Effect.succeed("compact" as const)),
+  ),
+  interfaceMotion: InterfaceMotion.pipe(
+    Schema.withDecodingDefault(Effect.succeed("system" as const)),
   ),
   /** Focus mode holds other finished threads until you exit it. */
   focusHoldsFinished: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -1787,6 +1797,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarElapsedTimeEnabled: Schema.optionalKey(Schema.Boolean),
   recapTrigger: Schema.optionalKey(RecapTrigger),
   composerControls: Schema.optionalKey(ComposerControls),
+  interfaceMotion: Schema.optionalKey(InterfaceMotion),
   focusHoldsFinished: Schema.optionalKey(Schema.Boolean),
   openThreadReminderAt: Schema.optionalKey(OpenThreadReminderAt),
   sessionClockEnabled: Schema.optionalKey(Schema.Boolean),

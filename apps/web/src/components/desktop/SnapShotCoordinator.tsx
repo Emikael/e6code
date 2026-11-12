@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import {
   type DesktopPendingSnapShot,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -349,7 +350,7 @@ export function SnapShotCoordinator() {
         }
         case "started": {
           playCaptureSound(event.id);
-          if (animateCaptures && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          if (animateCaptures && !prefersReducedMotion()) {
             void beginSnapShotAnimationWhenReady(
               event.id,
               resolveSnapShotDeliveryTarget(

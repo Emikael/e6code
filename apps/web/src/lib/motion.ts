@@ -1,6 +1,7 @@
 import { spring } from "animejs/easings/spring";
 import { waapi } from "animejs/waapi";
 import type { DOMTargetsParam, WAAPIAnimationParams } from "animejs";
+import type { InterfaceMotion } from "@e6tools/contracts/settings";
 
 /**
  * Shared motion vocabulary for the web client.
@@ -46,8 +47,55 @@ export function installMotionTokens(root: HTMLElement = document.documentElement
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+/**
+ * Root attribute the Motion setting sets when it forces reduced motion.
+ * Stylesheet rules for reduced motion match it as well as the media query
+ * (see the `motion-reduce` and `motion-safe` variants in `index.css`).
+ */
+export const REDUCED_MOTION_ATTRIBUTE = "data-reduced-motion";
+
+/** Reduced motion is on when the system asks for it or the Motion setting forces it. */
+export function resolveReducedMotion(
+  systemPrefersReduced: boolean,
+  interfaceMotion: InterfaceMotion,
+): boolean {
+  return systemPrefersReduced || interfaceMotion === "reduced";
+}
+
+let interfaceMotion: InterfaceMotion = "system";
+const interfaceMotionListeners = new Set<() => void>();
+
+/** Applies the Motion setting to scripted motion and to the root attribute CSS matches. */
+export function applyInterfaceMotion(
+  next: InterfaceMotion,
+  root: HTMLElement | undefined = typeof document === "undefined"
+    ? undefined
+    : document.documentElement,
+) {
+  root?.toggleAttribute(REDUCED_MOTION_ATTRIBUTE, next === "reduced");
+  if (next === interfaceMotion) return;
+  interfaceMotion = next;
+  for (const listener of interfaceMotionListeners) listener();
+}
+
+function reducedMotionMedia(): MediaQueryList | undefined {
+  return typeof window === "undefined" ? undefined : window.matchMedia?.(REDUCED_MOTION_QUERY);
+}
+
+/** The single reduced-motion check for scripted motion; it honors the Motion setting. */
 export function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(REDUCED_MOTION_QUERY).matches;
+  return resolveReducedMotion(reducedMotionMedia()?.matches ?? false, interfaceMotion);
+}
+
+/** Calls `listener` when the system preference or the Motion setting changes. */
+export function subscribeReducedMotion(listener: () => void): () => void {
+  const media = reducedMotionMedia();
+  media?.addEventListener("change", listener);
+  interfaceMotionListeners.add(listener);
+  return () => {
+    media?.removeEventListener("change", listener);
+    interfaceMotionListeners.delete(listener);
+  };
 }
 
 /** Element motion is unavailable in test DOMs and very old engines; callers skip it there. */

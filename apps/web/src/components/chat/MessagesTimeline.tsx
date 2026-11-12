@@ -1,3 +1,4 @@
+import { useReducedMotion } from "~/hooks/useReducedMotion";
 import { ArrowUpIcon, ClockIcon } from "lucide-react";
 import { observeResize } from "~/lib/observeResize";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -291,7 +292,6 @@ import { createContextPresentationRegistry } from "../contextPresentationRegistr
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
-import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { type SubagentThreadTarget, useSubagentSelectionStore } from "~/subagentSelectionStore";
 import { toastManager } from "../ui/toast";
 import { cn } from "~/lib/utils";
@@ -692,7 +692,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     rememberedPosition?.atEnd === false ? null : listIdentityKey,
   );
   const restoringThreadPosition = positionedThreadKey !== listIdentityKey;
-  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const reducedMotion = useReducedMotion();
   const listIdentityRef = useRef(listIdentityKey);
   const previousLatestTurnRef = useRef(latestTurn);
   // The list stays mounted across thread switches. Its first end pins on the
@@ -1002,7 +1002,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     onManualNavigation();
     void listRef.current?.scrollToIndex({
       index,
-      animated: !prefersReducedMotion,
+      animated: !reducedMotion,
       viewOffset: 24,
     });
   }, [
@@ -1010,7 +1010,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     listRef,
     onManualNavigation,
     openEarlierTurns,
-    prefersReducedMotion,
+    reducedMotion,
     revealMessageRequest,
     rows,
   ]);
@@ -1069,7 +1069,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onManualNavigation();
       setHighlight(target);
       void listRef.current
-        ?.scrollToIndex({ index: match.index, animated: !prefersReducedMotion, viewOffset: 24 })
+        ?.scrollToIndex({ index: match.index, animated: !reducedMotion, viewOffset: 24 })
         .then(() => {
           requestAnimationFrame(() => {
             const row = document.querySelector<HTMLElement>(
@@ -1638,7 +1638,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               !liveFollowEnabled ||
               disclosureToggleSettling
                 ? false
-                : isWorking && !prefersReducedMotion && settlingListIdentity === null
+                : isWorking && !reducedMotion && settlingListIdentity === null
                   ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
                   : TIMELINE_MAINTAIN_SCROLL_AT_END
             }
