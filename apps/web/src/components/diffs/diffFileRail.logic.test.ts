@@ -8,7 +8,8 @@ import {
   inDiffOrder,
   isFileRailOpen,
   railFolderHints,
-  visibleRailRows,
+  foldGeneratedFiles,
+  listedDiffFileCount,
 } from "./diffFileRail.logic";
 
 const file = (path: string) => ({ path, additions: 1, deletions: 0 });
@@ -56,28 +57,25 @@ describe("diffRailRows", () => {
     const rows = diffRailRows([file("src/theme.ts"), file("src/thyme.ts")]);
     expect(rows.map((row) => row.folder)).toEqual([null, null]);
   });
-
-  it("marks lockfiles and build output as generated", () => {
-    const rows = diffRailRows([file("src/a.ts"), file("pnpm-lock.yaml"), file("dist/a.js")]);
-    expect(rows.map((row) => row.generated)).toEqual([false, true, true]);
-  });
 });
 
-describe("visibleRailRows", () => {
-  const rows = diffRailRows([file("pnpm-lock.yaml"), file("src/a.ts"), file("src/b.ts")]);
+describe("foldGeneratedFiles", () => {
+  const paths = ["pnpm-lock.yaml", "src/a.ts", "src/b.ts"];
 
-  it("folds generated files and counts them", () => {
-    const view = visibleRailRows(rows, false);
-    expect(view.rows.map((row) => row.path)).toEqual(["src/a.ts", "src/b.ts"]);
+  it("folds generated files out and counts them", () => {
+    const view = foldGeneratedFiles(paths, (path) => path, false);
+    expect(view.items).toEqual(["src/a.ts", "src/b.ts"]);
     expect(view.generatedCount).toBe(1);
   });
 
-  it("shows them in body order once opened", () => {
-    expect(visibleRailRows(rows, true).rows.map((row) => row.path)).toEqual([
-      "pnpm-lock.yaml",
-      "src/a.ts",
-      "src/b.ts",
-    ]);
+  it("treats lockfiles and build output as generated", () => {
+    expect(
+      foldGeneratedFiles(["src/a.ts", "pnpm-lock.yaml", "dist/a.js"], (path) => path, false),
+    ).toEqual({ items: ["src/a.ts"], generatedCount: 2 });
+  });
+
+  it("brings them back in body order once shown", () => {
+    expect(foldGeneratedFiles(paths, (path) => path, true).items).toEqual(paths);
   });
 });
 
@@ -114,5 +112,11 @@ describe("railFolderHints", () => {
       "apps/web/src/other.ts",
     ]);
     expect([...hints.values()]).toEqual(["shared", "web", null]);
+  });
+});
+
+describe("listedDiffFileCount", () => {
+  it("counts the files the Diff lists, leaving folded generated files out", () => {
+    expect(listedDiffFileCount([{ path: "src/a.ts" }, { path: "pnpm-lock.yaml" }])).toBe(1);
   });
 });

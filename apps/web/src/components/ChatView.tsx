@@ -571,6 +571,7 @@ import {
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { listedDiffFileCount } from "./diffs/diffFileRail.logic";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@e6tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -11524,7 +11525,7 @@ export default function ChatView(props: ChatViewProps) {
           deviceAvailable={activeThreadRef !== null}
           diffFileCount={{
             threadRef: activeThreadRef,
-            workingTreeFileCount: gitStatusQuery.data?.workingTree.files.length ?? 0,
+            workingTreeFileCount: listedDiffFileCount(gitStatusQuery.data?.workingTree.files ?? []),
           }}
           runningTerminalIds={runningTerminalIds}
           finishedTerminalIds={finishedTerminalIds}
@@ -11596,7 +11597,9 @@ export default function ChatView(props: ChatViewProps) {
             deviceAvailable={activeThreadRef !== null}
             diffFileCount={{
               threadRef: activeThreadRef,
-              workingTreeFileCount: gitStatusQuery.data?.workingTree.files.length ?? 0,
+              workingTreeFileCount: listedDiffFileCount(
+                gitStatusQuery.data?.workingTree.files ?? [],
+              ),
             }}
             runningTerminalIds={runningTerminalIds}
             finishedTerminalIds={finishedTerminalIds}

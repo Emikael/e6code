@@ -149,3 +149,20 @@ export function changeEnd(
     ? { lineNumber: hunk.additionStart + hunk.additionCount - 1, side: "additions" }
     : { lineNumber: hunk.deletionStart + Math.max(0, hunk.deletionCount - 1), side: "deletions" };
 }
+
+/**
+ * The current file after the body scrolls: the reader's file while any of it is still in view, so
+ * J or the rail can land on a last file that cannot reach the top; else the first file in view.
+ */
+export function scrolledCurrentPath(
+  placed: ReadonlyArray<{ readonly path: string; readonly top: number; readonly bottom: number }>,
+  scrollTop: number,
+  viewportHeight: number,
+  previous: string | null,
+): string | null {
+  const isInView = (entry: { readonly top: number; readonly bottom: number }) =>
+    entry.bottom > scrollTop + 4 && entry.top < scrollTop + viewportHeight;
+  const current = placed.find((entry) => entry.path === previous);
+  if (current && isInView(current)) return previous;
+  return placed.find((entry) => entry.bottom > scrollTop + 4)?.path ?? previous;
+}

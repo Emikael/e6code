@@ -45,8 +45,12 @@ import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { generatedFoldLabel, inDiffOrder, railFolderHints } from "./diffFileRail.logic";
-import { diffFileTier } from "../pullRequest/pullRequestFileOrder.logic";
+import {
+  foldGeneratedFiles,
+  generatedFoldLabel,
+  inDiffOrder,
+  railFolderHints,
+} from "./diffFileRail.logic";
 import { DiffReviewTick } from "./DiffReviewTick";
 
 export type DiffChangesSection = "staged" | "unstaged";
@@ -82,6 +86,9 @@ interface DiffChangesPanelProps {
    * the agent's changes shows the user's own as soon as a fresh preview answers.
    */
   readonly onUserChange?: () => void;
+  /** Generated files stay folded out of every section until the Diff shows them. */
+  readonly showGenerated: boolean;
+  readonly onToggleGenerated: () => void;
 }
 
 function describeFailure(result: AtomCommandResult<unknown, unknown>): string {
@@ -120,6 +127,8 @@ export function DiffChangesPanel({
   reviewStatusOf = null,
   order,
   onUserChange,
+  showGenerated,
+  onToggleGenerated,
 }: DiffChangesPanelProps) {
   const commitBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -321,6 +330,8 @@ export function DiffChangesPanel({
       <div className="min-h-0 flex-1 overflow-y-auto py-1" aria-label="Changes">
         {sections.conflicts.length > 0 ? (
           <ChangeSection
+            showGenerated={showGenerated}
+            onToggleGenerated={onToggleGenerated}
             title="Conflicts"
             entries={sections.conflicts}
             selectedPath={selectedIn("unstaged")}
@@ -340,6 +351,8 @@ export function DiffChangesPanel({
           />
         ) : null}
         <ChangeSection
+          showGenerated={showGenerated}
+          onToggleGenerated={onToggleGenerated}
           title="Staged"
           entries={sections.staged}
           selectedPath={selectedIn("staged")}
@@ -372,6 +385,8 @@ export function DiffChangesPanel({
           onToggle={commitPendingReason ? undefined : (entry) => unstageEntries([entry])}
         />
         <ChangeSection
+          showGenerated={showGenerated}
+          onToggleGenerated={onToggleGenerated}
           title="Changes"
           entries={sections.unstaged}
           selectedPath={selectedIn("unstaged")}
@@ -487,20 +502,20 @@ function ChangeSection(props: {
   readonly currentCaption?: string | null;
   /** Space on a focused row moves it to the other section. */
   readonly onToggle?: ((entry: VcsChangeEntry) => void) | undefined;
+  readonly showGenerated: boolean;
+  readonly onToggleGenerated: () => void;
 }) {
-  const [showGenerated, setShowGenerated] = useState(false);
   if (props.entries.length === 0 && !props.emptyHint) return null;
-  const generatedCount = props.entries.filter(
-    (entry) => diffFileTier(entry.path) === "generated",
-  ).length;
-  const shown = showGenerated
-    ? props.entries
-    : props.entries.filter((entry) => diffFileTier(entry.path) !== "generated");
+  const { items: shown, generatedCount } = foldGeneratedFiles(
+    props.entries,
+    (entry) => entry.path,
+    props.showGenerated,
+  );
   return (
-    <section aria-label={`${props.title}, ${props.entries.length} files`}>
+    <section aria-label={`${props.title}, ${shown.length} files`}>
       <div className="group/section flex h-7 items-center gap-1 pr-1 pl-4 text-[11px] font-medium text-muted-foreground">
         <span className="text-foreground/80">{props.title}</span>
-        <span className="tabular-nums">{props.entries.length}</span>
+        <span className="tabular-nums">{shown.length}</span>
         <div className="ml-auto flex items-center">{props.actions}</div>
       </div>
       {props.entries.length === 0 ? (
@@ -525,17 +540,17 @@ function ChangeSection(props: {
           {generatedCount > 0 ? (
             <button
               type="button"
-              aria-expanded={showGenerated}
-              onClick={() => setShowGenerated((current) => !current)}
+              aria-expanded={props.showGenerated}
+              onClick={props.onToggleGenerated}
               className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-muted-foreground text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             >
-              {showGenerated ? (
+              {props.showGenerated ? (
                 <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
               ) : (
                 <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
               )}
               <span className="min-w-0 flex-1 truncate">
-                {generatedFoldLabel(generatedCount, showGenerated)}
+                {generatedFoldLabel(generatedCount, props.showGenerated)}
               </span>
             </button>
           ) : null}
