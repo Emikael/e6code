@@ -143,6 +143,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("needs-you-section")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Blocked agents first, then work to review. The list below keeps its order."
             resetAction={
               needsYouSectionEnabled !== DEFAULT_CLIENT_SETTINGS.needsYouSectionEnabled ? (
@@ -169,6 +170,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("open-thread-reminder")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="A quiet line in the composer when this many threads are open."
             resetAction={
               openThreadReminderAt !== DEFAULT_CLIENT_SETTINGS.openThreadReminderAt ? (
@@ -193,7 +195,7 @@ export function AttentionSettingsPanel() {
                 }}
               >
                 <SelectTrigger
-                  size="sm"
+                  size="compact"
                   className="w-full sm:w-auto"
                   aria-label={`Open-thread reminder: ${openThreadReminderLabel(openThreadReminderAt).toLowerCase()}`}
                 >
@@ -212,6 +214,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("composer-controls")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Compact keeps effort, permissions and mode behind one chip."
             resetAction={
               composerControls !== DEFAULT_CLIENT_SETTINGS.composerControls ? (
@@ -235,6 +238,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("interface-motion")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Reduced turns every transition into an instant change."
             resetAction={
               interfaceMotion !== DEFAULT_CLIENT_SETTINGS.interfaceMotion ? (
@@ -261,6 +265,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("recap-trigger")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="A short recap built from the thread itself."
             resetAction={
               recapTrigger !== DEFAULT_CLIENT_SETTINGS.recapTrigger ? (
@@ -281,7 +286,7 @@ export function AttentionSettingsPanel() {
                 }}
               >
                 <SelectTrigger
-                  size="sm"
+                  size="compact"
                   className="w-full sm:w-auto"
                   aria-label={`Show where you left off: ${RECAP_TRIGGER_LABELS[recapTrigger].toLowerCase()}`}
                 >
@@ -300,6 +305,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("agent-activity-detail")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Summary folds tool calls into one line. Live shows each step."
             resetAction={
               agentActivityDetail !== DEFAULT_CLIENT_SETTINGS.agentActivityDetail ? (
@@ -325,6 +331,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("focus-holds-finished")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Anything that blocks an agent still comes through."
             resetAction={
               focusHoldsFinished !== DEFAULT_CLIENT_SETTINGS.focusHoldsFinished ? (
@@ -354,6 +361,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("sidebar-elapsed-time")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Whole minutes only, so nothing ticks at the edge of your eye."
             resetAction={
               sidebarElapsedTimeEnabled !== DEFAULT_CLIENT_SETTINGS.sidebarElapsedTimeEnabled ? (
@@ -380,6 +388,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("session-clock")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="Shows how long E6 Code has been open today."
             resetAction={
               sessionClockEnabled !== DEFAULT_CLIENT_SETTINGS.sessionClockEnabled ? (
@@ -406,6 +415,7 @@ export function AttentionSettingsPanel() {
           <SettingsRow
             {...searchableSetting("break-reminder")}
             className={ATTENTION_ROW_CLASS}
+            compact
             description="A quiet line in the header. It never interrupts."
             resetAction={
               breakReminderMinutes !== DEFAULT_CLIENT_SETTINGS.breakReminderMinutes ? (
@@ -430,7 +440,7 @@ export function AttentionSettingsPanel() {
                 }}
               >
                 <SelectTrigger
-                  size="sm"
+                  size="compact"
                   className="w-full sm:w-auto"
                   aria-label={`Break reminder: ${breakReminderLabel(breakReminderMinutes).toLowerCase()}`}
                 >

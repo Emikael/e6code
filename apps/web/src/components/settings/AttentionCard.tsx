@@ -37,7 +37,7 @@ export function AttentionCard({
  * a 13px label over a 12px caption, and 12px between text and control.
  */
 export const ATTENTION_ROW_CLASS =
-  "rounded-none px-0 py-2.5 sm:px-0 [&_h3]:text-[13px] [&_h3]:leading-[18px] [&_p]:max-w-none [&_p]:text-xs [&_p]:leading-4 [&_p]:text-muted-foreground [&>div]:@min-[32rem]/settings-row:gap-3";
+  "rounded-none px-0 py-2.5 sm:px-0 [&_h3]:text-[13px] [&_h3]:leading-[18px] [&_p]:max-w-none [&_p]:text-xs [&_p]:leading-4 [&_p]:text-muted-foreground";
 
 const TILES: ReadonlyArray<{
   readonly preset: AttentionPreset;
