@@ -845,13 +845,11 @@ export function shouldRecedeSidebarThread(input: {
   isActive: boolean;
   isSelected: boolean;
 }): boolean {
-  if (input.isActive || input.isSelected || input.status === "input") return false;
-  // A usage-limit pause waits on the clock, not the user, so it recedes too.
-  if (input.status === "working" || input.status === "monitoring" || input.status === "paused")
-    return true;
-  if (input.status === "ready" || input.status === "approval") {
-    return !input.isUnread && !input.isWoke;
-  }
+  if (input.isActive || input.isSelected) return false;
+  // A usage-limit pause waits on the clock, not the user, so it recedes. A row that needs you
+  // (approval, question, failure) and a working agent keep full strength, as board 1 draws them.
+  if (input.status === "paused") return true;
+  if (input.status === "ready") return !input.isUnread && !input.isWoke;
   return false;
 }
 

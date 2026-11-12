@@ -86,12 +86,13 @@ describe("shouldShowThreadRecap", () => {
 });
 
 describe("selectRecapAsk", () => {
-  it("takes your most recent message of 40 or more characters", () => {
+  it("takes your most recent message of three or more words", () => {
     expect(
       selectRecapAsk([
         message("m1", "Fix it", 1),
         message("m2", LONG_ASK, 2),
         message("m3", "Also update the mobile tokens.", 3),
+        message("m4", "go ahead", 4),
         message(
           "a1",
           "A long assistant reply that is certainly over forty characters.",
@@ -99,11 +100,17 @@ describe("selectRecapAsk", () => {
           "assistant",
         ),
       ]),
-    ).toEqual({ messageId: "m2", text: LONG_ASK });
+    ).toEqual({ messageId: "m3", text: "Also update the mobile tokens." });
   });
 
   it("falls back to the thread's first message", () => {
-    expect(selectRecapAsk([message("m1", "Fix the relay", 1), message("m2", "go on", 2)])).toEqual({
+    expect(
+      selectRecapAsk([
+        message("m1", "Fix the relay", 1),
+        message("m2", "go on", 2),
+        message("m3", "ok", 3),
+      ]),
+    ).toEqual({
       messageId: "m1",
       text: "Fix the relay",
     });

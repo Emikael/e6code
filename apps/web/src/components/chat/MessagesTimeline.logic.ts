@@ -64,6 +64,20 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
   return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
 }
 
+/**
+ * The one file a file tool works on (Claude's Read and Edit name it as their detail), or null.
+ * Reads count only when the provider titles them "Read file", as the tool group summary does.
+ */
+function fileToolPath(entry: WorkLogEntry): string | null {
+  const isRead =
+    entry.itemType === "dynamic_tool_call" && entry.toolTitle?.trim().toLowerCase() === "read file";
+  if (entry.itemType !== "file_change" && !isRead) return null;
+  const [changed] = entry.changedFiles ?? [];
+  if (changed) return changed;
+  const detail = entry.detail?.trim();
+  return detail && !/\s/.test(detail) ? detail : null;
+}
+
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
   // A Tasks row's detail is its step list, shown when expanded; the label is its summary.
   if (entry.sourceActivityKind === "turn.plan.updated") return entry.label;
@@ -72,6 +86,10 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
+  const filePath = fileToolPath(entry);
+  if (filePath && entry.changedFiles === undefined) {
+    return formatWorkspaceRelativePath(filePath, workspaceRoot);
+  }
   if (entry.detail) return entry.detail;
   const [firstPath] = entry.changedFiles ?? [];
   if (firstPath) {
@@ -108,6 +126,12 @@ export function liveWorkEntryLabel(
               ? "Stopped"
               : "Ran";
     return `${verb} ${commandProgramName(command) ?? "command"}`;
+  }
+  // Board 2: "Editing packages/shared/src/themePalettes.ts" while the edit runs.
+  const filePath = status === "inProgress" ? fileToolPath(entry) : null;
+  if (filePath) {
+    const verb = entry.itemType === "file_change" ? "Editing" : "Reading";
+    return `${verb} ${formatWorkspaceRelativePath(filePath, workspaceRoot)}`;
   }
   return workEntryDisplayLabel(entry, workspaceRoot);
 }

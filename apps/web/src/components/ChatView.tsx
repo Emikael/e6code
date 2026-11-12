@@ -10759,11 +10759,15 @@ export default function ChatView(props: ChatViewProps) {
                   the timeline has rows. */}
               <div className="relative z-20 h-0">
                 <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col">
-                  <ProviderStatusBanner
-                    status={visibleProviderStatus}
-                    onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
-                    onOpenProviderSetup={openProviderSetup}
-                  />
+                  {/* The start screen shows it above its headline instead (it has no timeline
+                      to overlay). */}
+                  {isDraftHeroState ? null : (
+                    <ProviderStatusBanner
+                      status={visibleProviderStatus}
+                      onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
+                      onOpenProviderSetup={openProviderSetup}
+                    />
+                  )}
                   <ThreadErrorBanner
                     error={showThreadErrorOverlay ? visibleThreadError : null}
                     onContinue={() => focusComposer()}
@@ -10895,6 +10899,10 @@ export default function ChatView(props: ChatViewProps) {
                           <ThreadErrorBanner
                             inline
                             error={visibleThreadError}
+                            failure={nowBar.state.kind === "failed" ? nowBar.state.text : null}
+                            checkpointed={(activeThread?.checkpoints.length ?? 0) > 0}
+                            onRetry={onRetryFailedTurn}
+                            onOpenTerminal={() => setTerminalOpen(true)}
                             onContinue={() => focusComposer()}
                             onDismiss={dismissThreadError}
                           />
@@ -11131,6 +11139,13 @@ export default function ChatView(props: ChatViewProps) {
                         }
                       >
                         <div className="flex flex-col gap-3">
+                          <ProviderStatusBanner
+                            status={visibleProviderStatus}
+                            onDismiss={() =>
+                              setDismissedProviderStatusBannerKey(providerStatusBannerKey)
+                            }
+                            onOpenProviderSetup={openProviderSetup}
+                          />
                           <DraftHeroHeadline
                             draftId={draftId}
                             activeProjectRef={activeProjectRef}

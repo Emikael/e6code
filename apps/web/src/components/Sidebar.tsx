@@ -1304,9 +1304,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
-  // Background work always recedes when it is not selected: an unread parent
-  // completion must not pull a still-working thread back into the foreground.
-  // Ready and action-required rows keep their unread and wake prominence.
+  // Only a read finished row and a usage-limit pause recede: a row that needs
+  // you, or an agent at work, keeps a full-strength title.
   const shouldRecede = shouldRecedeSidebarThread({
     status,
     isUnread,

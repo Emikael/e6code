@@ -6,7 +6,7 @@
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedProjectKey } from "@e6tools/client-runtime/environment";
-import { ChevronDownIcon, InboxIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, InboxIcon } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -143,6 +143,13 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
       ...(result.durable
         ? {}
         : { description: "Browser storage is unavailable, so it is kept for this session only." }),
+      // Board 4: the tick, "Parked" and a ghost Undo; the fill stays with the next action.
+      data: {
+        hideCopyButton: true,
+        leadingIcon: <CheckIcon aria-hidden className="size-4 text-success-foreground" />,
+        actionVariant: "ghost",
+        actionSize: "sm",
+      },
       actionProps: {
         children: "Undo",
         onClick: () => usePromptStashStore.getState().takeEntry(entryId),
@@ -171,13 +178,13 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    // Board 10: the bar opens from scale 0.98 and 4px up in 120ms. Closing unmounts it at once.
+    // Board 10: the bar opens from scale 0.98 in 120ms; closing is instant.
     <DialogPopup
       showCloseButton={false}
       bottomStickOnMobile={false}
       viewportClassName="grid-rows-[0.6fr_auto_1fr]"
       backdropClassName="duration-120 motion-reduce:transition-none"
-      className="max-w-110 overflow-hidden rounded-xl duration-120 ease-(--ease-motion-out) data-starting-style:-translate-y-1 motion-reduce:transition-none"
+      className="max-w-110 overflow-hidden rounded-xl duration-120 ease-(--ease-motion-out) data-ending-style:duration-0 motion-reduce:transition-none"
     >
       <DialogTitle className="sr-only">Park a thought</DialogTitle>
       <form
@@ -223,9 +230,17 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Menu>
             <MenuTrigger
-              render={<Button type="button" size="sm" variant="ghost" className="sm:text-xs" />}
+              // A long project name gives way first, so Park never leaves the bar.
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="min-w-0 shrink sm:text-xs"
+                />
+              }
             >
-              {projectTitle}
+              <span className="min-w-0 truncate">{projectTitle}</span>
               <ChevronDownIcon aria-hidden className="size-3.5" />
             </MenuTrigger>
             <MenuPopup align="start">

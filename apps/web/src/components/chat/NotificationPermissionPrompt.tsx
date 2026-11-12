@@ -74,10 +74,10 @@ export function useNotificationPermissionBannerItem(input: {
       title: `${providerLabel ?? "Your agent"} is working. Want a notification when it needs you or finishes?`,
       actions: (
         <>
-          <Button size="sm" variant="outline" onClick={turnOn}>
+          <Button size="sm" variant="outline" className="sm:text-xs" onClick={turnOn}>
             Turn on
           </Button>
-          <Button size="sm" variant="ghost" onClick={notNow}>
+          <Button size="sm" variant="ghost" className="sm:text-xs" onClick={notNow}>
             Not now
           </Button>
         </>

@@ -19,7 +19,7 @@ export const RECAP_BREAK_MS = 5 * 60 * 1_000;
 export const THREAD_DETAIL_ACTIVITY_CAP = 500;
 
 /** "You asked" prefers a message at least this long, so "ok" or "go on" never stands for the work. */
-const RECAP_ASK_MIN_LENGTH = 40;
+const RECAP_ASK_MIN_WORDS = 3;
 
 const MAX_RECAP_FILES = 3;
 
@@ -116,8 +116,8 @@ export function shouldShowThreadRecap(input: {
 }
 
 /**
- * The message the work answers: your most recent one of 40 or more
- * characters, else the thread's first message.
+ * The message the work answers: your most recent one of three or more words, so a reply
+ * like "ok", "yes" or "go ahead" never stands for the work, else the thread's first message.
  */
 export function selectRecapAsk(
   messages: ReadonlyArray<RecapMessage>,
@@ -125,7 +125,7 @@ export function selectRecapAsk(
   const asked = messages.filter((message) => message.role === "user" && message.text.trim());
   let chosen: RecapMessage | undefined;
   for (let index = asked.length - 1; index >= 0; index -= 1) {
-    if (asked[index]!.text.trim().length >= RECAP_ASK_MIN_LENGTH) {
+    if (asked[index]!.text.trim().split(/\s+/).length >= RECAP_ASK_MIN_WORDS) {
       chosen = asked[index];
       break;
     }

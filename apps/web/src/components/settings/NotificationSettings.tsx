@@ -124,6 +124,7 @@ export function NotificationSettingsSection() {
       <SettingsRow
         {...searchableSetting("attention-notifications")}
         className={ATTENTION_ROW_CLASS}
+        compact
         description={
           permissionMessage
             ? `${NOTIFY_ME_DESCRIPTION} ${permissionMessage}`
@@ -157,7 +158,7 @@ export function NotificationSettingsSection() {
             }}
           >
             <SelectTrigger
-              size="sm"
+              size="compact"
               className="w-full sm:w-auto"
               aria-label={`Notify me: ${ATTENTION_NOTIFICATION_LABELS[attentionNotifications].toLowerCase()}`}
             >
@@ -176,6 +177,7 @@ export function NotificationSettingsSection() {
       <SettingsRow
         {...searchableSetting("notify-watched-threads")}
         className={ATTENTION_ROW_CLASS}
+        compact
         description="For threads you sent a message to. Change it per thread from the now bar."
         resetAction={
           notifyWatchedThreads !== DEFAULT_CLIENT_SETTINGS.notifyWatchedThreads ? (
@@ -202,6 +204,7 @@ export function NotificationSettingsSection() {
       <SettingsRow
         {...searchableSetting("hold-finished-threads")}
         className={ATTENTION_ROW_CLASS}
+        compact
         description="They arrive together when you send, switch thread or stop typing."
         resetAction={
           holdFinishedUntilBreakpoint !== DEFAULT_CLIENT_SETTINGS.holdFinishedUntilBreakpoint ? (
@@ -228,6 +231,7 @@ export function NotificationSettingsSection() {
       <SettingsRow
         {...searchableSetting("attention-sound")}
         className={ATTENTION_ROW_CLASS}
+        compact
         description="One short sound when an agent is blocked."
         resetAction={
           attentionSoundEnabled !== DEFAULT_CLIENT_SETTINGS.attentionSoundEnabled ? (

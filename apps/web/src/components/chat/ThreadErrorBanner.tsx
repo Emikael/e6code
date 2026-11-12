@@ -43,13 +43,58 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   onDismiss,
   onContinue,
   inline = false,
+  failure,
+  onRetry,
+  onOpenTerminal,
+  checkpointed = false,
 }: {
   error: string | null;
   onDismiss?: () => void;
   onContinue?: () => void;
   inline?: boolean;
+  /** "Codex stopped: the CLI is not signed in" (the now bar's sentence), when the turn failed. */
+  failure?: string | null;
+  /** Resends the last message; absent when it cannot be resent as it was. */
+  onRetry?: (() => void) | null;
+  onOpenTerminal?: () => void;
+  /** A checkpoint exists, so the card can say the changes are safe. */
+  checkpointed?: boolean;
 }) {
   if (!error) return null;
+  if (inline && failure) {
+    // Board 7's failure card: what stopped, that the work is safe, and the ways forward.
+    return (
+      <article
+        role="alert"
+        className="flex w-full flex-col gap-2 rounded-xl border border-destructive-foreground bg-card px-4 py-3.5"
+      >
+        <span className="flex items-center gap-1.5 text-xs leading-4 font-medium text-destructive-foreground">
+          <CircleAlertIcon aria-hidden className="size-3.5 shrink-0" />
+          Failed
+        </span>
+        <p className="text-sm leading-[22px] text-foreground">
+          {failure.endsWith(".") ? failure : `${failure}.`}
+          {checkpointed ? " Your changes are safe in the last checkpoint." : null}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {onRetry ? (
+            <Button size="sm" variant="outline" className="sm:text-xs" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : onContinue ? (
+            <Button size="sm" variant="outline" className="sm:text-xs" onClick={onContinue}>
+              Write a follow-up
+            </Button>
+          ) : null}
+          {onOpenTerminal ? (
+            <Button size="sm" variant="ghost" className="sm:text-xs" onClick={onOpenTerminal}>
+              Open terminal
+            </Button>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
   return (
     <div
       className={
