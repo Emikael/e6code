@@ -100,7 +100,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             )}
             {...pointerFocusProps}
             onClick={onInterrupt}
-            aria-label="Stop generation"
+            aria-label="Stop"
           />
         }
       >

@@ -51,6 +51,19 @@ export function selectFirstThing(
 }
 
 /**
+ * Where the "First thing today" thought came from, under its badge in the
+ * Parked list (board 4): "from yesterday's wrap up", or the weekday of the
+ * wrap up when you were away longer. Wrap up pins a line for the next day.
+ */
+export function firstThingSource(pinnedFor: string, today: string): string {
+  const [year, month, day] = pinnedFor.split("-").map(Number);
+  const wrappedOn = new Date(year ?? 1970, (month ?? 1) - 1, (day ?? 1) - 1);
+  if (pinnedFor === today) return "from yesterday's wrap up";
+  const weekday = wrappedOn.toLocaleDateString("en-US", { weekday: "long" });
+  return `from ${weekday}'s wrap up`;
+}
+
+/**
  * The Parked list (board 4): thoughts only, newest first, with the "First
  * thing today" one on top. Drafts come back through a composer's Parked
  * menu, and notes stay with their thread's recap.

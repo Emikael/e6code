@@ -2,7 +2,7 @@ import { parseScopedThreadKey } from "@e6tools/client-runtime/environment";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
-import { focusOpenedPanelsToClose } from "../focusMode";
+import { focusOpenedPanelsToClose, focusSurfacesToRestore } from "../focusMode";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useUiStateStore } from "../uiStateStore";
 
@@ -49,6 +49,10 @@ export function useFocusPanelPeek(
       // Focus opened a closed panel; it closes again when the peek ends.
       useUiStateStore.getState().noteFocusOpenedPanel(threadKey);
     } else if (prior.activeSurfaceId !== activeSurfaceId) {
+      // Focus switched an open panel (Mod+D to Diff); exiting shows the earlier surface again.
+      if (prior.activeSurfaceId && threadKey) {
+        useUiStateStore.getState().noteFocusReplacedSurface(threadKey, prior.activeSurfaceId);
+      }
       setFocusPanelPeek(true);
     }
   }, [activeSurfaceId, focusModeActive, isOpen, threadKey]);
@@ -57,7 +61,8 @@ export function useFocusPanelPeek(
 /**
  * Closes the right panels focus opened once nothing peeks any more: the peek
  * was hidden, the thread switched, focus exited (from any route) or a reload
- * dropped the peek. Mount once, at the root.
+ * dropped the peek. Once focus exits, panels it switched show their earlier
+ * surface again. Mount once, at the root.
  */
 export function useCloseFocusOpenedPanels(): void {
   useEffect(() => {
@@ -71,8 +76,21 @@ export function useCloseFocusOpenedPanels(): void {
       }
       useUiStateStore.getState().clearFocusOpenedPanels(keys);
     };
+    const restore = (state: Parameters<typeof focusSurfacesToRestore>[0]) => {
+      const entries = focusSurfacesToRestore(state);
+      if (entries.length === 0) return;
+      const panels = useRightPanelStore.getState();
+      for (const [key, surfaceId] of entries) {
+        const ref = parseScopedThreadKey(key);
+        const stillOpen = panels.byThreadKey[key]?.surfaces.some((s) => s.id === surfaceId);
+        if (ref && stillOpen) panels.activateSurface(ref, surfaceId);
+      }
+      useUiStateStore.getState().clearFocusReplacedSurfaces(entries.map(([key]) => key));
+    };
     settle(useUiStateStore.getState());
+    restore(useUiStateStore.getState());
     return useUiStateStore.subscribe((state, previous) => {
+      if (state.focusMode !== previous.focusMode) restore(state);
       if (
         state.focusMode !== previous.focusMode ||
         state.focusPanelPeek !== previous.focusPanelPeek ||

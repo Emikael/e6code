@@ -13,9 +13,11 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { useParkedActions } from "../../hooks/useParkedActions";
 import { useClientSettings } from "../../hooks/useSettings";
 import {
+  firstThingSource,
   formatParkedWhen,
   localDateKey,
   removeParkedEntry,
+  selectFirstThing,
   selectParkedThoughts,
   useCaptureBarStore,
 } from "../../parkedThoughts";
@@ -139,6 +141,8 @@ function ParkedList({
   );
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}:00.000Z`);
+  const today = localDateKey(nowMs);
+  const firstThing = selectFirstThing(thoughts, today);
   const selected = thoughts.find((entry) => entry.id === selectedId) ?? thoughts[0] ?? null;
   // Picking a row replaces the focused button with the open row, so focus moves to its
   // first action instead of falling to the page.
@@ -198,6 +202,17 @@ function ParkedList({
             if (entry === selected) {
               return (
                 <li key={entry.id} className="flex flex-col gap-2 rounded-lg bg-accent p-2.5">
+                  {entry === firstThing && entry.pinnedFor !== undefined ? (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-5 shrink-0 items-center rounded-sm border border-input px-1.5 text-[11px] leading-[14px] font-medium text-muted-foreground">
+                        First thing today
+                      </span>
+                      <span className="grow" />
+                      <span className="truncate font-mono text-[11px] leading-[14px] text-muted-foreground">
+                        {firstThingSource(entry.pinnedFor, today)}
+                      </span>
+                    </div>
+                  ) : null}
                   <p className="text-sm leading-[22px] break-words text-foreground">
                     {entry.prompt}
                   </p>

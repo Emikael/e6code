@@ -49,9 +49,17 @@ describe("doneTodayMeta", () => {
 });
 
 describe("wrapUpSnoozeLabel", () => {
-  it("says it, both or the number", () => {
-    expect(wrapUpSnoozeLabel(1, "09:00")).toBe("Snooze it until tomorrow 09:00");
-    expect(wrapUpSnoozeLabel(2, "09:00")).toBe("Snooze both until tomorrow 09:00");
-    expect(wrapUpSnoozeLabel(3, "9:00 AM")).toBe("Snooze 3 until tomorrow 9:00 AM");
+  const label = (snoozable: string[], listedCount: number, whenLabel = "09:00") =>
+    wrapUpSnoozeLabel({ snoozable, listedCount, whenLabel });
+
+  it("says it, both or the number when every listed thread can be snoozed", () => {
+    expect(label(["Usage page totals"], 1)).toBe("Snooze it until tomorrow 09:00");
+    expect(label(["a", "b"], 2)).toBe("Snooze both until tomorrow 09:00");
+    expect(label(["a", "b", "c"], 3, "9:00 AM")).toBe("Snooze 3 until tomorrow 9:00 AM");
+  });
+
+  it("names what it snoozes when blocked rows are listed too", () => {
+    expect(label(["Usage page totals"], 2)).toBe("Snooze Usage page totals until tomorrow 09:00");
+    expect(label(["a", "b"], 3)).toBe("Snooze these 2 until tomorrow 09:00");
   });
 });

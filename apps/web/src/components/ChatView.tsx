@@ -7862,8 +7862,8 @@ export default function ChatView(props: ChatViewProps) {
     if (compactDisabled) return;
     await sendStandaloneMessage("/compact", "Failed to compact context.");
   };
-  // In focus the focus bar carries a finished turn (board 3); the now bar keeps every other state.
-  const showNowBar = !(focusModeActive && nowBar.state.kind === "done");
+  // Board 3 has no now bar: in focus the focus bar carries the thread's state.
+  const showNowBar = !focusModeActive;
   // The elapsed time's tooltip lists how long this thread's earlier turns took.
   const earlierTurnsCue = useMemo(
     () =>

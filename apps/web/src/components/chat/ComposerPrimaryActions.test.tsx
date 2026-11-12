@@ -99,12 +99,12 @@ describe("ComposerPrimaryActions", () => {
     expect(markup).toContain('aria-label="Sending feedback"');
   });
 
-  it("offers Stop generation while a running turn is waiting for user input", () => {
-    expect(renderPendingActions(true)).toContain('aria-label="Stop generation"');
+  it("offers Stop while a running turn is waiting for user input", () => {
+    expect(renderPendingActions(true)).toContain('aria-label="Stop"');
   });
 
-  it("does not offer Stop generation for a pending request without a running turn", () => {
-    expect(renderPendingActions(false)).not.toContain('aria-label="Stop generation"');
+  it("does not offer Stop for a pending request without a running turn", () => {
+    expect(renderPendingActions(false)).not.toContain('aria-label="Stop"');
   });
 
   it("renders stage artwork inside the send button when artwork identification is active", () => {
@@ -127,7 +127,7 @@ describe("ComposerPrimaryActions", () => {
   it("renders a queue action alongside stop while running with a sendable draft", () => {
     const markup = renderRunningActions(true);
 
-    expect(markup).toContain('aria-label="Stop generation"');
+    expect(markup).toContain('aria-label="Stop"');
     expect(markup).toContain('aria-label="Queue message"');
     expect(markup).toContain('type="submit"');
   });
@@ -135,7 +135,7 @@ describe("ComposerPrimaryActions", () => {
   it("keeps stop as the only action while running with an empty composer", () => {
     const markup = renderRunningActions(false);
 
-    expect(markup).toContain('aria-label="Stop generation"');
+    expect(markup).toContain('aria-label="Stop"');
     expect(markup).not.toContain('aria-label="Queue message"');
   });
 });
