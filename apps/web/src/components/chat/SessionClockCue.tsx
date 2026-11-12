@@ -15,7 +15,9 @@ import {
   ensureSessionTracking,
   formatSessionLength,
   isBreakReminderDue,
+  liveSession,
   quietSessionReminder,
+  stopSessionTracking,
   useSessionClockStore,
 } from "~/sessionClock";
 import { Button } from "../ui/button";
@@ -26,6 +28,7 @@ export function SessionClockCue({ className }: { className?: string }) {
   const active = clockEnabled || reminderMinutes !== "off";
   useEffect(() => {
     if (active) ensureSessionTracking();
+    else stopSessionTracking();
   }, [active]);
   if (!active) return null;
   return (
@@ -46,11 +49,14 @@ function SessionClockLine({
   reminderMinutes: number | "off";
   className: string | undefined;
 }) {
-  const session = useSessionClockStore((store) => store.session);
+  const stored = useSessionClockStore((store) => store.session);
   // The minute clock is the only tick: the line changes once a minute at most.
   const nowMinute = useNowMinute();
+  if (!stored) return null;
+  const nowMs = Math.max(Date.parse(`${nowMinute}:00.000Z`), stored.startedAt);
+  // Yesterday's session, or one a break ended, shows nothing until the next interaction.
+  const session = liveSession(stored, nowMs);
   if (!session) return null;
-  const nowMs = Math.max(Date.parse(`${nowMinute}:00.000Z`), session.startedAt);
   const due = isBreakReminderDue(session, reminderMinutes, nowMs);
   const length = formatSessionLength(session.startedAt, nowMs);
   if (due) {

@@ -1,22 +1,45 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { offersNewLook, shouldShowWhatChanged } from "./WhatChangedCard.logic";
+import {
+  decideAttentionIntro,
+  offersNewLook,
+  shouldShowWhatChanged,
+} from "./WhatChangedCard.logic";
 
 describe("shouldShowWhatChanged", () => {
-  it("shows once to a profile with threads from before the redesign", () => {
-    const threads = [{ createdAt: "2026-10-01T09:00:00.000Z" }];
-    expect(shouldShowWhatChanged({ dismissed: false, threads })).toBe(true);
-    expect(shouldShowWhatChanged({ dismissed: true, threads })).toBe(false);
+  it("shows only once the profile was decided as existing, until dismissed", () => {
+    expect(shouldShowWhatChanged({ dismissed: false })).toBe(true);
+    expect(shouldShowWhatChanged({ dismissed: true })).toBe(false);
+    expect(shouldShowWhatChanged({ dismissed: undefined })).toBe(false);
+  });
+});
+
+describe("decideAttentionIntro", () => {
+  const base = {
+    decided: undefined,
+    storedSettingsExisted: false,
+    threadsLoaded: true,
+    threadCount: 0,
+  };
+
+  it("decides an existing profile from its stored settings without waiting for threads", () => {
+    expect(
+      decideAttentionIntro({ ...base, storedSettingsExisted: true, threadsLoaded: false }),
+    ).toEqual({ attentionIntroDismissed: false });
   });
 
-  it("stays away from a fresh profile, even after its first threads", () => {
-    expect(shouldShowWhatChanged({ dismissed: false, threads: [] })).toBe(false);
-    expect(
-      shouldShowWhatChanged({
-        dismissed: false,
-        threads: [{ createdAt: "2026-12-01T09:00:00.000Z" }],
-      }),
-    ).toBe(false);
+  it("decides a profile without stored settings from its threads, once they load", () => {
+    expect(decideAttentionIntro({ ...base, threadsLoaded: false })).toBeNull();
+    expect(decideAttentionIntro({ ...base, threadCount: 3 })).toEqual({
+      attentionIntroDismissed: false,
+    });
+    expect(decideAttentionIntro(base)).toEqual({ attentionIntroDismissed: true });
+  });
+
+  it("never decides twice, and waits for settings to be read", () => {
+    expect(decideAttentionIntro({ ...base, decided: false, threadCount: 0 })).toBeNull();
+    expect(decideAttentionIntro({ ...base, decided: true, threadCount: 4 })).toBeNull();
+    expect(decideAttentionIntro({ ...base, storedSettingsExisted: null })).toBeNull();
   });
 });
 

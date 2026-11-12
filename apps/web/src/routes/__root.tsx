@@ -30,6 +30,7 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
+import { AttentionIntroDecision } from "../components/chat/WhatChangedCard";
 import { FocusModeShortcut } from "../components/FocusModeShortcut";
 import { CaptureBarHost } from "../components/CaptureBar";
 import { DoneTodayDialogHost } from "../components/DoneTodayDialog";
@@ -234,6 +235,7 @@ function RootRouteView() {
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
           <ReopenClosedViewShortcut />
+          <AttentionIntroDecision />
           <FocusModeShortcut />
           <CaptureBarHost />
           <DoneTodayDialogHost />

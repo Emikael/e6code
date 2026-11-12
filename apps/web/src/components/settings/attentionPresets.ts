@@ -67,3 +67,30 @@ export function resolveAttentionPreset<T extends PresetValues>(
   }
   return null;
 }
+
+/** The current values a starting point would overwrite, kept for its Undo. */
+export function presetUndoValues<T extends PresetValues>(settings: T): PresetValues {
+  const values = {} as Record<keyof PresetValues, unknown>;
+  for (const key of Object.keys(ATTENTION_PRESETS.standard) as Array<keyof PresetValues>) {
+    values[key] = settings[key];
+  }
+  return values as PresetValues;
+}
+
+/**
+ * What choosing a starting point must also ask the browser for, the same as the
+ * individual controls do: notification permission when it turns notifications
+ * on, and an audio unlock (inside the click) when it turns sound on.
+ */
+export function presetSideEffects(
+  previous: PresetValues,
+  preset: AttentionPreset,
+): { requestNotifications: boolean; unlockAudio: boolean } {
+  const next = ATTENTION_PRESETS[preset];
+  return {
+    requestNotifications:
+      next.attentionNotifications !== "off" &&
+      previous.attentionNotifications !== next.attentionNotifications,
+    unlockAudio: next.attentionSoundEnabled && !previous.attentionSoundEnabled,
+  };
+}

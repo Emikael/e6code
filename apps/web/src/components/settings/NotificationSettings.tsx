@@ -55,7 +55,7 @@ function useSystemNotificationState(): [SystemNotificationState, () => void] {
 }
 
 /** Asks the browser for system notifications; returns a note when they are unavailable. */
-async function requestSystemNotifications(): Promise<string | null> {
+export async function requestSystemNotifications(): Promise<string | null> {
   if (!canRequestSystemNotifications()) return null;
   if (Notification.permission !== "default") return null;
   try {
