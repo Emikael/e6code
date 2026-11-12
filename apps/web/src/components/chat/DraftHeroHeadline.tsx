@@ -30,12 +30,7 @@ import {
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { E6Monogram } from "../E6Monogram";
-import { cn } from "~/lib/utils";
 
-// Hard-stop cyan/orange bands under the project name: the brand stripe as the
-// picker's affordance, replacing a plain dotted underline.
-const BRAND_UNDERLINE =
-  "bg-[linear-gradient(90deg,var(--brand-cyan)_0_50%,var(--brand-orange)_50%)] bg-size-[100%_3px] bg-bottom bg-no-repeat pb-1";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 
 interface DraftHeroHeadlineProps {
@@ -148,10 +143,8 @@ export function DraftHeroHeadline({
             // aria-label here would replace the title with an action phrase
             // mid-sentence and baffle screen-reader users.
             <MenuTrigger
-              className={cn(
-                BRAND_UNDERLINE,
-                "pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground transition-[background-size] hover:bg-size-[100%_4px] focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-              )}
+              // Plain text at rest, as board 1 draws it; the underline appears only on hover.
+              className="pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground decoration-muted-foreground decoration-2 underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >

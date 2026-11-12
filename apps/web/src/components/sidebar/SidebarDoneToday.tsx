@@ -12,7 +12,10 @@ export const SidebarDoneToday = memo(function SidebarDoneToday() {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton onClick={openDoneToday}>
+        <SidebarMenuButton
+          onClick={openDoneToday}
+          className="text-[13px] leading-[18px] text-sidebar-foreground"
+        >
           <CheckIcon />
           <span className="min-w-0 flex-1 truncate">Done today</span>
         </SidebarMenuButton>

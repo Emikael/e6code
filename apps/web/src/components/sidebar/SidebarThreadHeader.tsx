@@ -21,6 +21,7 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
 import { openCaptureBar } from "~/parkedThoughts";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -104,14 +105,14 @@ export function SidebarThreadHeader({
             }
           >
             <PlusIcon aria-hidden className="size-[15px] shrink-0" />
-            <span className="truncate">New thread</span>
+            <span className="shrink-0 whitespace-nowrap">New thread</span>
             {newThreadShortcutLabel ? (
-              <kbd
-                aria-hidden
-                className="ml-auto shrink-0 font-mono text-[11px] font-normal text-sidebar-muted-foreground pointer-coarse:hidden"
-              >
-                {newThreadShortcutLabel}
-              </kbd>
+              // The label never yields to its hint: when the caps do not fit beside it they wrap
+              // past the zero-width spacer onto a clipped second line and disappear whole.
+              <span className="flex h-5 min-w-0 flex-1 flex-wrap justify-end overflow-hidden pointer-coarse:hidden">
+                <span aria-hidden className="h-5 w-0" />
+                <ShortcutKeyCaps label={newThreadShortcutLabel} />
+              </span>
             ) : null}
           </TooltipTrigger>
           <TooltipPopup side="bottom">

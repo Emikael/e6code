@@ -7034,7 +7034,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="hidden sm:inline-flex"
+                            className="hidden px-2 text-xs leading-[18px] sm:inline-flex sm:text-xs"
                             disabled={!composerSendState.hasSendableContent}
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={parkDraft}

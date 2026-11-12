@@ -49,6 +49,7 @@ import {
   AlarmClockOffIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   ClockIcon,
@@ -711,6 +712,7 @@ function SidebarDragBoundary(props: {
 function SidebarSectionHeader(props: {
   marker: "snoozed-header" | "settled-header";
   label: string;
+  count: number;
   className?: string;
   // While dragging, the settled header reads at full strength and takes the
   // accent while the lifted row is over it.
@@ -722,31 +724,27 @@ function SidebarSectionHeader(props: {
 }) {
   const snoozed = props.marker === "snoozed-header";
   const onMenu = props.onMenu;
+  // A shelf is a section row like a collapsed project (board 1): chevron, name, count. Neither
+  // shelf is a status, so both stay neutral.
   const className = cn(
-    "flex h-full w-full items-center gap-2 px-2 text-left text-xs font-medium",
-    snoozed ? "text-info-foreground" : "text-sidebar-muted-foreground",
+    "flex h-full w-full items-center gap-2 px-2 text-left text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground hover:text-sidebar-foreground",
     props.dragging && "text-sidebar-foreground/80",
     props.isDropTarget && "text-primary-text",
   );
   const content = (
     <>
-      <span className="shrink-0">{props.label}</span>
-      <span
+      <ChevronRightIcon
         aria-hidden
         className={cn(
-          "h-px min-w-2 flex-1",
-          snoozed ? "bg-info/20 dark:bg-info/15" : "bg-sidebar-border/60",
-          props.dragging && "bg-sidebar-foreground/25",
-          props.isDropTarget && "bg-primary/50",
+          "size-3.5 shrink-0 transition-transform motion-reduce:transition-none",
+          props.toggle.expanded && "rotate-90",
         )}
       />
-      <ChevronDownIcon
-        aria-hidden
-        className={cn(
-          "size-3 shrink-0 transition-transform",
-          props.toggle.expanded && "rotate-180",
-        )}
-      />
+      <span className="min-w-0 flex-1 truncate">{props.label}</span>
+      <span className="shrink-0 font-mono font-normal tabular-nums">
+        {props.count}
+        <span className="sr-only"> threads</span>
+      </span>
     </>
   );
   return (
@@ -808,10 +806,10 @@ function SidebarProjectGroupHeader(props: {
     <li
       data-thread-selection-safe
       data-testid="sidebar-project-group"
-      className="group/project mx-0.5 mt-3.5 flex h-6 list-none items-center first:mt-1"
+      className="group/project relative mx-0.5 mt-3.5 flex h-6 list-none items-center first:mt-1"
     >
-      {/* A plain heading: the project name, small and muted. The chevron and
-          counts stay quiet so the threads under it carry the weight. */}
+      {/* A section row (board 1): chevron, the project name and its count, small and muted
+          so the threads under it carry the weight. */}
       <button
         type="button"
         onClick={props.onToggle}
@@ -819,16 +817,16 @@ function SidebarProjectGroupHeader(props: {
         role="treeitem"
         tabIndex={-1}
         data-sidebar-row={`project:${group.projectKey}`}
-        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md px-1 text-left text-xs leading-4 font-semibold text-sidebar-muted-foreground outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
+        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
       >
-        <span className="truncate">{group.displayName}</span>
         <ChevronDownIcon
           aria-hidden
           className={cn(
-            "size-3 shrink-0 opacity-0 transition-[transform,opacity] group-focus-within/project:opacity-100 group-hover/project:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100",
-            !group.expanded && "-rotate-90 opacity-100",
+            "size-3.5 shrink-0 transition-transform motion-reduce:transition-none",
+            !group.expanded && "-rotate-90",
           )}
         />
+        <span className="truncate">{group.displayName}</span>
         {waiting ? (
           <span
             className="inline-flex shrink-0 items-center gap-1 font-medium text-warning-foreground tabular-nums"
@@ -838,13 +836,17 @@ function SidebarProjectGroupHeader(props: {
             {group.attentionCount}
           </span>
         ) : null}
-        {/* Expanded, the rows are the count; collapsed, the header says it. */}
-        {!group.expanded ? (
-          <span className="ml-auto shrink-0 font-medium tabular-nums">
-            {group.threadCount}
-            <span className="sr-only"> threads</span>
-          </span>
-        ) : null}
+        {/* The count gives its place to New thread while the row is hovered or focused. */}
+        <span
+          className={cn(
+            "ml-auto shrink-0 font-mono font-normal tabular-nums",
+            props.onNewThread &&
+              "group-focus-within/project:opacity-0 group-hover/project:opacity-0 pointer-coarse:opacity-0",
+          )}
+        >
+          {group.threadCount}
+          <span className="sr-only"> threads</span>
+        </span>
       </button>
       {props.onNewThread ? (
         <Tooltip>
@@ -855,7 +857,7 @@ function SidebarProjectGroupHeader(props: {
                 aria-label={`New thread in ${group.displayName}`}
                 data-sidebar-action-for={`project:${group.projectKey}`}
                 onClick={props.onNewThread}
-                className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+                className="absolute right-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
               />
             }
           >
@@ -5328,12 +5330,9 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className="mt-auto"
-                                label={
-                                  snoozedShelfExpanded
-                                    ? "Snoozed"
-                                    : `Snoozed (${snoozedThreads.length})`
-                                }
+                                className="mt-2"
+                                label="Snoozed"
+                                count={snoozedThreads.length}
                                 toggle={{
                                   expanded: snoozedShelfExpanded,
                                   onToggle: toggleSnoozedShelf,
@@ -5346,12 +5345,9 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="settled-shelf-header"
                                 marker="settled-header"
-                                className={cn(snoozedThreads.length === 0 && "mt-auto")}
-                                label={
-                                  settledShelfExpanded
-                                    ? "Settled"
-                                    : `Settled (${settledThreads.length})`
-                                }
+                                className={cn(snoozedThreads.length === 0 && "mt-2")}
+                                label="Settled"
+                                count={settledThreads.length}
                                 dragging={from !== null}
                                 isDropTarget={dragTargetSection === "settled"}
                                 toggle={{

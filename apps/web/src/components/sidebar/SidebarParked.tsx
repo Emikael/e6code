@@ -55,7 +55,11 @@ export const SidebarParked = memo(function SidebarParked() {
     <SidebarMenu>
       <SidebarMenuItem>
         <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger render={<SidebarMenuButton />}>
+          <PopoverTrigger
+            render={
+              <SidebarMenuButton className="text-[13px] leading-[18px] text-sidebar-foreground" />
+            }
+          >
             <InboxIcon />
             <span className="min-w-0 flex-1 truncate">Parked</span>
             {thoughts.length > 0 ? (

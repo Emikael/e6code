@@ -963,6 +963,10 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("starts hidden on a new profile", () => {
+    expect(useRightPanelStore.getInitialState().restingOpen).toBe(false);
+  });
+
   it("shows Run details on untouched threads until the panel is hidden", () => {
     const panelOf = (ref: typeof refA) =>
       selectThreadRightPanelState(

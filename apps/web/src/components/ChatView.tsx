@@ -2117,8 +2117,8 @@ export default function ChatView(props: ChatViewProps) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "uncommitted");
     }
   }, [activeThreadRef, diffOpen]);
-  // A docked panel follows the last open/close choice on threads the user has not touched, so
-  // Run details shows by default; a narrow-window sheet opens only when asked.
+  // A docked panel follows the last open/close choice on threads the user has not touched;
+  // a narrow-window sheet opens only when asked.
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(
       state.byThreadKey,
@@ -10733,20 +10733,6 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
             ) : null}
-            {/* Banners overlay the timeline without changing its content height.
-                Thread errors move inline to the frontier once the timeline has rows. */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col">
-              <ProviderStatusBanner
-                status={visibleProviderStatus}
-                onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
-                onOpenProviderSetup={openProviderSetup}
-              />
-              <ThreadErrorBanner
-                error={showThreadErrorOverlay ? visibleThreadError : null}
-                onContinue={() => focusComposer()}
-                onDismiss={dismissThreadError}
-              />
-            </div>
             {/* Messages Wrapper */}
             <div
               {...workspaceAreaProps("conversation", 1, "Conversation")}
@@ -10768,6 +10754,23 @@ export default function ChatView(props: ChatViewProps) {
                   }
                 />
               ) : null}
+              {/* Banners overlay the timeline without changing its content height, under the
+                  now bar so they never hide it. Thread errors move inline to the frontier once
+                  the timeline has rows. */}
+              <div className="relative z-20 h-0">
+                <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col">
+                  <ProviderStatusBanner
+                    status={visibleProviderStatus}
+                    onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
+                    onOpenProviderSetup={openProviderSetup}
+                  />
+                  <ThreadErrorBanner
+                    error={showThreadErrorOverlay ? visibleThreadError : null}
+                    onContinue={() => focusComposer()}
+                    onDismiss={dismissThreadError}
+                  />
+                </div>
+              </div>
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 foldEarlierTurns={focusModeActive}
