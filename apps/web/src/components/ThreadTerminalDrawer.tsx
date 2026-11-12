@@ -1135,10 +1135,6 @@ const NO_TERMINAL_IDS: ReadonlySet<string> = new Set();
 // Board 16 pads a pane's output 10px 12px; the canvas adds 4px of its own on every side.
 const PANEL_PANE_BODY_CLASS = "bg-[var(--terminal-background)] px-2 py-1.5";
 
-/** A terminal action in the panel's shared header: a 24px icon target. */
-const PANEL_HEADER_ACTION_CLASS =
-  "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-foreground/90 transition-colors hover:bg-accent";
-
 interface TerminalActionButtonProps {
   label: string;
   className: string;
@@ -1959,7 +1955,7 @@ export default function ThreadTerminalDrawer({
                         >
                           <GroupIcon className="size-3 shrink-0" />
                           <span className="min-w-0 flex-1 truncate text-left">{groupLabel}</span>
-                          <span className="text-muted-foreground/70 text-[10px] tabular-nums">
+                          <span className="text-muted-foreground text-[10px] tabular-nums">
                             {terminalCount}
                           </span>
                         </button>

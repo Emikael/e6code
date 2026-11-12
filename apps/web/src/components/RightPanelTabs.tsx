@@ -745,8 +745,9 @@ function PullRequestSurfaceIcon({ status }: { status: PullRequestTabState | null
   if (status === null) {
     return <PullRequestGlyph.pullRequest className="size-3.5 shrink-0 text-muted-foreground" />;
   }
+  // Neutral like the header's badge: the label's word states the state, and teal means done.
   const presentation = resolvePullRequestState(status);
-  return <presentation.Icon className={cn("size-3.5 shrink-0", presentation.toneClassName)} />;
+  return <presentation.Icon className="size-3.5 shrink-0 text-muted-foreground" />;
 }
 
 function SortableTabList(props: {

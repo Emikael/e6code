@@ -118,10 +118,11 @@ const DiffFileRailRow = memo(function DiffFileRailRow(props: {
   readonly onSelect: (path: string) => void;
 }) {
   const { row, status } = props;
+  // Board 12's order, the same as the changes rail: folder, where the reader is, then the review.
   const caption = [
     row.folder,
-    status === "changed" ? "changed since review" : null,
     props.currentCaption ?? null,
+    status === "changed" ? "changed since review" : null,
   ]
     .filter(Boolean)
     .join(" · ");

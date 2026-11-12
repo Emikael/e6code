@@ -707,7 +707,8 @@ function RowAction(props: {
             aria-label={props.label}
             // Keep disabled actions hoverable so the tooltip can say why.
             aria-disabled={disabled}
-            className={cn(disabled && "opacity-50")}
+            // A 24px hit area around the 20px button.
+            className={cn("after:absolute after:-inset-0.5", disabled && "opacity-50")}
             onClick={(event) => {
               event.stopPropagation();
               if (!disabled) props.onClick();

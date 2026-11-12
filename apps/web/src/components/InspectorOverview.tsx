@@ -739,7 +739,8 @@ function WorkflowScriptView({
           variant="ghost-muted"
           onClick={onClose}
           aria-label="Close script"
-          className="ml-auto"
+          // A 24px hit area around the 20px button.
+          className="ml-auto after:absolute after:-inset-0.5"
         >
           <XIcon aria-hidden className="size-3" />
         </Button>

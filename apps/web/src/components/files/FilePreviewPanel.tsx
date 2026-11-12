@@ -169,6 +169,7 @@ function WorkspaceImagePreview(props: {
     [props.threadRef.threadId, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
+  const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const revisionSuffix =
     props.workspaceMutationId === null
@@ -186,9 +187,14 @@ function WorkspaceImagePreview(props: {
   if (assetUrl._tag === "Failure" || (imageUrl !== null && failedUrl === imageUrl)) {
     return (
       <MediaActions source={actionsSource}>
-        <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-          Unable to load workspace image.
-        </div>
+        <FileSurfaceFailure
+          title="Could not show this image"
+          message="The image did not load"
+          onRetry={() => {
+            setFailedUrl(null);
+            void refreshAssetUrl();
+          }}
+        />
       </MediaActions>
     );
   }
@@ -236,6 +242,7 @@ function WorkspaceBrowserPreview(props: {
     [insideWorkspace, props.threadRef.threadId, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
+  const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
   const revisionSuffix =
     props.workspaceMutationId === null
       ? ""
@@ -243,9 +250,10 @@ function WorkspaceBrowserPreview(props: {
 
   if (assetUrl._tag === "Failure") {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-        Unable to load file preview.
-      </div>
+      <FileSurfaceFailure
+        message="The preview did not load"
+        onRetry={() => void refreshAssetUrl()}
+      />
     );
   }
   if (assetUrl._tag !== "Success") {
@@ -1574,9 +1582,11 @@ export default function FilePreviewPanel({
                 workspaceMutationId={workspaceMutationId}
               />
             ) : relativePath && file.error && file.data === null ? (
-              <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-                {file.error}
-              </div>
+              <FileSurfaceFailure
+                title="Could not open this file"
+                message={file.error}
+                onRetry={file.refresh}
+              />
             ) : relativePath && file.data === null ? (
               <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
                 <Spinner className="size-5" />

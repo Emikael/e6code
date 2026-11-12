@@ -10,6 +10,7 @@ import type {
 import { ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PanelErrorCard } from "~/components/panel/PanelErrorCard";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { Input } from "~/components/ui/input";
@@ -186,7 +187,13 @@ export function DeviceToolsPanel(props: {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error ? (
-          <p className="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+          <div className="border-b p-2">
+            <PanelErrorCard
+              title="Device settings did not respond"
+              reason={error}
+              reassurance="The device is not affected."
+            />
+          </div>
         ) : null}
         {detail === null && !error ? (
           <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">

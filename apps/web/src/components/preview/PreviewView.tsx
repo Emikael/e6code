@@ -945,6 +945,12 @@ export function PreviewView({
           }
           onDone={finishAnnotating}
         />
+      ) : attachedNoteCount > 0 ? (
+        // After Done annotating the notes still wait in the composer; say so, as the Diff, Files
+        // and Terminal footers do.
+        <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+          <AttachedCountButton count={attachedNoteCount} kind="note" />
+        </div>
       ) : null}
     </div>
   );

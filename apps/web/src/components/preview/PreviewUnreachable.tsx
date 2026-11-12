@@ -45,7 +45,7 @@ export function PreviewUnreachable({ url, code, description, onReload, composerH
           </div>
         ) : null}
 
-        <div className="mt-8 text-xs uppercase tracking-wide text-muted-foreground/70">
+        <div className="mt-8 text-xs uppercase tracking-wide text-muted-foreground">
           {errorLabel}
         </div>
 

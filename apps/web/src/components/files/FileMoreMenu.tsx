@@ -96,6 +96,7 @@ export function FileMoreMenu(props: {
           <Button
             size="icon-xs"
             variant="ghost"
+            className="sm:size-7"
             aria-label="More: wrap, open in editor, copy path, keep as its own tab"
           />
         }

@@ -53,11 +53,13 @@ export function ComposerAttachedItems(props: { readonly target: ComposerThreadTa
   };
 
   return (
-    // About two rows of chips; more scroll inside rather than grow the composer.
+    // About two rows of chips; more scroll inside rather than grow the composer. The 3px inset,
+    // taken back out of the margins, keeps the remove buttons' focus ring (2px, 1px off) inside
+    // the scrolling box, which would otherwise clip it on the first and last rows.
     <div
       role="group"
       aria-labelledby={`${idPrefix}-attached`}
-      className="mb-2 flex max-h-[60px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 overflow-y-auto"
+      className="-mx-[3px] -mt-[3px] mb-[5px] flex max-h-[66px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 overflow-y-auto p-[3px]"
     >
       <span id={`${idPrefix}-attached`} className="shrink-0 font-medium text-foreground text-xs">
         Attached

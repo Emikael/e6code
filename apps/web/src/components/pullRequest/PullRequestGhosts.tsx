@@ -59,7 +59,7 @@ export function PullRequestListGhost({
       className="motion-safe:animate-skeleton space-y-1"
     >
       {caption ? (
-        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/70">{caption}</p>
+        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{caption}</p>
       ) : null}
       {Array.from({ length: rows }, (_, index) => (
         <div

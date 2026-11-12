@@ -945,7 +945,8 @@ function PullRequestCodeTab({
           variant="ghost-muted"
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand diff" : "Collapse diff"}
-          className="mr-1 rounded hover:bg-transparent"
+          // A 24px hit area around the 20px button.
+          className="mr-1 rounded after:absolute after:-inset-0.5 hover:bg-transparent"
           onClick={(event) => {
             event.stopPropagation();
             toggleFile(item.id);

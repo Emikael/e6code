@@ -2039,7 +2039,8 @@ export function PullRequestDetailPanel({
                             size="icon-micro"
                             variant="ghost-muted"
                             onClick={onBack}
-                            className="-ml-1.5"
+                            // A 24px hit area around the 20px button.
+                            className="-ml-1.5 after:absolute after:-inset-0.5"
                             aria-label="Back to this thread's pull requests"
                           >
                             <ArrowLeftIcon aria-hidden className="size-3.5" />
@@ -2234,7 +2235,7 @@ export function PullRequestDetailPanel({
                               aria-label={
                                 refreshing ? "Refreshing pull request" : "More pull request actions"
                               }
-                              className="size-6"
+                              className="sm:size-7"
                               size="icon-xs"
                               variant="ghost-muted"
                             />
