@@ -48,7 +48,8 @@ export function DiffCommentAnnotation({
   secondaryAction,
   focusOnMount = true,
 }: DiffCommentAnnotationProps) {
-  const [localDraftText, setLocalDraftText] = useState("");
+  // A draft reopened from a saved comment starts from its words.
+  const [localDraftText, setLocalDraftText] = useState(text);
   const displayedText = kind === "draft" && !onTextChange ? localDraftText : text;
   const trimmedText = displayedText.trim();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);

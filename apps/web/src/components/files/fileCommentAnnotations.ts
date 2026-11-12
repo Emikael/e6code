@@ -6,6 +6,8 @@ export interface FileCommentAnnotationEntry {
   startLine: number;
   endLine: number;
   text: string;
+  /** Set while a saved comment is reopened for editing: what Cancel puts back. */
+  savedText?: string;
 }
 
 export interface FileCommentAnnotationGroup {

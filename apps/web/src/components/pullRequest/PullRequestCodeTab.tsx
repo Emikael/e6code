@@ -735,13 +735,18 @@ function PullRequestCodeTab({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const pagingItems = useMemo(
     () =>
-      items.map((item) => ({
-        id: item.id,
-        path: resolveFileDiffPath(item.fileDiff),
-        fileDiff: item.fileDiff,
-        collapsed: item.collapsed === true,
-      })),
-    [items],
+      items.map((item) => {
+        const path = resolveFileDiffPath(item.fileDiff);
+        return {
+          id: item.id,
+          path,
+          fileDiff: item.fileDiff,
+          collapsed: item.collapsed === true,
+          // A patch the host withheld cannot be paged through, so the key never marks it.
+          pending: item.fileDiff.hunks.length === 0 && omittedFileStats.has(path),
+        };
+      }),
+    [items, omittedFileStats],
   );
   const reviewStatusOf = useCallback(
     (path: string): DiffReviewStatus =>
@@ -774,6 +779,10 @@ function PullRequestCodeTab({
     bodyRef,
   });
   const pagingCurrentFile = pagingItems[paging.currentIndex];
+  // Paging counts the whole change, not the slices loaded so far, and is never done while more
+  // files are still to come. A commit scope has no total of its own beyond what has loaded.
+  const pagingFileCount = Math.max(pagingItems.length, commit === null ? detail.changedFiles : 0);
+  const moreFilesToLoad = nextCursor !== null;
   const nextChangeShortcut = shortcutLabelForCommand(keybindings, "diff.nextChange", {
     context: { diffFocus: true },
   });
@@ -1750,22 +1759,28 @@ function PullRequestCodeTab({
         <DiffReviewFooter
           position={
             paging.step.kind === "done"
-              ? reviewedCountLabel(filesViewed.viewedCount, pagingItems.length)
+              ? reviewedCountLabel(filesViewed.viewedCount, pagingFileCount)
               : pagingCurrentFile
                 ? pagingPositionLabel({
                     fileIndex: paging.currentIndex,
-                    fileCount: pagingItems.length,
+                    fileCount: pagingFileCount,
                     changeCount: pagingCurrentFile.fileDiff.hunks.length,
                     seen: paging.seenOf(pagingCurrentFile.path),
                     reviewed: isFileViewed(pagingCurrentFile.path),
                   })
                 : ""
           }
+          primaryOutline={false}
           // Comments here go into the pull request review, which the Review button sends.
           reply={null}
           primary={
             paging.step.kind === "done"
-              ? null
+              ? moreFilesToLoad
+                ? {
+                    label: diffQuery.isPending ? "Loading more files..." : "Load more files",
+                    onClick: loadNextSlice,
+                  }
+                : null
               : {
                   label: pagingStepLabel(paging.step) ?? "Next change",
                   onClick: paging.advance,

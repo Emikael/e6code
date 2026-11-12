@@ -81,6 +81,7 @@ import {
 
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { cn } from "~/lib/utils";
 import { type DiffPanelFocusTarget } from "~/diffPanelStore";
 import { orchestrationEnvironment } from "~/state/orchestration";
@@ -340,6 +341,11 @@ function PlanSection({ plan }: { plan: ActivePlanState }) {
 
 const EMPTY_WORKING_TREE_FILES: ReadonlyArray<VcsWorkingTreeFile> = [];
 
+/** "1 comment not sent". */
+function unsentCommentsLabel(count: number): string {
+  return `${count} ${count === 1 ? "comment" : "comments"} not sent`;
+}
+
 /**
  * The working tree: its files, then Review changes (Diff), Commit (Diff at its commit box) and
  * Push. Space is reserved while status loads; hidden outside Git repositories.
@@ -386,6 +392,15 @@ function ChangesSection({
     threadKey: scopedThreadKey(threadRef),
     files: reviewFiles,
   });
+  // Diff comments attached to the composer and not sent yet.
+  const unsentComments = useComposerDraftStore(
+    (store) =>
+      store
+        .getComposerDraft(threadRef)
+        ?.reviewComments.filter(
+          (comment) => !comment.pullRequest && (comment.fenceLanguage ?? "diff") === "diff",
+        ).length ?? 0,
+  );
   if (status && !status.isRepo) return null;
 
   const ahead = status?.aheadCount ?? 0;
@@ -476,6 +491,15 @@ function ChangesSection({
       ) : (
         <p className={cn("text-xs", MUTED)}>No uncommitted changes</p>
       )}
+      {unsentComments > 0 && onOpenDiff ? (
+        <button
+          type="button"
+          onClick={onOpenDiff}
+          className="self-start rounded-sm text-xs underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {unsentCommentsLabel(unsentComments)}
+        </button>
+      ) : null}
       {status && (files.length > 0 || ahead > 0 || behind > 0) ? (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {onOpenDiff && files.length > 0 ? (
@@ -834,8 +858,10 @@ const LineageRow = memo(function LineageRow({
         <span className={cn("shrink-0 text-xs font-medium", SUBAGENT_TONE_TEXT_CLASS[tone])}>
           {SUBAGENT_STATUS_LABEL[tone]}
         </span>
+        {/* Minutes, once a minute: the now bar is the one element on screen that ticks. */}
         <SubagentElapsed
           agent={agent}
+          minutes
           className={cn("min-w-8 shrink-0 text-right font-mono text-[11px]", MUTED)}
         />
       </button>

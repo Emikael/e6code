@@ -1265,6 +1265,18 @@ export function subagentElapsedMs(
 }
 
 /** "19s", "1m 05s", "2h 03m". */
+/**
+ * Elapsed time in whole minutes ("<1m", "4m", "2h 03m"), for lists that update once a minute
+ * rather than every second.
+ */
+export function formatSubagentElapsedMinutes(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes === 0) return "<1m";
+  const hours = Math.floor(minutes / 60);
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 export function formatSubagentElapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(seconds / 60);

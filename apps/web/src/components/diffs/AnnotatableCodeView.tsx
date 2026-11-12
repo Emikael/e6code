@@ -122,13 +122,13 @@ interface AnnotatableCodeViewProps {
   className?: string;
   renderCodeViewFooter?: () => ReactNode;
   unsafeCSSExtra?: string;
-  renderHeaderMetadata?: (fileDiff: FileDiffMetadata) => ReactNode;
-  renderHeaderFilenameSuffix: (fileDiff: FileDiffMetadata) => ReactNode;
-  renderHeaderPrefix: (
+  /** Draws each file's whole header; its height is `headerHeight`. */
+  renderCustomHeader: (
     fileDiff: FileDiffMetadata,
     fileKey: string,
     collapsed: boolean,
   ) => ReactNode;
+  headerHeight: number;
   marker?: DiffLineMarker | null;
   onScroll?: (
     scrollTop: number,
@@ -151,9 +151,8 @@ export function AnnotatableCodeView({
   className,
   renderCodeViewFooter,
   unsafeCSSExtra,
-  renderHeaderMetadata,
-  renderHeaderFilenameSuffix,
-  renderHeaderPrefix,
+  renderCustomHeader,
+  headerHeight,
   marker = null,
   onScroll,
 }: AnnotatableCodeViewProps) {
@@ -314,12 +313,7 @@ export function AnnotatableCodeView({
       {...(viewerRef ? { viewerRef } : {})}
       {...(className ? { className } : {})}
       {...(unsafeCSSExtra ? { unsafeCSSExtra } : {})}
-      {...(renderHeaderMetadata
-        ? {
-            renderHeaderMetadata: (item: CodeViewItem<DiffCommentAnnotationGroup>) =>
-              item.type === "diff" ? renderHeaderMetadata(item.fileDiff) : null,
-          }
-        : {})}
+      headerHeight={headerHeight}
       {...(renderCodeViewFooter ? { renderCodeViewFooter } : {})}
       {...(onScroll ? { onScroll } : {})}
       items={items}
@@ -331,12 +325,9 @@ export function AnnotatableCodeView({
         enableLineSelection: !hasOpenComment,
         onGutterUtilityClick: beginComment,
       }}
-      renderHeaderFilenameSuffix={(item) =>
-        item.type === "diff" ? renderHeaderFilenameSuffix(item.fileDiff) : null
-      }
-      renderHeaderPrefix={(item) =>
+      renderCustomHeader={(item) =>
         item.type === "diff"
-          ? renderHeaderPrefix(item.fileDiff, item.id, item.collapsed === true)
+          ? renderCustomHeader(item.fileDiff, item.id, item.collapsed === true)
           : null
       }
       renderAnnotation={(annotation, item) => {

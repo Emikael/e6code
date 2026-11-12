@@ -649,6 +649,54 @@ function EditableFileSurface({
     [composerDraftTarget, removeReviewComment, setSelectedRange],
   );
 
+  // Edit reopens a saved comment as a draft; saving replaces it in the composer, and Cancel puts
+  // the saved words back.
+  const updateAnnotationEntry = useCallback(
+    (
+      entryId: string,
+      update: (entry: FileCommentAnnotationEntry) => FileCommentAnnotationEntry,
+    ) => {
+      setLineAnnotations((current) =>
+        current.map((annotation) => ({
+          ...annotation,
+          metadata: {
+            entries: annotation.metadata.entries.map((entry) =>
+              entry.id === entryId ? update(entry) : entry,
+            ),
+          },
+        })),
+      );
+    },
+    [],
+  );
+  const editAnnotationEntry = useCallback(
+    (entryId: string) => {
+      setSelectedRange(null);
+      updateAnnotationEntry(entryId, (entry) => ({
+        ...entry,
+        kind: "draft",
+        savedText: entry.text,
+      }));
+    },
+    [setSelectedRange, updateAnnotationEntry],
+  );
+  const cancelAnnotationEntry = useCallback(
+    (entry: FileCommentAnnotationEntry) => {
+      const { savedText } = entry;
+      if (savedText === undefined) {
+        removeAnnotationEntry(entry.id);
+        return;
+      }
+      setSelectedRange(null);
+      updateAnnotationEntry(entry.id, ({ savedText: _saved, ...rest }) => ({
+        ...rest,
+        kind: "comment",
+        text: savedText,
+      }));
+    },
+    [removeAnnotationEntry, setSelectedRange, updateAnnotationEntry],
+  );
+
   const submitAnnotationEntry = useCallback(
     (entryId: string, text: string) => {
       setSelectedRange(null);
@@ -674,7 +722,11 @@ function EditableFileSurface({
           metadata: {
             entries: annotation.metadata.entries.map((annotationEntry) =>
               annotationEntry.id === entryId
-                ? { ...annotationEntry, kind: "comment", text }
+                ? (({ savedText: _saved, ...rest }) => ({
+                    ...rest,
+                    kind: "comment" as const,
+                    text,
+                  }))(annotationEntry)
                 : annotationEntry,
             ),
           },
@@ -816,13 +868,17 @@ function EditableFileSurface({
               <div className="py-1">
                 {annotation.metadata.entries.map((entry) => (
                   <DiffCommentAnnotation
-                    key={entry.id}
+                    // Remounted on Edit, so the draft starts from the saved words.
+                    key={`${entry.id}:${entry.kind}`}
                     kind={entry.kind}
                     rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
                     text={entry.text}
-                    onCancel={() => removeAnnotationEntry(entry.id)}
+                    onCancel={() => cancelAnnotationEntry(entry)}
                     onComment={(text) => submitAnnotationEntry(entry.id, text)}
                     onDelete={() => removeAnnotationEntry(entry.id)}
+                    {...(entry.kind === "comment" && !hasOpenCommentForm
+                      ? { onEdit: () => editAnnotationEntry(entry.id) }
+                      : {})}
                   />
                 ))}
               </div>

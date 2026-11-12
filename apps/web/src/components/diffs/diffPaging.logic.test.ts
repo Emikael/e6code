@@ -74,11 +74,48 @@ describe("nextDiffStep", () => {
     expect(nextDiffStep([file("a.ts", 1, true)], 0, seen({}))).toEqual({ kind: "done" });
   });
 
-  it("marks a file without changes on the first press", () => {
+  it("lands on a file without changes before it marks it", () => {
+    // The first press lands on it, so nothing is marked that was never on screen.
     expect(nextDiffStep([file("logo.png", 0), file("b.ts", 1)], 0, seen({}))).toEqual({
+      kind: "change",
+      fileIndex: 0,
+      changeIndex: null,
+    });
+    // Once landed on or scrolled into view, the next press marks it.
+    const visited = [{ ...file("logo.png", 0), visited: true }, file("b.ts", 1)];
+    expect(nextDiffStep(visited, 0, seen({}))).toEqual({ kind: "mark", fileIndex: 0, next: 1 });
+  });
+
+  it("lands on a pending file and never marks it", () => {
+    const pending = { ...file("big.ts", 0), pending: true };
+    expect(nextDiffStep([pending, file("b.ts", 1)], 0, seen({}))).toEqual({
+      kind: "change",
+      fileIndex: 0,
+      changeIndex: null,
+    });
+    // Still pending once landed on (loading, or withheld by the host): move on, unmarked.
+    expect(nextDiffStep([{ ...pending, visited: true }, file("b.ts", 1)], 0, seen({}))).toEqual({
+      kind: "change",
+      fileIndex: 1,
+      changeIndex: 0,
+    });
+    // The only file left not reviewed: stay on it rather than mark it or call the review done.
+    expect(
+      nextDiffStep([{ ...pending, visited: true }, file("b.ts", 1, true)], 0, seen({})),
+    ).toEqual({ kind: "change", fileIndex: 0, changeIndex: null });
+  });
+
+  it("lands on a pending file after marking the one before it", () => {
+    const files = [file("a.ts", 1), { ...file("big.ts", 0), pending: true }];
+    expect(nextDiffStep(files, 0, seen({ "a.ts": 1 }))).toEqual({
       kind: "mark",
       fileIndex: 0,
       next: 1,
+    });
+    expect(landAfterMark(files, 1, seen({}))).toEqual({
+      kind: "change",
+      fileIndex: 1,
+      changeIndex: null,
     });
   });
 });

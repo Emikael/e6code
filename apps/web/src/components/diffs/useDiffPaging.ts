@@ -29,7 +29,7 @@ export interface DiffPagingItem {
   readonly path: string;
   readonly fileDiff: FileDiffMetadata;
   readonly collapsed: boolean;
-  /** Its patch has not loaded, so it has no changes to page through yet. */
+  /** Its patch has not loaded (or the host withheld it), so its changes are unknown. */
   readonly pending?: boolean;
 }
 
@@ -68,16 +68,35 @@ export function useDiffPaging(options: {
   readonly isReviewed: (path: string) => boolean;
   /** Marks or unmarks a file; the host folds a file it marks. */
   readonly setReviewed: (path: string, reviewed: boolean) => void;
+  /**
+   * Takes a copy of a file's mark before the key marks it and returns what puts it back, so Undo
+   * restores an earlier "changed since review" mark instead of clearing it. Without it, Undo
+   * unmarks.
+   */
+  readonly snapshotReview?: (path: string) => () => void;
+  /** Asks for a pending file's patch when the key lands on it. */
+  readonly requestFile?: (path: string) => void;
   /** Unfolds a file by its item id. */
   readonly expand: (id: string) => void;
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly panelRef: RefObject<HTMLElement | null>;
   /** The element the diff scrolls in, for the height of what is in view. */
   readonly bodyRef: RefObject<HTMLElement | null>;
-  /** A change was paged to, for the resume marker. */
-  readonly onLanded?: (path: string, changeIndex: number) => void;
+  /** A change came into view (paged or scrolled to), for the resume marker. */
+  readonly onSeen?: (path: string, changeIndex: number) => void;
 }) {
-  const { enabled, viewer, scopeKey, items, isReviewed, setReviewed, expand, onLanded } = options;
+  const {
+    enabled,
+    viewer,
+    scopeKey,
+    items,
+    isReviewed,
+    setReviewed,
+    snapshotReview,
+    requestFile,
+    expand,
+    onSeen,
+  } = options;
   const [progress, setProgress] = useState<PagingProgress>({
     scopeKey,
     current: null,
@@ -109,8 +128,10 @@ export function useDiffPaging(options: {
         path: item.path,
         changeCount: item.pending ? 0 : item.fileDiff.hunks.length,
         reviewed: isReviewed(item.path),
+        pending: item.pending === true,
+        visited: seen.has(item.path),
       })),
-    [isReviewed, items],
+    [isReviewed, items, seen],
   );
   const indexOfPath = useMemo(
     () => new Map(items.map((item, index) => [item.path, index])),
@@ -136,10 +157,13 @@ export function useDiffPaging(options: {
       return;
     }
     const item = items.find((candidate) => candidate.id === target.id);
-    if (!viewer?.getInstance() || !item || item.collapsed) return;
+    // A pending file shows only its header, which can be scrolled to before its patch arrives.
+    if (!viewer?.getInstance() || !item || (item.collapsed && !item.pending)) return;
     handledTarget.current = target;
     const start =
-      target.changeIndex === null ? null : changeStart(item.fileDiff, target.changeIndex);
+      target.changeIndex === null || item.pending
+        ? null
+        : changeStart(item.fileDiff, target.changeIndex);
     viewer.scrollTo(
       start
         ? {
@@ -159,20 +183,43 @@ export function useDiffPaging(options: {
       const item = items[landing.fileIndex];
       if (!item) return;
       if (item.collapsed) expand(item.id);
-      const changeIndex = landing.changeIndex;
+      if (item.pending) requestFile?.(item.path);
+      const changeIndex = item.pending ? null : landing.changeIndex;
       updateProgress((previous) => {
-        if (changeIndex === null) return { current: item.path, seen: previous.seen };
-        const seenHere = previous.seen.get(item.path) ?? 0;
-        if (seenHere > changeIndex) return { current: item.path, seen: previous.seen };
+        // Landing on a file counts as having been on it, even before any of its changes.
+        const seenHere = previous.seen.get(item.path);
+        const seenNow =
+          changeIndex === null ? (seenHere ?? 0) : Math.max(seenHere ?? 0, changeIndex + 1);
+        if (seenHere === seenNow) return { current: item.path, seen: previous.seen };
         const nextSeen = new Map(previous.seen);
-        nextSeen.set(item.path, changeIndex + 1);
+        nextSeen.set(item.path, seenNow);
         return { current: item.path, seen: nextSeen };
       });
       setTarget({ id: item.id, changeIndex, scopeKey });
-      if (changeIndex !== null) onLanded?.(item.path, changeIndex);
     },
-    [expand, items, onLanded, scopeKey, updateProgress],
+    [expand, items, requestFile, scopeKey, updateProgress],
   );
+
+  // Each change that comes into view, by key or by scrolling, moves "You stopped here".
+  const reportedSeen = useRef<{ scopeKey: string; seen: ReadonlyMap<string, number> }>({
+    scopeKey,
+    seen: NO_SEEN,
+  });
+  useEffect(() => {
+    const previous =
+      reportedSeen.current.scopeKey === scopeKey ? reportedSeen.current.seen : NO_SEEN;
+    reportedSeen.current = { scopeKey, seen };
+    if (!onSeen || previous === seen) return;
+    // The last file in body order whose count grew holds the furthest change seen.
+    let latest: { path: string; changeIndex: number } | null = null;
+    for (const item of items) {
+      const count = seen.get(item.path) ?? 0;
+      if (count > (previous.get(item.path) ?? 0)) {
+        latest = { path: item.path, changeIndex: count - 1 };
+      }
+    }
+    if (latest) onSeen(latest.path, latest.changeIndex);
+  }, [items, onSeen, scopeKey, seen]);
 
   const advance = useCallback(() => {
     if (step.kind === "change") {
@@ -182,6 +229,7 @@ export function useDiffPaging(options: {
     if (step.kind !== "mark") return;
     const item = items[step.fileIndex];
     if (!item) return;
+    const restoreMark = snapshotReview?.(item.path) ?? (() => setReviewed(item.path, false));
     setReviewed(item.path, true);
     // Advisory and quiet: a plain note with the way back, nothing celebrated.
     const toastId = toastManager.add(
@@ -193,14 +241,28 @@ export function useDiffPaging(options: {
           children: "Undo",
           onClick: () => {
             toastManager.close(toastId);
-            setReviewed(item.path, false);
+            // Back to how it was: the earlier mark, the file open, and the reader on it.
+            restoreMark();
             expand(item.id);
+            updateProgress((previous) => ({ current: item.path, seen: previous.seen }));
+            setTarget({ id: item.id, changeIndex: null, scopeKey });
           },
         },
       }),
     );
     if (step.next !== null) land(landAfterMark(files, step.next, seenOf));
-  }, [expand, files, items, land, seenOf, setReviewed, step]);
+  }, [
+    expand,
+    files,
+    items,
+    land,
+    scopeKey,
+    seenOf,
+    setReviewed,
+    snapshotReview,
+    step,
+    updateProgress,
+  ]);
 
   const goToFile = useCallback(
     (delta: 1 | -1) => {
@@ -248,9 +310,11 @@ export function useDiffPaging(options: {
             entry.bottom <= scrollTop + viewport + 2,
         );
         updateProgress((previous) => {
-          const unseen = ended.filter(
-            ({ item }) => (previous.seen.get(item.path) ?? 0) < item.fileDiff.hunks.length,
-          );
+          // A file without changes counts as visited once its end has been in view.
+          const unseen = ended.filter(({ item }) => {
+            const seenHere = previous.seen.get(item.path);
+            return seenHere === undefined || seenHere < item.fileDiff.hunks.length;
+          });
           const nextSeen =
             unseen.length === 0
               ? previous.seen
@@ -271,8 +335,8 @@ export function useDiffPaging(options: {
     [],
   );
 
-  // The keys answer only while the reader is working in the panel: focus inside it, or the last
-  // click landed there.
+  // The keys answer only while the reader is working in the panel (the whole tab, its header
+  // included): focus inside it, or the last click landed there and focus has not left since.
   const pointerInPanel = useRef(false);
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (!enabled || event.defaultPrevented) return;
@@ -300,14 +364,22 @@ export function useDiffPaging(options: {
     pointerInPanel.current =
       event.target instanceof Node && options.panelRef.current?.contains(event.target) === true;
   });
+  const onFocusIn = useEffectEvent((event: FocusEvent) => {
+    if (!(event.target instanceof Node) || !options.panelRef.current?.contains(event.target)) {
+      pointerInPanel.current = false;
+    }
+  });
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => onKeyDown(event);
     const pointerDown = (event: PointerEvent) => onPointerDown(event);
+    const focusIn = (event: FocusEvent) => onFocusIn(event);
     window.addEventListener("keydown", keyDown, true);
     window.addEventListener("pointerdown", pointerDown, true);
+    window.addEventListener("focusin", focusIn, true);
     return () => {
       window.removeEventListener("keydown", keyDown, true);
       window.removeEventListener("pointerdown", pointerDown, true);
+      window.removeEventListener("focusin", focusIn, true);
     };
   }, []);
 
