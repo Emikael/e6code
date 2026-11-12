@@ -243,6 +243,7 @@ import { focusedPanelTabSurfaceId, RightPanelTabs } from "./RightPanelTabs";
 import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
+import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -3927,6 +3928,31 @@ export default function ChatView(props: ChatViewProps) {
     checkpoints: activeThread?.checkpoints ?? EMPTY_HELD_TURN_DIFF_SUMMARIES,
     workspaceRoot: activeWorkspaceRoot,
   });
+  // "Where you left off" reads the same log the timeline shows.
+  const recapProviderName = activeThreadShell?.session?.providerName;
+  const recapSource = useMemo<ThreadRecapSource>(
+    () => ({
+      messages: timelineMessages,
+      workLogEntries,
+      checkpoints: activeThread?.checkpoints ?? EMPTY_HELD_TURN_DIFF_SUMMARIES,
+      provider:
+        (recapProviderName &&
+          (PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[recapProviderName]) ||
+        "The agent",
+      activityCount: threadActivities.length,
+    }),
+    [
+      activeThread?.checkpoints,
+      recapProviderName,
+      threadActivities.length,
+      timelineMessages,
+      workLogEntries,
+    ],
+  );
+  const [revealMessageRequest, setRevealMessageRequest] = useState<{
+    readonly messageId: string;
+    readonly nonce: number;
+  } | null>(null);
   useLayoutEffect(() => {
     if (
       threadDetailLoading ||
@@ -10568,6 +10594,7 @@ export default function ChatView(props: ChatViewProps) {
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 nowBarAction={nowBar.state.kind === "hidden" ? undefined : nowBar.currentAction}
+                revealMessageRequest={revealMessageRequest}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 {...(!paintOnlyDisplayedTimeline
@@ -10914,6 +10941,21 @@ export default function ChatView(props: ChatViewProps) {
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {!isDraftHeroState && isServerThread && activeThreadKey ? (
+                    <ThreadRecapHost
+                      threadKey={activeThreadKey}
+                      ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
+                      source={recapSource}
+                      onOpenMessage={(messageId) =>
+                        setRevealMessageRequest((previous) => ({
+                          messageId,
+                          nonce: (previous?.nonce ?? 0) + 1,
+                        }))
+                      }
+                      onOpenFile={(turnId, path) => onOpenTurnDiff(turnId as TurnId, path)}
+                      onOpenChanges={addDiffSurface}
+                    />
                   ) : null}
                   <div
                     className="relative"

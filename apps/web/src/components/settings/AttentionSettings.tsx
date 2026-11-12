@@ -6,9 +6,10 @@
  * the rows that exist so far; later rows join their group without moving
  * the others. The starting-point tiles go above the grid.
  */
-import { DEFAULT_CLIENT_SETTINGS } from "@e6tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS, type RecapTrigger } from "@e6tools/contracts/settings";
 
 import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import {
   SettingResetButton,
@@ -19,9 +20,16 @@ import {
 import { NotificationSettingsSection } from "./NotificationSettings";
 import { searchableSetting } from "./settingsSearch";
 
+const RECAP_TRIGGER_LABELS = {
+  "after-break": "After a break",
+  always: "Always",
+  never: "Never",
+} satisfies Record<RecapTrigger, string>;
+
 export function AttentionSettingsPanel() {
   const needsYouSectionEnabled = useClientSettings((s) => s.needsYouSectionEnabled);
   const sidebarElapsedTimeEnabled = useClientSettings((s) => s.sidebarElapsedTimeEnabled);
+  const recapTrigger = useClientSettings((s) => s.recapTrigger);
   const updateSettings = useUpdateClientSettings();
 
   return (
@@ -53,6 +61,47 @@ export function AttentionSettingsPanel() {
                 }
                 aria-label="Needs you at the top of the sidebar"
               />
+            }
+          />
+        </SettingsSection>
+
+        <SettingsSection id="attention-threads" title="Threads">
+          <SettingsRow
+            {...searchableSetting("recap-trigger")}
+            description="A short recap built from the thread itself."
+            resetAction={
+              recapTrigger !== DEFAULT_CLIENT_SETTINGS.recapTrigger ? (
+                <SettingResetButton
+                  label="Where you left off"
+                  onClick={() =>
+                    updateSettings({ recapTrigger: DEFAULT_CLIENT_SETTINGS.recapTrigger })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={recapTrigger}
+                onValueChange={(value) => {
+                  if (value !== "after-break" && value !== "always" && value !== "never") return;
+                  updateSettings({ recapTrigger: value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-40"
+                  aria-label={`Show where you left off: ${RECAP_TRIGGER_LABELS[recapTrigger].toLowerCase()}`}
+                >
+                  <SelectValue>{RECAP_TRIGGER_LABELS[recapTrigger]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {Object.entries(RECAP_TRIGGER_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} hideIndicator value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
             }
           />
         </SettingsSection>

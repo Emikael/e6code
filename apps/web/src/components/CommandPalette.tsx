@@ -59,6 +59,7 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   BellDotIcon,
+  HistoryIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
   CircleStopIcon,
@@ -243,6 +244,7 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
 import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
+import { useThreadRecapStore } from "~/threadRecapStore";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -2232,6 +2234,19 @@ function OpenCommandPaletteDialog(props: {
       });
     },
   });
+  if (activeThreadKey) {
+    // Shows the open thread's "Where you left off" again, whatever the setting says.
+    actionItems.push({
+      kind: "action",
+      value: "action:where-was-i",
+      searchTerms: ["where was i", "recap", "left off", "catch up", "summary", "since"],
+      title: "Where was I?",
+      icon: <HistoryIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useThreadRecapStore.getState().requestRecap(activeThreadKey);
+      },
+    });
+  }
   const supportsSnooze = (thread: { readonly environmentId: EnvironmentId }) =>
     serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
   const paletteNow = new Date();

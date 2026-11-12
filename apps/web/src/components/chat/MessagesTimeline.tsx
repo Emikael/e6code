@@ -532,6 +532,8 @@ interface MessagesTimelineProps {
   activeTurnStartedAt: string | null;
   /** The now bar's current action; see {@link TimelineRowActivityState.nowBarAction}. */
   nowBarAction?: string | null | undefined;
+  /** Scrolls to a message once per nonce, e.g. the recap's "You asked". */
+  revealMessageRequest?: { readonly messageId: string; readonly nonce: number } | null;
   /** Live bootstrap progress for this thread, or null when none is tracked. */
   worktreeSetup?: WorktreeSetupSnapshot | null;
   onCancelWorktreeSetup?: () => void;
@@ -615,6 +617,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isCompacting = false,
   activeTurnStartedAt,
   nowBarAction,
+  revealMessageRequest = null,
   agentPanelModel,
   onOpenAgents = NOOP_OPEN_AGENTS,
   subagentProviderKind = null,
@@ -940,6 +943,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+
+  const handledRevealNonceRef = useRef(revealMessageRequest?.nonce ?? 0);
+  useEffect(() => {
+    if (!revealMessageRequest || revealMessageRequest.nonce === handledRevealNonceRef.current) {
+      return;
+    }
+    handledRevealNonceRef.current = revealMessageRequest.nonce;
+    const index = rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === revealMessageRequest.messageId,
+    );
+    if (index < 0) {
+      toastManager.add({
+        type: "info",
+        title: "Not in the loaded part of the thread",
+        description: "Load earlier messages to find it.",
+      });
+      return;
+    }
+    onManualNavigation();
+    void listRef.current?.scrollToIndex({
+      index,
+      animated: !prefersReducedMotion,
+      viewOffset: 24,
+    });
+  }, [listRef, onManualNavigation, prefersReducedMotion, revealMessageRequest, rows]);
 
   // "Show in thread" from Run details: open the subagent's card, scroll to
   // it and light its row for a moment. Only requests made while this list is

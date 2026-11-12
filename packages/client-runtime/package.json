@@ -275,6 +275,14 @@
       "types": "./src/work-log/userInput.ts",
       "default": "./src/work-log/userInput.ts"
     },
+    "./work-log/entries": {
+      "types": "./src/work-log/workLogEntries.ts",
+      "default": "./src/work-log/workLogEntries.ts"
+    },
+    "./work-log/thread-recap": {
+      "types": "./src/work-log/threadRecap.ts",
+      "default": "./src/work-log/threadRecap.ts"
+    },
     "./work-log/presentation": {
       "types": "./src/work-log/presentation.ts",
       "default": "./src/work-log/presentation.ts"
