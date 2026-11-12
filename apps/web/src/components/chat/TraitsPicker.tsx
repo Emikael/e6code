@@ -41,6 +41,7 @@ import {
   ComposerControlIcon,
   type ComposerControlSize,
 } from "./ComposerControl";
+import { nonDefaultTraitLabels } from "./composerControlsSummary";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { EffortGlyph, resolveEffortGlyph } from "./EffortGlyph";
@@ -265,6 +266,33 @@ function getTraitsSectionVisibility(input: {
       showAgent ||
       (selected.modelIsUnavailable && selected.descriptors.length > 0),
   };
+}
+
+/** The compact chip's trait words: what this model has set away from its defaults. */
+export function resolveNonDefaultTraitLabels(input: {
+  provider: ProviderDriverKind;
+  models: ReadonlyArray<ServerProviderModel>;
+  model: string | null | undefined;
+  prompt: string;
+  modelOptions: ProviderOptions | null | undefined;
+  planModeEnabled: boolean;
+}): string[] {
+  const current = getTraitsSectionVisibility(input);
+  const defaults = getSelectedTraits(
+    input.provider,
+    input.models,
+    input.model,
+    "",
+    undefined,
+    true,
+    input.planModeEnabled,
+  );
+  return nonDefaultTraitLabels({
+    descriptors: current.descriptors,
+    defaults: defaults.descriptors,
+    effortDescriptorId: current.primarySelectDescriptor?.id ?? null,
+    ultrathink: current.ultrathinkPromptControlled,
+  });
 }
 
 export function shouldRenderTraitsControls(input: {

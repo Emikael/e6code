@@ -242,6 +242,17 @@ export type RecapTrigger = typeof RecapTrigger.Type;
 export const ComposerControls = Schema.Literals(["compact", "full"]);
 export type ComposerControls = typeof ComposerControls.Type;
 
+/**
+ * Attention page, "Agent activity". `summary` keeps a working agent's tool
+ * calls and thinking folded to one line; `live` opens them as they happen.
+ */
+export const AgentActivityDetail = Schema.Literals(["summary", "live"]);
+export type AgentActivityDetail = typeof AgentActivityDetail.Type;
+
+/** Attention page, "Open-thread reminder": the count of open threads that shows a line. */
+export const OpenThreadReminderAt = Schema.Literals(["off", 3, 5, 8]);
+export type OpenThreadReminderAt = typeof OpenThreadReminderAt.Type;
+
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
 const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
@@ -348,14 +359,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
-  /**
-   * Draws an opened work log as a rail with one dot per step. Off restores the
-   * plain icon rows. A malformed stored value falls back to on rather than
-   * failing the whole settings decode.
-   */
-  showThinkingTimeline: Schema.Boolean.pipe(
-    Schema.catchDecoding(() => Effect.succeedSome(true)),
-    Schema.withDecodingDefault(Effect.succeed(true)),
+  // Deliberately a fresh key (was `showThinkingTimeline`, which chose how an
+  // opened work log is drawn): decoding drops the old key. The rail is now
+  // always drawn; this chooses whether live activity opens by itself.
+  agentActivityDetail: AgentActivityDetail.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("summary" as const)),
+    Schema.withDecodingDefault(Effect.succeed("summary" as const)),
   ),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -524,6 +533,10 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   /** Focus mode holds other finished threads until you exit it. */
   focusHoldsFinished: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  openThreadReminderAt: OpenThreadReminderAt.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome(5 as const)),
+    Schema.withDecodingDefault(Effect.succeed(5 as const)),
+  ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -1686,7 +1699,7 @@ export const ClientSettingsPatch = Schema.Struct({
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   effortDisplay: Schema.optionalKey(EffortDisplay),
-  showThinkingTimeline: Schema.optionalKey(Schema.Boolean),
+  agentActivityDetail: Schema.optionalKey(AgentActivityDetail),
   stockAccent: Schema.optionalKey(StockAccent),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
@@ -1758,6 +1771,7 @@ export const ClientSettingsPatch = Schema.Struct({
   recapTrigger: Schema.optionalKey(RecapTrigger),
   composerControls: Schema.optionalKey(ComposerControls),
   focusHoldsFinished: Schema.optionalKey(Schema.Boolean),
+  openThreadReminderAt: Schema.optionalKey(OpenThreadReminderAt),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

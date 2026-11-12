@@ -84,6 +84,11 @@ function useSidebar() {
   return context;
 }
 
+/** The sidebar's controls, or null outside a SidebarProvider. */
+function useOptionalSidebar() {
+  return React.use(SidebarContext);
+}
+
 function useSidebarVisibility() {
   const { isMobile, open, openMobile } = useSidebar();
   return isMobile ? openMobile : open;
@@ -789,6 +794,7 @@ export {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useOptionalSidebar,
   useSidebar,
   useSidebarVisibility,
 };

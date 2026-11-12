@@ -218,6 +218,26 @@ describe("promptStashStore", () => {
     expect(selectThreadNote(entries, "env:thread")).toBeNull();
   });
 
+  it("keeps one thought pinned per day, and unpinning leaves it parked", () => {
+    const store = usePromptStashStore.getState();
+    store.setPinnedThought("2026-11-13", "Check the mobile tokens.", "env:project");
+    store.setPinnedThought("2026-11-13", "  Check the mobile tokens on a device.  ", null);
+    let entries = usePromptStashStore.getState().entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      kind: "thought",
+      pinnedFor: "2026-11-13",
+      prompt: "Check the mobile tokens on a device.",
+    });
+    store.unpinEntry(entries[0]!.id);
+    entries = usePromptStashStore.getState().entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.pinnedFor).toBeUndefined();
+    store.setPinnedThought("2026-11-14", "Tomorrow", null);
+    store.setPinnedThought("2026-11-14", "  ", null);
+    expect(usePromptStashStore.getState().entries).toHaveLength(1);
+  });
+
   it("puts an entry back where it was on Undo", () => {
     const store = usePromptStashStore.getState();
     store.stashEntry(thought("a"));

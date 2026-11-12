@@ -9,6 +9,8 @@ const CHANNEL_NAME = "e6code:window-focus";
 interface FocusMessage {
   readonly windowId: string;
   readonly focused: boolean;
+  /** A window that just opened asks the others to report their focus. */
+  readonly query?: boolean;
 }
 
 // Unique enough to tell this window's own messages from its siblings'.
@@ -31,36 +33,39 @@ function start() {
   if (typeof BroadcastChannel === "undefined") return;
   const current = new BroadcastChannel(CHANNEL_NAME);
   channel = current;
-  const post = (focused: boolean) => {
+  const post = (focused: boolean, query = false) => {
     try {
-      current.postMessage({ windowId, focused } satisfies FocusMessage);
+      current.postMessage({ windowId, focused, query } satisfies FocusMessage);
     } catch {
       // A closed channel during unload; nothing to tell.
     }
   };
-  const report = () => {
+  const report = (query = false) => {
     const focused = document.visibilityState === "visible" && document.hasFocus();
     // Only one window holds focus, so this also clears a window that closed
     // without saying so.
     if (focused) focusedOthers.clear();
-    post(focused);
+    post(focused, query);
   };
+  const onFocusChange = () => report();
   const leave = () => post(false);
   current.addEventListener("message", (event) => {
     if (!isFocusMessage(event.data) || event.data.windowId === windowId) return;
     if (event.data.focused) focusedOthers.add(event.data.windowId);
     else focusedOthers.delete(event.data.windowId);
+    // A new window does not know who has focus yet; answer it.
+    if (event.data.query) report();
   });
-  window.addEventListener("focus", report);
-  window.addEventListener("blur", report);
-  document.addEventListener("visibilitychange", report);
+  window.addEventListener("focus", onFocusChange);
+  window.addEventListener("blur", onFocusChange);
+  document.addEventListener("visibilitychange", onFocusChange);
   window.addEventListener("pagehide", leave);
-  report();
+  report(true);
   teardown = () => {
     leave();
-    window.removeEventListener("focus", report);
-    window.removeEventListener("blur", report);
-    document.removeEventListener("visibilitychange", report);
+    window.removeEventListener("focus", onFocusChange);
+    window.removeEventListener("blur", onFocusChange);
+    document.removeEventListener("visibilitychange", onFocusChange);
     window.removeEventListener("pagehide", leave);
     current.close();
     focusedOthers.clear();

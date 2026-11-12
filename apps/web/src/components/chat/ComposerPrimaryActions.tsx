@@ -6,6 +6,7 @@ import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../Sideb
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
 interface PendingActionState {
@@ -29,7 +30,7 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
-  /** The thread.stop shortcut ("⌘."), shown inside the Stop button. */
+  /** The thread.stop shortcut ("⌘."), named in the Stop button's tooltip. */
   stopShortcutLabel?: string | null;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
@@ -85,37 +86,33 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     environmentIdentificationMode === "artwork",
   );
 
-  // A quiet outline Stop: the running agent already carries the accent, so stopping it
-  // does not shout. Beside a pending answer, or in a compact footer, it shrinks to its square.
-  const renderStopGenerationButton = (insidePendingAction: boolean) => {
-    const iconOnly = insidePendingAction || compact;
-    return (
-      <button
-        type="button"
-        className={cn(
-          "flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-input bg-surface-raised font-medium text-foreground text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          iconOnly ? (insidePendingAction ? "size-8 sm:size-7" : "size-8") : "h-8 px-3",
-        )}
-        {...pointerFocusProps}
-        onClick={onInterrupt}
-        aria-label="Stop generation"
+  // Board 2: a quiet round Stop on the card ground, icon only; the running agent already
+  // carries the accent, so stopping it does not shout. The shortcut is in its tooltip.
+  const renderStopGenerationButton = (insidePendingAction: boolean) => (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              "flex shrink-0 cursor-pointer items-center justify-center rounded-full border border-input bg-card text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              insidePendingAction ? "size-8 sm:size-7" : "size-8",
+            )}
+            {...pointerFocusProps}
+            onClick={onInterrupt}
+            aria-label="Stop generation"
+          />
+        }
       >
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-          <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" />
         </svg>
-        {iconOnly ? null : (
-          <>
-            <span aria-hidden="true">Stop</span>
-            {stopShortcutLabel ? (
-              <kbd aria-hidden="true" className="font-mono text-[11px] text-muted-foreground">
-                {stopShortcutLabel}
-              </kbd>
-            ) : null}
-          </>
-        )}
-      </button>
-    );
-  };
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {stopShortcutLabel ? `Stop (${stopShortcutLabel})` : "Stop"}
+      </TooltipPopup>
+    </Tooltip>
+  );
 
   if (pendingAction) {
     return (
@@ -236,9 +233,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
         stageBackdropVariant
           ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
-          : // Disabled sends go neutral rather than a faded action color, so
-            // a light theme accent never reads as "almost clickable".
-            "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover disabled:bg-secondary disabled:text-muted-foreground disabled:opacity-100",
+          : // A disabled Send sits on the card ground with an input edge and a muted
+            // arrow (boards 1 to 3), so a light theme accent never reads as "almost clickable".
+            "border border-transparent bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover disabled:border-input disabled:bg-card disabled:text-muted-foreground disabled:opacity-100",
       )}
       {...pointerFocusProps}
       disabled={

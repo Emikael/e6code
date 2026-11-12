@@ -1,6 +1,8 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@e6tools/contracts";
+import type { AgentActivityDetail } from "@e6tools/contracts/settings";
 import { create } from "zustand";
+import { recordFocusOpenedPanel } from "./focusMode";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
 export const PERSISTED_STATE_KEY = "e6code:ui-state:v1";
@@ -35,6 +37,8 @@ export interface PersistedUiState {
   focusMode?: boolean;
   recentFilesByThreadKey?: Record<string, RecentFile[]>;
   filesFilterByThreadKey?: Record<string, FilesFilterChoice>;
+  focusOpenedPanelKeys?: string[];
+  agentActivityDetailByThreadKey?: Record<string, string>;
 }
 
 /** A file opened in a thread's Files tab, with the line it was left at. */
@@ -101,6 +105,16 @@ export interface UiFocusState {
    * until closed. Not persisted: a reload in focus starts with it closed.
    */
   focusPanelPeek: boolean;
+  /**
+   * Threads whose right panel focus opened from closed. Persisted, so a
+   * reload in focus still closes them again; see `focusOpenedPanelsToClose`.
+   */
+  focusOpenedPanelKeys: ReadonlyArray<string>;
+}
+
+/** "Agent activity" chosen for one thread from its More menu, over the setting (F11). */
+export interface UiAgentActivityState {
+  agentActivityDetailByThreadKey: Record<string, AgentActivityDetail>;
 }
 
 export interface UiState
@@ -111,7 +125,8 @@ export interface UiState
     UiPullRequestState,
     UiRunDetailsState,
     UiFocusState,
-    UiFilesState {}
+    UiFilesState,
+    UiAgentActivityState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -126,6 +141,8 @@ const initialState: UiState = {
   focusPanelPeek: false,
   recentFilesByThreadKey: {},
   filesFilterByThreadKey: {},
+  focusOpenedPanelKeys: [],
+  agentActivityDetailByThreadKey: {},
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -317,6 +334,12 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     focusPanelPeek: false,
     recentFilesByThreadKey: sanitizeRecentFiles(parsed.recentFilesByThreadKey),
     filesFilterByThreadKey: sanitizeFilesFilters(parsed.filesFilterByThreadKey),
+    focusOpenedPanelKeys: Array.isArray(parsed.focusOpenedPanelKeys)
+      ? parsed.focusOpenedPanelKeys.filter((key): key is string => typeof key === "string")
+      : [],
+    agentActivityDetailByThreadKey: sanitizeAgentActivityDetailByThreadKey(
+      parsed.agentActivityDetailByThreadKey,
+    ),
   };
 }
 
@@ -395,6 +418,8 @@ export function persistState(state: UiState): void {
         focusMode: state.focusMode,
         recentFilesByThreadKey: state.recentFilesByThreadKey,
         filesFilterByThreadKey: state.filesFilterByThreadKey,
+        focusOpenedPanelKeys: [...state.focusOpenedPanelKeys],
+        agentActivityDetailByThreadKey: state.agentActivityDetailByThreadKey,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -532,6 +557,52 @@ export function setFocusPanelPeek(state: UiState, peek: boolean): UiState {
   return { ...state, focusPanelPeek: peek };
 }
 
+function sanitizeAgentActivityDetailByThreadKey(
+  value: unknown,
+): Record<string, AgentActivityDetail> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const result: Record<string, AgentActivityDetail> = {};
+  for (const [key, detail] of Object.entries(value)) {
+    if (detail === "summary" || detail === "live") result[key] = detail;
+  }
+  return result;
+}
+
+/**
+ * Sets this thread's "Agent activity", or clears it (null) so the thread
+ * follows the setting again.
+ */
+export function setThreadAgentActivityDetail(
+  state: UiState,
+  threadKey: string,
+  detail: AgentActivityDetail | null,
+): UiState {
+  const current = state.agentActivityDetailByThreadKey[threadKey] ?? null;
+  if (current === detail) return state;
+  const { [threadKey]: _previous, ...rest } = state.agentActivityDetailByThreadKey;
+  return {
+    ...state,
+    agentActivityDetailByThreadKey: detail === null ? rest : { ...rest, [threadKey]: detail },
+  };
+}
+
+/** The panel was closed until focus opened it: show it, and close it again afterwards. */
+export function noteFocusOpenedPanel(state: UiState, threadKey: string): UiState {
+  if (!state.focusMode) return state;
+  const focusOpenedPanelKeys = recordFocusOpenedPanel(state.focusOpenedPanelKeys, threadKey);
+  if (state.focusPanelPeek && focusOpenedPanelKeys === state.focusOpenedPanelKeys) return state;
+  return { ...state, focusPanelPeek: true, focusOpenedPanelKeys };
+}
+
+/** The panels in `closed` are closed again, so they leave the list. */
+export function clearFocusOpenedPanels(state: UiState, closed: ReadonlyArray<string>): UiState {
+  if (closed.length === 0) return state;
+  return {
+    ...state,
+    focusOpenedPanelKeys: state.focusOpenedPanelKeys.filter((key) => !closed.includes(key)),
+  };
+}
+
 export function resolveProjectExpanded(
   projectExpandedById: Readonly<Record<string, boolean>>,
   preferenceKeys: readonly string[],
@@ -618,6 +689,9 @@ interface UiStateStore extends UiState {
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setRunDetailsSectionOpen: (section: RunDetailsSectionId, open: boolean) => void;
   setFocusMode: (focusMode: boolean) => void;
+  noteFocusOpenedPanel: (threadKey: string) => void;
+  setThreadAgentActivityDetail: (threadKey: string, detail: AgentActivityDetail | null) => void;
+  clearFocusOpenedPanels: (closed: ReadonlyArray<string>) => void;
   toggleFocusMode: () => void;
   setFocusPanelPeek: (peek: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -646,6 +720,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setRunDetailsSectionOpen: (section, open) =>
     set((state) => setRunDetailsSectionOpen(state, section, open)),
   setFocusMode: (focusMode) => set((state) => setFocusMode(state, focusMode)),
+  noteFocusOpenedPanel: (threadKey) => set((state) => noteFocusOpenedPanel(state, threadKey)),
+  setThreadAgentActivityDetail: (threadKey, detail) =>
+    set((state) => setThreadAgentActivityDetail(state, threadKey, detail)),
+  clearFocusOpenedPanels: (closed) => set((state) => clearFocusOpenedPanels(state, closed)),
   toggleFocusMode: () => set((state) => setFocusMode(state, !state.focusMode)),
   setFocusPanelPeek: (peek) => set((state) => setFocusPanelPeek(state, peek)),
   setProjectExpanded: (projectIds, expanded) =>

@@ -271,6 +271,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   hasProviderTraitsControls,
+  providerNonDefaultTraitLabels,
   useProviderEffortSegmentControl,
 } from "./composerProviderState";
 import { EffortSegmentedControl } from "./EffortSegmentedControl";
@@ -279,6 +280,7 @@ import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
+  shouldShowContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 import {
   attachVideoThumbnail,
@@ -1005,6 +1007,8 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "../../state/server";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
+import { OpenThreadReminder } from "./OpenThreadReminder";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
 
@@ -4914,6 +4918,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // overflow chip at every width; the measured layout only decides in Full.
   const composerControlsCompact =
     settings.composerControls === "compact" && !composerControlsInStrip;
+  const shownContextWindow =
+    settings.contextWindowMeterEnabled &&
+    activeContextWindow &&
+    shouldShowContextWindowMeter({
+      usedPercentage: activeContextWindow.usedPercentage,
+      compact: composerControlsCompact,
+    })
+      ? activeContextWindow
+      : null;
+  const reserveShownContextWindowMeter = reserveContextWindowMeter && !composerControlsCompact;
   const restingHiddenBlockCount = composerControlsInStrip
     ? restingControlsHiddenBlockCount
     : composerControlsCompact
@@ -5136,6 +5150,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               ? {
                   summary: composerControlsSummary({
                     effort: effortSegmentControl,
+                    traits: providerNonDefaultTraitLabels(providerTraitsPickerInput),
                     runtimeMode,
                     interactionMode: planModeUiEnabled ? interactionMode : null,
                   }),
@@ -6366,6 +6381,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 isComposerResting && "py-2 sm:py-2",
               )}
             >
+              {/* New threads only: how many are already open, never a gate on Send. */}
+              {routeKind === "draft" && !isComposerApprovalState && !isComposerResting ? (
+                <OpenThreadReminder />
+              ) : null}
               {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
                 <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
                   <ComposerStashMenu
@@ -6748,8 +6767,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   "relative",
                   isComposerResting && "flex min-w-0 items-center gap-1",
                   isComposerResting &&
-                    ((settings.contextWindowMeterEnabled && activeContextWindow) ||
-                    reserveContextWindowMeter
+                    (shownContextWindow || reserveShownContextWindowMeter
                       ? "pr-28"
                       : showComposerAttachAction
                         ? "pr-20"
@@ -6975,7 +6993,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {pendingUserInputs.length === 0 && !projectSelectionRequired ? (
+                  {/* Hidden while an approval holds the composer, where it does nothing. The
+                      button only parks; Mod+S on an empty draft still opens what was parked. */}
+                  {pendingUserInputs.length === 0 &&
+                  !projectSelectionRequired &&
+                  !isComposerApprovalState ? (
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -6984,12 +7006,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             size="sm"
                             variant="ghost"
                             className="hidden sm:inline-flex"
+                            disabled={!composerSendState.hasSendableContent}
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={parkDraft}
                           />
                         }
                       >
                         Park it
+                        {/* Board 3: focus mode shows the key beside it. */}
+                        {focusModeActive ? <ShortcutKeyCaps label={parkShortcutLabel} /> : null}
                       </TooltipTrigger>
                       <TooltipPopup>
                         Keep this draft for later
@@ -6999,10 +7024,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
-                    activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
-                    }
-                    reserveContextWindowMeter={reserveContextWindowMeter}
+                    activeContextWindow={shownContextWindow}
+                    reserveContextWindowMeter={reserveShownContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}

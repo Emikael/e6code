@@ -23,6 +23,9 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  resolveWorkGroupExpanded,
+  toggleWorkGroupDisclosure,
+  workGroupOpensByItself,
   deriveThinkingTimelineHeading,
   activityGroupHasTimelineSteps,
   formatWorkingTimer,
@@ -4379,5 +4382,47 @@ describe("earlier-turn fold", () => {
       "message",
     ]);
     expect(derive(thread, undefined).some((row) => row.kind === "earlier-turns")).toBe(false);
+  });
+});
+
+describe("agent activity fold defaults", () => {
+  const read = { command: "cat package.json" };
+  it("keeps a working group folded in Summary and opens it in Live", () => {
+    expect(workGroupOpensByItself({ active: true, detail: "summary", entries: [read] })).toBe(
+      false,
+    );
+    expect(workGroupOpensByItself({ active: true, detail: "live", entries: [read] })).toBe(true);
+    // A settled group folds to its summary under either setting.
+    expect(workGroupOpensByItself({ active: false, detail: "live", entries: [read] })).toBe(false);
+  });
+
+  it("keeps approval requests and destructive commands visible in Summary", () => {
+    expect(
+      workGroupOpensByItself({
+        active: true,
+        detail: "summary",
+        entries: [read, { sourceActivityKind: "approval.requested" }],
+      }),
+    ).toBe(true);
+    expect(
+      workGroupOpensByItself({
+        active: true,
+        detail: "summary",
+        entries: [{ command: "git push --force origin main" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("lets the reader fold a group that opened by itself, and open one that did not", () => {
+    const empty = new Set<string>();
+    expect(resolveWorkGroupExpanded(empty, "g", true)).toBe(true);
+    const folded = toggleWorkGroupDisclosure(empty, "g", true);
+    expect(resolveWorkGroupExpanded(folded, "g", true)).toBe(false);
+    const reopened = toggleWorkGroupDisclosure(folded, "g", false);
+    expect(resolveWorkGroupExpanded(reopened, "g", true)).toBe(true);
+    expect(resolveWorkGroupExpanded(toggleWorkGroupDisclosure(empty, "h", false), "h", false)).toBe(
+      true,
+    );
+    expect(resolveWorkGroupExpanded(empty, "h", false)).toBe(false);
   });
 });

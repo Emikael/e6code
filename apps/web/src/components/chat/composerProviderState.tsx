@@ -23,6 +23,7 @@ import { getProviderModelCapabilities } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
 import {
   shouldRenderTraitsControls,
+  resolveNonDefaultTraitLabels,
   TraitsMenuContent,
   TraitsPicker,
   useEffortSegmentControl,
@@ -233,6 +234,12 @@ function resolveTraitsControlProps(input: TraitsRenderInput) {
 /** Whether the model has a traits (effort) menu for this target. */
 export function hasProviderTraitsControls(input: TraitsRenderInput): boolean {
   return resolveTraitsControlProps(input) !== null;
+}
+
+/** Traits set away from their defaults, for the compact chip; empty without a traits menu. */
+export function providerNonDefaultTraitLabels(input: TraitsRenderInput): string[] {
+  const props = resolveTraitsControlProps(input);
+  return props ? resolveNonDefaultTraitLabels(props) : [];
 }
 
 /** Fast / Balanced / Deep for the composer's model, or null when it has no usable effort. */

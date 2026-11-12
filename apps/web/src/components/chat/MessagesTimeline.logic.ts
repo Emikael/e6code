@@ -1,4 +1,6 @@
 import { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
+import { classifyDestructiveCommand } from "@e6tools/client-runtime/destructive-commands";
+import type { AgentActivityDetail } from "@e6tools/contracts/settings";
 export { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
@@ -1072,6 +1074,68 @@ function buildRevertTurnCountByUserMessageId(input: {
   return byUserMessageId;
 }
 
+/**
+ * The disclosure set holds groups the reader opened, plus a marker for each
+ * group the reader folded although it opens by itself.
+ */
+export const workGroupFoldedKey = (groupId: string) => `folded:${groupId}`;
+
+/**
+ * Must be on screen while it happens, whatever "Agent activity" says: an
+ * approval request, or a command that is hard to undo.
+ */
+export function workEntryStaysVisible(
+  entry: Pick<WorkLogEntry, "sourceActivityKind" | "command" | "rawCommand">,
+): boolean {
+  if (entry.sourceActivityKind === "approval.requested") return true;
+  const command = entry.rawCommand ?? entry.command;
+  return command !== undefined && classifyDestructiveCommand(command) !== null;
+}
+
+/**
+ * Whether a work group opens without a click (F11). With "Summary" a working
+ * agent's tool calls and thinking stay folded to their one-line summary;
+ * with "Live" the group the agent is working in opens as it goes. A settled
+ * group always folds. Approval requests and destructive commands open their
+ * live group under either setting.
+ */
+export function workGroupOpensByItself(input: {
+  readonly active: boolean;
+  readonly detail: AgentActivityDetail;
+  readonly entries: ReadonlyArray<
+    Pick<WorkLogEntry, "sourceActivityKind" | "command" | "rawCommand">
+  >;
+}): boolean {
+  if (!input.active) return false;
+  return input.detail === "live" || input.entries.some(workEntryStaysVisible);
+}
+
+export function resolveWorkGroupExpanded(
+  disclosures: ReadonlySet<string> | undefined,
+  groupId: string,
+  opensByItself: boolean,
+): boolean {
+  if (disclosures?.has(groupId)) return true;
+  return opensByItself && !disclosures?.has(workGroupFoldedKey(groupId));
+}
+
+/** The disclosure set after the reader opens or folds a group that is now `expanded`. */
+export function toggleWorkGroupDisclosure(
+  disclosures: ReadonlySet<string>,
+  groupId: string,
+  expanded: boolean,
+): ReadonlySet<string> {
+  const next = new Set(disclosures);
+  if (expanded) {
+    next.delete(groupId);
+    next.add(workGroupFoldedKey(groupId));
+  } else {
+    next.add(groupId);
+    next.delete(workGroupFoldedKey(groupId));
+  }
+  return next;
+}
+
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   latestTurn?: TimelineLatestTurn | null;
@@ -1095,7 +1159,10 @@ export function deriveMessagesTimelineRows(input: {
    * "expanded" keeps that row and shows the turns under it. Absent: no fold.
    */
   earlierTurns?: "folded" | "expanded" | undefined;
+  /** "Agent activity": whether live groups open by themselves. Defaults to summary. */
+  agentActivityDetail?: AgentActivityDetail | undefined;
 }): MessagesTimelineRow[] {
+  const activityDetail = input.agentActivityDetail ?? "summary";
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
     if (summary.assistantMessageId) {
@@ -1215,7 +1282,15 @@ export function deriveMessagesTimelineRows(input: {
             entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
             groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
             groupId,
-            expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
+            expanded: resolveWorkGroupExpanded(
+              input.expandedWorkGroupIds,
+              groupId,
+              workGroupOpensByItself({
+                active: latestToolKeepsActivityLive,
+                detail: activityDetail,
+                entries: visibleActiveToolEntries.map((entry) => entry.entry),
+              }),
+            ),
             active: latestToolKeepsActivityLive,
           };
         })()
@@ -1318,7 +1393,15 @@ export function deriveMessagesTimelineRows(input: {
           turnId: activityTurnId,
           groupId,
           entries,
-          expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
+          expanded: resolveWorkGroupExpanded(
+            input.expandedWorkGroupIds,
+            groupId,
+            workGroupOpensByItself({
+              active,
+              detail: activityDetail,
+              entries: entries.flatMap((entry) => (entry.kind === "work" ? [entry.entry] : [])),
+            }),
+          ),
           active,
         });
         hasActivityRow ||= active;
@@ -1393,7 +1476,15 @@ export function deriveMessagesTimelineRows(input: {
         const activeInProgressToolEntries = visibleGroupedEntries.filter(workEntryIsInActiveRun);
         if (activeInProgressToolEntries.length > 0) {
           const groupId = workGroupId(timelineEntry.id, timelineEntry.entry);
-          const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
+          const expanded = resolveWorkGroupExpanded(
+            input.expandedWorkGroupIds,
+            groupId,
+            workGroupOpensByItself({
+              active: true,
+              detail: activityDetail,
+              entries: visibleGroupedEntries,
+            }),
+          );
           const latestActiveToolEntry = activeInProgressToolEntries.at(-1)!;
           nextRows.push({
             kind: "work-live",

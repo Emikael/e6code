@@ -18,6 +18,7 @@ import {
   setProjectExpanded,
   setRunDetailsSectionOpen,
   setSidebarProjectScopeKey,
+  setThreadAgentActivityDetail,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -36,6 +37,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     focusPanelPeek: false,
     recentFilesByThreadKey: {},
     filesFilterByThreadKey: {},
+    focusOpenedPanelKeys: [],
+    agentActivityDetailByThreadKey: {},
     ...overrides,
   };
 }
@@ -269,6 +272,8 @@ describe("parsePersistedState", () => {
       focusPanelPeek: false,
       recentFilesByThreadKey: {},
       filesFilterByThreadKey: {},
+      focusOpenedPanelKeys: [],
+      agentActivityDetailByThreadKey: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -402,6 +407,8 @@ describe("uiStateStore persistence", () => {
       focusMode: false,
       recentFilesByThreadKey: {},
       filesFilterByThreadKey: {},
+      focusOpenedPanelKeys: [],
+      agentActivityDetailByThreadKey: {},
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
@@ -429,5 +436,25 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(resolveProjectExpanded(persisted.projectExpandedById ?? {}, ["unknown"])).toBe(true);
+  });
+});
+
+describe("per-thread agent activity", () => {
+  it("overrides the setting for one thread, and clears back to it", () => {
+    const base = makeUiState();
+    const live = setThreadAgentActivityDetail(base, "env:thread", "live");
+    expect(live.agentActivityDetailByThreadKey).toEqual({ "env:thread": "live" });
+    expect(setThreadAgentActivityDetail(live, "env:thread", "live")).toBe(live);
+    expect(
+      setThreadAgentActivityDetail(live, "env:thread", null).agentActivityDetailByThreadKey,
+    ).toEqual({});
+  });
+
+  it("keeps only valid stored choices", () => {
+    expect(
+      parsePersistedState({
+        agentActivityDetailByThreadKey: { a: "live", b: "loud", c: "summary" },
+      }).agentActivityDetailByThreadKey,
+    ).toEqual({ a: "live", c: "summary" });
   });
 });

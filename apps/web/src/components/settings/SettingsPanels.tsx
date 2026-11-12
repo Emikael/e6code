@@ -674,9 +674,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
         ? ["Effort display"]
         : []),
-      ...(settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline
-        ? ["Thinking timeline"]
-        : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -708,6 +705,12 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(settings.recapTrigger !== DEFAULT_UNIFIED_SETTINGS.recapTrigger
         ? ["Show where you left off"]
+        : []),
+      ...(settings.openThreadReminderAt !== DEFAULT_UNIFIED_SETTINGS.openThreadReminderAt
+        ? ["Open-thread reminder"]
+        : []),
+      ...(settings.agentActivityDetail !== DEFAULT_UNIFIED_SETTINGS.agentActivityDetail
+        ? ["Agent activity"]
         : []),
       ...(settings.composerControls !== DEFAULT_UNIFIED_SETTINGS.composerControls
         ? ["Composer controls"]
@@ -814,7 +817,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffColorScheme,
       settings.chatWidth,
       settings.effortDisplay,
-      settings.showThinkingTimeline,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -856,6 +858,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.recapTrigger,
       settings.composerControls,
       settings.focusHoldsFinished,
+      settings.openThreadReminderAt,
+      settings.agentActivityDetail,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.attentionNotifications,
@@ -937,7 +941,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
-      showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       attentionNotifications: DEFAULT_UNIFIED_SETTINGS.attentionNotifications,
       notifyWatchedThreads: DEFAULT_UNIFIED_SETTINGS.notifyWatchedThreads,
@@ -962,6 +965,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       recapTrigger: DEFAULT_UNIFIED_SETTINGS.recapTrigger,
       composerControls: DEFAULT_UNIFIED_SETTINGS.composerControls,
       focusHoldsFinished: DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished,
+      openThreadReminderAt: DEFAULT_UNIFIED_SETTINGS.openThreadReminderAt,
+      agentActivityDetail: DEFAULT_UNIFIED_SETTINGS.agentActivityDetail,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
@@ -1423,31 +1428,6 @@ export function AppearanceSettingsPanel() {
                 </RadioPrimitive.Root>
               ))}
             </RadioGroupPrimitive>
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("thinking-timeline")}
-          description="Show an opened work log as a timeline, with each step's duration and line changes."
-          resetAction={
-            settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline ? (
-              <SettingResetButton
-                label="thinking timeline"
-                onClick={() =>
-                  updateSettings({
-                    showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.showThinkingTimeline}
-              onCheckedChange={(checked) =>
-                updateSettings({ showThinkingTimeline: Boolean(checked) })
-              }
-              aria-label="Show the thinking timeline"
-            />
           }
         />
       </SettingsSection>

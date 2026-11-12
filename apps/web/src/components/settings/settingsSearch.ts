@@ -209,6 +209,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "open-thread-reminder",
+    title: "Open-thread reminder",
+    to: "/settings/attention",
+    searchTerms: ["attention open threads count many too much reminder composer limit"],
+  },
+  {
     id: "composer-controls",
     title: "Composer controls",
     to: "/settings/attention",
@@ -219,6 +225,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Show where you left off",
     to: "/settings/attention",
     searchTerms: ["attention recap where was i left off summary break away return catch up"],
+  },
+  {
+    id: "agent-activity-detail",
+    title: "Agent activity",
+    to: "/settings/attention",
+    searchTerms: [
+      "attention summary live tool calls steps work log thinking timeline rail activity fold",
+    ],
   },
   {
     id: "focus-holds-finished",
@@ -277,12 +291,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Effort display",
     to: "/settings/appearance",
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
-  },
-  {
-    id: "thinking-timeline",
-    title: "Show the thinking timeline",
-    to: "/settings/appearance",
-    searchTerms: ["work log steps rail tool calls duration diff reasoning thought activity"],
   },
   {
     id: "chat-width",

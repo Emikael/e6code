@@ -31,7 +31,7 @@ export interface Preferences {
   readonly markdownFontSize?: number;
   readonly codeFontSize?: number | null;
   readonly codeWordBreak?: boolean;
-  /** Work log as a thinking timeline, like the web `showThinkingTimeline` client setting. */
+  /** Work log as a thinking timeline (the rail), a mobile-only choice. */
   readonly showThinkingTimeline?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];

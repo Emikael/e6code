@@ -261,6 +261,18 @@ interface PromptStashStoreState {
     text: string,
   ) => { refused: boolean; written: boolean; durable: boolean };
   /**
+   * Sets the thought pinned for `pinnedFor` (a `localDateKey`), the "First
+   * thing tomorrow" line from Wrap up, replacing one already pinned for that
+   * day; empty text removes it. `refused` when a new thought would pass the cap.
+   */
+  setPinnedThought: (
+    pinnedFor: string,
+    text: string,
+    projectKey: string | null,
+  ) => { refused: boolean; written: boolean; durable: boolean };
+  /** Leaves the thought in Parked but no longer pinned to a day. */
+  unpinEntry: (entryId: string) => { written: boolean; durable: boolean };
+  /**
    * Attaches the encoded images to an entry written earlier by `stashEntry`,
    * clearing its pending count. Returns attached=false when the entry is gone
    * (restored or deleted while encoding was still running) so the caller can
@@ -338,6 +350,52 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     const { written, durable } = persistEntries(nextEntries);
     if (written) set(() => ({ entries: nextEntries }));
     return { refused: false, written, durable };
+  },
+  setPinnedThought: (pinnedFor, text, projectKey) => {
+    const entries = get().entries;
+    const existing = entries.find(
+      (entry) => parkedEntryKind(entry) === "thought" && entry.pinnedFor === pinnedFor,
+    );
+    const trimmed = text.trim();
+    const rest = entries.filter((entry) => entry !== existing);
+    if (
+      !existing &&
+      trimmed.length > 0 &&
+      countParkedEntries(entries, "thought") >= MAX_PARKED_THOUGHTS
+    ) {
+      return { refused: true, written: false, durable: false };
+    }
+    const nextEntries: PromptStashEntry[] =
+      trimmed.length === 0
+        ? rest
+        : [
+            {
+              id: existing?.id ?? randomUUID(),
+              createdAt: new Date().toISOString(),
+              prompt: trimmed,
+              attachments: [],
+              droppedImageNames: [],
+              kind: "thought",
+              pinnedFor,
+              ...(projectKey ? { projectKey } : {}),
+            },
+            ...rest,
+          ];
+    const { written, durable } = persistEntries(nextEntries);
+    if (written) set(() => ({ entries: nextEntries }));
+    return { refused: false, written, durable };
+  },
+  unpinEntry: (entryId) => {
+    const entries = get().entries;
+    const index = entries.findIndex((candidate) => candidate.id === entryId);
+    const existing = index === -1 ? undefined : entries[index];
+    if (!existing || existing.pinnedFor === undefined) return { written: true, durable: true };
+    const { pinnedFor: _pinnedFor, ...unpinned } = existing;
+    const nextEntries = [...entries];
+    nextEntries[index] = unpinned;
+    const { written, durable } = persistEntries(nextEntries);
+    if (written) set(() => ({ entries: nextEntries }));
+    return { written, durable };
   },
   takeEntry: (entryId) => {
     const entries = get().entries;
