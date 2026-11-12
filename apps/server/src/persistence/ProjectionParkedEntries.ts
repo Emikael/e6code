@@ -3,16 +3,16 @@ import {
   OrchestrationParkedEntry,
   ParkedEntryId,
   ParkedEntryKind,
-  PARKED_TOMBSTONE_MAX_AGE_MS,
   ParkedPinDate,
   ProjectId,
   ThreadId,
+  parkedTombstoneCutoff,
+  pruneParkedTombstones,
   type OrchestrationParkedState,
-  type ParkedNoteTombstone,
+  type ParkedTombstone,
 } from "@e6tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -38,10 +38,6 @@ const RemoveParkedEntryInput = Schema.Struct({
   entryId: ParkedEntryId,
   removedAt: IsoDateTime,
 });
-
-/** The oldest removal still remembered at `nowMs`, as stored. */
-const tombstoneCutoff = (nowMs: number) =>
-  DateTime.formatIso(DateTime.makeUnsafe(nowMs - PARKED_TOMBSTONE_MAX_AGE_MS));
 
 /**
  * Rows of the `parked` aggregate's projection (migrations 061 and 063). A
@@ -110,7 +106,7 @@ export const make = Effect.gen(function* () {
         sql`
           DELETE FROM projection_parked_entries
           WHERE removed_at IS NOT NULL
-            AND removed_at < ${tombstoneCutoff(Date.parse(input.removedAt))}
+            AND removed_at < ${parkedTombstoneCutoff(Date.parse(input.removedAt))}
         `,
       ],
       { discard: true },
@@ -157,17 +153,22 @@ export const make = Effect.gen(function* () {
     getState: () =>
       Effect.all([listRows(undefined), Clock.currentTimeMillis]).pipe(
         Effect.map(([rows, nowMs]) => {
-          const cutoff = tombstoneCutoff(nowMs);
           const entries: OrchestrationParkedEntry[] = [];
           const removedEntryIds: ParkedEntryId[] = [];
-          const removedNotes: ParkedNoteTombstone[] = [];
+          const removedNotes: ParkedTombstone[] = [];
+          const removedThoughts: ParkedTombstone[] = [];
           for (const { removedAt, ...entry } of rows) {
             if (removedAt === null) entries.push(entry);
-            else if (removedAt < cutoff) continue;
             else if (entry.kind === "note") removedNotes.push({ id: entry.id, removedAt });
-            else removedEntryIds.push(entry.id);
+            else {
+              removedEntryIds.push(entry.id);
+              removedThoughts.push({ id: entry.id, removedAt });
+            }
           }
-          return { entries, removedEntryIds, removedNotes };
+          return pruneParkedTombstones(
+            { entries, removedEntryIds, removedNotes, removedThoughts },
+            nowMs,
+          );
         }),
         Effect.mapError(toPersistenceSqlError("ProjectionParkedEntryRepository.getState:query")),
       ),

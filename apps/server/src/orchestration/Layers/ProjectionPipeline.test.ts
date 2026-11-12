@@ -3764,6 +3764,95 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  // Event logs written before the decider refused second answers can hold one.
+  it.effect("keeps the first answer when a recorded second answer replays", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-second-answer");
+      const requestId = ApprovalRequestId.make("approval-request-second-answer");
+      const base = (n: number, aggregate: "project" | "thread") =>
+        ({
+          eventId: EventId.make(`evt-second-answer-${n}`),
+          aggregateKind: aggregate,
+          aggregateId: aggregate === "project" ? ProjectId.make("project-second-answer") : threadId,
+          occurredAt: `2026-02-26T13:00:0${n}.000Z`,
+          commandId: CommandId.make(`cmd-second-answer-${n}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-second-answer-${n}`),
+          metadata: {},
+        }) as const;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        ...base(0, "project"),
+        type: "project.created",
+        payload: {
+          projectId: ProjectId.make("project-second-answer"),
+          title: "Project Second Answer",
+          workspaceRoot: "/tmp/project-second-answer",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-02-26T13:00:00.000Z",
+          updatedAt: "2026-02-26T13:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        ...base(1, "thread"),
+        type: "thread.created",
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-second-answer"),
+          title: "Thread Second Answer",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-02-26T13:00:01.000Z",
+          updatedAt: "2026-02-26T13:00:01.000Z",
+        },
+      });
+      yield* appendAndProject({
+        ...base(2, "thread"),
+        type: "thread.activity-appended",
+        payload: {
+          threadId,
+          activity: {
+            id: EventId.make("activity-second-answer-requested"),
+            tone: "approval",
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            payload: { requestId, requestKind: "command" },
+            turnId: null,
+            createdAt: "2026-02-26T13:00:02.000Z",
+          },
+        },
+      });
+      for (const [n, decision] of [
+        [3, "accept"],
+        [4, "decline"],
+      ] as const) {
+        yield* appendAndProject({
+          ...base(n, "thread"),
+          type: "thread.approval-response-requested",
+          payload: { threadId, requestId, decision, createdAt: `2026-02-26T13:00:0${n}.000Z` },
+        });
+      }
+
+      const rows = yield* sql<{ readonly decision: string; readonly resolvedAt: string }>`
+        SELECT decision, resolved_at AS "resolvedAt"
+        FROM projection_pending_approvals
+        WHERE request_id = ${requestId}
+      `;
+      assert.deepEqual(rows, [{ decision: "accept", resolvedAt: "2026-02-26T13:00:03.000Z" }]);
+    }),
+  );
+
   it.effect("keeps the earliest unresolved request time on the thread shell", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

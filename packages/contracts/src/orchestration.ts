@@ -2697,6 +2697,12 @@ export class OrchestrationDispatchCommandError extends Schema.TaggedError<Orches
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
     bootstrapThreadDisposition: Schema.optional(Schema.Literals(["deleted", "not-created"])),
+    /**
+     * The command answered a request that already had an answer, from another
+     * surface or device or from the provider. Nothing changed; clients can
+     * ignore it quietly.
+     */
+    requestAlreadyAnswered: Schema.optional(Schema.Literal(true)),
   },
 ) {}
 

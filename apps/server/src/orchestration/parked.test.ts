@@ -222,6 +222,43 @@ describe("parked aggregate", () => {
     expect(state.removedNotes).toEqual([]);
   });
 
+  it("forgets tombstones past their age, so an old copy imported again comes back", () => {
+    const removeLater = "2027-02-11T10:00:00.000Z"; // 91 days after AT
+    let { state } = apply(EMPTY_PARKED_STATE, addThought("a"));
+    state = apply(state, addThought("b")).state;
+    state = apply(state, setNote("Old note", null, null)).state;
+    for (const id of ["a", parkedNoteId(THREAD)]) {
+      state = apply(state, {
+        type: "parked.entry.remove",
+        commandId: CommandId.make(`remove-${id}`),
+        entryId: ParkedEntryId.make(id),
+      }).state;
+    }
+    expect(state.removedEntryIds).toEqual(["a"]);
+
+    // An import past the age sees no tombstone, without any removal in between.
+    const imported = apply(
+      state,
+      importEntries([{ id: ParkedEntryId.make("a"), text: "thought a" }]),
+      removeLater,
+    );
+    expect(imported.state.entries.map((entry) => entry.id).toSorted()).toEqual(["a", "b"]);
+
+    // A removal past the age drops the old tombstones from the held list.
+    state = apply(
+      state,
+      {
+        type: "parked.entry.remove",
+        commandId: CommandId.make("remove-b"),
+        entryId: ParkedEntryId.make("b"),
+      },
+      removeLater,
+    ).state;
+    expect(state.removedEntryIds).toEqual(["b"]);
+    expect(state.removedThoughts).toEqual([{ id: "b", removedAt: removeLater }]);
+    expect(state.removedNotes).toEqual([]);
+  });
+
   it("skips a copy sent once before the oldest tombstone, and takes one never sent", () => {
     const longAgo = "2026-07-01T00:00:00.000Z";
     const { state } = apply(

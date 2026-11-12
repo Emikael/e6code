@@ -23,6 +23,7 @@ import {
   PARKED_THOUGHTS_MAX,
   PARKED_TOMBSTONE_MAX_AGE_MS,
   parkedNoteId,
+  pruneParkedTombstones,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationParkedEntry,
@@ -94,7 +95,8 @@ export function decideParkedCommand(input: {
   readonly occurredAt: string;
 }): ParkedDecision {
   const { command, occurredAt } = input;
-  const state = parkedStateOf(input.readModel);
+  // Tombstones past their age no longer block anything, as after a restart.
+  const state = pruneParkedTombstones(parkedStateOf(input.readModel), Date.parse(occurredAt));
   const threadIsLive = (threadId: ThreadId) =>
     input.readModel.threads.some((thread) => thread.id === threadId && thread.deletedAt == null);
 
@@ -286,6 +288,7 @@ function projectParkedEntry(
 ): OrchestrationParkedState {
   const index = state.entries.findIndex((candidate) => candidate.id === entry.id);
   const removedNotes = state.removedNotes ?? [];
+  const removedThoughts = state.removedThoughts ?? [];
   return {
     entries:
       index === -1
@@ -297,9 +300,16 @@ function projectParkedEntry(
     removedNotes: removedNotes.some((note) => note.id === entry.id)
       ? removedNotes.filter((note) => note.id !== entry.id)
       : removedNotes,
+    removedThoughts: removedThoughts.some((tombstone) => tombstone.id === entry.id)
+      ? removedThoughts.filter((tombstone) => tombstone.id !== entry.id)
+      : removedThoughts,
   };
 }
 
+/**
+ * Removes an entry, leaving a tombstone, and forgets tombstones past their age,
+ * as the stored list does on each removal.
+ */
 function removeParkedEntry(
   state: OrchestrationParkedState,
   entryId: ParkedEntryId,
@@ -308,23 +318,29 @@ function removeParkedEntry(
   const entry = findEntry(state, entryId);
   if (!entry) return state;
   const entries = state.entries.filter((candidate) => candidate.id !== entryId);
-  if (entry.kind === "note") {
-    return {
-      entries,
-      removedEntryIds: state.removedEntryIds,
-      removedNotes: [
-        ...(state.removedNotes ?? []).filter((note) => note.id !== entryId),
-        { id: entryId, removedAt },
-      ],
-    };
-  }
-  return {
-    ...state,
-    entries,
-    removedEntryIds: state.removedEntryIds.includes(entryId)
-      ? state.removedEntryIds
-      : [...state.removedEntryIds, entryId],
-  };
+  const tombstone = { id: entryId, removedAt };
+  const next: OrchestrationParkedState =
+    entry.kind === "note"
+      ? {
+          ...state,
+          entries,
+          removedNotes: [
+            ...(state.removedNotes ?? []).filter((note) => note.id !== entryId),
+            tombstone,
+          ],
+        }
+      : {
+          ...state,
+          entries,
+          removedEntryIds: state.removedEntryIds.includes(entryId)
+            ? state.removedEntryIds
+            : [...state.removedEntryIds, entryId],
+          removedThoughts: [
+            ...(state.removedThoughts ?? []).filter((removed) => removed.id !== entryId),
+            tombstone,
+          ],
+        };
+  return pruneParkedTombstones(next, Date.parse(removedAt));
 }
 
 /**

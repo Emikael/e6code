@@ -8,6 +8,7 @@
  * with the rest in `orchestration.ts`; this file holds the entry and the rules
  * clients and the server share.
  */
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 
 import {
@@ -50,6 +51,10 @@ const PARKED_STORED_TEXT_MAX_CHARS = 8_000;
  */
 export const PARKED_TOMBSTONE_MAX_AGE_DAYS = 90;
 export const PARKED_TOMBSTONE_MAX_AGE_MS = PARKED_TOMBSTONE_MAX_AGE_DAYS * 24 * 60 * 60 * 1_000;
+
+/** The oldest removal time (ISO, as stored) still remembered at `nowMs`. */
+export const parkedTombstoneCutoff = (nowMs: number): string =>
+  DateTime.formatIso(DateTime.makeUnsafe(nowMs - PARKED_TOMBSTONE_MAX_AGE_MS));
 
 export const ParkedEntryKind = Schema.Literals(["thought", "note"]);
 export type ParkedEntryKind = typeof ParkedEntryKind.Type;
@@ -99,25 +104,58 @@ export const ParkedImportEntry = Schema.Struct({
 });
 export type ParkedImportEntry = typeof ParkedImportEntry.Type;
 
-/** A cleared note, remembered so an older copy imported again does not come back. */
-export const ParkedNoteTombstone = Schema.Struct({
+/** A removed entry, remembered so an older copy imported again does not come back. */
+export const ParkedTombstone = Schema.Struct({
   id: ParkedEntryId,
   removedAt: IsoDateTime,
 });
-export type ParkedNoteTombstone = typeof ParkedNoteTombstone.Type;
+export type ParkedTombstone = typeof ParkedTombstone.Type;
+/** A cleared note's tombstone. */
+export const ParkedNoteTombstone = ParkedTombstone;
+export type ParkedNoteTombstone = ParkedTombstone;
 
 /**
  * The read model's Parked list. `removedEntryIds` remembers thoughts deleted
  * here and `removedNotes` notes cleared here (absent from older servers), so a
  * client still holding an old copy cannot bring one back by importing it
  * again. Both keep entries removed within `PARKED_TOMBSTONE_MAX_AGE_DAYS`.
+ * `removedThoughts` is the server's own record of when each thought in
+ * `removedEntryIds` was removed, so it can apply that age; clients never get it.
  */
 export const OrchestrationParkedState = Schema.Struct({
   entries: Schema.Array(OrchestrationParkedEntry),
   removedEntryIds: Schema.Array(ParkedEntryId),
   removedNotes: Schema.optionalKey(Schema.Array(ParkedNoteTombstone)),
+  removedThoughts: Schema.optionalKey(Schema.Array(ParkedTombstone)),
 });
 export type OrchestrationParkedState = typeof OrchestrationParkedState.Type;
+
+/**
+ * Forgets tombstones removed before `PARKED_TOMBSTONE_MAX_AGE_DAYS` at `nowMs`.
+ * The server's stored list and its in-memory command model both prune with
+ * this, so neither remembers a removal the other has forgotten. A thought id
+ * with no recorded removal time is kept.
+ */
+export function pruneParkedTombstones(
+  state: OrchestrationParkedState,
+  nowMs: number,
+): OrchestrationParkedState {
+  const cutoff = parkedTombstoneCutoff(nowMs);
+  const removedThoughts = state.removedThoughts ?? [];
+  const removedNotes = state.removedNotes ?? [];
+  const expired = new Set<string>(
+    removedThoughts.filter((tombstone) => tombstone.removedAt < cutoff).map(({ id }) => id),
+  );
+  if (expired.size === 0 && removedNotes.every((note) => note.removedAt >= cutoff)) {
+    return state;
+  }
+  return {
+    entries: state.entries,
+    removedEntryIds: state.removedEntryIds.filter((id) => !expired.has(id)),
+    removedNotes: removedNotes.filter((note) => note.removedAt >= cutoff),
+    removedThoughts: removedThoughts.filter((tombstone) => !expired.has(tombstone.id)),
+  };
+}
 
 export const EMPTY_PARKED_STATE: OrchestrationParkedState = { entries: [], removedEntryIds: [] };
 

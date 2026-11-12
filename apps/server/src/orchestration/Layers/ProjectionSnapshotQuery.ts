@@ -15,6 +15,7 @@ import {
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadDetailSnapshot,
+  ProjectionPendingApprovalStatus,
   ProjectScript,
   ProjectIconOverride,
   TurnId,
@@ -1607,11 +1608,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const getApprovalRequestTurnIdRow = SqlSchema.findOneOption({
+  const getApprovalRequestRow = SqlSchema.findOneOption({
     Request: Schema.Struct({ threadId: ThreadId, requestId: ApprovalRequestId }),
-    Result: Schema.Struct({ turnId: Schema.NullOr(TurnId) }),
+    Result: Schema.Struct({
+      turnId: Schema.NullOr(TurnId),
+      status: ProjectionPendingApprovalStatus,
+    }),
     execute: ({ threadId, requestId }) => sql`
-      SELECT turn_id AS "turnId"
+      SELECT turn_id AS "turnId", status
       FROM projection_pending_approvals
       WHERE thread_id = ${threadId} AND request_id = ${requestId}
     `,
@@ -1620,12 +1624,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const getApprovalRequestTurnId: ProjectionSnapshotQueryShape["getApprovalRequestTurnId"] = (
     input,
   ) =>
-    getApprovalRequestTurnIdRow(input).pipe(
+    getApprovalRequestRow(input).pipe(
       Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.turnId))),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProjectionSnapshotQuery.getApprovalRequestTurnId:query",
           "ProjectionSnapshotQuery.getApprovalRequestTurnId:decodeRow",
+        ),
+      ),
+    );
+
+  const getApprovalRequestStatus: ProjectionSnapshotQueryShape["getApprovalRequestStatus"] = (
+    input,
+  ) =>
+    getApprovalRequestRow(input).pipe(
+      Effect.map(Option.map((row) => row.status)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getApprovalRequestStatus:query",
+          "ProjectionSnapshotQuery.getApprovalRequestStatus:decodeRow",
         ),
       ),
     );
@@ -2491,6 +2508,40 @@ pending_approval_requests AS (
           }
           return toPersistenceSqlError("ProjectionSnapshotQuery.getSnapshot:query")(error);
         }),
+      );
+
+  const readLatestEventSequence = SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: Schema.Struct({ sequence: Schema.Number }),
+    execute: () => sql`
+      SELECT COALESCE(MAX(sequence), 0) AS "sequence" FROM orchestration_events
+    `,
+  });
+
+  // Events are appended and projected in one transaction, so reading both in
+  // one transaction gives a state that holds exactly the events up to `sequence`.
+  const getParkedState: ProjectionSnapshotQueryShape["getParkedState"] = () =>
+    sql
+      .withTransaction(
+        Effect.all([
+          parkedEntries.getState(),
+          readLatestEventSequence(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getParkedState:latestSequence:query",
+                "ProjectionSnapshotQuery.getParkedState:latestSequence:decodeRow",
+              ),
+            ),
+          ),
+        ]),
+      )
+      .pipe(
+        Effect.map(([state, { sequence }]) => ({ state, sequence })),
+        Effect.mapError((error) =>
+          isPersistenceError(error)
+            ? error
+            : toPersistenceSqlError("ProjectionSnapshotQuery.getParkedState:query")(error),
+        ),
       );
 
   const getCommandReadModel: ProjectionSnapshotQueryShape["getCommandReadModel"] = () =>
@@ -3966,6 +4017,7 @@ pending_approval_requests AS (
     getCommandReadModel,
     getUserInputActivity,
     getApprovalRequestTurnId,
+    getApprovalRequestStatus,
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,
@@ -3987,7 +4039,7 @@ pending_approval_requests AS (
     getTurnStartMessage,
     getThreadDetailById,
     getThreadDetailSnapshot,
-    getParkedState: () => parkedEntries.getState(),
+    getParkedState,
   } satisfies ProjectionSnapshotQueryShape;
 });
 

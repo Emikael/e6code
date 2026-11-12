@@ -355,6 +355,7 @@ export const ClientSettingsSchema = Schema.Struct({
   // old keys, so everyone, including prior opt-outs, starts at "notify when
   // an agent is blocked".
   attentionNotifications: AttentionNotifications.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("blocked" as const)),
     Schema.withDecodingDefault(Effect.succeed("blocked" as const)),
   ),
   /** A thread you sent a message to notifies when that turn finishes. */
@@ -537,12 +538,15 @@ export const ClientSettingsSchema = Schema.Struct({
   needsYouSectionEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarElapsedTimeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   recapTrigger: RecapTrigger.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("after-break" as const)),
     Schema.withDecodingDefault(Effect.succeed("after-break" as const)),
   ),
   composerControls: ComposerControls.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("compact" as const)),
     Schema.withDecodingDefault(Effect.succeed("compact" as const)),
   ),
   interfaceMotion: InterfaceMotion.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("system" as const)),
     Schema.withDecodingDefault(Effect.succeed("system" as const)),
   ),
   /** Focus mode holds other finished threads until you exit it. */

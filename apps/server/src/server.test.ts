@@ -7,12 +7,15 @@ import { HostProcessEnvironment, HostProcessPlatform } from "@e6tools/shared/hos
 import { projectScriptHash } from "@e6tools/shared/projectScripts";
 
 import {
+  ApprovalRequestId,
   type DeviceServiceState,
   AuthAccessTokenType,
   AuthStandardClientScopes,
   AuthEnvironmentBootstrapTokenType,
   AuthTokenExchangeGrantType,
   CommandId,
+  ParkedEntryId,
+  parkedNoteId,
   DEFAULT_SERVER_SETTINGS,
   type DpopFailureReason,
   EnvironmentId,
@@ -126,11 +129,21 @@ import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
-import { OrchestrationThreadSettleBlockedError } from "./orchestration/Errors.ts";
+import {
+  OrchestrationRequestAlreadyAnsweredError,
+  OrchestrationThreadSettleBlockedError,
+} from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
+import { OrchestrationCommandReceiptRepositoryLive } from "./persistence/Layers/OrchestrationCommandReceipts.ts";
+import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine.ts";
+import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/ProjectionPipeline.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery.ts";
+import * as ThreadAgentState from "./orchestration/ThreadAgentState.ts";
+import * as ThreadBackgroundLiveness from "./orchestration/ThreadBackgroundLiveness.ts";
+import * as ThreadPlanProgress from "./orchestration/ThreadPlanProgress.ts";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
@@ -1013,6 +1026,7 @@ const buildAppUnderTest = (options?: {
         Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
           getUserInputActivity: () => Effect.die("unused"),
           getApprovalRequestTurnId: () => Effect.die("unused"),
+          getApprovalRequestStatus: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getShellSnapshot: () =>
@@ -9813,6 +9827,138 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     );
   }
 
+  it.effect(
+    "subscribeParked sends the snapshot, then each change once, including one made while the snapshot loads",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+        const query = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+        const at = "2026-11-12T10:00:00.000Z";
+        const parkedProjectId = ProjectId.make("project-parked-ws");
+        const parkedThreadId = ThreadId.make("thread-parked-ws");
+        const thought = (id: string, text: string) => ({
+          type: "parked.thought.add" as const,
+          commandId: CommandId.make(`cmd-${id}`),
+          entryId: ParkedEntryId.make(id),
+          text,
+          projectId: null,
+          pinnedFor: null,
+          createdAt: at,
+        });
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("cmd-parked-ws-project"),
+          projectId: parkedProjectId,
+          title: "Parked",
+          workspaceRoot: "/tmp/parked-ws",
+          createdAt: at,
+        });
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-parked-ws-thread"),
+          threadId: parkedThreadId,
+          projectId: parkedProjectId,
+          title: "Parked",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: at,
+        });
+        yield* engine.dispatch({
+          type: "parked.note.set",
+          commandId: CommandId.make("cmd-parked-ws-note"),
+          threadId: parkedThreadId,
+          text: "Check the Android build",
+          baseUpdatedAt: null,
+          createdAt: at,
+        });
+        yield* engine.dispatch(thought("thought-before", "Before subscribing"));
+
+        // The subscription is attached once the snapshot is being read. A
+        // thought added now is committed and published before the read.
+        const snapshotRead = yield* Deferred.make<void>();
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: { streamDomainEvents: engine.streamDomainEvents },
+            projectionSnapshotQuery: {
+              getParkedState: () =>
+                Effect.gen(function* () {
+                  yield* engine.dispatch(thought("thought-raced", "While loading"));
+                  const state = yield* query.getParkedState();
+                  yield* Deferred.succeed(snapshotRead, undefined);
+                  return state;
+                }).pipe(Effect.orDie),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const items = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              const collected = yield* client[ORCHESTRATION_WS_METHODS.subscribeParked]({}).pipe(
+                Stream.take(4),
+                Stream.runCollect,
+                Effect.forkScoped,
+              );
+              yield* Deferred.await(snapshotRead);
+              yield* engine.dispatch(thought("thought-live", "After subscribing"));
+              yield* engine.dispatch({
+                type: "parked.entry.remove",
+                commandId: CommandId.make("cmd-remove-live"),
+                entryId: ParkedEntryId.make("thought-live"),
+              });
+              yield* engine.dispatch({
+                type: "thread.delete",
+                commandId: CommandId.make("cmd-parked-ws-delete-thread"),
+                threadId: parkedThreadId,
+              });
+              return yield* Fiber.join(collected);
+            }),
+          ),
+        );
+
+        const [snapshot, upserted, removed, noteRemoved] = items;
+        assertTrue(snapshot?.kind === "snapshot");
+        assert.deepEqual(
+          snapshot.entries.map((entry) => entry.id).toSorted(),
+          [parkedNoteId(parkedThreadId), "thought-before", "thought-raced"].toSorted(),
+        );
+        // The raced thought is in the snapshot and is not sent again.
+        assertTrue(upserted?.kind === "upserted");
+        assert.equal(upserted.entry.id, "thought-live");
+        assertTrue(removed?.kind === "removed");
+        assert.equal(removed.entryId, "thought-live");
+        assert.isString(removed.removedAt);
+        assert.deepEqual(noteRemoved, { kind: "removed", entryId: parkedNoteId(parkedThreadId) });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mergeAll(
+              OrchestrationEngineLive.pipe(
+                Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+                Layer.provide(OrchestrationProjectionPipelineLive),
+              ),
+              OrchestrationProjectionSnapshotQueryLive,
+            ).pipe(
+              Layer.provide(ThreadBackgroundLiveness.layer),
+              Layer.provide(ThreadPlanProgress.layer),
+              Layer.provide(ThreadAgentState.layer),
+              Layer.provide(OrchestrationEventStoreLive),
+              Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+              Layer.provide(RepositoryIdentityResolver.layer),
+              Layer.provide(SqlitePersistenceMemory),
+              Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "e6-parked-ws-" })),
+              Layer.provide(NodeServices.layer),
+            ),
+            serverHttpLayer,
+          ),
+        ),
+      ),
+  );
+
   it.effect("subscribeThread bounds catch-up replay to the captured head", () =>
     Effect.gen(function* () {
       let replayHead: number | undefined;
@@ -10796,6 +10942,40 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(
         error.message,
         "This thread still needs attention. Resolve or interrupt it first, then try again.",
+      );
+    }).pipe(Effect.provide(serverHttpLayer)),
+  );
+
+  it.effect("marks an already answered request so clients can ignore it", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-already-answered");
+      const requestId = ApprovalRequestId.make("approval-already-answered");
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: () =>
+              Effect.fail(new OrchestrationRequestAlreadyAnsweredError({ threadId, requestId })),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const error = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.approval.respond",
+            commandId: CommandId.make("cmd-already-answered"),
+            threadId,
+            requestId,
+            decision: "accept",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ).pipe(Effect.flip),
+      );
+
+      assert.equal(error._tag, "OrchestrationDispatchCommandError");
+      assert.isTrue(
+        error._tag === "OrchestrationDispatchCommandError" && error.requestAlreadyAnswered,
       );
     }).pipe(Effect.provide(serverHttpLayer)),
   );

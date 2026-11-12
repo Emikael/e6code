@@ -14,6 +14,7 @@ import {
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
   type OrchestrationThreadActivity,
+  type ProjectionPendingApprovalStatus,
 } from "@e6tools/contracts";
 import {
   legacyLinkedPullRequestOf,
@@ -32,6 +33,7 @@ import type * as PlatformError from "effect/PlatformError";
 
 import {
   OrchestrationCommandInvariantError,
+  OrchestrationRequestAlreadyAnsweredError,
   OrchestrationThreadSettleBlockedError,
   type OrchestrationCommandRejection,
 } from "./Errors.ts";
@@ -214,10 +216,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   userInputActivity,
+  approvalRequestStatus,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
+  /** The answered request's pending-approval row status, when it has one. */
+  readonly approvalRequestStatus?: ProjectionPendingApprovalStatus;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
@@ -1628,6 +1633,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Answered already (another surface or device, or the provider resolved
+      // it). The provider has its answer; a second one would only fail there.
+      // A failed answer reopens the row, so a retry after a failure passes.
+      if (approvalRequestStatus === "resolved") {
+        return yield* new OrchestrationRequestAlreadyAnsweredError({
+          threadId: command.threadId,
+          requestId: command.requestId,
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
