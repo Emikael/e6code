@@ -65,3 +65,12 @@ export function approvalMoreLabel(
   ];
   return items.length > 0 ? `More: ${items.join(", ")}` : "More";
 }
+
+// Shared with mobile's Home approval card, so both answer by the same rules.
+export {
+  APPROVAL_SWAP_GUARD_MS,
+  approvalActivationAllowed,
+  approvalAnswerAnnouncement,
+  firstUnansweredRequest,
+  pruneAnsweredRequestIds,
+} from "@e6tools/client-runtime/approval-answers";

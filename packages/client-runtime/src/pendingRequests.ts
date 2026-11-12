@@ -69,13 +69,45 @@ export function describePendingApprovalAsk(
  * What a blocked thread's agent asks, from the shell's request summary:
  * "Claude asks 1 question: keep the spring animation, or cut to a fade?".
  * Without the question text it says "Claude asked you a question".
+ * `withQuestion: false` leaves the text out ("Claude asks 1 question"), for
+ * system notifications, which can show on a lock screen.
  */
 export function describePendingQuestionAsk(
   provider: string,
   summary: ThreadPendingRequestSummary | undefined,
+  options: { readonly withQuestion?: boolean } = {},
 ): string {
   if (!summary?.question) return `${provider} asked you a question`;
-  return `${provider} asks ${plural(Math.max(1, summary.questionCount), "question")}: ${summary.question}`;
+  const count = `${provider} asks ${plural(Math.max(1, summary.questionCount), "question")}`;
+  return options.withQuestion === false ? count : `${count}: ${summary.question}`;
+}
+
+/** What one shown request asks for, after the agent's name: "wants to run this command". */
+const SHOWN_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+  command: "wants to run this command",
+  "file-read": "wants to read this file",
+  "file-change": "wants to make this change",
+  "mcp-elicitation": "wants app access",
+  permission: "wants this app permission",
+};
+
+/**
+ * The headline for one approval shown on its own. Alone it reads like the
+ * shell's summary ("Codex wants to run 1 command"); among several it names
+ * the one shown and its place, so it never reads like approve-all:
+ * "Codex wants to run this command · 1 of 2". No trailing period.
+ */
+export function describeShownApprovalAsk(
+  provider: string,
+  requestKind: ProviderRequestKind,
+  position: { readonly index: number; readonly total: number },
+): string {
+  if (position.total <= 1) {
+    return requestKind === "command"
+      ? `${provider} wants to run 1 command`
+      : `${provider} ${SUBAGENT_APPROVAL_PHRASE[requestKind]}`;
+  }
+  return `${provider} ${SHOWN_APPROVAL_PHRASE[requestKind]} · ${position.index + 1} of ${position.total}`;
 }
 
 /** What a subagent is blocked on: the oldest pending request that names it. */

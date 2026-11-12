@@ -12,7 +12,7 @@ import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
-import { useApprovalResponder } from "./chat/useApprovalResponder";
+import { useApprovalResponder, useApprovalSwapGuard } from "./chat/useApprovalResponder";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
 import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
 import {
@@ -112,6 +112,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/unstable/reactivity";
 import {
+  Fragment,
   lazy,
   memo,
   type ReactNode,
@@ -9377,11 +9378,19 @@ export default function ChatView(props: ChatViewProps) {
   restoreQueuedMessagesRef.current = restoreQueuedMessagesToComposer;
 
   // Shared with the start screen's approval card.
+  const pendingApprovalIds = useMemo(
+    () => pendingApprovals.map((approval) => approval.requestId),
+    [pendingApprovals],
+  );
   const { respondingRequestIds, respond: onRespondToApproval } = useApprovalResponder({
     environmentId,
     threadId: activeThreadId ?? null,
+    pendingRequestIds: pendingApprovalIds,
     onError: setThreadError,
   });
+  // The frontier card's Decline and Approve ignore a click just after the
+  // shown request changes; the composer's own controls guard themselves.
+  const frontierApprovalAllowed = useApprovalSwapGuard(activePendingApproval?.requestId ?? null);
 
   const onRespondToUserInput = useCallback(
     async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
@@ -10878,7 +10887,9 @@ export default function ChatView(props: ChatViewProps) {
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
                             {activePendingApproval ? (
-                              <>
+                              // Keyed by request, so a press that began on an answered
+                              // request never lands on the one that replaces it.
+                              <Fragment key={activePendingApproval.requestId}>
                                 <Button
                                   size="xs"
                                   variant="outline"
@@ -10886,6 +10897,7 @@ export default function ChatView(props: ChatViewProps) {
                                     activePendingApproval.requestId,
                                   )}
                                   onClick={() =>
+                                    frontierApprovalAllowed() &&
                                     void onRespondToApproval(
                                       activePendingApproval.requestId,
                                       "decline",
@@ -10935,6 +10947,7 @@ export default function ChatView(props: ChatViewProps) {
                                       activePendingApproval.requestId,
                                     )}
                                     onClick={() =>
+                                      frontierApprovalAllowed() &&
                                       void onRespondToApproval(
                                         activePendingApproval.requestId,
                                         "accept",
@@ -10944,7 +10957,7 @@ export default function ChatView(props: ChatViewProps) {
                                     Approve
                                   </Button>
                                 )}
-                              </>
+                              </Fragment>
                             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
                               <>
                                 <Button

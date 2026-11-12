@@ -115,7 +115,8 @@ export function HoldToAllowButton({
       variant="destructive-outline"
       disabled={disabled}
       aria-describedby={descriptionId}
-      className="relative overflow-hidden select-none"
+      // The start screen's card sets its actions at 13px (board 1).
+      className={cn("relative overflow-hidden select-none", size === "default" && "sm:text-[13px]")}
       data-holding={holding ? "true" : undefined}
       // Read by destructiveApprovalPendingIn: the merge shortcut stands down.
       data-destructive-approval-hold=""

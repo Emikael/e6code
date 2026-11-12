@@ -30,7 +30,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { DevicePreviewButton } from "../devices/device-preview-button";
-import type { FloatingWorkingStatus } from "./floating-working-status";
+import type { FloatingWorkingStatus, PlanMeter } from "./floating-working-status";
 import { useMinuteClock } from "../../lib/useMinuteClock";
 import { LiveWorkContent } from "./thread-work-log";
 
@@ -418,7 +418,12 @@ function FloatingStatusLabel(props: {
     );
   }
   return (
-    <WorkingDuration key="working" startedAt={props.status.startedAt} onLayout={props.onLayout} />
+    <WorkingDuration
+      key={props.status.plan ? "working:plan" : "working"}
+      startedAt={props.status.startedAt}
+      plan={props.status.plan ?? null}
+      onLayout={props.onLayout}
+    />
   );
 }
 
@@ -459,6 +464,7 @@ function StatusLabelRow(props: {
 
 function WorkingDuration(props: {
   readonly startedAt: string;
+  readonly plan: PlanMeter | null;
   readonly onLayout: (event: LayoutChangeEvent) => void;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -471,6 +477,30 @@ function WorkingDuration(props: {
 
   const duration = formatWorkingDuration(props.startedAt, nowMs);
   const label = `Working for ${duration}`;
+
+  if (props.plan !== null) {
+    // Board 9: "Working", the step meter, "Step 3 of 5", then the elapsed time.
+    return (
+      <StatusLabelRow
+        accessibilityLabel={`Working, ${props.plan.label}, ${duration}`}
+        className="gap-2"
+        onLayout={props.onLayout}
+      >
+        <View className="h-2 w-2 rounded-full bg-primary" />
+        <Text className="font-e6-medium text-xs text-primary-text">Working</Text>
+        {props.plan.segments.length > 0 ? <StepMeter segments={props.plan.segments} /> : null}
+        <Text className="shrink font-e6-medium text-xs text-foreground" numberOfLines={1}>
+          {props.plan.label}
+        </Text>
+        <SystemText
+          className="text-xs text-foreground-muted"
+          style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
+        >
+          {duration}
+        </SystemText>
+      </StatusLabelRow>
+    );
+  }
 
   return (
     // Iris dot plus words: the live agent reads the same as the web sidebar.
@@ -486,6 +516,28 @@ function WorkingDuration(props: {
         </SystemText>
       </View>
     </StatusLabelRow>
+  );
+}
+
+/** Done steps fill in the success role, the live one in primary, the rest are outlined. */
+function StepMeter(props: { readonly segments: PlanMeter["segments"] }) {
+  return (
+    <View className="flex-row gap-[3px]">
+      {props.segments.map((segment, index) => (
+        <View
+          // The meter's order is its meaning; segments never reorder.
+          // oxlint-disable-next-line react/no-array-index-key
+          key={index}
+          className={
+            segment === "done"
+              ? "h-1.5 w-3.5 rounded-full bg-success-foreground"
+              : segment === "live"
+                ? "h-1.5 w-3.5 rounded-full bg-primary"
+                : "h-1.5 w-3.5 rounded-full border border-foreground-muted"
+          }
+        />
+      ))}
+    </View>
   );
 }
 

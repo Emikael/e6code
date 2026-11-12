@@ -10,7 +10,11 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@e6tools/client-runtime/environment";
-import { localStartOfDayMs, selectDoneToday } from "@e6tools/client-runtime/state/done-today";
+import {
+  localStartOfDayMs,
+  selectDoneToday,
+  withThreadsArchivedToday,
+} from "@e6tools/client-runtime/state/done-today";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
 import { canSnooze } from "@e6tools/client-runtime/state/thread-settled";
 import type { ThreadAttentionItem } from "@e6tools/client-runtime/state/thread-attention";
@@ -22,16 +26,18 @@ import {
   MessageCircleQuestionIcon,
   XIcon,
 } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useState } from "react";
 import { create } from "zustand";
 
 import { useParkedActions } from "../hooks/useParkedActions";
+import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { useClientSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useThreadAttention } from "../hooks/useThreadAttention";
 import { nextLocalDateKey } from "../parkedThoughts";
 import { PARKED_FULL_MESSAGE, usePromptStashStore } from "../promptStashStore";
 import { readEnvironmentSupportsSnooze, useProjects, useThreadShells } from "../state/entities";
+import { useEnvironments } from "../state/environments";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { formatShortTimestamp, formatWeekdayDayMonth } from "../timestampFormat";
 import { resolveWorkingStartedAt } from "./Sidebar.logic";
@@ -66,6 +72,32 @@ const TITLE_CLASS = "truncate text-[13px] leading-[18px] font-medium text-foregr
 const META_CLASS =
   "truncate font-mono text-[11px] leading-[14px] text-muted-foreground tabular-nums";
 
+/**
+ * Archived threads from each connected environment. The live shell list leaves
+ * them out. Refreshed once on open, so archives from other clients show too.
+ */
+function useArchivedThreads(): ReadonlyArray<EnvironmentThreadShell> {
+  const { environments } = useEnvironments();
+  const environmentIds = useMemo(
+    () =>
+      environments
+        .filter((environment) => environment.connection.phase === "connected")
+        .map((environment) => environment.environmentId),
+    [environments],
+  );
+  const { snapshots, refresh } = useArchivedThreadSnapshots(environmentIds);
+  // Once per open, not on every reconnect.
+  const refreshOnOpen = useEffectEvent(refresh);
+  useEffect(() => refreshOnOpen(), []);
+  return useMemo(
+    () =>
+      snapshots.flatMap(({ environmentId, snapshot }) =>
+        snapshot.threads.map((thread) => ({ ...thread, environmentId })),
+      ),
+    [snapshots],
+  );
+}
+
 function DoneTodayDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const threads = useThreadShells();
@@ -73,9 +105,14 @@ function DoneTodayDialog({ onClose }: { onClose: () => void }) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   // The day is fixed when the dialog opens; it does not roll over while open.
   const [nowMs] = useState(() => Date.now());
+  const startOfDayMs = localStartOfDayMs(nowMs);
+  const archived = useArchivedThreads();
   const rows = useMemo(
-    () => selectDoneToday(threads, { startOfDayMs: localStartOfDayMs(nowMs) }),
-    [nowMs, threads],
+    () =>
+      selectDoneToday(withThreadsArchivedToday(threads, archived, { startOfDayMs }), {
+        startOfDayMs,
+      }),
+    [archived, startOfDayMs, threads],
   );
   const projectNames = useMemo(
     () =>

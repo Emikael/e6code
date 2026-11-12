@@ -50,16 +50,20 @@ import {
 } from "../threads/thread-list-items";
 import {
   ThreadListV2PendingRow,
+  ThreadListV2NeedsYouHeader,
+  ThreadListV2NeedsYouRow,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
+import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  selectThreadListV2NeedsYou,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
@@ -771,9 +775,32 @@ export function HomeScreen(props: HomeScreenProps) {
       ),
     [props.pendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
   );
+  // Blocked threads lead the list (F1). Recomputed with the list's minute tick,
+  // so a request turning a day old moves without waiting for new data.
+  const threadListV2NeedsYou = useMemo(
+    () =>
+      threadListV2Enabled
+        ? selectThreadListV2NeedsYou({
+            threads: props.threads,
+            environmentId: props.selectedEnvironmentId,
+            projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
+            searchQuery: props.searchQuery,
+            now: new Date().toISOString(),
+          })
+        : [],
+    [
+      nowMinute,
+      props.searchQuery,
+      props.selectedEnvironmentId,
+      props.threads,
+      threadListV2Enabled,
+      v2ScopedProjectGroup,
+    ],
+  );
   const threadListV2Items = useMemo(
     () =>
       buildThreadListV2ListItems({
+        needsYou: threadListV2NeedsYou,
         items: threadListV2Layout.items,
         pendingTasks: v2PendingTasks,
         snoozedCount: threadListV2Layout.snoozedCount,
@@ -784,7 +811,13 @@ export function HomeScreen(props: HomeScreenProps) {
         settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
         snoozeLabelNow: `${nowMinute}:00.000Z`,
       }),
-    [settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout, v2PendingTasks],
+    [
+      settledShelfExpanded,
+      snoozedShelfExpanded,
+      threadListV2Layout,
+      threadListV2NeedsYou,
+      v2PendingTasks,
+    ],
   );
 
   useThreadJumpShortcuts(
@@ -798,6 +831,16 @@ export function HomeScreen(props: HomeScreenProps) {
       const showTrailingDivider =
         nextItem?.type === "v2-thread" ||
         (nextItem?.type === "v2-pending" && !nextItem.showPendingDivider);
+      if (item.type === "v2-needs-you-header") {
+        return <ThreadListV2NeedsYouHeader count={item.count} />;
+      }
+      if (item.type === "v2-needs-you") {
+        return item.expanded ? (
+          <HomeApprovalCard item={item.item} onSelectThread={props.onSelectThread} />
+        ) : (
+          <ThreadListV2NeedsYouRow item={item.item} onSelectThread={props.onSelectThread} />
+        );
+      }
       if (item.type === "v2-pending") {
         const pendingScopeKey = scopedProjectKey(
           item.pendingTask.environmentId,

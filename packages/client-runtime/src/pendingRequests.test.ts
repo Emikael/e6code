@@ -4,6 +4,7 @@ import {
   derivePendingRequests,
   describePendingApprovalAsk,
   describePendingQuestionAsk,
+  describeShownApprovalAsk,
   describeSubagentUserRequest,
   subagentUserRequests,
 } from "./pendingRequests.ts";
@@ -650,5 +651,29 @@ describe("pending request asks from the shell summary", () => {
       }),
     ).toBe("Claude asks 3 questions: Spring or fade?");
     expect(describePendingQuestionAsk("Claude", undefined)).toBe("Claude asked you a question");
+  });
+
+  it("leaves the question text out when asked to, for lock screens", () => {
+    expect(
+      describePendingQuestionAsk(
+        "Claude",
+        { approvalCount: 0, userInputCount: 1, questionCount: 1, question: "Ship the secret?" },
+        { withQuestion: false },
+      ),
+    ).toBe("Claude asks 1 question");
+  });
+});
+
+describe("describeShownApprovalAsk", () => {
+  it("words the request on screen, with its place when there are several", () => {
+    expect(describeShownApprovalAsk("Codex", "command", { index: 0, total: 2 })).toBe(
+      "Codex wants to run this command · 1 of 2",
+    );
+    expect(describeShownApprovalAsk("Codex", "command", { index: 0, total: 1 })).toBe(
+      "Codex wants to run 1 command",
+    );
+    expect(describeShownApprovalAsk("Claude", "file-change", { index: 0, total: 1 })).toBe(
+      "Claude wants to change files",
+    );
   });
 });

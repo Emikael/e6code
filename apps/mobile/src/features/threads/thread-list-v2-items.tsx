@@ -45,14 +45,22 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  describeThreadListV2NeedsYou,
   formatResetClockTime,
+  threadAgentName,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
+  resolveThreadListV2WorkingSince,
   type ThreadListV2Status,
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
+import {
+  formatAttentionAge,
+  type ThreadAttentionItem,
+} from "@e6tools/client-runtime/state/thread-attention";
+import { useMinuteClock } from "../../lib/useMinuteClock";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 
 /**
@@ -191,6 +199,133 @@ function ThreadListV2Section(props: {
     <View className={className}>{content}</View>
   );
 }
+
+/** "Needs you" and its blocked count (board 8), above the list. */
+export const ThreadListV2NeedsYouHeader = memo(function ThreadListV2NeedsYouHeader(props: {
+  readonly count: number;
+}) {
+  return (
+    <View accessibilityRole="header" className="mb-2 mt-4 flex-row items-center gap-2 px-4">
+      <Text className="flex-1 text-[13px] leading-[18px] font-e6-medium text-foreground">
+        Needs you
+      </Text>
+      <View
+        accessibilityLabel={`${props.count} blocked`}
+        className="h-5 min-w-5 items-center justify-center rounded bg-warning px-1.5"
+      >
+        <Text className="text-[11px] leading-[14px] font-e6-medium text-warning-foreground tabular-nums">
+          {props.count}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
+/** The approval mark: an 8pt diamond in the warning role, always beside a word. */
+export function BlockedDiamond() {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      className="mx-[5px] size-2 rotate-45 rounded-[2px] bg-warning-foreground"
+    />
+  );
+}
+
+/** What a blocked row waits on, as a glyph in its `*-foreground` role. */
+function NeedsYouGlyph(props: {
+  readonly kind: ThreadAttentionItem<EnvironmentThreadShell>["kind"];
+}) {
+  if (props.kind === "approval") return <BlockedDiamond />;
+  return (
+    <SymbolView
+      name={props.kind === "input" ? "questionmark.bubble" : "exclamationmark.circle"}
+      size={18}
+      tintColorClassName={
+        props.kind === "input" ? "accent-warning-foreground" : "accent-danger-foreground"
+      }
+      type="monochrome"
+    />
+  );
+}
+
+/**
+ * Whole minutes since `since` (board 8's "12m"): a request's age, or how long
+ * an agent has worked. On the shared minute clock so only this text
+ * re-renders; no seconds anywhere in the list. Past a day it names the day.
+ */
+export function WholeMinutesSince(props: { readonly since: string; readonly prefix?: string }) {
+  const nowMs = useMinuteClock(true);
+  const age = formatAttentionAge(props.since, new Date(nowMs).toISOString());
+  if (!age) return null;
+  const text =
+    props.prefix === undefined
+      ? age
+      : age === "now"
+        ? `${props.prefix} just now`
+        : age.startsWith("since ")
+          ? `${props.prefix} ${age.slice("since ".length)}`
+          : `${props.prefix} ${age} ago`;
+  return (
+    <Text
+      className="text-[11px] leading-[14px] text-foreground-muted tabular-nums"
+      style={{ fontFamily: MONO_FONT }}
+    >
+      {text}
+    </Text>
+  );
+}
+
+/**
+ * One thread blocked on you (board 8): its mark, title, what it waits on and
+ * how long. Tapping opens the thread, where the request is answered.
+ */
+export const ThreadListV2NeedsYouRow = memo(function ThreadListV2NeedsYouRow(props: {
+  readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+}) {
+  const { item, onSelectThread } = props;
+  const caption = describeThreadListV2NeedsYou(item, threadAgentName(item.thread));
+  return (
+    <View className="px-4 pb-2">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${item.thread.title}, ${caption.status}`}
+        accessibilityHint="Opens the thread."
+        onPress={() => onSelectThread(item.thread)}
+        className="min-h-16 flex-row items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3"
+        style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      >
+        <NeedsYouGlyph kind={item.kind} />
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="text-base font-e6-medium text-foreground" numberOfLines={1}>
+            {item.thread.title}
+          </Text>
+          <Text className="text-xs" numberOfLines={1}>
+            <Text
+              className={cn(
+                "font-e6-medium",
+                item.kind === "failed" ? "text-danger-foreground" : "text-warning-foreground",
+              )}
+            >
+              {caption.status}
+            </Text>
+            {caption.detail ? (
+              <Text className="text-foreground-muted">{` · ${caption.detail}`}</Text>
+            ) : null}
+          </Text>
+        </View>
+        <WholeMinutesSince since={item.since} />
+        <SymbolView
+          name="chevron.right"
+          size={16}
+          tintColorClassName="accent-icon-muted"
+          type="monochrome"
+        />
+      </Pressable>
+    </View>
+  );
+});
 
 /** Section label + rule: the only structure in an otherwise flat list. */
 export const ThreadListV2SectionDivider = memo(function ThreadListV2SectionDivider(props: {
@@ -564,6 +699,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  const workingSince = status === "working" ? resolveThreadListV2WorkingSince(thread) : null;
   // Working and paused rows add the agent state or plan step, matching the
   // web sidebar: "Working · step 4 of 6", "Waiting for usage limit · resets 14:20".
   const statusText =
@@ -903,6 +1039,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         >
           {statusText ?? timeLabel}
         </Text>
+        {/* F5: working rows show how long the agent has worked, blocked rows how
+            long the request has waited, in whole minutes. */}
+        {status === "working" && workingSince ? (
+          <WholeMinutesSince since={workingSince} />
+        ) : status === "approval" || status === "input" ? (
+          <WholeMinutesSince since={thread.pendingRequestSince ?? thread.updatedAt} />
+        ) : null}
       </View>
       {props.searchMatch ? (
         <View className="mt-1">

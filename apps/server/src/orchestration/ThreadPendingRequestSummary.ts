@@ -40,12 +40,23 @@ function approvalKindOf(row: PendingApprovalKindRow): string | null {
   }
 }
 
-/** One line, cut to the shell's limit with an ellipsis. */
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * One line, cut to the shell's limit with an ellipsis. The cut falls between
+ * graphemes, so it never splits a surrogate pair or an emoji sequence, and
+ * the result stays within the limit in UTF-16 units.
+ */
 export function truncatePendingQuestion(text: string): string | null {
   const line = text.replace(/\s+/g, " ").trim();
   if (line.length === 0) return null;
   if (line.length <= PENDING_REQUEST_QUESTION_MAX_CHARS) return line;
-  return `${line.slice(0, PENDING_REQUEST_QUESTION_MAX_CHARS - 1).trimEnd()}…`;
+  let end = 0;
+  for (const { segment } of graphemes.segment(line)) {
+    if (end + segment.length > PENDING_REQUEST_QUESTION_MAX_CHARS - 1) break;
+    end += segment.length;
+  }
+  return `${line.slice(0, end).trimEnd()}…`;
 }
 
 /**

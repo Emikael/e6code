@@ -180,6 +180,11 @@ export function DraftHeroFooter({
                 <StartScreenApprovalCard
                   key={item.key}
                   thread={item.thread}
+                  agent={
+                    (item.thread.session?.providerName &&
+                      providerLabel(item.thread.session.providerName)) ||
+                    "The agent"
+                  }
                   fact={blockedFact(item)}
                   cue={<AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />}
                   onOpen={() => openThread(item.thread)}

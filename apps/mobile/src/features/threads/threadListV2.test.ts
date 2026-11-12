@@ -27,6 +27,7 @@ import { resolveThreadStatus } from "./threadPresentation";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
+  describeThreadListV2NeedsYou,
   getThreadListV2OrderedSection,
   resolveThreadHeaderStatusText,
   resolveThreadListV2Enabled,
@@ -34,6 +35,8 @@ import {
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
+  resolveThreadListV2WorkingSince,
+  selectThreadListV2NeedsYou,
   sortThreadsForListV2,
 } from "./threadListV2";
 
@@ -1582,5 +1585,157 @@ describe("cross-section thread drops", () => {
         NOW,
       ),
     ).toEqual({ pin: false, unpin: false, unsettle: false, unsnooze: false });
+  });
+});
+
+describe("Needs you section", () => {
+  const approval = makeThread({
+    id: ThreadId.make("approval"),
+    title: "Fix tunnel reconnect loop",
+    hasPendingApprovals: true,
+    pendingRequestSince: "2026-06-01T23:56:00.000Z",
+    pendingRequestSummary: {
+      approvalCount: 1,
+      approvalKind: "command",
+      approvalKindCount: 1,
+      userInputCount: 0,
+      questionCount: 0,
+    },
+  });
+  const question = makeThread({
+    id: ThreadId.make("question"),
+    title: "Mobile composer morph",
+    hasPendingUserInput: true,
+    pendingRequestSince: "2026-06-01T23:48:00.000Z",
+    pendingRequestSummary: {
+      approvalCount: 0,
+      userInputCount: 1,
+      questionCount: 1,
+      question: "keep the spring animation, or cut to a fade?",
+    },
+  });
+  const working = makeThread({ id: ThreadId.make("working"), title: "Remodel the theme tokens" });
+  const otherProject = makeThread({
+    id: ThreadId.make("elsewhere"),
+    title: "Elsewhere",
+    projectId: ProjectId.make("project-2"),
+    hasPendingApprovals: true,
+  });
+
+  it("lists blocked threads from the shared selector, approvals first", () => {
+    const needsYou = selectThreadListV2NeedsYou({
+      threads: [working, question, approval],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(needsYou.map((item) => [item.thread.id, item.kind])).toEqual([
+      ["approval", "approval"],
+      ["question", "input"],
+    ]);
+  });
+
+  it("follows the project scope and steps aside while searching", () => {
+    const scoped = selectThreadListV2NeedsYou({
+      threads: [approval, otherProject],
+      environmentId: null,
+      projectRefs: [{ environmentId, projectId: ProjectId.make("project-1") }],
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(scoped.map((item) => item.thread.id)).toEqual(["approval"]);
+    expect(
+      selectThreadListV2NeedsYou({
+        threads: [approval],
+        environmentId: null,
+        searchQuery: "tunnel",
+        now: NOW,
+      }),
+    ).toEqual([]);
+  });
+
+  it("leads the list with a counted header, and the threads keep their own rows", () => {
+    const needsYou = selectThreadListV2NeedsYou({
+      threads: [approval, question, working],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    const layout = buildThreadListV2Items({
+      threads: [approval, question, working],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    const items = buildThreadListV2ListItems({ needsYou, items: layout.items, pendingTasks: [] });
+    expect(items.slice(0, 3).map((item) => item.type)).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you",
+      "v2-needs-you",
+    ]);
+    expect(items[0]?.type === "v2-needs-you-header" && items[0].count).toBe(2);
+    // Only the first approval opens with its actions.
+    expect(items.slice(1, 3).map((item) => item.type === "v2-needs-you" && item.expanded)).toEqual([
+      true,
+      false,
+    ]);
+    expect(items.filter((item) => item.type === "v2-thread")).toHaveLength(3);
+    expect(
+      buildThreadListV2ListItems({ needsYou: [], items: layout.items, pendingTasks: [] })[0]?.type,
+    ).toBe("v2-thread");
+  });
+
+  it("words each row as board 8 does", () => {
+    const [first, second] = selectThreadListV2NeedsYou({
+      threads: [approval, question],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(describeThreadListV2NeedsYou(first!, "Codex")).toEqual({
+      status: "Needs approval",
+      detail: "Codex wants to run 1 command",
+    });
+    expect(describeThreadListV2NeedsYou(second!, "Claude")).toEqual({
+      status: "Needs your answer",
+      detail: "keep the spring animation, or cut to a fade?",
+    });
+    const failed = makeThread({
+      id: ThreadId.make("failed"),
+      title: "Failed",
+      session: {
+        threadId: ThreadId.make("failed"),
+        status: "error",
+        providerName: "codex",
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        lastError: "the CLI is not signed in\nstack",
+        updatedAt: NOW,
+      } as EnvironmentThreadShell["session"],
+    });
+    expect(describeThreadListV2NeedsYou({ kind: "failed", thread: failed }, "Codex")).toEqual({
+      status: "Failed",
+      detail: "the CLI is not signed in",
+    });
+  });
+});
+
+describe("resolveThreadListV2WorkingSince", () => {
+  it("counts from the open turn's start, else its request, else the session", () => {
+    const turn = {
+      turnId: TurnId.make("turn-1"),
+      state: "running" as const,
+      requestedAt: "2026-06-01T23:50:00.000Z",
+      startedAt: "2026-06-01T23:51:00.000Z",
+      completedAt: null,
+      assistantMessageId: null,
+    };
+    expect(resolveThreadListV2WorkingSince({ latestTurn: turn, session: null })).toBe(
+      "2026-06-01T23:51:00.000Z",
+    );
+    expect(
+      resolveThreadListV2WorkingSince({ latestTurn: { ...turn, startedAt: null }, session: null }),
+    ).toBe("2026-06-01T23:50:00.000Z");
+    expect(resolveThreadListV2WorkingSince({ latestTurn: null, session: null })).toBeNull();
   });
 });

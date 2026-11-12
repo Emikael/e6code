@@ -307,6 +307,10 @@ describe("threadNotificationBody", () => {
     expect(threadNotificationBody(question, "input", label)).toBe(
       "Fix tunnel reconnect loop · Codex asks 1 question: keep the spring animation, or cut to a fade?",
     );
+    // A system notification can show on a lock screen, so it never quotes the question.
+    expect(threadNotificationBody(question, "input", label, { withQuestion: false })).toBe(
+      "Fix tunnel reconnect loop · Codex asks 1 question",
+    );
   });
 
   it("names the failure's first line, shortened", () => {

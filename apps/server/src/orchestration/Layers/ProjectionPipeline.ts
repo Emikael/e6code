@@ -2005,6 +2005,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isSome(existingRow) && existingRow.value.status === "resolved") {
             return;
           }
+          const requestPayload =
+            typeof event.payload.activity.payload === "object" &&
+            event.payload.activity.payload !== null
+              ? (event.payload.activity.payload as Record<string, unknown>)
+              : {};
           yield* projectionPendingApprovalRepository.upsert({
             requestId,
             threadId: event.payload.threadId,
@@ -2015,6 +2020,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? existingRow.value.createdAt
               : event.payload.activity.createdAt,
             resolvedAt: null,
+            // Stored so the shell summary never scans activities for it.
+            requestKind:
+              typeof requestPayload.requestKind === "string" ? requestPayload.requestKind : null,
+            requestType:
+              typeof requestPayload.requestType === "string" ? requestPayload.requestType : null,
           });
           return;
         }

@@ -73,6 +73,7 @@ import Migration0058 from "./Migrations/058_RepairProjectionThreadSetupScriptHas
 import Migration0059 from "./Migrations/059_ProjectionThreadsPendingRequestSince.ts";
 import Migration0060 from "./Migrations/060_ProjectionThreadsPendingRequestSummary.ts";
 import Migration0061 from "./Migrations/061_ProjectionParkedEntries.ts";
+import Migration0062 from "./Migrations/062_ProjectionPendingApprovalsRequestKind.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -146,6 +147,7 @@ const migrationEntries = [
   [59, "ProjectionThreadsPendingRequestSince", Migration0059],
   [60, "ProjectionThreadsPendingRequestSummary", Migration0060],
   [61, "ProjectionParkedEntries", Migration0061],
+  [62, "ProjectionPendingApprovalsRequestKind", Migration0062],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

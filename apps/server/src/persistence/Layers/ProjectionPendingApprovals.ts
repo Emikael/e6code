@@ -27,7 +27,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status,
           decision,
           created_at,
-          resolved_at
+          resolved_at,
+          request_kind,
+          request_type
         )
         VALUES (
           ${row.requestId},
@@ -36,7 +38,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           ${row.status},
           ${row.decision},
           ${row.createdAt},
-          ${row.resolvedAt}
+          ${row.resolvedAt},
+          ${row.requestKind ?? null},
+          ${row.requestType ?? null}
         )
         ON CONFLICT (request_id)
         DO UPDATE SET
@@ -45,7 +49,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status = excluded.status,
           decision = excluded.decision,
           created_at = excluded.created_at,
-          resolved_at = excluded.resolved_at
+          resolved_at = excluded.resolved_at,
+          request_kind = COALESCE(excluded.request_kind, projection_pending_approvals.request_kind),
+          request_type = COALESCE(excluded.request_type, projection_pending_approvals.request_type)
       `,
   });
 
@@ -61,7 +67,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status,
           decision,
           created_at AS "createdAt",
-          resolved_at AS "resolvedAt"
+          resolved_at AS "resolvedAt",
+          request_kind AS "requestKind",
+          request_type AS "requestType"
         FROM projection_pending_approvals
         WHERE thread_id = ${threadId}
         ORDER BY created_at ASC, request_id ASC
@@ -81,7 +89,7 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
     `,
   });
 
-  // One activity per request: the latest `approval.requested` that names it.
+  // Stored from the request's latest `approval.requested` when the row is written.
   const listPendingApprovalKindRows = SqlSchema.findAll({
     Request: ListProjectionPendingApprovalsInput,
     Result: Schema.Struct({
@@ -89,22 +97,10 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
       requestType: Schema.NullOr(Schema.String),
     }),
     execute: ({ threadId }) => sql`
-      SELECT
-        json_extract(activity.payload_json, '$.requestKind') AS "requestKind",
-        json_extract(activity.payload_json, '$.requestType') AS "requestType"
-      FROM projection_pending_approvals AS pending
-      LEFT JOIN projection_thread_activities AS activity
-        ON activity.activity_id = (
-          SELECT candidate.activity_id
-          FROM projection_thread_activities AS candidate
-          WHERE candidate.thread_id = pending.thread_id
-            AND candidate.kind = 'approval.requested'
-            AND json_extract(candidate.payload_json, '$.requestId') = pending.request_id
-          ORDER BY candidate.created_at DESC, candidate.activity_id DESC
-          LIMIT 1
-        )
-      WHERE pending.thread_id = ${threadId} AND pending.status = 'pending'
-      ORDER BY pending.created_at ASC, pending.request_id ASC
+      SELECT request_kind AS "requestKind", request_type AS "requestType"
+      FROM projection_pending_approvals
+      WHERE thread_id = ${threadId} AND status = 'pending'
+      ORDER BY created_at ASC, request_id ASC
     `,
   });
 
@@ -120,7 +116,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status,
           decision,
           created_at AS "createdAt",
-          resolved_at AS "resolvedAt"
+          resolved_at AS "resolvedAt",
+          request_kind AS "requestKind",
+          request_type AS "requestType"
         FROM projection_pending_approvals
         WHERE request_id = ${requestId}
       `,

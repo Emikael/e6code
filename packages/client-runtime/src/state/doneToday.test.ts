@@ -2,7 +2,12 @@
 import { EnvironmentId, ProjectId, ThreadId, TurnId } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { localStartOfDayMs, selectDoneToday, type DoneTodayShell } from "./doneToday.ts";
+import {
+  localStartOfDayMs,
+  selectDoneToday,
+  withThreadsArchivedToday,
+  type DoneTodayShell,
+} from "./doneToday.ts";
 
 const LOCAL = EnvironmentId.make("local");
 const REMOTE = EnvironmentId.make("remote");
@@ -187,5 +192,38 @@ describe("selectDoneToday", () => {
     );
     expect(row?.how).toBe("settled");
     expect(row?.mergedPullRequest).toBeNull();
+  });
+});
+
+describe("withThreadsArchivedToday", () => {
+  it("adds threads archived since midnight so Done today lists them", () => {
+    const live = [shell("live", { turn: { state: "completed", at: at(9) } })];
+    const archived = [
+      shell("today", { archivedAt: at(11) }),
+      shell("yesterday", { archivedAt: at(18, 0, 11) }),
+    ];
+    const rows = selectDoneToday(
+      withThreadsArchivedToday(live, archived, { startOfDayMs: START }),
+      {
+        startOfDayMs: START,
+      },
+    );
+    expect(rows.map((row) => [row.thread.id, row.how])).toEqual([
+      ["today", "archived"],
+      ["live", "finished"],
+    ]);
+  });
+
+  it("keeps the live shell when a thread appears in both lists", () => {
+    const live = [shell("restored", { turn: { state: "completed", at: at(10) } })];
+    const archived = [
+      shell("restored", { archivedAt: at(9) }),
+      shell("restored", { environmentId: REMOTE, archivedAt: at(9) }),
+    ];
+    const merged = withThreadsArchivedToday(live, archived, { startOfDayMs: START });
+    expect(merged.map((thread) => [thread.environmentId, thread.archivedAt])).toEqual([
+      [LOCAL, null],
+      [REMOTE, at(9)],
+    ]);
   });
 });
