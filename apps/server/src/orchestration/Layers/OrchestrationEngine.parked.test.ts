@@ -132,7 +132,7 @@ it.effect(
         const engine = yield* OrchestrationEngineService;
         const query = yield* ProjectionSnapshotQuery;
         yield* engine.dispatch(importOnce("import-2"));
-        const afterRestart = yield* query.getParkedState();
+        const { state: afterRestart } = yield* query.getParkedState();
         expect(afterRestart.entries).toEqual([
           expect.objectContaining({
             id: parkedNoteId(threadId),
@@ -159,7 +159,7 @@ it.effect(
         const query = yield* ProjectionSnapshotQuery;
         // The same old upload again: neither the thought nor the note comes back.
         yield* engine.dispatch(importOnce("import-3"));
-        const state = yield* query.getParkedState();
+        const { state } = yield* query.getParkedState();
         expect(state.entries).toEqual([]);
         expect(state.removedNotes).toEqual([
           expect.objectContaining({ id: parkedNoteId(threadId) }),
@@ -187,7 +187,7 @@ it.effect(
           commandId: CommandId.make("delete-thread"),
           threadId,
         });
-        expect((yield* query.getParkedState()).entries).toEqual([]);
+        expect((yield* query.getParkedState()).state.entries).toEqual([]);
       }).pipe(Effect.provide(systemLayer(databasePath)));
 
       yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));

@@ -122,8 +122,15 @@ export interface ProjectionSnapshotQueryShape {
     ProjectionRepositoryError
   >;
 
-  /** The environment's Parked list, with the ids of thoughts removed from it. */
-  readonly getParkedState: () => Effect.Effect<OrchestrationParkedState, ProjectionRepositoryError>;
+  /**
+   * The environment's Parked list, with the ids of thoughts removed from it,
+   * and the last event sequence it reflects. A live subscriber skips events
+   * at or below that sequence, since the state already includes them.
+   */
+  readonly getParkedState: () => Effect.Effect<
+    { readonly state: OrchestrationParkedState; readonly sequence: number },
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read the latest orchestration projection snapshot.

@@ -2510,6 +2510,40 @@ pending_approval_requests AS (
         }),
       );
 
+  const readLatestEventSequence = SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: Schema.Struct({ sequence: Schema.Number }),
+    execute: () => sql`
+      SELECT COALESCE(MAX(sequence), 0) AS "sequence" FROM orchestration_events
+    `,
+  });
+
+  // Events are appended and projected in one transaction, so reading both in
+  // one transaction gives a state that holds exactly the events up to `sequence`.
+  const getParkedState: ProjectionSnapshotQueryShape["getParkedState"] = () =>
+    sql
+      .withTransaction(
+        Effect.all([
+          parkedEntries.getState(),
+          readLatestEventSequence(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getParkedState:latestSequence:query",
+                "ProjectionSnapshotQuery.getParkedState:latestSequence:decodeRow",
+              ),
+            ),
+          ),
+        ]),
+      )
+      .pipe(
+        Effect.map(([state, { sequence }]) => ({ state, sequence })),
+        Effect.mapError((error) =>
+          isPersistenceError(error)
+            ? error
+            : toPersistenceSqlError("ProjectionSnapshotQuery.getParkedState:query")(error),
+        ),
+      );
+
   const getCommandReadModel: ProjectionSnapshotQueryShape["getCommandReadModel"] = () =>
     sql
       .withTransaction(
@@ -4005,7 +4039,7 @@ pending_approval_requests AS (
     getTurnStartMessage,
     getThreadDetailById,
     getThreadDetailSnapshot,
-    getParkedState: () => parkedEntries.getState(),
+    getParkedState,
   } satisfies ProjectionSnapshotQueryShape;
 });
 

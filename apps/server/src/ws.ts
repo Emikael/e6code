@@ -2228,21 +2228,27 @@ const makeWsRpcLayer = (
           ),
         // The environment's Parked list: a snapshot, then one item per change.
         // Live delivery attaches before the snapshot is read so no change is
-        // lost; an item that repeats the snapshot only restates an entry.
+        // lost, and skips events the snapshot already holds so none repeats.
         [ORCHESTRATION_WS_METHODS.subscribeParked]: () =>
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeParked,
             Effect.gen(function* () {
-              const live = yield* Queue.unbounded<OrchestrationParkedStreamItem>();
+              const live = yield* Queue.unbounded<{
+                readonly sequence: number;
+                readonly items: ReadonlyArray<OrchestrationParkedStreamItem>;
+              }>();
               yield* Effect.forkScoped(
                 orchestrationEngine.streamDomainEvents.pipe(
-                  Stream.runForEach((event) =>
-                    Queue.offerAll(live, parkedStreamItemsForEvent(event)),
-                  ),
+                  Stream.runForEach((event) => {
+                    const items = parkedStreamItemsForEvent(event);
+                    return items.length === 0
+                      ? Effect.void
+                      : Queue.offer(live, { sequence: event.sequence, items });
+                  }),
                 ),
                 { startImmediately: true },
               );
-              const state = yield* projectionSnapshotQuery.getParkedState().pipe(
+              const { state, sequence } = yield* projectionSnapshotQuery.getParkedState().pipe(
                 Effect.mapError(
                   (cause) =>
                     new OrchestrationGetSnapshotError({
@@ -2253,7 +2259,10 @@ const makeWsRpcLayer = (
               );
               return Stream.concat(
                 Stream.succeed<OrchestrationParkedStreamItem>({ kind: "snapshot", ...state }),
-                Stream.fromQueue(live),
+                Stream.fromQueue(live).pipe(
+                  Stream.filter((change) => change.sequence > sequence),
+                  Stream.flatMap((change) => Stream.fromIterable(change.items)),
+                ),
               );
             }),
             { "rpc.aggregate": "orchestration" },
