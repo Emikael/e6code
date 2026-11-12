@@ -39,8 +39,12 @@ const SPRING_CSS = {
   snappy: waapi.convertEase(SPRING_SNAPPY.ease, 40),
 } as const;
 
-/** Exposes the spring curves as `--ease-spring-*`, installed once at startup before first render. */
+/**
+ * Exposes the spring curves as `--ease-spring-*` and `EASE_OUT` as `--ease-motion-out`,
+ * installed once at startup before first render.
+ */
 export function installMotionTokens(root: HTMLElement = document.documentElement) {
+  root.style.setProperty("--ease-motion-out", EASE_OUT);
   root.style.setProperty("--ease-spring-gentle", SPRING_CSS.gentle);
   root.style.setProperty("--ease-spring-snappy", SPRING_CSS.snappy);
 }
@@ -177,5 +181,88 @@ export function createMomentRegistry<K, V>(windowMs: number) {
     settle(key: K) {
       moments.delete(key);
     },
+  };
+}
+
+/**
+ * Board 10's moments: one-shot, opacity and transform only, token durations.
+ * Each plays when something arrives in the thread or panel being looked at;
+ * none plays on the way out, and none plays for a background thread.
+ */
+const MOMENTS = {
+  /** A card arrives: rise 6px and fade in. */
+  rise: {
+    opacity: [0, 1],
+    transform: ["translateY(6px)", "none"],
+    duration: MOTION_MS.state,
+    ease: EASE_OUT,
+  },
+  /** A plan step completes: its segment fills from the left (the element sets `origin-left`). */
+  fill: { transform: ["scaleX(0)", "scaleX(1)"], duration: MOTION_MS.state, ease: EASE_OUT },
+  /** A status glyph settles into a state the user caused, by scale and fade. */
+  settle: {
+    opacity: [0, 1],
+    transform: ["scale(0.8)", "none"],
+    duration: MOTION_MS.state,
+    ease: EASE_OUT,
+  },
+} satisfies Record<string, WAAPIAnimationParams>;
+
+export type Moment = keyof typeof MOMENTS;
+
+/** Plays a moment, or nothing under reduced motion or where elements cannot animate. */
+export function playMoment(element: Element | null, moment: Moment): TransientMotion | null {
+  if (!canAnimate(element) || prefersReducedMotion()) return null;
+  return playTransient(element, MOMENTS[moment]);
+}
+
+export interface MomentWatch {
+  /** What is being looked at (a thread, a pull request); null while it loads. */
+  readonly key: string | null;
+  readonly value: boolean;
+  /** How many times `value` turned on while the same key stayed in view. */
+  readonly count: number;
+}
+
+/**
+ * Counts a state turning on under the viewer's eyes. Opening something that is
+ * already on, or a value that arrives while the key is still loading, does not
+ * count; switching to another key starts over.
+ */
+export function nextMomentWatch(
+  previous: MomentWatch,
+  key: string | null,
+  value: boolean,
+): MomentWatch {
+  if (key !== previous.key) return { key, value, count: 0 };
+  const turnedOn = key !== null && value && !previous.value;
+  return { key, value, count: previous.count + (turnedOn ? 1 : 0) };
+}
+
+export interface PlanMeterWatch {
+  readonly key: string;
+  readonly completedSteps: number;
+  readonly totalSteps: number;
+}
+
+/**
+ * The plan meter segments to fill: those completed since the last render of
+ * the same thread and plan. A new thread or a replaced plan fills nothing.
+ */
+export function newlyCompletedSegments(
+  previous: PlanMeterWatch | null,
+  next: PlanMeterWatch,
+): { readonly from: number; readonly to: number } | null {
+  if (
+    previous === null ||
+    previous.key !== next.key ||
+    previous.totalSteps !== next.totalSteps ||
+    next.completedSteps <= previous.completedSteps
+  ) {
+    return null;
+  }
+  return {
+    from: Math.max(0, previous.completedSteps),
+    to: Math.min(next.completedSteps, next.totalSteps),
   };
 }

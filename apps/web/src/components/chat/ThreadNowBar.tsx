@@ -78,7 +78,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
               )}
               {state.status}
             </span>
-            {state.progress ? <PlanStepMeter progress={state.progress} /> : null}
+            {state.progress ? <PlanStepMeter progress={state.progress} fillKey={watchKey} /> : null}
             <span className={TEXT_CLASS}>{state.text}</span>
             {state.startedAt ? (
               <ElapsedCue startedAt={state.startedAt} earlierTurns={earlierTurns} />

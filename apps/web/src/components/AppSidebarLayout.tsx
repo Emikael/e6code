@@ -3,6 +3,8 @@ import { moveWorkspaceFocus, startWorkspaceFocus, workspaceAreaProps } from "../
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -17,7 +19,16 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
+import {
+  canAnimate,
+  EASE_IN_OUT,
+  MOTION_MS,
+  playTransient,
+  prefersReducedMotion,
+  type TransientMotion,
+} from "../lib/motion";
 import { isMacPlatform } from "../lib/utils";
+import { useUiStateStore } from "../uiStateStore";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useFocusModeActive } from "../hooks/useFocusMode";
 import { useLegacySidebarEnabled } from "../hooks/useSettings";
@@ -163,6 +174,53 @@ function WorkspaceFocusControl() {
   return null;
 }
 
+const APP_SIDEBAR_CONTAINER = '[data-slot="sidebar-container"][data-app-sidebar]';
+
+/**
+ * Board 10: entering focus fades the sidebar that was showing, drifting 8px
+ * left over 200ms, while the layout snaps (the sidebar's width never animates).
+ * Leaving focus brings it back at once. Opt-in panel animations already slide
+ * it, so the fade stays out of their way.
+ */
+function useFocusEntrySidebarFade(focusModeActive: boolean, panelAnimationsActive: boolean) {
+  // The width of the sidebar that showed when focus turned on, read before the collapse renders.
+  const pendingWidthRef = useRef<number | null>(null);
+  const fadeRef = useRef<TransientMotion | null>(null);
+  useEffect(
+    () =>
+      useUiStateStore.subscribe((state, previous) => {
+        if (!state.focusMode || previous.focusMode) return;
+        const container = document.querySelector<HTMLElement>(APP_SIDEBAR_CONTAINER);
+        const shown =
+          container?.closest('[data-slot="sidebar"]')?.getAttribute("data-state") === "expanded";
+        pendingWidthRef.current = container && shown ? container.offsetWidth : null;
+      }),
+    [],
+  );
+  // Every commit: the focus toggle re-renders this layout, so the next commit is its own.
+  useLayoutEffect(() => {
+    if (!focusModeActive) {
+      fadeRef.current?.cancel();
+      fadeRef.current = null;
+    }
+    const width = pendingWidthRef.current;
+    pendingWidthRef.current = null;
+    if (width === null || !focusModeActive || panelAnimationsActive || prefersReducedMotion()) {
+      return;
+    }
+    const container = document.querySelector(APP_SIDEBAR_CONTAINER);
+    if (!canAnimate(container)) return;
+    // Collapsed, the container sits a sidebar's width off screen; the fade starts where it was.
+    fadeRef.current = playTransient(container, {
+      opacity: [1, 0],
+      transform: [`translateX(${width}px)`, `translateX(${width - 8}px)`],
+      duration: MOTION_MS.state,
+      ease: EASE_IN_OUT,
+    });
+  });
+  useEffect(() => () => fadeRef.current?.cancel(), []);
+}
+
 // Settings swaps the thread sidebar out of the tree. Keep the lightweight
 // project projection subscribed so returning to a draft never renders the
 // zero-project state while the environment snapshot reconnects.
@@ -190,6 +248,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // Focus mode renders the thread sidebar collapsed but keeps it mounted (it owns next and
   // previous thread), and never writes its open state, so exit restores it as it was.
   const focusModeActive = useFocusModeActive() && !showsRail;
+  useFocusEntrySidebarFade(focusModeActive, routePanelAnimationsActive);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render

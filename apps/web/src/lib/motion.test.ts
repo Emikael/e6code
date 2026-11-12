@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   applyInterfaceMotion,
+  newlyCompletedSegments,
+  nextMomentWatch,
   prefersReducedMotion,
   REDUCED_MOTION_ATTRIBUTE,
   resolveReducedMotion,
@@ -65,5 +67,48 @@ describe("applyInterfaceMotion", () => {
     vi.stubGlobal("window", { matchMedia: () => ({ matches: true }) });
     applyInterfaceMotion("system", fakeRoot());
     expect(prefersReducedMotion()).toBe(true);
+  });
+});
+
+describe("nextMomentWatch", () => {
+  const start = { key: "thread-a", value: false, count: 0 };
+
+  it("counts a state turning on while the same thing stays in view", () => {
+    const settled = nextMomentWatch(start, "thread-a", true);
+    expect(settled.count).toBe(1);
+    const unsettled = nextMomentWatch(settled, "thread-a", false);
+    expect(nextMomentWatch(unsettled, "thread-a", true).count).toBe(2);
+  });
+
+  it("does not count opening something that is already on", () => {
+    expect(nextMomentWatch(start, "thread-b", true).count).toBe(0);
+  });
+
+  it("does not count a value that arrives while the key is still loading", () => {
+    const loading = nextMomentWatch(start, null, false);
+    expect(nextMomentWatch(loading, null, true).count).toBe(0);
+    const loaded = nextMomentWatch(nextMomentWatch(loading, null, true), "thread-a", true);
+    expect(loaded.count).toBe(0);
+  });
+});
+
+describe("newlyCompletedSegments", () => {
+  const watch = (completedSteps: number, totalSteps = 5, key = "thread-a") => ({
+    key,
+    completedSteps,
+    totalSteps,
+  });
+
+  it("fills the steps completed since the last render of the same plan", () => {
+    expect(newlyCompletedSegments(watch(2), watch(3))).toEqual({ from: 2, to: 3 });
+    expect(newlyCompletedSegments(watch(2), watch(4))).toEqual({ from: 2, to: 4 });
+  });
+
+  it("fills nothing on first sight, another thread, a replaced plan or no progress", () => {
+    expect(newlyCompletedSegments(null, watch(3))).toBeNull();
+    expect(newlyCompletedSegments(watch(2), watch(3, 5, "thread-b"))).toBeNull();
+    expect(newlyCompletedSegments(watch(2), watch(3, 7))).toBeNull();
+    expect(newlyCompletedSegments(watch(3), watch(3))).toBeNull();
+    expect(newlyCompletedSegments(watch(3), watch(2))).toBeNull();
   });
 });

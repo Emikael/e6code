@@ -208,6 +208,7 @@ import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { buildTemporaryWorktreeBranchName } from "@e6tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useMomentCount } from "../hooks/useMomentCount";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
   isFileSurfacePending,
@@ -250,6 +251,7 @@ import { modelEffortLabel } from "./runDetails.logic";
 import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
 import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
+import { SettlingGlyph } from "./SettlingGlyph";
 import { useAttachedNotSentLabel } from "./attached/useAttachedNotSentLabel";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
 import { earlierTurnDurations, selectRetryMessage } from "./chat/ThreadNowBar.logic";
@@ -6687,6 +6689,11 @@ export default function ChatView(props: ChatViewProps) {
       onDismiss: acknowledgeActiveThreadWoke,
     };
   }, [acknowledgeActiveThreadWoke, activeThread?.id, activeThreadWokeVisible]);
+  // Settling the open thread, or merging it with auto-settle on, settles the banner's glyph once.
+  const settleMoment = useMomentCount(
+    activeThreadShell && supportsSettlement ? activeThreadKey : null,
+    activeThreadSettled,
+  );
   const parkedThreadBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
     if (!activeThreadSnoozed && !activeThreadSettled) {
       return null;
@@ -6695,7 +6702,11 @@ export default function ChatView(props: ChatViewProps) {
     return {
       id: `thread-${isSnoozed ? "snoozed" : "settled"}:${activeThread?.id ?? "unknown"}`,
       variant: "info",
-      icon: isSnoozed ? <AlarmClockIcon /> : <CheckCircle2Icon />,
+      icon: isSnoozed ? (
+        <AlarmClockIcon />
+      ) : (
+        <SettlingGlyph icon={CheckCircle2Icon} moment={settleMoment} />
+      ),
       title: `This thread is ${isSnoozed ? "snoozed" : "settled"}`,
       description: `Send a message to ${isSnoozed ? "wake" : "unsettle"}`,
       actions: (
@@ -6725,6 +6736,7 @@ export default function ChatView(props: ChatViewProps) {
     handleUnsettleActiveThread,
     isUnsnoozing,
     isUnsettling,
+    settleMoment,
   ]);
   // Session-scoped dismissals, one key per (thread, snapshot). A set rather
   // than a single slot so dismissing the banner on one thread does not
