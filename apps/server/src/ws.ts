@@ -2258,7 +2258,13 @@ const makeWsRpcLayer = (
                 ),
               );
               return Stream.concat(
-                Stream.succeed<OrchestrationParkedStreamItem>({ kind: "snapshot", ...state }),
+                // removedThoughts is the server's own record; clients get the ids.
+                Stream.succeed<OrchestrationParkedStreamItem>({
+                  kind: "snapshot",
+                  entries: state.entries,
+                  removedEntryIds: state.removedEntryIds,
+                  ...(state.removedNotes !== undefined ? { removedNotes: state.removedNotes } : {}),
+                }),
                 Stream.fromQueue(live).pipe(
                   Stream.filter((change) => change.sequence > sequence),
                   Stream.flatMap((change) => Stream.fromIterable(change.items)),

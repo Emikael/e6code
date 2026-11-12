@@ -193,3 +193,60 @@ it.effect(
       yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
     }),
 );
+
+it.effect("forgets a tombstone past its age the same way before and after a restart", () =>
+  Effect.gen(function* () {
+    yield* TestClock.setTime(Date.parse(AT));
+    const directory = yield* Effect.promise(() =>
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-parked-age-")),
+    );
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    const thought = (id: string) => ({
+      id: ParkedEntryId.make(id),
+      kind: "thought" as const,
+      text: `Thought ${id}`,
+      projectId: null,
+      threadId: null,
+      pinnedFor: null,
+      createdAt: AT,
+    });
+    const importThought = (id: string, commandId: string) => ({
+      type: "parked.import" as const,
+      commandId: CommandId.make(commandId),
+      createdAt: AT,
+      entries: [thought(id)],
+    });
+    const pastTheAge = Date.parse(AT) + 91 * 24 * 60 * 60 * 1_000;
+
+    // Both thoughts are removed now; one comes back before a restart, one after.
+    yield* Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const query = yield* ProjectionSnapshotQuery;
+      yield* engine.dispatch(importThought("before", "import-before"));
+      yield* engine.dispatch(importThought("after", "import-after"));
+      for (const id of ["before", "after"]) {
+        yield* engine.dispatch({
+          type: "parked.entry.remove",
+          commandId: CommandId.make(`remove-${id}`),
+          entryId: ParkedEntryId.make(id),
+        });
+      }
+      yield* TestClock.setTime(pastTheAge);
+      yield* engine.dispatch(importThought("before", "import-before-again"));
+      const { state } = yield* query.getParkedState();
+      expect(state.entries.map((entry) => entry.id)).toEqual(["before"]);
+      expect(state.removedEntryIds).toEqual([]);
+    }).pipe(Effect.provide(systemLayer(databasePath)));
+
+    yield* Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const query = yield* ProjectionSnapshotQuery;
+      yield* engine.dispatch(importThought("after", "import-after-again"));
+      const { state } = yield* query.getParkedState();
+      expect(state.entries.map((entry) => entry.id).toSorted()).toEqual(["after", "before"]);
+      expect(state.removedEntryIds).toEqual([]);
+    }).pipe(Effect.provide(systemLayer(databasePath)));
+
+    yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
+  }),
+);
