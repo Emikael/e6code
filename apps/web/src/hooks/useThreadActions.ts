@@ -38,6 +38,7 @@ import {
   readThreadShells,
 } from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { useFileEditStore } from "../components/files/fileEditStore";
 import { useUiStateStore } from "../uiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
@@ -464,6 +465,8 @@ export function useThreadActions() {
       );
       clearTerminalUiState(threadRef);
       useDiffReviewStore.getState().forgetThread(scopedThreadKey(threadRef));
+      // So do the reader's file edits, held text included.
+      useFileEditStore.getState().forgetThread(scopedThreadKey(threadRef));
       // The thread's own "Agent activity" choice goes with it.
       useUiStateStore.getState().setThreadAgentActivityDetail(scopedThreadKey(threadRef), null);
       // A note to self lives only in its thread's recap; it goes with the thread.

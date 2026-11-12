@@ -17,6 +17,7 @@ import { useOpenInPreferredEditor } from "../editorPreferences";
 import { useFileContextMenu, type FileContextMenuAction } from "../fileContextMenu";
 import { readLocalApi } from "../localApi";
 import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
+import { attachedCount } from "~/lib/attachedForAgent";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
@@ -1142,8 +1143,9 @@ export default function DiffPanel({
   }, [codeViewFiles, lastSeenKey, resumeAt, settings.timestampFormat]);
 
   // The footer: where the reader is, Reply, and the one filled button.
-  const commentCount = useComposerDraftStore(
-    (store) => store.getComposerDraft(composerDraftTarget)?.reviewComments.length ?? 0,
+  // The same count as every other surface: Diff and file comments attached and not sent.
+  const commentCount = useComposerDraftStore((store) =>
+    attachedCount(store.getComposerDraft(composerDraftTarget), "comment"),
   );
   // While the composer holds text, Send owns the screen's one filled button.
   const composerHasText = useComposerHasText(composerDraftTarget);

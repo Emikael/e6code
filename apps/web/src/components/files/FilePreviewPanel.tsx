@@ -51,7 +51,7 @@ import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { buildFileReviewComment } from "~/reviewCommentContext";
+import { buildFileReviewComment, type ReviewCommentContext } from "~/reviewCommentContext";
 import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
@@ -74,7 +74,10 @@ import {
   formatFileCommentRange,
   nextFileCommentId,
   normalizeFileCommentRange,
+  fileCommentAnnotationsFromDraft,
   remapFileCommentAnnotations,
+  rerangeFileCommentDrafts,
+  rerangeFileComments,
   withFileSelectionBar,
   withoutFileSelectionBar,
 } from "./fileCommentAnnotations";
@@ -98,7 +101,7 @@ import {
   resolveFileExplorerLayout,
   setMarkdownTaskChecked,
 } from "./filePreviewMode";
-import { fileCommentCount } from "~/lib/attachedForAgent";
+import { attachedCount } from "~/lib/attachedForAgent";
 
 import { AttachedCountButton } from "../attached/AttachedCountButton";
 import { FileMoreMenu } from "./FileMoreMenu";
@@ -598,6 +601,8 @@ function readCenterLine(scroller: HTMLElement, fileContainer: HTMLElement | null
   return null;
 }
 
+const NO_REVIEW_COMMENTS: ReadonlyArray<ReviewCommentContext> = [];
+
 interface EditableFileSurfaceProps {
   environmentId: EnvironmentId;
   cwd: string;
@@ -637,7 +642,17 @@ function EditableFileSurface({
 }: EditableFileSurfaceProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
-  const [lineAnnotations, setLineAnnotations] = useState<FileCommentLineAnnotation[]>([]);
+  const setReviewComments = useComposerDraftStore((store) => store.setReviewComments);
+  // Saved comments live in the composer draft, the one ledger of what goes with the next
+  // message; only the reader's open forms are kept here.
+  const reviewComments = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.reviewComments ?? NO_REVIEW_COMMENTS,
+  );
+  const [drafts, setDrafts] = useState<ReadonlyArray<FileCommentAnnotationEntry>>([]);
+  const lineAnnotations = useMemo(
+    () => fileCommentAnnotationsFromDraft(reviewComments, relativePath, drafts),
+    [drafts, relativePath, reviewComments],
+  );
   const [selectionOverride, setSelectionOverride] = useState<FileSelectionOverride | null>(null);
   const selectedRange =
     selectionOverride?.revealRequestId === revealRequestId ? selectionOverride.range : null;
@@ -683,31 +698,21 @@ function EditableFileSurface({
         persistStateStorage: "inMemory",
         onChange: (file, nextLineAnnotations) => {
           onEdit(file.contents);
-          if (nextLineAnnotations) {
-            const remapped = withoutFileSelectionBar(
-              remapFileCommentAnnotations(nextLineAnnotations as FileCommentLineAnnotation[]),
-            );
-            setLineAnnotations(remapped);
-            for (const annotation of remapped) {
-              for (const entry of annotation.metadata.entries) {
-                if (entry.kind !== "comment") continue;
-                addReviewComment(
-                  composerDraftTarget,
-                  buildFileReviewComment({
-                    id: entry.id,
-                    filePath: relativePath,
-                    startLine: entry.startLine,
-                    endLine: entry.endLine,
-                    text: entry.text,
-                    contents: file.contents,
-                  }),
-                );
-              }
-            }
-          }
+          if (!nextLineAnnotations) return;
+          const moved = withoutFileSelectionBar(
+            remapFileCommentAnnotations(nextLineAnnotations as FileCommentLineAnnotation[]),
+          );
+          // Read now, not from render: a comment removed from the composer or sent since the
+          // editor drew its cards must not come back on the next keystroke.
+          const comments =
+            useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)
+              ?.reviewComments ?? NO_REVIEW_COMMENTS;
+          const reranged = rerangeFileComments(comments, relativePath, moved, file.contents);
+          if (reranged) setReviewComments(composerDraftTarget, reranged);
+          setDrafts((current) => rerangeFileCommentDrafts(current, moved));
         },
       }),
-    [addReviewComment, composerDraftTarget, onEdit, relativePath],
+    [composerDraftTarget, onEdit, relativePath, setReviewComments],
   );
 
   useEffect(
@@ -717,110 +722,77 @@ function EditableFileSurface({
     [editor],
   );
 
+  const dropDraft = useCallback((entryId: string) => {
+    setDrafts((current) => current.filter((entry) => entry.id !== entryId));
+  }, []);
   const removeAnnotationEntry = useCallback(
     (entryId: string) => {
       setSelectedRange(null);
       removeReviewComment(composerDraftTarget, entryId);
-      setLineAnnotations((current) => {
-        return current.flatMap((annotation) => {
-          const entries = annotation.metadata.entries.filter((entry) => entry.id !== entryId);
-          return entries.length > 0 ? [{ ...annotation, metadata: { entries } }] : [];
-        });
-      });
+      dropDraft(entryId);
     },
-    [composerDraftTarget, removeReviewComment, setSelectedRange],
+    [composerDraftTarget, dropDraft, removeReviewComment, setSelectedRange],
   );
 
-  // Edit reopens a saved comment as a draft; saving replaces it in the composer, and Cancel puts
-  // the saved words back.
-  const updateAnnotationEntry = useCallback(
-    (
-      entryId: string,
-      update: (entry: FileCommentAnnotationEntry) => FileCommentAnnotationEntry,
-    ) => {
-      setLineAnnotations((current) =>
-        current.map((annotation) => ({
-          ...annotation,
-          metadata: {
-            entries: annotation.metadata.entries.map((entry) =>
-              entry.id === entryId ? update(entry) : entry,
-            ),
-          },
-        })),
-      );
-    },
-    [],
-  );
+  // Edit reopens a saved comment as a form; saving replaces it in the composer, and Cancel
+  // closes the form, leaving the saved words as they were.
   const editAnnotationEntry = useCallback(
     (entryId: string) => {
       setSelectedRange(null);
-      updateAnnotationEntry(entryId, (entry) => ({
-        ...entry,
-        kind: "draft",
-        savedText: entry.text,
-      }));
+      const entry = lineAnnotations
+        .flatMap((annotation) => annotation.metadata.entries)
+        .find((candidate) => candidate.id === entryId);
+      if (!entry) return;
+      setDrafts((current) => [
+        ...current.filter((draft) => draft.id !== entryId),
+        { ...entry, kind: "draft", savedText: entry.text },
+      ]);
     },
-    [setSelectedRange, updateAnnotationEntry],
+    [lineAnnotations, setSelectedRange],
   );
   const cancelAnnotationEntry = useCallback(
     (entry: FileCommentAnnotationEntry) => {
-      const { savedText } = entry;
-      if (savedText === undefined) {
-        removeAnnotationEntry(entry.id);
-        return;
-      }
       setSelectedRange(null);
-      updateAnnotationEntry(entry.id, ({ savedText: _saved, ...rest }) => ({
-        ...rest,
-        kind: "comment",
-        text: savedText,
-      }));
+      dropDraft(entry.id);
     },
-    [removeAnnotationEntry, setSelectedRange, updateAnnotationEntry],
+    [dropDraft, setSelectedRange],
   );
 
   const submitAnnotationEntry = useCallback(
     (entryId: string, text: string) => {
       setSelectedRange(null);
-      const entry = lineAnnotations
-        .flatMap((annotation) => annotation.metadata.entries)
-        .find((candidate) => candidate.id === entryId);
-      if (entry) {
-        addReviewComment(
+      const entry = drafts.find((candidate) => candidate.id === entryId);
+      dropDraft(entryId);
+      if (!entry) return;
+      const comment = buildFileReviewComment({
+        id: entry.id,
+        filePath: relativePath,
+        startLine: entry.startLine,
+        endLine: entry.endLine,
+        text,
+        contents,
+      });
+      const comments =
+        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments ??
+        NO_REVIEW_COMMENTS;
+      // An edited comment keeps its place, and its number, among the attached items.
+      if (comments.some((candidate) => candidate.id === entry.id)) {
+        setReviewComments(
           composerDraftTarget,
-          buildFileReviewComment({
-            id: entry.id,
-            filePath: relativePath,
-            startLine: entry.startLine,
-            endLine: entry.endLine,
-            text,
-            contents,
-          }),
+          comments.map((candidate) => (candidate.id === entry.id ? comment : candidate)),
         );
+      } else {
+        addReviewComment(composerDraftTarget, comment);
       }
-      setLineAnnotations((current) =>
-        current.map((annotation) => ({
-          ...annotation,
-          metadata: {
-            entries: annotation.metadata.entries.map((annotationEntry) =>
-              annotationEntry.id === entryId
-                ? (({ savedText: _saved, ...rest }) => ({
-                    ...rest,
-                    kind: "comment" as const,
-                    text,
-                  }))(annotationEntry)
-                : annotationEntry,
-            ),
-          },
-        })),
-      );
     },
     [
       addReviewComment,
       composerDraftTarget,
       contents,
-      lineAnnotations,
+      drafts,
+      dropDraft,
       relativePath,
+      setReviewComments,
       setSelectedRange,
     ],
   );
@@ -830,45 +802,12 @@ function EditableFileSurface({
       editor.setSelections([]);
       editor.blur();
       const { startLine, endLine } = normalizeFileCommentRange(range);
-      const draftEntry: FileCommentAnnotationEntry = {
-        id: nextFileCommentId(),
-        kind: "draft",
-        startLine,
-        endLine,
-        text: "",
-      };
-      setLineAnnotations((current) => {
-        const withoutDraft = current.flatMap((annotation) => {
-          const entries = annotation.metadata.entries.filter((entry) => entry.kind !== "draft");
-          return entries.length > 0 ? [{ ...annotation, metadata: { entries } }] : [];
-        });
-        const existingIndex = withoutDraft.findIndex(
-          (annotation) => annotation.lineNumber === endLine,
-        );
-        if (existingIndex < 0) {
-          return [
-            ...withoutDraft,
-            {
-              lineNumber: endLine,
-              metadata: { entries: [draftEntry] },
-            },
-          ];
-        }
-        return withoutDraft.map((annotation, index) =>
-          index === existingIndex
-            ? {
-                ...annotation,
-                metadata: { entries: [...annotation.metadata.entries, draftEntry] },
-              }
-            : annotation,
-        );
-      });
+      // One form at a time: a new comment closes any other open form.
+      setDrafts([{ id: nextFileCommentId(), kind: "draft", startLine, endLine, text: "" }]);
     },
     [editor],
   );
-  const hasOpenCommentForm = lineAnnotations.some((annotation) =>
-    annotation.metadata.entries.some((entry) => entry.kind === "draft"),
-  );
+  const hasOpenCommentForm = drafts.length > 0;
   // Board 15: a finished selection first offers Copy and "Comment for the agent" in a bar under
   // its last line, so a selection made to copy does not open a comment form.
   const [selectionBar, setSelectionBar] = useState<{
@@ -1298,14 +1237,10 @@ export default function FilePreviewPanel({
       : threadFiles.latestTurnPaths.has(previewPath)
         ? `Changed by ${threadFiles.agentName} in the latest turn.`
         : "Changed in this thread.";
-  // Comments on the open file wait in the composer; the footer counts them and leads there.
+  // Comments wait in the composer; the footer counts the thread's, as the Diff does, and leads
+  // there.
   const attachedComments = useComposerDraftStore((store) =>
-    workspaceFile && previewPath !== null
-      ? fileCommentCount(
-          store.getComposerDraft(composerDraftTarget)?.reviewComments ?? [],
-          previewPath,
-        )
-      : 0,
+    workspaceFile ? attachedCount(store.getComposerDraft(composerDraftTarget), "comment") : 0,
   );
   const editable =
     workspaceFile && !isMedia && !isPdf && file.data !== null && !file.data.truncated;
@@ -1319,6 +1254,10 @@ export default function FilePreviewPanel({
     turnKey: threadFiles.turnKey,
     onPendingChange,
   });
+  // A deleted file has nothing left to undo or hold an edit for.
+  useEffect(() => {
+    useFileEditStore.getState().forgetFiles(threadKey, threadFiles.deleted);
+  }, [threadFiles.deleted, threadKey]);
   // Joined, so typing into a held edit does not hand the explorer a new set on every key.
   const unsavedPathsKey = useFileEditStore((state) =>
     [...heldFilePaths(state.byFileKey, threadKey)].join("\u0000"),
@@ -1452,11 +1391,13 @@ export default function FilePreviewPanel({
               <>
                 {/* No save word until the reader edits; then one that says it saved, and Undo. */}
                 {editSession.canUndo ? (
-                  <span className="flex shrink-0 items-center gap-1">
+                  <span className="flex shrink-0 items-center gap-2">
                     <span className="text-muted-foreground text-xs" aria-live="polite">
-                      {editSession.history.tookTheirs
-                        ? `Took ${threadFiles.agentName}'s version`
-                        : "Your edit saved"}
+                      {editSession.history.held !== null
+                        ? "Your edit is not saved"
+                        : editSession.history.tookTheirs
+                          ? `Took ${threadFiles.agentName}'s version`
+                          : "Your edit saved"}
                     </span>
                     <Button size="compact" variant="ghost" onClick={editSession.undo}>
                       Undo

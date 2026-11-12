@@ -105,6 +105,7 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu"
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { AttachedCountButton } from "./attached/AttachedCountButton";
+import { attachedCount } from "~/lib/attachedForAgent";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
 import {
@@ -1200,8 +1201,8 @@ export default function ThreadTerminalDrawer({
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
   // Output added to the message waits in the thread's composer; the footer counts it.
-  const attachedSelections = useComposerDraftStore(
-    (store) => store.getComposerDraft(threadRef)?.terminalContexts.length ?? 0,
+  const attachedSelections = useComposerDraftStore((store) =>
+    attachedCount(store.getComposerDraft(threadRef), "terminal"),
   );
   const runPaneInput = useAtomCommand(terminalEnvironment.write, { reportFailure: false });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });

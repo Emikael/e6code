@@ -2,6 +2,7 @@ import { TurnId } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  deletedThreadFilePaths,
   groupChangedFilesByFolder,
   mergeThreadChangedFiles,
   recentFilesOutsideChanged,
@@ -155,5 +156,30 @@ describe("the Changed filter", () => {
     expect(shortFileFolder("packages/contracts/src/settings.ts")).toBe("contracts/src");
     expect(shortFileFolder("src/a.ts")).toBe("src");
     expect(shortFileFolder("AGENTS.md")).toBe("root");
+  });
+});
+
+describe("deletedThreadFilePaths", () => {
+  it("lists files the thread's changes leave deleted, and not ones brought back", () => {
+    const toWorkspacePath = (path: string) => path;
+    const deleted = deletedThreadFilePaths({
+      workingTree: [
+        { path: "gone.ts", insertions: 0, deletions: 9, unstaged: "deleted" },
+        { path: "back.ts", insertions: 3, deletions: 0, unstaged: "untracked" },
+      ],
+      checkpoints: [
+        {
+          turnId: TurnId.make("t1"),
+          status: "ready",
+          files: [
+            { path: "old.ts", kind: "deleted", additions: 0, deletions: 4 },
+            { path: "back.ts", kind: "deleted", additions: 0, deletions: 3 },
+            { path: "kept.ts", kind: "modified", additions: 1, deletions: 1 },
+          ],
+        },
+      ],
+      toWorkspacePath,
+    });
+    expect(deleted.toSorted()).toEqual(["gone.ts", "old.ts"]);
   });
 });

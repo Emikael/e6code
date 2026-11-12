@@ -3,6 +3,7 @@ import type { PreviewAnnotationPayload } from "@e6tools/contracts";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 
 import {
+  isPullRequestSummaryContext,
   previewAnnotationContextLabel,
   reviewCommentContextLabel,
   terminalContextReference,
@@ -35,7 +36,7 @@ export interface AttachedGroup {
   readonly items: ReadonlyArray<AttachedItem>;
 }
 
-interface AttachedDraft {
+export interface AttachedDraft {
   readonly reviewComments: ReadonlyArray<ReviewCommentContext>;
   readonly previewAnnotations: ReadonlyArray<PreviewAnnotationPayload>;
   readonly terminalContexts: ReadonlyArray<TerminalContextDraft>;
@@ -47,14 +48,33 @@ const GROUP_TITLES: Record<AttachedKind, string> = {
   terminal: "Terminal output",
 };
 
-/** Everything attached to the draft, grouped by kind in a fixed order; empty groups left out. */
-export function attachedGroups(draft: AttachedDraft | null): AttachedGroup[] {
-  if (draft === null) return [];
+/**
+ * Comments on this thread's code that have not been sent: Diff and file comments alike. A pull
+ * request's review threads handed to the agent are its own request, not the reader's comments,
+ * so they stay inline in the prompt and are not counted.
+ */
+function unsentCodeComments(
+  comments: ReadonlyArray<ReviewCommentContext>,
+): ReadonlyArray<ReviewCommentContext> {
+  return comments.filter((comment) => !isPullRequestSummaryContext(comment));
+}
+
+/** "Note 2": a browser note's number, the same on its card and in the composer. */
+export function browserNoteTitle(index: number): string {
+  return `Note ${(index + 1).toLocaleString()}`;
+}
+
+/**
+ * Everything attached to the draft, grouped by kind in a fixed order; empty groups left out.
+ * This is the one definition of "attached": every count on every surface is taken from it.
+ */
+export function attachedGroups(draft: AttachedDraft | null | undefined): AttachedGroup[] {
+  if (!draft) return [];
   const groups: AttachedGroup[] = [
     {
       kind: "comment",
       title: GROUP_TITLES.comment,
-      items: draft.reviewComments.map((comment) => ({
+      items: unsentCodeComments(draft.reviewComments).map((comment) => ({
         kind: "comment",
         id: comment.id,
         label: reviewCommentContextLabel(comment),
@@ -63,10 +83,10 @@ export function attachedGroups(draft: AttachedDraft | null): AttachedGroup[] {
     {
       kind: "note",
       title: GROUP_TITLES.note,
-      items: draft.previewAnnotations.map((annotation) => ({
+      items: draft.previewAnnotations.map((annotation, index) => ({
         kind: "note",
         id: annotation.id,
-        label: previewAnnotationContextLabel(annotation),
+        label: `${browserNoteTitle(index)} · ${previewAnnotationContextLabel(annotation)}`,
       })),
     },
     {
@@ -82,6 +102,8 @@ export function attachedGroups(draft: AttachedDraft | null): AttachedGroup[] {
   return groups.filter((group) => group.items.length > 0);
 }
 
+const ATTACHED_KINDS: ReadonlyArray<AttachedKind> = ["comment", "note", "terminal"];
+
 const NOUNS: Record<AttachedKind, readonly [string, string]> = {
   comment: ["comment", "comments"],
   note: ["note", "notes"],
@@ -94,19 +116,37 @@ export function attachedCountLabel(count: number, kind: AttachedKind): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many} attached`;
 }
 
-/**
- * Comments on this thread's code that have not been sent: Diff and file comments alike. A pull
- * request's review threads handed to the agent are its own request, not the reader's comments.
- */
+/** Diff and file comments attached and not sent: the Diff, Files and Run details count. */
 export function unsentCodeCommentCount(comments: ReadonlyArray<ReviewCommentContext>): number {
-  return comments.filter((comment) => !comment.pullRequest).length;
+  return unsentCodeComments(comments).length;
 }
 
-/** The comments attached on one open file in the Files tab. */
-export function fileCommentCount(
-  comments: ReadonlyArray<ReviewCommentContext>,
-  relativePath: string,
-): number {
-  const sectionId = `file:${relativePath}`;
-  return comments.filter((comment) => comment.sectionId === sectionId).length;
+/** How many items of one kind are attached to the draft: a tab's count. */
+export function attachedCount(draft: AttachedDraft | null | undefined, kind: AttachedKind): number {
+  if (!draft) return 0;
+  switch (kind) {
+    case "comment":
+      return unsentCodeCommentCount(draft.reviewComments);
+    case "note":
+      return draft.previewAnnotations.length;
+    case "terminal":
+      return draft.terminalContexts.length;
+  }
+}
+
+/**
+ * "1 comment not sent", "2 comments and 1 note not sent": what a thread's sidebar row and its
+ * recap say while items wait in its composer. Null when nothing is attached.
+ */
+export function attachedNotSentLabel(draft: AttachedDraft | null | undefined): string | null {
+  // Counted, not grouped: sidebar rows read this on every composer change.
+  const parts = ATTACHED_KINDS.flatMap((kind) => {
+    const count = attachedCount(draft, kind);
+    if (count === 0) return [];
+    const [one, many] = NOUNS[kind];
+    return [`${count.toLocaleString()} ${count === 1 ? one : many}`];
+  });
+  if (parts.length === 0) return null;
+  const last = parts.pop()!;
+  return `${parts.length > 0 ? `${parts.join(", ")} and ${last}` : last} not sent`;
 }

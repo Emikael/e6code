@@ -140,9 +140,13 @@ export function reduceFileEditHistory(
   }
 }
 
-/** Undo is offered while the last saved edit is the reader's own and has somewhere to go back to. */
+/**
+ * Undo is offered while the last saved edit is the reader's own and has somewhere to go back to,
+ * and while a save is held: a stray keystroke stays one click to reverse even after the agent
+ * changed the file under it.
+ */
 export function canUndoFileEdit(state: FileEditHistory): boolean {
-  return state.showSaved && state.undoTo !== null;
+  return (state.showSaved || state.held !== null) && state.undoTo !== null;
 }
 
 /**

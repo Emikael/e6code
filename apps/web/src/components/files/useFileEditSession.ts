@@ -137,6 +137,12 @@ export function useFileEditSession(input: {
     coordinator.release(contents);
   };
 
+  // A new turn forgets the last one's Undo and Revert; entries holding nothing more can go. No
+  // turn yet may only mean the thread is still loading.
+  useEffect(() => {
+    if (turnKey !== null) useFileEditStore.getState().retireTurn(input.threadKey, turnKey);
+  }, [input.threadKey, turnKey]);
+
   // A read from disk that the reader did not write is the agent's: say so rather than lose either.
   useEffect(() => {
     if (input.serverContents !== null) dispatch({ type: "read", contents: input.serverContents });

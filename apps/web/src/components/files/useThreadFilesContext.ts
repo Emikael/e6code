@@ -10,7 +10,11 @@ import { useProject, useThread } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 
-import { mergeThreadChangedFiles, type ThreadChangedFile } from "./threadChangedFiles";
+import {
+  deletedThreadFilePaths,
+  mergeThreadChangedFiles,
+  type ThreadChangedFile,
+} from "./threadChangedFiles";
 
 export interface ThreadFilesContext {
   /** Files this thread has touched, by workspace path. */
@@ -21,6 +25,8 @@ export interface ThreadFilesContext {
   readonly agentName: string;
   /** Changes when a turn starts, so edit history scoped to a turn can be dropped. */
   readonly turnKey: string | null;
+  /** Workspace paths the thread's changes leave deleted, so their edit history can go. */
+  readonly deleted: ReadonlyArray<string>;
 }
 
 /**
@@ -51,12 +57,14 @@ export function useThreadFilesContext(threadRef: ScopedThreadRef, cwd: string): 
     const toWorkspacePath = (path: string) =>
       resolveDiffPathForWorkspace({ filePath: path, workspaceRoot: cwd, repositoryRoot });
     const latest = checkpoints?.at(-1);
+    const changes = {
+      workingTree: workingTree ?? [],
+      checkpoints: checkpoints ?? [],
+      toWorkspacePath,
+    };
     return {
-      changed: mergeThreadChangedFiles({
-        workingTree: workingTree ?? [],
-        checkpoints: checkpoints ?? [],
-        toWorkspacePath,
-      }),
+      changed: mergeThreadChangedFiles(changes),
+      deleted: deletedThreadFilePaths(changes),
       latestTurnPaths: new Set(
         (latest?.files ?? []).flatMap((file) => toWorkspacePath(file.path) ?? []),
       ),
