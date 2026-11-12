@@ -52,7 +52,7 @@ import {
 import { onRightPanelNewMenuRequest } from "~/commandPaletteBus";
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
-import type { RightPanelSurface } from "~/rightPanelStore";
+import { isFileSurfacePending, surfaceFilePath, type RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
 import {
   effectiveShortcutsForCommand,
@@ -1356,7 +1356,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     const items: ContextMenuItem<TabContextMenuAction>[] = [];
     if (surface.kind === "device" && props.onRenameDevice)
       items.push({ id: "rename", label: "Rename" });
-    if (surface.kind === "file" && surface.attachment === undefined) {
+    if (surfaceFilePath(surface) !== null) {
       items.push({ id: "copy-path", label: "Copy path" });
     }
     const menuPreviewTabId = previewTabIdOf(surface, props.previewSessions);
@@ -1406,11 +1406,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       case "rename":
         setRenamingDevice(surface.id);
         break;
-      case "copy-path":
-        if (surface.kind === "file" && surface.attachment === undefined) {
-          props.onCopyFilePath(surface.relativePath);
-        }
+      case "copy-path": {
+        const path = surfaceFilePath(surface);
+        if (path !== null) props.onCopyFilePath(path);
         break;
+      }
       case "toggle-mute": {
         const runtimeTabId =
           menuPreviewTabId && menuOverlay
@@ -1584,7 +1584,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     dragDisabled: !props.onMoveSurface || renamingDevice === surface.id,
                     active: surface.id === props.activeSurfaceId,
                     focusable: surface.id === focusableTabId,
-                    pending: props.pendingSurfaceIds.has(surface.id),
+                    pending: isFileSurfacePending(surface, props.pendingSurfaceIds),
                     title: surfaceTitle(surface, props.previewSessions, props.terminalLabelsById),
                     running: runningTerminalCount(surface, runningTerminalIds) > 0,
                     audio: tabAudioState(

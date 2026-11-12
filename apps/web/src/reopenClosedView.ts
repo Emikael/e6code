@@ -128,9 +128,19 @@ export async function reopenClosedView(
       if (surface.resourceId !== null) return false;
       panels.openBrowser(ref, null);
       break;
+    case "files":
+      // The Files tab comes back showing the file it showed.
+      if (surface.relativePath !== undefined) {
+        panels.openFile(ref, surface.relativePath, surface.revealLine ?? undefined);
+      } else panels.open(ref, "files");
+      break;
     case "file":
       if (surface.attachment) panels.openAttachment(ref, surface.attachment);
-      else panels.openFile(ref, surface.relativePath, surface.revealLine ?? undefined);
+      else {
+        // A file kept as its own tab comes back as one, at its line.
+        panels.keepFileAsTab(ref, surface.relativePath);
+        panels.openFile(ref, surface.relativePath, surface.revealLine ?? undefined);
+      }
       break;
     case "device":
       if (surface.target) {

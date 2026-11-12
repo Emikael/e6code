@@ -6,11 +6,11 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@e6tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@e6tools/shared/composerTrigger";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon, SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
@@ -22,7 +22,6 @@ import { readLocalApi } from "~/localApi";
 import { E6_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
-import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
@@ -74,8 +73,12 @@ function FileSearchField(props: {
   onValueChange: (value: string) => void;
   value: string;
 }) {
+  // Board 15: a 32px field with a visible hairline, so the input reads as one at a glance.
   return (
-    <InputGroup variant="ghost" className="h-7 min-w-0 flex-1">
+    <InputGroup className="h-8 min-w-0 flex-1 rounded-lg border-muted-foreground bg-card">
+      <InputGroupAddon>
+        <SearchIcon aria-hidden className="size-3.5 text-muted-foreground" />
+      </InputGroupAddon>
       <InputGroupInput
         type="search"
         name={props.name}
@@ -485,11 +488,10 @@ export default function FileBrowserPanel({
   return (
     <div
       ref={panelRef}
-      className="flex min-h-0 flex-1 flex-col bg-background"
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
-      <PanelSurfaceHeader>
-        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+      <div className="flex shrink-0 items-center gap-1 px-2 pt-2.5 pb-2">
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -525,7 +527,8 @@ export default function FileBrowserPanel({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-      </PanelSurfaceHeader>
+        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+      </div>
       {error || pathSearch.error ? (
         <button
           type="button"

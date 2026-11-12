@@ -302,8 +302,8 @@ describe("proactive panels", () => {
         panels.openProactive(ref, { id: "diff", kind: "diff" }, loaded.userActionRevision),
       ).toBe(false);
       expect(
-        selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref)?.id,
-      ).toBe("file:src/second.ts");
+        selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref),
+      ).toMatchObject({ id: "files", relativePath: "src/second.ts" });
     },
   );
 

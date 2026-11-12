@@ -8,7 +8,8 @@ import {
 import {
   isMarkdownPreviewFile,
   setMarkdownTaskChecked,
-  shouldShowFileExplorer,
+  fileExplorerToggleShown,
+  resolveFileExplorerLayout,
 } from "./filePreviewMode";
 
 describe("file comment annotations", () => {
@@ -70,39 +71,39 @@ describe("isMarkdownPreviewFile", () => {
   });
 });
 
-describe("shouldShowFileExplorer", () => {
+describe("resolveFileExplorerLayout", () => {
+  const layout = (overrides: Partial<Parameters<typeof resolveFileExplorerLayout>[0]>) =>
+    resolveFileExplorerLayout({
+      variant: "files",
+      relativePath: "docs/report.md",
+      attachmentOpen: false,
+      narrow: false,
+      explorerOpen: false,
+      ...overrides,
+    });
+
   it("hides the workspace tree for host files and attachments", () => {
-    expect(
-      shouldShowFileExplorer({
-        relativePath: "/tmp/report.pdf",
-        explorerOpen: true,
-        attachmentOpen: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowFileExplorer({
-        relativePath: "report.pdf",
-        explorerOpen: true,
-        attachmentOpen: true,
-      }),
-    ).toBe(false);
+    expect(layout({ relativePath: "/tmp/report.pdf" })).toBe("none");
+    expect(layout({ attachmentOpen: true })).toBe("none");
   });
 
-  it("keeps the saved explorer preference for workspace files", () => {
-    expect(
-      shouldShowFileExplorer({
-        relativePath: "docs/report.pdf",
-        explorerOpen: true,
-        attachmentOpen: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldShowFileExplorer({
-        relativePath: "docs/report.pdf",
-        explorerOpen: false,
-        attachmentOpen: false,
-      }),
-    ).toBe(false);
+  it("fills the surface with the tree while nothing is open", () => {
+    expect(layout({ relativePath: null })).toBe("fill");
+    expect(layout({ relativePath: null, variant: "kept", narrow: true })).toBe("fill");
+  });
+
+  it("keeps the Files tab's explorer beside the file, folding it to a button when narrow", () => {
+    expect(layout({})).toBe("column");
+    expect(layout({ narrow: true })).toBe("none");
+    expect(layout({ narrow: true, explorerOpen: true })).toBe("overlay");
+    expect(fileExplorerToggleShown({ variant: "files", narrow: false })).toBe(false);
+    expect(fileExplorerToggleShown({ variant: "files", narrow: true })).toBe(true);
+  });
+
+  it("starts a kept file tab without its explorer, so two trees never show at once", () => {
+    expect(layout({ variant: "kept" })).toBe("none");
+    expect(layout({ variant: "kept", explorerOpen: true })).toBe("column");
+    expect(fileExplorerToggleShown({ variant: "kept", narrow: false })).toBe(true);
   });
 });
 
