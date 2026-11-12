@@ -5,7 +5,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@e6tools/contracts";
-import { scopeThreadRef } from "@e6tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@e6tools/client-runtime/environment";
 import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
@@ -24,6 +24,7 @@ import {
   EllipsisIcon,
   EyeIcon,
   FileIcon,
+  FocusIcon,
   MessageCircleQuestionIcon,
   PencilIcon,
   ShieldQuestionIcon,
@@ -70,6 +71,11 @@ import {
 import { cn } from "~/lib/utils";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
+import { useRouter } from "@tanstack/react-router";
+import { useThreadAttention } from "~/hooks/useThreadAttention";
+import { goToNextThreadThatNeedsYou } from "~/lib/needsYouNavigation";
+import { shortcutLabelForCommand } from "~/keybindings";
 import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 
 interface ChatHeaderProps {
@@ -101,6 +107,9 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  /** Focus mode turns the header into the focus bar (board 3). */
+  focusMode: boolean;
+  onToggleFocus: () => void;
 }
 
 /**
@@ -200,8 +209,24 @@ const THREAD_HEADER_STATUS_STYLE: Record<
   done: { icon: CircleCheckIcon, className: "bg-success/10 text-success-foreground" },
 };
 
-function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
-  const { icon: Icon, className } = THREAD_HEADER_STATUS_STYLE[status.kind];
+function ThreadHeaderStatusPill({
+  status,
+  plain = false,
+}: {
+  status: ThreadHeaderStatus;
+  /** The focus bar draws the glyph and word without the wash. */
+  plain?: boolean;
+}) {
+  const { icon: Icon, className: styleClassName } = THREAD_HEADER_STATUS_STYLE[status.kind];
+  const className = plain
+    ? cn(
+        "px-0",
+        styleClassName
+          .split(" ")
+          .filter((name) => !name.startsWith("bg-"))
+          .join(" "),
+      )
+    : styleClassName;
   const fullText = joinThreadRowStatus(status);
   // Not a live region itself: it mounts and unmounts with the status, which screen readers
   // skip. ChatHeader keeps an always-mounted region with the short label instead.
@@ -276,6 +301,51 @@ function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => vo
   );
 }
 
+function ShortcutKeys({ label }: { label: string | null }) {
+  if (!label) return null;
+  return <Kbd className="h-5 bg-transparent px-1 ring-1 ring-border">{label}</Kbd>;
+}
+
+/**
+ * "1 needs you · Next" in the focus bar: the sidebar's Needs you count is
+ * hidden in focus, so this pill carries it, and only while another thread is
+ * blocked on you.
+ */
+function FocusNeedsYouPill({
+  currentThreadKey,
+  keybindings,
+}: {
+  currentThreadKey: string;
+  keybindings: ResolvedKeybindingsConfig;
+}) {
+  const attention = useThreadAttention();
+  const router = useRouter();
+  const count = [...attention.blocked, ...attention.earlier].filter(
+    (item) => item.key !== currentThreadKey,
+  ).length;
+  if (count === 0) return null;
+  const shortcut = shortcutLabelForCommand(keybindings, "thread.nextNeedsYou");
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="shrink-0 bg-warning-surface text-warning-foreground hover:bg-warning-surface hover:text-warning-foreground"
+      aria-label={`${count} ${count === 1 ? "thread needs" : "threads need"} you. Go to the next one`}
+      onClick={() =>
+        goToNextThreadThatNeedsYou({
+          attention,
+          currentThreadKey,
+          navigate: (options) => router.navigate(options),
+        })
+      }
+    >
+      {count} needs you
+      <span className="text-xs font-normal opacity-85">Next</span>
+      <ShortcutKeys label={shortcut} />
+    </Button>
+  );
+}
+
 export function shouldShowOpenInPicker(input: {
   readonly activeProjectName: string | undefined;
   readonly activeThreadEnvironmentId: EnvironmentId;
@@ -318,6 +388,8 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  focusMode,
+  onToggleFocus,
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
   // Scripts, Open in and Git live in one quiet menu on every viewport; phones get touch rows.
@@ -538,6 +610,44 @@ export const ChatHeader = memo(function ChatHeader({
   ]
     .filter(Boolean)
     .join(": ");
+  const focusShortcut = shortcutLabelForCommand(keybindings, "focus.toggle");
+  const statusRegion = (
+    // The open thread's only status live region, so it is heard whether or not the sidebar
+    // is showing; the sidebar row of the open thread is not a live region. It stays mounted
+    // and holds just the short label, so a status change is announced and a plan step is
+    // not. Keyed by thread, so opening a thread does not announce its current status.
+    <span key={`${activeThreadEnvironmentId}:${activeThreadId}`} role="status" className="sr-only">
+      {headerStatus?.label ?? ""}
+    </span>
+  );
+  if (focusMode) {
+    // Board 3: Focus, the title, its status, a Needs you pill only when another thread is
+    // blocked, and a visible way out. Escape does not exit.
+    return (
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+        <span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium text-muted-foreground">
+          <FocusIcon aria-hidden className="size-3.5" />
+          Focus
+        </span>
+        <h2 className="max-w-80 min-w-0 truncate text-[13px] leading-[18px] font-medium text-foreground">
+          {activeThreadTitle}
+        </h2>
+        {headerStatus ? <ThreadHeaderStatusPill status={headerStatus} plain /> : null}
+        {statusRegion}
+        <span className="grow" />
+        {isServerThread ? (
+          <FocusNeedsYouPill
+            currentThreadKey={scopedThreadKey(activeThreadRef)}
+            keybindings={keybindings}
+          />
+        ) : null}
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={onToggleFocus}>
+          Exit focus
+          <ShortcutKeys label={focusShortcut} />
+        </Button>
+      </div>
+    );
+  }
   return (
     <div
       className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
@@ -641,17 +751,7 @@ export const ChatHeader = memo(function ChatHeader({
           </li>
         ) : null}
       </WorkspaceBreadcrumb>
-      {/* The open thread's only status live region, so it is heard whether or not the sidebar
-          is showing; the sidebar row of the open thread is not a live region. It stays mounted
-          and holds just the short label, so a status change is announced and a plan step is
-          not. Keyed by thread, so opening a thread does not announce its current status. */}
-      <span
-        key={`${activeThreadEnvironmentId}:${activeThreadId}`}
-        role="status"
-        className="sr-only"
-      >
-        {headerStatus?.label ?? ""}
-      </span>
+      {statusRegion}
       {/* Which machine runs this thread, and whether it is reachable, as a dot and a word.
           Never hidden: narrow headers drop only the machine name. */}
       <EnvironmentConnectionChip environmentId={activeThreadEnvironmentId} />
@@ -667,6 +767,26 @@ export const ChatHeader = memo(function ChatHeader({
       >
         {changedFileCount !== null ? (
           <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
+        ) : null}
+        {isServerThread ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="me-1 hidden sm:text-xs @lg/header-actions:inline-flex"
+                  onClick={onToggleFocus}
+                />
+              }
+            >
+              <FocusIcon aria-hidden className="size-3.5" />
+              Focus
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              One thread, nothing around it{focusShortcut ? ` (${focusShortcut})` : ""}
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {/* Scripts, Open in and Git sit in one quiet menu. It stays mounted while closed, so
             their keybindings, command palette entries and open dialogs keep working. */}

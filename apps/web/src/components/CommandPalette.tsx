@@ -59,6 +59,7 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   BellDotIcon,
+  FocusIcon,
   HistoryIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
@@ -878,6 +879,7 @@ function OpenCommandPaletteDialog(props: {
     }
   }, [activeThreadReferenceCopyTarget]);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const focusMode = useUiStateStore((store) => store.focusMode);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
@@ -2244,6 +2246,20 @@ function OpenCommandPaletteDialog(props: {
       icon: <HistoryIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         useThreadRecapStore.getState().requestRecap(activeThreadKey);
+      },
+    });
+  }
+  // Focus mode: "Enter focus" on a thread, "Exit focus" wherever it is on.
+  if (focusMode || activeThreadKey) {
+    actionItems.push({
+      kind: "action",
+      value: "action:focus-toggle",
+      searchTerms: ["focus", "focus mode", "distraction", "quiet", "one thread", "hide sidebar"],
+      title: focusMode ? "Exit focus" : "Enter focus",
+      icon: <FocusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "focus.toggle",
+      run: async () => {
+        useUiStateStore.getState().toggleFocusMode();
       },
     });
   }

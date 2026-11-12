@@ -221,6 +221,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["attention recap where was i left off summary break away return catch up"],
   },
   {
+    id: "focus-holds-finished",
+    title: "Hold finished threads in focus mode",
+    to: "/settings/attention",
+    searchTerms: ["attention focus mode hold finished notifications digest quiet"],
+  },
+  {
     id: "sidebar-elapsed-time",
     title: "Elapsed time in the thread list",
     to: "/settings/attention",

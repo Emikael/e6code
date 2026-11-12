@@ -41,6 +41,7 @@ export function AttentionSettingsPanel() {
   const sidebarElapsedTimeEnabled = useClientSettings((s) => s.sidebarElapsedTimeEnabled);
   const recapTrigger = useClientSettings((s) => s.recapTrigger);
   const composerControls = useClientSettings((s) => s.composerControls);
+  const focusHoldsFinished = useClientSettings((s) => s.focusHoldsFinished);
   const updateSettings = useUpdateClientSettings();
 
   return (
@@ -146,6 +147,31 @@ export function AttentionSettingsPanel() {
                   ))}
                 </SelectPopup>
               </Select>
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("focus-holds-finished")}
+            description="Anything that blocks an agent still comes through."
+            resetAction={
+              focusHoldsFinished !== DEFAULT_CLIENT_SETTINGS.focusHoldsFinished ? (
+                <SettingResetButton
+                  label="holding in focus mode"
+                  onClick={() =>
+                    updateSettings({
+                      focusHoldsFinished: DEFAULT_CLIENT_SETTINGS.focusHoldsFinished,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={focusHoldsFinished}
+                onCheckedChange={(checked) =>
+                  updateSettings({ focusHoldsFinished: Boolean(checked) })
+                }
+                aria-label="Hold finished threads in focus mode"
+              />
             }
           />
         </SettingsSection>

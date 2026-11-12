@@ -242,6 +242,7 @@ import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommand
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { composerControlsSummary } from "./composerControlsSummary";
+import { useFocusModeActive } from "../../hooks/useFocusMode";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -4872,6 +4873,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onComposerOverlayHeightChange,
   );
 
+  const focusModeActive = useFocusModeActive();
   // "Composer controls: Compact" folds effort, permissions and Plan or Build into the
   // overflow chip at every width; the measured layout only decides in Full.
   const composerControlsCompact =
@@ -6800,6 +6802,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       projectSelectionRequired,
                       providerUnavailable: showProviderUnavailable,
                       phase,
+                      focusMode: focusModeActive,
                     })}
                     disabled={
                       isConnecting ||

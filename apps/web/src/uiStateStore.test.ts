@@ -29,6 +29,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
     runDetailsSectionOpen: {},
+    focusMode: false,
+    focusPanelPeek: false,
     ...overrides,
   };
 }
@@ -220,6 +222,8 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
       runDetailsSectionOpen: {},
+      focusMode: false,
+      focusPanelPeek: false,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -350,6 +354,7 @@ describe("uiStateStore persistence", () => {
       },
       pullRequestMergeMethod: "merge",
       runDetailsSectionOpen: {},
+      focusMode: false,
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

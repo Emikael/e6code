@@ -712,6 +712,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.composerControls !== DEFAULT_UNIFIED_SETTINGS.composerControls
         ? ["Composer controls"]
         : []),
+      ...(settings.focusHoldsFinished !== DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished
+        ? ["Hold finished threads in focus mode"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -852,6 +855,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarElapsedTimeEnabled,
       settings.recapTrigger,
       settings.composerControls,
+      settings.focusHoldsFinished,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.attentionNotifications,
@@ -957,6 +961,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarElapsedTimeEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled,
       recapTrigger: DEFAULT_UNIFIED_SETTINGS.recapTrigger,
       composerControls: DEFAULT_UNIFIED_SETTINGS.composerControls,
+      focusHoldsFinished: DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,

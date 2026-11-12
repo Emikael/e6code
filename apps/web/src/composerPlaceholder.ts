@@ -17,6 +17,8 @@ export function resolveComposerPlaceholder(input: {
   readonly projectSelectionRequired: boolean;
   readonly providerUnavailable: boolean;
   readonly phase: SessionPhase;
+  /** Focus mode invites a reply or a parked thought (board 3). */
+  readonly focusMode?: boolean;
 }): string {
   if (input.approval) {
     return input.approval.agentName !== null
@@ -35,5 +37,6 @@ export function resolveComposerPlaceholder(input: {
   if (input.providerUnavailable) return "Enable a provider in Settings to send a message";
   if (input.phase === "disconnected") return DISCONNECTED_COMPOSER_PLACEHOLDER;
   if (input.phase === "running") return "Queue a follow-up while it works";
+  if (input.focusMode) return "Reply, or park a thought for later";
   return IDLE_COMPOSER_PLACEHOLDER;
 }

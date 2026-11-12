@@ -150,6 +150,11 @@ export const make = Effect.gen(function* () {
       if (event.triggeredByAccelerator === true) return;
       runMenuEffect("paste-as-text", dispatchMenuAction("paste-as-text"));
     };
+    // No accelerator: the renderer owns the rebindable focus.toggle key (Mod+Alt+Z), and a
+    // menu accelerator would swallow it or toggle twice.
+    const focusModeClick = () => {
+      runMenuEffect("focus.toggle", dispatchMenuAction("focus.toggle"));
+    };
     const zoomClick = (direction: DesktopWindow.MainWindowZoomDirection) => () => {
       runMenuEffect(`zoom-${direction}`, zoomMainWindow(direction));
     };
@@ -230,6 +235,8 @@ export const make = Effect.gen(function* () {
       {
         label: "View",
         submenu: [
+          { label: "Focus Mode", click: focusModeClick },
+          { type: "separator" },
           { role: "reload" },
           { role: "forceReload" },
           { role: "toggleDevTools" },

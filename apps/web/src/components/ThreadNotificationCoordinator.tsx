@@ -27,6 +27,7 @@ import {
   unlockNotificationAudio,
 } from "../threadNotifications";
 import { useThreadWatchStore } from "../threadWatchStore";
+import { useUiStateStore } from "../uiStateStore";
 import { isAnotherWindowFocused, shareWindowFocus } from "../windowFocusChannel";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { BlockedDiamond } from "./SidebarNeedsYou";
@@ -53,9 +54,9 @@ interface PassEntry {
   readonly isOpenThread: boolean;
 }
 
-// Focus mode (phase 11) holds the digest until exit; until it exists nothing holds.
+/** Focus mode holds other finished threads until you exit it, unless the setting is off. */
 function isFocusHoldActive() {
-  return false;
+  return useUiStateStore.getState().focusMode && getClientSettings().focusHoldsFinished;
 }
 
 const providerLabel = (name: string) =>
@@ -350,6 +351,12 @@ export function ThreadNotificationCoordinator() {
       document.removeEventListener("keydown", onInput, { capture: true });
     };
   }, []);
+
+  // Leaving focus mode is a breakpoint: what it held arrives now.
+  const focusMode = useUiStateStore((state) => state.focusMode);
+  useEffect(() => {
+    if (!focusMode) flushDigest();
+  }, [flushDigest, focusMode]);
 
   // Opening a thread counts as seeing what was held for it.
   const activeKey =

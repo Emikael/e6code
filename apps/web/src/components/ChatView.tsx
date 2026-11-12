@@ -179,6 +179,9 @@ import {
 } from "../pendingUserInput";
 import { noteThreadTurnSent } from "../threadWatchStore";
 import { useUiStateStore } from "../uiStateStore";
+import { resolveFocusLayout } from "../focusMode";
+import { useFocusModeActive, useFocusPanelPeek } from "../hooks/useFocusMode";
+import { FocusHoldCaption } from "./chat/FocusHoldCaption";
 import {
   latestWorkspaceMutationId,
   useWorkspaceMutationRefresh,
@@ -2126,11 +2129,24 @@ export default function ChatView(props: ChatViewProps) {
     [activeKnownTerminalIds, panelTerminalIds],
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
-  const rightPanelOpen = rightPanelState.isOpen;
+  // Focus mode renders the panel and drawer closed without writing their stores.
+  const focusModeActive = useFocusModeActive();
+  const focusPanelPeek = useUiStateStore((state) => state.focusPanelPeek);
+  const toggleFocusMode = useUiStateStore((state) => state.toggleFocusMode);
+  const focusLayout = resolveFocusLayout(
+    {
+      sidebarOpen: true,
+      rightPanelOpen: rightPanelState.isOpen,
+      terminalOpen: Boolean(terminalUiState.terminalOpen),
+    },
+    { focusMode: focusModeActive, panelPeek: focusPanelPeek },
+  );
+  const rightPanelOpen = focusLayout.rightPanelOpen;
+  useFocusPanelPeek(focusModeActive, activeThreadKey, rightPanelState);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
-    Boolean(activeThreadKey && terminalUiState.terminalOpen),
+    Boolean(activeThreadKey && focusLayout.terminalOpen),
     true,
     panelAnimationsActive,
     activeThreadKey,
@@ -7290,6 +7306,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      // Focus mode keeps the terminal drawer closed; its keys wait until you exit.
+      if (focusModeActive && command?.startsWith("terminal.") && terminalFocusOwner === null) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       if (command === "terminal.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -7300,6 +7323,16 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "rightPanel.toggle") {
         event.preventDefault();
         event.stopPropagation();
+        if (focusModeActive) {
+          // Shows or hides the panel for this focus session; hiding writes nothing.
+          if (focusPanelPeek) {
+            useUiStateStore.getState().setFocusPanelPeek(false);
+          } else {
+            if (activeThreadRef) useRightPanelStore.getState().show(activeThreadRef);
+            useUiStateStore.getState().setFocusPanelPeek(true);
+          }
+          return;
+        }
         toggleRightPanel();
         return;
       }
@@ -7384,6 +7417,16 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "diff.toggle") {
         event.preventDefault();
         event.stopPropagation();
+        if (focusModeActive) {
+          // Mod+D still opens the diff in focus; pressed again it hides it without a write.
+          if (focusPanelPeek && diffOpen) {
+            useUiStateStore.getState().setFocusPanelPeek(false);
+            return;
+          }
+          if (!diffOpen) onToggleDiff();
+          useUiStateStore.getState().setFocusPanelPeek(true);
+          return;
+        }
         onToggleDiff();
         return;
       }
@@ -7508,6 +7551,9 @@ export default function ChatView(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    focusModeActive,
+    focusPanelPeek,
+    diffOpen,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
@@ -10504,7 +10550,10 @@ export default function ChatView(props: ChatViewProps) {
               className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
             />
           ) : null}
-          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
+          {/* The focus bar has no panel toggles; Mod+D and Mod+Alt+B still show the panel. */}
+          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel && !focusModeActive
+            ? panelLayoutControls
+            : null}
           <ChatHeader
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
@@ -10534,6 +10583,8 @@ export default function ChatView(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            focusMode={focusModeActive}
+            onToggleFocus={toggleFocusMode}
           />
         </WorkspacePageHeader>
 
@@ -11155,6 +11206,7 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       </div>
                     </ComposerSurface.Shell>
+                    {focusModeActive && !isDraftHeroState ? <FocusHoldCaption /> : null}
                     <div
                       aria-hidden
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
@@ -11241,7 +11293,7 @@ export default function ChatView(props: ChatViewProps) {
             key={mountedThreadKey}
             threadRef={mountedThreadRef}
             threadId={mountedThreadRef.threadId}
-            active={mountedThreadKey === activeThreadKey}
+            active={mountedThreadKey === activeThreadKey && !focusModeActive}
             launchContext={
               mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
             }

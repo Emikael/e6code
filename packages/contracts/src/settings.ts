@@ -522,6 +522,8 @@ export const ClientSettingsSchema = Schema.Struct({
   composerControls: ComposerControls.pipe(
     Schema.withDecodingDefault(Effect.succeed("compact" as const)),
   ),
+  /** Focus mode holds other finished threads until you exit it. */
+  focusHoldsFinished: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -1755,6 +1757,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarElapsedTimeEnabled: Schema.optionalKey(Schema.Boolean),
   recapTrigger: Schema.optionalKey(RecapTrigger),
   composerControls: Schema.optionalKey(ComposerControls),
+  focusHoldsFinished: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

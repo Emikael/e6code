@@ -27,6 +27,15 @@ describe("resolveComposerPlaceholder", () => {
     );
   });
 
+  it("invites a reply or a parked thought in focus mode, unless a turn runs", () => {
+    expect(resolveComposerPlaceholder({ ...idle, focusMode: true })).toBe(
+      "Reply, or park a thought for later",
+    );
+    expect(resolveComposerPlaceholder({ ...idle, phase: "running", focusMode: true })).toBe(
+      "Queue a follow-up while it works",
+    );
+  });
+
   it("lets a blocking approval or question win over a running turn", () => {
     expect(
       resolveComposerPlaceholder({ ...idle, phase: "running", approval: { agentName: "Claude" } }),
