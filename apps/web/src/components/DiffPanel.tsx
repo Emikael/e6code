@@ -338,6 +338,18 @@ export default function DiffPanel({
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
   const codeViewMountKey = `${collapseScopeKey ?? reviewSectionId}:${codeViewRevision}`;
+  const lastSeenKey = routeThreadRef
+    ? diffLastSeenKey(scopedThreadKey(routeThreadRef), reviewSectionId)
+    : null;
+  // Where the reader stopped is read once per scope, so paging on does not move the line.
+  const storedLastSeen = useDiffReviewStore((state) =>
+    lastSeenKey ? (state.lastSeen[lastSeenKey] ?? null) : null,
+  );
+  const [resumeAt, setResumeAt] = useState<{
+    readonly key: string | null;
+    readonly position: DiffLastSeen | null;
+  }>({ key: null, position: null });
+  if (resumeAt.key !== lastSeenKey) setResumeAt({ key: lastSeenKey, position: storedLastSeen });
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
     : GIT_SCOPE_LABELS[selectedGitScope];
@@ -629,12 +641,19 @@ export default function DiffPanel({
     () => renderableFiles.map(getCachedFileEntry),
     [renderableFiles],
   );
+  // Files start folded when the setting asks, except the one where the reader stopped, so the
+  // "You stopped here" line is in view when they come back.
+  const resumePath = resumeAt.key === lastSeenKey ? (resumeAt.position?.path ?? null) : null;
   const defaultCollapsedDiffFileKeys = useMemo(
     () =>
       settings.diffFilesCollapsed
-        ? new Set(renderableFileEntries.map((file) => file.fileKey))
+        ? new Set(
+            renderableFileEntries
+              .filter((file) => resolveFileDiffPath(file.fileDiff) !== resumePath)
+              .map((file) => file.fileKey),
+          )
         : EMPTY_COLLAPSED_DIFF_FILE_KEYS,
-    [renderableFileEntries, settings.diffFilesCollapsed],
+    [renderableFileEntries, resumePath, settings.diffFilesCollapsed],
   );
   const collapsedDiffFileKeys =
     collapsedDiffFiles.scopeKey === collapseScopeKey
@@ -1070,9 +1089,6 @@ export default function DiffPanel({
     (path: string) => reviewStatusOf(path) === "reviewed",
     [reviewStatusOf],
   );
-  const lastSeenKey = routeThreadRef
-    ? diffLastSeenKey(scopedThreadKey(routeThreadRef), reviewSectionId)
-    : null;
   // Kept by the change's fingerprint, so it finds the same change after the agent edits above it.
   const recordLastSeen = useCallback(
     (path: string, change: number) => {
@@ -1127,15 +1143,6 @@ export default function DiffPanel({
     },
     [revealDiffFile, selectPagingFile],
   );
-  // Where the reader stopped is read once per scope, so paging on does not move the line.
-  const storedLastSeen = useDiffReviewStore((state) =>
-    lastSeenKey ? (state.lastSeen[lastSeenKey] ?? null) : null,
-  );
-  const [resumeAt, setResumeAt] = useState<{
-    readonly key: string | null;
-    readonly position: DiffLastSeen | null;
-  }>({ key: null, position: null });
-  if (resumeAt.key !== lastSeenKey) setResumeAt({ key: lastSeenKey, position: storedLastSeen });
   const resumeMarker = useMemo<DiffLineMarker | null>(() => {
     const position = resumeAt.key === lastSeenKey ? resumeAt.position : null;
     if (!position) return null;

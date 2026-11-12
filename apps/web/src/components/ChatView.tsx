@@ -2108,16 +2108,6 @@ export default function ChatView(props: ChatViewProps) {
     selectActiveRightPanel(state.byThreadKey, activeThreadRef),
   );
   const diffOpen = activeRightPanelKind === "diff";
-  const explicitDiffOpenRef = useRef<ScopedThreadRef | null>(null);
-  useLayoutEffect(() => {
-    const explicitThreadRef = explicitDiffOpenRef.current;
-    explicitDiffOpenRef.current = null;
-    // Generic openings always show the checkout, including tab fallbacks and thread changes.
-    // A timeline click instead opens the specific turn/file the user requested.
-    if (diffOpen && activeThreadRef && explicitThreadRef !== activeThreadRef) {
-      useDiffPanelStore.getState().selectGitScope(activeThreadRef, "uncommitted");
-    }
-  }, [activeThreadRef, diffOpen]);
   // A docked panel follows the last open/close choice on threads the user has not touched;
   // a narrow-window sheet opens only when asked.
   const rightPanelState = useRightPanelStore((state) =>
@@ -4072,6 +4062,11 @@ export default function ChatView(props: ChatViewProps) {
     }
     if (!diffOpen) {
       onDiffPanelOpen?.();
+      // Opening Diff (Review changes) shows the checkout. Returning to an open Diff tab keeps
+      // the scope the reader left it on, so "You stopped here" and review marks still apply.
+      if (activeThreadRef) {
+        useDiffPanelStore.getState().selectGitScope(activeThreadRef, "uncommitted");
+      }
     }
     if (activeThreadRef) {
       useRightPanelStore.getState().toggle(activeThreadRef, "diff");
@@ -10206,7 +10201,6 @@ export default function ChatView(props: ChatViewProps) {
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
-      explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
       useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
       useRightPanelStore.getState().open(activeThreadRef, "diff");
       onDiffPanelOpen?.();
