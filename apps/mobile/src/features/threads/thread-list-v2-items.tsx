@@ -226,6 +226,41 @@ export const ThreadListV2NeedsYouHeader = memo(function ThreadListV2NeedsYouHead
   );
 });
 
+/**
+ * "Earlier · 3": threads blocked for more than a day, folded into one row
+ * (F1). Tapping opens them below it; they stay counted in the header.
+ */
+export const ThreadListV2NeedsYouEarlierRow = memo(function ThreadListV2NeedsYouEarlierRow(props: {
+  readonly count: number;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+}) {
+  return (
+    <View className="px-4 pb-2">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Earlier, ${props.count} blocked for over a day`}
+        accessibilityHint={props.expanded ? "Hides them." : "Shows them."}
+        accessibilityState={{ expanded: props.expanded }}
+        onPress={props.onToggle}
+        className="min-h-11 flex-row items-center gap-2 rounded-xl border border-border px-3.5 py-2.5"
+        style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      >
+        <Text className="flex-1 text-sm font-e6-medium text-foreground-secondary">
+          {`Earlier · ${props.count}`}
+        </Text>
+        <SymbolView
+          name="chevron.down"
+          size={12}
+          tintColorClassName="accent-icon-muted"
+          type="monochrome"
+          style={{ transform: [{ rotate: props.expanded ? "180deg" : "0deg" }] }}
+        />
+      </Pressable>
+    </View>
+  );
+});
+
 /** The approval mark: an 8pt diamond in the warning role, always beside a word. */
 export function BlockedDiamond() {
   return (

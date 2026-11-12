@@ -1,8 +1,9 @@
 /**
  * "Where you left off" on mobile (F4, board 9): the shared recap, decided
- * once when a thread opens, from the thread's own log. Mobile has no recap
- * setting, so it follows the web default: after a break of five minutes.
+ * once when a thread opens, from the thread's own log, by the device's
+ * `recapTrigger` (Settings → Thread behavior), after a break by default.
  */
+import type { RecapTrigger } from "@e6tools/contracts/settings";
 import type {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -18,6 +19,7 @@ import {
 } from "@e6tools/client-runtime/work-log/thread-recap";
 
 import type { ThreadVisit } from "../../persistence/thread-visits";
+import { formatShortTimestamp } from "../../lib/time";
 
 export interface RecapThreadDetail {
   readonly messages: ReadonlyArray<OrchestrationMessage>;
@@ -42,12 +44,13 @@ export function decideThreadRecap(input: {
   readonly detail: RecapThreadDetail;
   readonly previous: ThreadVisit | null;
   readonly nowMs: number;
+  readonly trigger: RecapTrigger;
   /** "Claude", or "The agent" when the provider is unknown. */
   readonly provider: string;
   readonly note: string | null;
 }): ThreadRecap | null {
   const { detail, previous } = input;
-  if (previous === null) return null;
+  if (previous === null || input.trigger === "never") return null;
   const workLogEntries = deriveWorkLogEntries(detail.activities);
   const latestActivityAt = latestThreadActivityAt({
     messages: detail.messages,
@@ -55,7 +58,7 @@ export function decideThreadRecap(input: {
     checkpoints: detail.checkpoints,
   });
   const show = shouldShowThreadRecap({
-    trigger: "after-break",
+    trigger: input.trigger,
     previousVisitAt: previous.visitedAt,
     previousSeenActivityAt: previous.seenActivityAt,
     latestActivityAt,
@@ -74,7 +77,10 @@ export function decideThreadRecap(input: {
   });
 }
 
-/** "14:02" on the day of the visit, else the weekday ("Tue"): never a growing number. */
+/**
+ * The visit's time on its day, in the device's locale and hour cycle ("14:02",
+ * "2:02 PM"), else the weekday ("Tue"): never a growing number.
+ */
 export function formatRecapSince(since: string, nowMs: number): string {
   const sinceDate = new Date(since);
   if (Number.isNaN(sinceDate.getTime())) return "";
@@ -84,7 +90,7 @@ export function formatRecapSince(since: string, nowMs: number): string {
     sinceDate.getMonth() === now.getMonth() &&
     sinceDate.getDate() === now.getDate();
   return sameDay
-    ? sinceDate.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    ? formatShortTimestamp(since, "locale")
     : sinceDate.toLocaleDateString(undefined, { weekday: "short" });
 }
 

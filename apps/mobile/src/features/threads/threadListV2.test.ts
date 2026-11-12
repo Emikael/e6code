@@ -36,6 +36,7 @@ import {
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
   resolveThreadListV2WorkingSince,
+  reuseThreadListV2NeedsYou,
   selectThreadListV2NeedsYou,
   sortThreadsForListV2,
 } from "./threadListV2";
@@ -1629,7 +1630,7 @@ describe("Needs you section", () => {
       searchQuery: "",
       now: NOW,
     });
-    expect(needsYou.map((item) => [item.thread.id, item.kind])).toEqual([
+    expect(needsYou.blocked.map((item) => [item.thread.id, item.kind])).toEqual([
       ["approval", "approval"],
       ["question", "input"],
     ]);
@@ -1643,7 +1644,7 @@ describe("Needs you section", () => {
       searchQuery: "",
       now: NOW,
     });
-    expect(scoped.map((item) => item.thread.id)).toEqual(["approval"]);
+    expect(scoped.blocked.map((item) => item.thread.id)).toEqual(["approval"]);
     expect(
       selectThreadListV2NeedsYou({
         threads: [approval],
@@ -1651,7 +1652,7 @@ describe("Needs you section", () => {
         searchQuery: "tunnel",
         now: NOW,
       }),
-    ).toEqual([]);
+    ).toEqual({ blocked: [], earlier: [] });
   });
 
   it("leads the list with a counted header, and the threads keep their own rows", () => {
@@ -1681,8 +1682,67 @@ describe("Needs you section", () => {
     ]);
     expect(items.filter((item) => item.type === "v2-thread")).toHaveLength(3);
     expect(
-      buildThreadListV2ListItems({ needsYou: [], items: layout.items, pendingTasks: [] })[0]?.type,
+      buildThreadListV2ListItems({
+        needsYou: { blocked: [], earlier: [] },
+        items: layout.items,
+        pendingTasks: [],
+      })[0]?.type,
     ).toBe("v2-thread");
+  });
+
+  it("folds threads blocked over a day into one counted Earlier row", () => {
+    const stale = makeThread({
+      id: ThreadId.make("stale"),
+      title: "Old question",
+      hasPendingUserInput: true,
+      pendingRequestSince: "2026-05-30T08:00:00.000Z",
+    });
+    const needsYou = selectThreadListV2NeedsYou({
+      threads: [approval, stale],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(needsYou.earlier.map((item) => item.thread.id)).toEqual(["stale"]);
+    const collapsed = buildThreadListV2ListItems({ needsYou, items: [], pendingTasks: [] });
+    expect(collapsed.map((item) => item.type)).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you",
+      "v2-needs-you-earlier",
+    ]);
+    expect(collapsed[0]?.type === "v2-needs-you-header" && collapsed[0].count).toBe(2);
+    expect(collapsed[2]?.type === "v2-needs-you-earlier" && collapsed[2].count).toBe(1);
+    const open = buildThreadListV2ListItems({
+      needsYou,
+      needsYouEarlierExpanded: true,
+      items: [],
+      pendingTasks: [],
+    });
+    expect(open.at(-1)?.type === "v2-needs-you" && open.at(-1)).toMatchObject({
+      expanded: false,
+      item: { kind: "input" },
+    });
+  });
+
+  it("keeps the previous lists when a minute passes and nothing shown changed", () => {
+    const select = (now: string) =>
+      selectThreadListV2NeedsYou({
+        threads: [approval, question],
+        environmentId: null,
+        searchQuery: "",
+        now,
+      });
+    const first = select(NOW);
+    const later = select("2026-06-02T00:01:00.000Z");
+    expect(later).not.toBe(first);
+    expect(reuseThreadListV2NeedsYou(first, later)).toBe(first);
+    const changed = selectThreadListV2NeedsYou({
+      threads: [approval],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(reuseThreadListV2NeedsYou(first, changed)).toBe(changed);
   });
 
   it("words each row as board 8 does", () => {
@@ -1691,7 +1751,7 @@ describe("Needs you section", () => {
       environmentId: null,
       searchQuery: "",
       now: NOW,
-    });
+    }).blocked;
     expect(describeThreadListV2NeedsYou(first!, "Codex")).toEqual({
       status: "Needs approval",
       detail: "Codex wants to run 1 command",

@@ -266,6 +266,8 @@ export interface ThreadFeedProps {
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
+  /** Scrolls to a message when set, such as the recap's "You asked"; `nonce` repeats a request. */
+  readonly revealMessage?: { readonly messageId: string; readonly nonce: number } | null;
   readonly submittedMessageId: MessageId | null;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly contentTopInset?: number;
@@ -2464,6 +2466,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.listRef.current?.reportContentInset({ bottom });
     }
   }, [listMountKey, props.contentInsetEndAdjustment, props.listRef]);
+
+  // Reveal on request only; later feed changes do not scroll again.
+  const presentedFeedRef = useRef(presentedFeed);
+  presentedFeedRef.current = presentedFeed;
+  const revealMessage = props.revealMessage ?? null;
+  useEffect(() => {
+    if (revealMessage === null) return;
+    const index = presentedFeedRef.current.findIndex(
+      (entry) => entry.type === "message" && entry.message.id === revealMessage.messageId,
+    );
+    if (index >= 0) {
+      props.listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+    }
+  }, [props.listRef, revealMessage]);
 
   const anchoredEndSpace = useMemo(
     () =>

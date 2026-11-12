@@ -6,7 +6,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@e6tools/contracts";
-import { StockAccent } from "@e6tools/contracts/settings";
+import { RecapTrigger, StockAccent } from "@e6tools/contracts/settings";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
@@ -14,6 +14,7 @@ import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
 
 const isStockAccent = Schema.is(StockAccent);
+const isRecapTrigger = Schema.is(RecapTrigger);
 
 const PREFERENCES_KEY = "e6code.preferences";
 const PREFERENCES_FALLBACK_KEY = "e6code.preferences.fallback";
@@ -58,6 +59,10 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** Device-local counterpart of web's `needsYouSectionEnabled`; on when unset. */
+  readonly needsYouSectionEnabled?: boolean;
+  /** Device-local counterpart of web's `recapTrigger`; "after-break" when unset. */
+  readonly recapTrigger?: RecapTrigger;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -121,6 +126,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    needsYouSectionEnabled?: boolean;
+    recapTrigger?: RecapTrigger;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -213,6 +220,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
   }
+  if (typeof parsed.needsYouSectionEnabled === "boolean") {
+    preferences.needsYouSectionEnabled = parsed.needsYouSectionEnabled;
+  }
+  if (isRecapTrigger(parsed.recapTrigger)) preferences.recapTrigger = parsed.recapTrigger;
   return preferences;
 }
 

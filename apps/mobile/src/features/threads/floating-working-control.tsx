@@ -5,7 +5,7 @@ import {
 import type { ThreadAgentState } from "@e6tools/contracts";
 import { formatDuration } from "@e6tools/shared/orchestrationTiming";
 import { GlassContainer, GlassView } from "expo-glass-effect";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   type LayoutChangeEvent,
@@ -462,61 +462,89 @@ function StatusLabelRow(props: {
   );
 }
 
+/**
+ * The working row. Only {@link TickingDuration} updates each second (F5: one
+ * ticking element); the dot, label and step meter render when the plan
+ * changes, and the spoken label moves by whole minutes.
+ */
 function WorkingDuration(props: {
   readonly startedAt: string;
   readonly plan: PlanMeter | null;
   readonly onLayout: (event: LayoutChangeEvent) => void;
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    setNowMs(Date.now());
-    const intervalId = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(intervalId);
-  }, [props.startedAt]);
-
-  const duration = formatWorkingDuration(props.startedAt, nowMs);
-  const label = `Working for ${duration}`;
+  const minuteMs = useMinuteClock(true);
+  const spoken = spokenWorkingMinutes(props.startedAt, minuteMs);
 
   if (props.plan !== null) {
     // Board 9: "Working", the step meter, "Step 3 of 5", then the elapsed time.
     return (
       <StatusLabelRow
-        accessibilityLabel={`Working, ${props.plan.label}, ${duration}`}
+        accessibilityLabel={`Working, ${props.plan.label}, ${spoken}`}
         className="gap-2"
         onLayout={props.onLayout}
       >
-        <View className="h-2 w-2 rounded-full bg-primary" />
-        <Text className="font-e6-medium text-xs text-primary-text">Working</Text>
-        {props.plan.segments.length > 0 ? <StepMeter segments={props.plan.segments} /> : null}
-        <Text className="shrink font-e6-medium text-xs text-foreground" numberOfLines={1}>
-          {props.plan.label}
-        </Text>
-        <SystemText
-          className="text-xs text-foreground-muted"
-          style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
-        >
-          {duration}
-        </SystemText>
+        <WorkingPlanLabel plan={props.plan} />
+        <TickingDuration startedAt={props.startedAt} className="text-xs text-foreground-muted" />
       </StatusLabelRow>
     );
   }
 
   return (
     // Iris dot plus words: the live agent reads the same as the web sidebar.
-    <StatusLabelRow accessibilityLabel={label} className="gap-2" onLayout={props.onLayout}>
+    <StatusLabelRow
+      accessibilityLabel={`Working for ${spoken}`}
+      className="gap-2"
+      onLayout={props.onLayout}
+    >
       <View className="h-2 w-2 rounded-full bg-primary" />
       <View className="flex-row items-center">
         <Text className="font-e6-medium text-xs text-primary-text">Working for </Text>
-        <SystemText
-          className="text-xs text-primary-text"
-          style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
-        >
-          {duration}
-        </SystemText>
+        <TickingDuration startedAt={props.startedAt} className="text-xs text-primary-text" />
       </View>
     </StatusLabelRow>
   );
+}
+
+/** The dot, "Working", the step meter and the step label: unchanged between ticks. */
+const WorkingPlanLabel = memo(function WorkingPlanLabel(props: { readonly plan: PlanMeter }) {
+  return (
+    <>
+      <View className="h-2 w-2 rounded-full bg-primary" />
+      <Text className="font-e6-medium text-xs text-primary-text">Working</Text>
+      {props.plan.segments.length > 0 ? <StepMeter segments={props.plan.segments} /> : null}
+      <Text className="shrink font-e6-medium text-xs text-foreground" numberOfLines={1}>
+        {props.plan.label}
+      </Text>
+    </>
+  );
+});
+
+/** The one element that ticks each second, in tabular numerals so nothing shifts. */
+function TickingDuration(props: { readonly startedAt: string; readonly className: string }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    setNowMs(Date.now());
+    const intervalId = setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => clearInterval(intervalId);
+  }, [props.startedAt]);
+  return (
+    <SystemText
+      className={props.className}
+      style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
+    >
+      {formatWorkingDuration(props.startedAt, nowMs)}
+    </SystemText>
+  );
+}
+
+/** "under a minute", "1 minute", "12 minutes": what a screen reader hears. */
+function spokenWorkingMinutes(startedAt: string, nowMs: number): string {
+  const startedAtMs = Date.parse(startedAt);
+  const minutes = Number.isFinite(startedAtMs)
+    ? Math.max(0, Math.floor((nowMs - startedAtMs) / 60_000))
+    : 0;
+  if (minutes < 1) return "under a minute";
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
 /** Done steps fill in the success role, the live one in primary, the rest are outlined. */

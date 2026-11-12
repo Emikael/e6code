@@ -12,6 +12,10 @@ import {
 } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import { summarizeToolGroup } from "@e6tools/client-runtime/work-log/presentation";
+
+import { formatShortTimestamp } from "../../lib/time";
+import { buildThreadFeed } from "../../lib/threadActivity";
 import { decodeThreadVisit, type ThreadVisit } from "../../persistence/thread-visits";
 import { decideThreadRecap, formatRecapFiles, formatRecapSince } from "./thread-recap";
 
@@ -71,6 +75,7 @@ describe("decideThreadRecap", () => {
       nowMs: Date.parse(at(40)),
       provider: "Claude",
       note: null,
+      trigger: "after-break",
     });
     expect(recap?.youAsked?.text).toBe("Also update the mobile tokens so both apps share them.");
     expect(recap?.sinceThen?.summary).toMatch(/^Claude read 2 files/);
@@ -82,11 +87,80 @@ describe("decideThreadRecap", () => {
   });
 
   it("stays quiet on a first visit, a quick return, or with nothing new", () => {
-    const base = { detail, nowMs: Date.parse(at(40)), provider: "Claude", note: null };
+    const base = {
+      detail,
+      nowMs: Date.parse(at(40)),
+      provider: "Claude",
+      note: null,
+      trigger: "after-break" as const,
+    };
     expect(decideThreadRecap({ ...base, previous: null })).toBeNull();
     expect(decideThreadRecap({ ...base, previous: visit(38) })).toBeNull();
     expect(decideThreadRecap({ ...base, previous: { ...visit(2), seenActivityAt: at(35) } })).toBe(
       null,
+    );
+  });
+});
+
+describe("recap setting", () => {
+  const base = { detail, nowMs: Date.parse(at(40)), provider: "Claude", note: null };
+  it("never shows when turned off, and always shows on a quick return when asked", () => {
+    expect(decideThreadRecap({ ...base, previous: visit(2), trigger: "never" })).toBeNull();
+    expect(decideThreadRecap({ ...base, previous: visit(38), trigger: "after-break" })).toBeNull();
+    expect(
+      decideThreadRecap({
+        ...base,
+        previous: { ...visit(19), visitedAt: at(38) },
+        trigger: "always",
+      }),
+    ).not.toBeNull();
+  });
+});
+
+describe("recap and feed agree", () => {
+  it("counts the same steps the feed shows", () => {
+    const command: OrchestrationThreadActivity = {
+      id: EventId.make("c"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Ran command",
+      payload: { itemType: "command_execution", requestKind: "command", detail: "vp test run" },
+      turnId: TurnId.make("turn-1"),
+      createdAt: at(22),
+    };
+    const edit: OrchestrationThreadActivity = {
+      id: EventId.make("e"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Edited file",
+      payload: {
+        itemType: "file_change",
+        requestKind: "file-change",
+        detail: "src/theme.ts",
+        changes: [{ path: "src/theme.ts" }],
+      },
+      turnId: TurnId.make("turn-1"),
+      createdAt: at(23),
+    };
+    const activities = [read("a", 20), read("b", 21), command, edit];
+    const thread = { messages: detail.messages, activities };
+    const recap = decideThreadRecap({
+      detail: { ...detail, activities },
+      previous: visit(2),
+      nowMs: Date.parse(at(40)),
+      provider: "Claude",
+      note: null,
+      trigger: "after-break",
+    });
+    const feedSteps = buildThreadFeed(thread).flatMap((entry) =>
+      entry.type === "activity-group"
+        ? entry.activities.filter((activity) => activity.toolLike)
+        : [],
+    );
+    expect(feedSteps).toHaveLength(4);
+    const feedSummary = summarizeToolGroup(feedSteps.map((activity) => activity.workEntry));
+    expect(recap?.sinceThen?.summary).toBe(
+      `Claude ${feedSummary.charAt(0).toLowerCase()}${feedSummary.slice(1)}.`,
     );
   });
 });
@@ -108,9 +182,14 @@ describe("recap wording", () => {
     expect(formatRecapFiles([], 0)).toBeNull();
   });
 
-  it("names a clock time today and a day before that", () => {
+  it("names a clock time today, in the device's hour cycle, and a day before that", () => {
     const visited = new Date(2026, 10, 11, 14, 2).toISOString();
-    expect(formatRecapSince(visited, new Date(2026, 10, 11, 18, 0).getTime())).toMatch(/02/);
+    expect(formatRecapSince(visited, new Date(2026, 10, 11, 18, 0).getTime())).toBe(
+      formatShortTimestamp(visited, "locale"),
+    );
+    // No leading zero on the hour: 9:05, never 09:05.
+    const morning = new Date(2026, 10, 11, 9, 5).toISOString();
+    expect(formatRecapSince(morning, new Date(2026, 10, 11, 18, 0).getTime())).not.toMatch(/^0/);
     expect(formatRecapSince(visited, new Date(2026, 10, 13, 9, 0).getTime())).toBe(
       new Date(visited).toLocaleDateString(undefined, { weekday: "short" }),
     );

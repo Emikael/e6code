@@ -26,4 +26,4 @@ export function relativeTime(input: string): string {
  * `8/13 2:20 PM`. Mobile has no 12/24-hour setting, so callers pass "locale"
  * and the device locale decides.
  */
-export const { formatUpcomingTimestamp } = makeTimestampFormatters(undefined);
+export const { formatUpcomingTimestamp, formatShortTimestamp } = makeTimestampFormatters(undefined);

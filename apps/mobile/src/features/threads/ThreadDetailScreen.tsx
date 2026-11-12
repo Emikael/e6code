@@ -355,6 +355,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   draftMessageRef.current = props.draftMessage;
   const composerOverlayRef = useRef<View>(null);
   const listRef = useRef<LegendListRef>(null);
+  // The recap's "You asked" scrolls the feed to that message (F4).
+  const [revealMessage, setRevealMessage] = useState<{
+    readonly messageId: string;
+    readonly nonce: number;
+  } | null>(null);
+  const revealRecapAsk = useCallback(
+    (messageId: string) =>
+      setRevealMessage((current) => ({
+        messageId,
+        nonce: (current?.nonce ?? 0) + 1,
+      })),
+    [],
+  );
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const selectedThreadKeyRef = useRef(selectedThreadKey);
   const lastScrolledSubmittedMessageIdRef = useRef<MessageId | null>(null);
@@ -956,6 +969,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               listRef={listRef}
               freeze={freeze}
               anchorMessageId={anchorMessageId}
+              revealMessage={revealMessage}
               submittedMessageId={submittedMessageId}
               contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
               contentTopInset={0}
@@ -1054,6 +1068,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     props.creationState === null
                   }
                   onOpenChanges={openChanges}
+                  onRevealAsk={revealRecapAsk}
                 />
                 {props.creationState?.kind === "failed" ? (
                   <Animated.View
