@@ -1853,7 +1853,11 @@ describe("merge readiness checklist", () => {
     });
     expect(pending?.rows[1]).toMatchObject({ status: "waiting", word: "Waiting on ana" });
     const none = resolveMergeReadiness({ ...ready, reviewDecision: undefined, approvalCount: 0 });
-    expect(none?.rows[1]).toMatchObject({ word: "Not requested", action: "request-review" });
+    expect(none?.rows[1]).toMatchObject({
+      status: "needed",
+      word: "Not requested",
+      action: "request-review",
+    });
   });
 
   it("leaves what the host could not report out of the count", () => {
@@ -1876,7 +1880,7 @@ describe("merge readiness checklist", () => {
   it("trusts a newer rollup over a stale check list, and says checks are still running", () => {
     expect(
       resolveMergeReadiness({ ...ready, checksStale: true, checksState: "failing" })?.rows[0],
-    ).toMatchObject({ status: "blocked", label: "Checks failing", word: "Failing" });
+    ).toMatchObject({ status: "failed", label: "Checks failing", word: "Failing" });
     expect(
       resolveMergeReadiness({
         ...ready,
@@ -1944,11 +1948,34 @@ describe("resolvePullRequestNextStep", () => {
     expect(next({ state: "closed" })).toBeNull();
   });
 
-  it("says when this account cannot merge, before anything else", () => {
-    const step = next({ canMerge: false, mergeability: "conflicting", ...failing });
-    expect(step?.kind).toBe("no-permission");
-    expect(step?.title).toBe("You cannot merge this pull request");
-    expect(step?.primary).toBeNull();
+  it("still names what a reader who cannot merge could act on", () => {
+    expect(next({ canMerge: false, mergeability: "conflicting", ...failing })?.kind).toBe(
+      "conflicts",
+    );
+    expect(next({ canMerge: false, ...failing })?.title).toBe("Next: fix 2 failing checks");
+  });
+
+  it("says this account cannot merge only where the merge itself would be next", () => {
+    for (const overrides of [{}, { autoMergeEnabled: true }]) {
+      const step = next({ canMerge: false, ...overrides });
+      expect(step?.kind).toBe("no-permission");
+      expect(step?.title).toBe("You cannot merge this pull request");
+      // The footer says why; the card does not say it again.
+      expect(step?.body).not.toContain("does not let");
+      expect(step?.primary).toBeNull();
+    }
+  });
+
+  it("asks for workflow approval while checks wait on it", () => {
+    const awaiting = {
+      checks: [check("lint", "success"), check("e2e", "pending")],
+      checksState: "pending" as const,
+      workflowApprovalsRequired: 2,
+    };
+    const step = next({ ...awaiting, canApproveWorkflows: true });
+    expect(step?.title).toBe("Next: approve workflows to run");
+    expect(step?.primary).toEqual({ kind: "approve-workflows", label: "Approve workflows to run" });
+    expect(next({ ...awaiting, canApproveWorkflows: false })?.kind).toBe("waiting-checks");
   });
 
   it("puts conflicts first", () => {

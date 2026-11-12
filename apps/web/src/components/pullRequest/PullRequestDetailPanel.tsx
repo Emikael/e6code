@@ -37,9 +37,10 @@ import {
   PanelRightIcon,
   PlayIcon,
   RotateCcwIcon,
-  SquareCheckIcon,
-  SquareDashedIcon,
-  SquareXIcon,
+  CheckIcon,
+  CircleAlertIcon,
+  CircleIcon,
+  Clock3Icon,
   TriangleAlertIcon,
 } from "lucide-react";
 import {
@@ -58,6 +59,7 @@ import {
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { useComposerHasText } from "~/hooks/useComposerHasText";
 import { isCommandPaletteOpen } from "~/commandPaletteBus";
 import {
   resolveShortcutCommand,
@@ -108,7 +110,6 @@ import {
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Kbd } from "../ui/kbd";
 import { PullRequestEditButton } from "./PullRequestEditButton";
 import { Input } from "../ui/input";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -130,7 +131,7 @@ import { PullRequestDetailGhost, PullRequestTimelineGhost } from "./PullRequestG
 import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import { DiffPanelLoadingState } from "../DiffPanelShell";
-import { PullRequestsUnavailableState } from "./PullRequestsUnavailableState";
+import { PanelErrorCard } from "../panel/PanelErrorCard";
 import type { PullRequestAgentSelectionInput } from "./PullRequestCodeTab";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
 import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
@@ -190,7 +191,7 @@ import {
   pullRequestReviewOutcomeToneClassName,
   resolvePullRequestState,
 } from "./pullRequestPresentation";
-import { PullRequestGlyph, SquareQuestionMarkIcon } from "./pullRequestIcons";
+import { PullRequestGlyph } from "./pullRequestIcons";
 import { usePullRequestMergeCommandStore } from "./pullRequestMergeCommand";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { destructiveApprovalPendingIn } from "../chat/holdToConfirm";
@@ -207,8 +208,8 @@ const ACTION_SUCCESS_LABELS: Record<PullRequestAction, string> = {
   // True whichever it did: a pull request that was already mergeable merges the moment this is
   // armed, and the client has no way to tell that apart from one still waiting on something.
   "enable-auto-merge":
-    "Auto-merge turned on — merges as soon as this is ready, sooner if it already is",
-  "disable-auto-merge": "Auto-merge turned off",
+    "Merge when ready is on — merges as soon as this is ready, sooner if it already is",
+  "disable-auto-merge": "Merge when ready is off",
   revert: "Revert pull request opened",
   "approve-workflows": "Workflows approved",
 };
@@ -221,8 +222,8 @@ const ACTION_FAILURE_LABELS: Record<PullRequestAction, string> = {
   close: "Could not close this pull request",
   reopen: "Could not reopen this pull request",
   "update-branch": "Could not update this branch",
-  "enable-auto-merge": "Could not turn on auto-merge",
-  "disable-auto-merge": "Could not turn off auto-merge",
+  "enable-auto-merge": "Could not turn on Merge when ready",
+  "disable-auto-merge": "Could not cancel Merge when ready",
   revert: "Could not open a revert pull request",
   "approve-workflows": "Could not approve workflows",
 };
@@ -432,10 +433,12 @@ function PullRequestBaseFreshnessWarning({
 }
 
 const READINESS_STATUS = {
-  ok: { Icon: SquareCheckIcon, className: "text-muted-foreground" },
-  blocked: { Icon: SquareXIcon, className: "text-error-foreground" },
-  waiting: { Icon: SquareDashedIcon, className: "text-muted-foreground" },
-  unknown: { Icon: SquareQuestionMarkIcon, className: "text-muted-foreground" },
+  ok: { Icon: CheckIcon, className: "text-muted-foreground" },
+  failed: { Icon: CircleAlertIcon, className: "text-error-foreground" },
+  needed: { Icon: Clock3Icon, className: "text-muted-foreground" },
+  waiting: { Icon: Clock3Icon, className: "text-muted-foreground" },
+  // Hollow: nothing reported yet, never a failure.
+  unknown: { Icon: CircleIcon, className: "text-muted-foreground" },
 } as const satisfies Record<MergeReadinessStatus, unknown>;
 
 /**
@@ -482,7 +485,7 @@ function PullRequestMergeReadinessChecklist({
               <span
                 className={cn(
                   "shrink-0 text-xs font-medium",
-                  row.status === "blocked" ? "text-error-foreground" : "text-muted-foreground",
+                  row.status === "failed" ? "text-error-foreground" : "text-muted-foreground",
                 )}
               >
                 {row.word}
@@ -1118,6 +1121,8 @@ export function PullRequestDetailPanel({
   };
 
   const attachTarget = composerDraftTarget ?? null;
+  // While the composer holds text, Send owns the screen's one filled button.
+  const composerHasText = useComposerHasText(attachTarget);
   const handoffLabels = pullRequestHandoffLabels(attachTarget !== null);
   const threadSession = useThread(threadRef)?.session;
   const threadProviderName = threadSession?.providerName
@@ -1524,7 +1529,13 @@ export function PullRequestDetailPanel({
   // What the menu's action group holds. Named once so the separators around it are drawn from
   // the same answer as its contents, rather than on the assumption that it has any.
   const showsDraftToggle = detail?.state === "open" && can(detail.isDraft ? "ready" : "draft");
-  const showsAutoMerge =
+  const showsWorkflowApproval =
+    workflowApprovalsRequired > 0 && !checksStale && can("approve-workflows");
+  // "Merge when ready" (the host's auto-merge), one rule for the footer and the More menu. GitHub,
+  // GitLab and Azure DevOps arm a merge for later; Bitbucket and Forgejo do not, so the host's
+  // capability decides whether it is there at all. A draft or a conflicting branch cannot be armed:
+  // nothing the host waits for clears either. An armed one can always be cancelled.
+  const showsMergeWhenReady =
     canMergeSinglePullRequest &&
     detail?.state === "open" &&
     ((autoMergeArmed && can("disable-auto-merge")) ||
@@ -1546,14 +1557,6 @@ export function PullRequestDetailPanel({
     canMergeSinglePullRequest &&
     can("merge") &&
     allowedMergeMethods.length > 0;
-  // GitHub, GitLab and Azure DevOps arm a merge for later; Bitbucket and Forgejo do not, so the
-  // host's capability decides whether the toggle is there at all.
-  const showsMergeWhenReady =
-    detail?.state === "open" &&
-    canMergeSinglePullRequest &&
-    (autoMergeArmed
-      ? can("disable-auto-merge")
-      : can("enable-auto-merge") && allowedMergeMethods.length > 0);
   // The pull request number carries this state in the overview and the right-panel tab mirrors
   // it. Conflicts take the action slot while they need a person, but do not change the PR state.
   const statePresentation = detail
@@ -1633,6 +1636,8 @@ export function PullRequestDetailPanel({
           detail.capabilities.reviewers.listCandidates &&
           detail.viewerPermissions.requestReviewers,
         canCancelAutoMerge: can("disable-auto-merge"),
+        workflowApprovalsRequired: showsWorkflowApproval ? workflowApprovalsRequired : 0,
+        canApproveWorkflows: showsWorkflowApproval,
       })
     : null;
   const runNextStepAction = (kind: PullRequestNextStepActionKind) => {
@@ -1666,6 +1671,9 @@ export function PullRequestDetailPanel({
         return;
       case "cancel-auto-merge":
         void perform("disable-auto-merge");
+        return;
+      case "approve-workflows":
+        setConfirmation({ open: true, action: "approve-workflows" });
         return;
       case "request-review":
         return;
@@ -1811,11 +1819,13 @@ export function PullRequestDetailPanel({
             ? `${hostName} allows no merge method on this repository.`
             : mergeRefusalReason
               ? `${hostName} refused the merge: ${mergeRefusalReason}`
-              : null;
+              : autoMergeArmed
+                ? "Merge when ready is on"
+                : null;
   const mergeButtonLabel = pendingAction === "merge" ? "Merging..." : selectedMergeMethodLabel;
   // The fill goes to the merge only once everything is met; until then the card holds the next
   // action and the merge stays outlined.
-  const mergeTakesFill = nextStep?.kind === "ready";
+  const mergeTakesFill = nextStep?.kind === "ready" && !composerHasText;
 
   const mergeFooter =
     detail?.state === "open" ? (
@@ -1831,9 +1841,7 @@ export function PullRequestDetailPanel({
         {showsMergeWhenReady ? (
           <Button
             variant="outline"
-            aria-pressed={autoMergeArmed}
             disabled={actionPending}
-            className={cn(autoMergeArmed && "bg-secondary ring-1 ring-inset ring-primary-edge")}
             onClick={() =>
               autoMergeArmed
                 ? void perform("disable-auto-merge")
@@ -1843,8 +1851,10 @@ export function PullRequestDetailPanel({
             {pendingAction === "enable-auto-merge"
               ? "Turning on..."
               : pendingAction === "disable-auto-merge"
-                ? "Turning off..."
-                : "Merge when ready"}
+                ? "Cancelling..."
+                : autoMergeArmed
+                  ? "Cancel Merge when ready"
+                  : "Merge when ready"}
           </Button>
         ) : null}
         <span className="inline-flex shrink-0">
@@ -1858,22 +1868,12 @@ export function PullRequestDetailPanel({
                   onClick={() => setConfirmation({ open: true, action: "merge" })}
                 >
                   {mergeButtonLabel}
-                  {mergeShortcutLabel && canMergeHere && pendingAction !== "merge" ? (
-                    <Kbd
-                      className={cn(
-                        "text-[11px]",
-                        mergeTakesFill && "bg-primary-foreground/15 text-primary-foreground",
-                      )}
-                    >
-                      {mergeShortcutLabel}
-                    </Kbd>
-                  ) : null}
                 </Button>
               }
             />
             <TooltipPopup side="top">
               {canMergeHere
-                ? `${selectedMergeMethodLabel}. ${hostName} decides whether it can go.`
+                ? `${selectedMergeMethodLabel}${mergeShortcutLabel ? ` (${mergeShortcutLabel})` : ""}. ${hostName} decides whether it can go.`
                 : (footerReason ?? selectedMergeMethodLabel)}
             </TooltipPopup>
           </Tooltip>
@@ -2256,6 +2256,19 @@ export function PullRequestDetailPanel({
                       />
                     ) : null}
                     <MenuSeparator />
+                    {/* A next step: the card offers it when nothing comes before it, and here
+                        while the card shows another step. */}
+                    {showsWorkflowApproval && nextStep?.kind !== "approve-workflows" ? (
+                      <MenuItem
+                        disabled={actionPending}
+                        onClick={() => setConfirmation({ open: true, action: "approve-workflows" })}
+                      >
+                        <PlayIcon className="size-3.5" />
+                        {pendingAction === "approve-workflows"
+                          ? "Approving..."
+                          : "Approve workflows to run"}
+                      </MenuItem>
+                    ) : null}
                     {detail.state === "open" ? (
                       <>
                         {showsDraftToggle ? (
@@ -2274,23 +2287,17 @@ export function PullRequestDetailPanel({
                         {/* The same merge, left with the host to carry out once its requirements
                             pass. A conflicting branch cannot be armed because nothing the host
                             waits for will clear the conflict. */}
-                        {autoMergeArmed && can("disable-auto-merge") ? (
-                          <MenuItem
-                            disabled={actionPending}
-                            onClick={() => void perform("disable-auto-merge")}
-                          >
-                            <PullRequestGlyph.merged className="size-3.5" />
-                            Disable auto-merge
-                          </MenuItem>
-                        ) : showsAutoMerge ? (
+                        {showsMergeWhenReady ? (
                           <MenuItem
                             disabled={actionPending}
                             onClick={() =>
-                              setConfirmation({ open: true, action: "enable-auto-merge" })
+                              autoMergeArmed
+                                ? void perform("disable-auto-merge")
+                                : setConfirmation({ open: true, action: "enable-auto-merge" })
                             }
                           >
                             <PullRequestGlyph.merged className="size-3.5" />
-                            Enable auto-merge
+                            {autoMergeArmed ? "Cancel Merge when ready" : "Merge when ready"}
                           </MenuItem>
                         ) : null}
                         {/* A preference for the merge action rather than a second action, so it
@@ -2303,7 +2310,7 @@ export function PullRequestDetailPanel({
                             {/* Only below the draft control. A host with no draft of its own, or
                                 a draft whose control is already the header button, would leave
                                 this against the separator that opened the group. */}
-                            {showsDraftToggle || showsAutoMerge ? <MenuSeparator /> : null}
+                            {showsDraftToggle || showsMergeWhenReady ? <MenuSeparator /> : null}
                             <MenuRadioGroup
                               value={selectedMergeMethod}
                               onValueChange={(method) => {
@@ -2332,7 +2339,7 @@ export function PullRequestDetailPanel({
                         ) : null}
                         {pullRequestActionMenuHasGroup(
                           showsDraftToggle,
-                          showsAutoMerge,
+                          showsMergeWhenReady,
                           showsMergeMethods,
                         ) ? (
                           <MenuSeparator />
@@ -2440,46 +2447,7 @@ export function PullRequestDetailPanel({
                 </Toggle>
               ))}
             </ToggleGroup>
-            {tab === "summary" &&
-            workflowApprovalsRequired > 0 &&
-            !checksStale &&
-            can("approve-workflows") ? (
-              <span className="ml-auto inline-flex shrink-0 items-center">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className="inline-flex shrink-0">
-                        <Button
-                          size="xs"
-                          variant="warning-outline"
-                          disabled={actionPending}
-                          onClick={() =>
-                            setConfirmation({ open: true, action: "approve-workflows" })
-                          }
-                          aria-label={
-                            pendingAction === "approve-workflows"
-                              ? "Approving..."
-                              : "Approve workflows to run"
-                          }
-                        >
-                          <PlayIcon aria-hidden className="size-3.5" />
-                          <span>
-                            {pendingAction === "approve-workflows"
-                              ? "Approving..."
-                              : "Approve workflows to run"}
-                          </span>
-                        </Button>
-                      </span>
-                    }
-                  />
-                  <TooltipPopup side="top">
-                    {pendingAction === "approve-workflows"
-                      ? "Approving..."
-                      : "Approve workflows to run"}
-                  </TooltipPopup>
-                </Tooltip>
-              </span>
-            ) : tab === "timeline" ? (
+            {tab === "timeline" ? (
               <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                 <PullRequestMetaLine
                   className={cn(
@@ -2560,12 +2528,28 @@ export function PullRequestDetailPanel({
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {detailQuery.error && !detail ? (
-          <PullRequestsUnavailableState
-            error={detailQuery.error}
-            refreshing={detailQuery.isPending}
-            onRetry={refreshDetail}
-            {...(unavailableGitHubUrl ? { gitHubUrl: unavailableGitHubUrl } : {})}
-          />
+          <div className="overflow-y-auto p-4">
+            <PanelErrorCard
+              title="Could not load this pull request"
+              reason={detailQuery.error}
+              reassurance="Nothing on the host was changed."
+              retrying={detailQuery.isPending}
+              onRetry={refreshDetail}
+              actions={
+                unavailableGitHubUrl ? (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    render={
+                      <a href={unavailableGitHubUrl} target="_blank" rel="noopener noreferrer" />
+                    }
+                  >
+                    Open on GitHub
+                  </Button>
+                ) : null
+              }
+            />
+          </div>
         ) : detail ? (
           <PullRequestMarkdownContext value={markdownContext}>
             {mountedTabs.has("summary") ? (
@@ -2591,6 +2575,7 @@ export function PullRequestDetailPanel({
                             step={nextStep}
                             pending={handoff !== null || actionPending}
                             onAction={runNextStepAction}
+                            primaryOutline={composerHasText}
                             renderAction={(action, primary) =>
                               action.kind === "request-review" ? (
                                 <PullRequestReviewerPicker
@@ -2749,7 +2734,7 @@ export function PullRequestDetailPanel({
               {confirmAction === "merge"
                 ? "Merge pull request?"
                 : confirmAction === "enable-auto-merge"
-                  ? "Enable auto-merge?"
+                  ? "Turn on Merge when ready?"
                   : confirmAction === "revert"
                     ? "Revert these changes?"
                     : confirmAction === "approve-workflows"
@@ -2793,7 +2778,7 @@ export function PullRequestDetailPanel({
               {confirmAction === "merge"
                 ? selectedMergeMethodLabel
                 : confirmAction === "enable-auto-merge"
-                  ? "Enable auto-merge"
+                  ? "Merge when ready"
                   : confirmAction === "revert"
                     ? "Create revert PR"
                     : confirmAction === "approve-workflows"

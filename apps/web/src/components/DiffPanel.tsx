@@ -78,7 +78,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { shortcutLabelForCommand } from "../keybindings";
 import { dispatchSnapShotComposerFocus } from "../lib/desktopSnapShot";
-import { stripInlineContextReferences } from "../lib/composerContextReferences";
+import { useComposerHasText } from "../hooks/useComposerHasText";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import {
   diffLastSeenKey,
@@ -1139,11 +1139,7 @@ export default function DiffPanel({
     (store) => store.getComposerDraft(composerDraftTarget)?.reviewComments.length ?? 0,
   );
   // While the composer holds text, Send owns the screen's one filled button.
-  const composerHasText = useComposerDraftStore(
-    (store) =>
-      stripInlineContextReferences(store.getComposerDraft(composerDraftTarget)?.prompt ?? "").trim()
-        .length > 0,
-  );
+  const composerHasText = useComposerHasText(composerDraftTarget);
   const { settleThread } = useThreadActions();
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const threadSettled = activeThread?.settledOverride === "settled";

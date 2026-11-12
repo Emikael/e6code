@@ -1217,11 +1217,11 @@ export function writePullRequestDetailSnapshot(
 }
 
 /**
- * How one merge requirement stands: met, blocked on someone acting, waiting on something already
- * under way, or not reported by this host. Unknown rows are shown but not counted, so "3/3" is
- * never padded out with a requirement nobody could check.
+ * How one merge requirement stands: met, failed (the only one drawn in red), needed but not yet
+ * asked for, waiting on something already under way, or not reported by this host. Unknown rows
+ * are shown but not counted, so "3/3" is never padded out with a requirement nobody could check.
  */
-export type MergeReadinessStatus = "ok" | "blocked" | "waiting" | "unknown";
+export type MergeReadinessStatus = "ok" | "failed" | "needed" | "waiting" | "unknown";
 
 export interface MergeReadinessRow {
   readonly key: "checks" | "review" | "conflicts" | "base";
@@ -1264,7 +1264,7 @@ function checksReadinessRow(input: {
       case "passing":
         return row("ok", "Checks passed", "Met");
       case "failing":
-        return row("blocked", "Checks failing", "Failing");
+        return row("failed", "Checks failing", "Failing");
       case "pending":
         return row("waiting", "Checks running", "Running");
       default:
@@ -1278,7 +1278,7 @@ function checksReadinessRow(input: {
   const pending = count("pending", "action-required");
   const passed = count("success");
   const skipped = count("skipped", "neutral");
-  if (failed > 0) return row("blocked", `Checks: ${failed} of ${total} failing`, "Failing");
+  if (failed > 0) return row("failed", `Checks: ${failed} of ${total} failing`, "Failing");
   if (pending > 0) return row("waiting", `Checks: ${total - pending} of ${total} done`, "Running");
   return row(
     "ok",
@@ -1318,7 +1318,7 @@ export function resolveMergeReadiness(input: {
   ): MergeReadinessRow => ({ key: "review", status, label: "Review", word, detail: null, action });
   const review =
     input.reviewDecision === "changes-requested"
-      ? reviewRow("blocked", "Changes requested")
+      ? reviewRow("failed", "Changes requested")
       : input.reviewDecision === "approved" || input.approvalCount > 0
         ? reviewRow("ok", "Met")
         : pending.length > 0
@@ -1326,7 +1326,7 @@ export function resolveMergeReadiness(input: {
               "waiting",
               `Waiting on ${pending[0]}${pending.length > 1 ? ` and ${pending.length - 1} more` : ""}`,
             )
-          : reviewRow("blocked", "Not requested", "request-review");
+          : reviewRow("needed", "Not requested", "request-review");
   const conflicts: MergeReadinessRow =
     input.mergeability === "mergeable"
       ? {
@@ -1340,7 +1340,7 @@ export function resolveMergeReadiness(input: {
       : input.mergeability === "conflicting"
         ? {
             key: "conflicts",
-            status: "blocked",
+            status: "failed",
             label: `Conflicts with ${base}`,
             word: "Conflicts",
             detail: null,
@@ -1457,6 +1457,7 @@ export type PullRequestNextStepKind =
   | "behind"
   | "draft"
   | "review-not-requested"
+  | "approve-workflows"
   | "waiting-checks"
   | "waiting-review"
   | "checking"
@@ -1470,6 +1471,7 @@ export type PullRequestNextStepActionKind =
   | "update-branch"
   | "ready"
   | "request-review"
+  | "approve-workflows"
   | "cancel-auto-merge";
 
 export interface PullRequestNextStepAction {
@@ -1493,7 +1495,11 @@ export interface PullRequestNextStepInput {
   readonly state: PullRequestState;
   readonly isDraft: boolean;
   readonly baseBranch: string;
-  /** The host offers merging and this account may merge. */
+  /**
+   * The host offers merging and this account may merge. Without it the table still runs, so a
+   * reader who cannot merge still sees conflicts or failing checks they could act on; only the
+   * steps that end in a merge become "You cannot merge this pull request".
+   */
   readonly canMerge: boolean;
   readonly mergeability: PullRequestMergeability;
   readonly checks: ReadonlyArray<PullRequestCheck>;
@@ -1520,6 +1526,9 @@ export interface PullRequestNextStepInput {
   readonly canMarkReady: boolean;
   readonly canRequestReview: boolean;
   readonly canCancelAutoMerge: boolean;
+  /** Workflow runs from this pull request that wait for someone to approve them before they run. */
+  readonly workflowApprovalsRequired?: number | undefined;
+  readonly canApproveWorkflows?: boolean | undefined;
 }
 
 const FAILED_CHECK: ReadonlySet<PullRequestCheck["status"]> = new Set(["failure", "cancelled"]);
@@ -1560,14 +1569,6 @@ export function resolvePullRequestNextStep(
     secondary: PullRequestNextStepAction | null = null,
     caption: string | null = null,
   ): PullRequestNextStep => ({ kind, title, body, primary, secondary, caption });
-
-  if (!input.canMerge) {
-    return step(
-      "no-permission",
-      "You cannot merge this pull request",
-      `${pullRequestHostName(input.provider)} does not let this account merge here. Someone with write access can.`,
-    );
-  }
 
   const failed = input.checksStale
     ? null
@@ -1693,6 +1694,19 @@ export function resolvePullRequestNextStep(
     );
   }
 
+  const approvals = input.workflowApprovalsRequired ?? 0;
+  if (checksRunning && approvals > 0 && input.canApproveWorkflows === true) {
+    return step(
+      "approve-workflows",
+      "Next: approve workflows to run",
+      withLater(
+        `${approvals.toLocaleString()} ${approvals === 1 ? "workflow waits" : "workflows wait"} for approval before ${approvals === 1 ? "it runs" : "they run"}. Review the code and workflow changes first.`,
+        "waiting-checks",
+      ),
+      { kind: "approve-workflows", label: "Approve workflows to run" },
+    );
+  }
+
   if (checksRunning) {
     const total = input.checks.length;
     return step(
@@ -1721,6 +1735,16 @@ export function resolvePullRequestNextStep(
       "checking",
       "Checking",
       `${pullRequestHostName(input.provider)} has not said yet whether this can merge.`,
+    );
+  }
+
+  // Past this point the only step left is the merge itself. The footer says once why this account
+  // cannot take it; the card only says that someone else has to.
+  if (!input.canMerge) {
+    return step(
+      "no-permission",
+      "You cannot merge this pull request",
+      "Someone with write access can merge it.",
     );
   }
 

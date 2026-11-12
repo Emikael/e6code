@@ -16,25 +16,32 @@ export function PullRequestNextStepCard({
   pending,
   onAction,
   renderAction,
+  primaryOutline = false,
 }: {
   step: PullRequestNextStep;
   /** An action of the card is under way, so its buttons wait. */
   pending: boolean;
   onAction: (kind: PullRequestNextStepActionKind) => void;
   /** An action that is not a plain button, such as Request review opening the reviewer picker. */
-  renderAction?: (action: PullRequestNextStepAction, primary: boolean) => ReactNode | undefined;
+  renderAction?: (action: PullRequestNextStepAction, filled: boolean) => ReactNode | undefined;
+  /** The composer holds text, so Send owns the one fill and the primary renders as outline. */
+  primaryOutline?: boolean;
 }) {
-  const button = (action: PullRequestNextStepAction, primary: boolean) =>
-    renderAction?.(action, primary) ?? (
-      <Button
-        key={action.kind}
-        variant={primary ? "default" : "outline"}
-        disabled={pending}
-        onClick={() => onAction(action.kind)}
-      >
-        {action.label}
-      </Button>
+  const button = (action: PullRequestNextStepAction, primary: boolean) => {
+    const filled = primary && !primaryOutline;
+    return (
+      renderAction?.(action, filled) ?? (
+        <Button
+          key={action.kind}
+          variant={filled ? "default" : "outline"}
+          disabled={pending}
+          onClick={() => onAction(action.kind)}
+        >
+          {action.label}
+        </Button>
+      )
     );
+  };
   return (
     <section
       aria-label="Next step"
