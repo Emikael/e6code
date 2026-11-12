@@ -71,6 +71,7 @@ import {
   pagingStepLabel,
   replyLabel,
 } from "./diffs/diffPaging.logic";
+import { diffErrorReason, threadDiffCwd } from "./diffs/diffScope.logic";
 import { PanelEmptyCard } from "./panel/PanelEmptyCard";
 import { PanelErrorCard } from "./panel/PanelErrorCard";
 import { DiffRailKeyHint, DiffReviewFooter } from "./diffs/DiffReviewFooter";
@@ -241,7 +242,11 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const activeCwd =
+    threadDiffCwd({
+      worktreePath: activeThread?.worktreePath,
+      workspaceRoot: activeProject?.workspaceRoot,
+    }) ?? undefined;
   const activeRepositoryRoot = activeThread?.worktreePath
     ? undefined
     : activeProject?.repositoryIdentity?.rootPath;
@@ -357,7 +362,8 @@ export default function DiffPanel({
     },
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
-  const primaryBranchDiffPreview = useEnvironmentQuery(
+  // Only the thread's own folder: a failure shows the error card, never another checkout's diff.
+  const branchDiffPreview = useEnvironmentQuery(
     selectedTurnId === null && activeThread && activeCwd
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
@@ -370,27 +376,6 @@ export default function DiffPanel({
         })
       : null,
   );
-  const shouldRetryBranchDiffAtEnvironmentCwd =
-    selectedTurnId === null &&
-    primaryBranchDiffPreview.error?.includes("configured workspace root") === true &&
-    serverConfig?.cwd !== undefined &&
-    serverConfig.cwd !== activeCwd;
-  const fallbackBranchDiffPreview = useEnvironmentQuery(
-    shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
-      ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
-          input: {
-            cwd: serverConfig.cwd,
-            ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
-            ignoreWhitespace: diffIgnoreWhitespace,
-            ...(includeIndexSplit ? { includeIndexSplit: true } : {}),
-          },
-        })
-      : null,
-  );
-  const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
-    ? fallbackBranchDiffPreview
-    : primaryBranchDiffPreview;
   const canRefreshGitDiff =
     isGitRepo && selectedTurnId === null && activeThread != null && activeCwd != null;
   const activeThreadRefreshKey = routeThreadRef
@@ -1591,7 +1576,7 @@ export default function DiffPanel({
                     <div className="p-3">
                       <PanelErrorCard
                         title="Could not load this diff"
-                        reason={selectedPatchError}
+                        reason={diffErrorReason(selectedPatchError)}
                         reassurance="Your changes are not affected."
                         onRetry={
                           selectedTurn ? activeCheckpointDiff.refresh : refreshDiffFromUserAction
