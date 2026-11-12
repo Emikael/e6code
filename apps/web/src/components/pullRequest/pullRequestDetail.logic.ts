@@ -35,6 +35,7 @@ import {
 import { inferReviewCommentFenceLanguage, type ReviewCommentContext } from "~/reviewCommentContext";
 import { reviewCommentContextId } from "~/lib/composerContextRecords";
 import { removeInlineContextReference } from "~/lib/composerContextReferences";
+import { attachedCountNoun } from "~/lib/attachedForAgent";
 
 export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, string> = {
   merge: "Merge",
@@ -1806,4 +1807,34 @@ export function groupPullRequestChecks(
     foldedLabel: passedWords.length > 0 ? passedWords.join(", ") : null,
     summary,
   };
+}
+
+/**
+ * The advisory line under Merge readiness (board 13): "Your own review: 2 of 5 files, 1 comment
+ * not sent yet. This does not block merging." The files clause needs a host that remembers viewed
+ * files; the comment clause is left out when nothing waits. Null when the pull request has no
+ * files, or when neither clause has anything to say.
+ */
+export function pullRequestOwnReviewLine(input: {
+  readonly changedFiles: number;
+  /** Files this reader marked viewed, or null where the host keeps no such marks. */
+  readonly viewedFiles: number | null;
+  /** Review comments written here and not yet submitted with a review. */
+  readonly unsentComments: number;
+}): string | null {
+  if (input.changedFiles <= 0) return null;
+  const parts: string[] = [];
+  if (input.viewedFiles !== null) {
+    const viewed = Math.min(input.viewedFiles, input.changedFiles);
+    parts.push(
+      `${viewed.toLocaleString()} of ${input.changedFiles.toLocaleString()} ${
+        input.changedFiles === 1 ? "file" : "files"
+      }`,
+    );
+  }
+  if (input.unsentComments > 0) {
+    parts.push(`${attachedCountNoun(input.unsentComments, "comment")} not sent yet`);
+  }
+  if (parts.length === 0) return null;
+  return `Your own review: ${parts.join(", ")}. This does not block merging.`;
 }

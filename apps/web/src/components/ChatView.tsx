@@ -11482,7 +11482,10 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
-          changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
+          diffFileCount={{
+            threadRef: activeThreadRef,
+            workingTreeFileCount: gitStatusQuery.data?.workingTree.files.length ?? 0,
+          }}
           runningTerminalIds={runningTerminalIds}
           finishedTerminalIds={finishedTerminalIds}
         >
@@ -11551,7 +11554,10 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={activeThreadRef !== null}
-            changedFileCount={gitStatusQuery.data?.workingTree.files.length ?? 0}
+            diffFileCount={{
+              threadRef: activeThreadRef,
+              workingTreeFileCount: gitStatusQuery.data?.workingTree.files.length ?? 0,
+            }}
             runningTerminalIds={runningTerminalIds}
             finishedTerminalIds={finishedTerminalIds}
           >

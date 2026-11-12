@@ -81,7 +81,7 @@ import {
 
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useNowMinute } from "~/hooks/useNowMinute";
-import { unsentCodeCommentCount } from "~/lib/attachedForAgent";
+import { attachedCountNoun, unsentCodeCommentCount } from "~/lib/attachedForAgent";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { cn } from "~/lib/utils";
 import { type DiffPanelFocusTarget } from "~/diffPanelStore";
@@ -342,11 +342,6 @@ function PlanSection({ plan }: { plan: ActivePlanState }) {
 
 const EMPTY_WORKING_TREE_FILES: ReadonlyArray<VcsWorkingTreeFile> = [];
 
-/** "1 comment not sent". */
-function unsentCommentsLabel(count: number): string {
-  return `${count} ${count === 1 ? "comment" : "comments"} not sent`;
-}
-
 /**
  * The working tree: its files, then Review changes (Diff), Commit (Diff at its commit box) and
  * Push. Space is reserved while status loads; hidden outside Git repositories.
@@ -493,7 +488,7 @@ function ChangesSection({
           onClick={onOpenDiff}
           className="self-start rounded-sm text-xs underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {unsentCommentsLabel(unsentComments)}
+          {`${attachedCountNoun(unsentComments, "comment")} not sent`}
         </button>
       ) : null}
       {status && (files.length > 0 || ahead > 0 || behind > 0) ? (

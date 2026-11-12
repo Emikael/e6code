@@ -110,10 +110,15 @@ const NOUNS: Record<AttachedKind, readonly [string, string]> = {
   terminal: ["selection", "selections"],
 };
 
+/** "1 comment", "2 notes": a count of one kind, the words every attached label is built from. */
+export function attachedCountNoun(count: number, kind: AttachedKind): string {
+  const [one, many] = NOUNS[kind];
+  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
 /** "1 comment attached", "2 notes attached". */
 export function attachedCountLabel(count: number, kind: AttachedKind): string {
-  const [one, many] = NOUNS[kind];
-  return `${count.toLocaleString()} ${count === 1 ? one : many} attached`;
+  return `${attachedCountNoun(count, kind)} attached`;
 }
 
 /** Diff and file comments attached and not sent: the Diff, Files and Run details count. */
@@ -142,9 +147,7 @@ export function attachedNotSentLabel(draft: AttachedDraft | null | undefined): s
   // Counted, not grouped: sidebar rows read this on every composer change.
   const parts = ATTACHED_KINDS.flatMap((kind) => {
     const count = attachedCount(draft, kind);
-    if (count === 0) return [];
-    const [one, many] = NOUNS[kind];
-    return [`${count.toLocaleString()} ${count === 1 ? one : many}`];
+    return count === 0 ? [] : [attachedCountNoun(count, kind)];
   });
   if (parts.length === 0) return null;
   const last = parts.pop()!;

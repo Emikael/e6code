@@ -142,6 +142,7 @@ import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
 import { PullRequestCommentComposer } from "./PullRequestCommentComposer";
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
 import { PullRequestNextStepCard } from "./PullRequestNextStepCard";
+import { usePendingReviewComments } from "./pullRequestReviewStore";
 import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestTimelineTab } from "./PullRequestTimelineTab";
 import {
@@ -173,6 +174,7 @@ import {
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
+  pullRequestOwnReviewLine,
   pullRequestCodeTabLabel,
   pullRequestHostName,
   type MergeReadiness,
@@ -454,9 +456,12 @@ const READINESS_STATUS = {
  */
 function PullRequestMergeReadinessChecklist({
   readiness,
+  ownReviewLine,
   actions,
 }: {
   readiness: MergeReadiness;
+  /** "Your own review: 2 of 5 files, ...": advisory, neutral, and never counted above. */
+  ownReviewLine: string | null;
   /** Rendered before a row's status word, keyed by that row's action. */
   actions: Partial<Record<NonNullable<MergeReadiness["rows"][number]["action"]>, ReactNode>>;
 }) {
@@ -500,6 +505,9 @@ function PullRequestMergeReadinessChecklist({
           );
         })}
       </ul>
+      {ownReviewLine ? (
+        <p className="px-0.5 text-xs text-muted-foreground">{ownReviewLine}</p>
+      ) : null}
     </section>
   );
 }
@@ -842,6 +850,26 @@ export function PullRequestDetailPanel({
           },
         }),
   );
+  // "Your own review" under Merge readiness: the same viewed marks the Code tab reads (one shared
+  // query per pull request), and the review comments written here and not yet submitted.
+  const ownReviewMarksQuery = useEnvironmentQuery(
+    detail?.state === "open" && detail.capabilities.viewedFiles !== undefined
+      ? pullRequestEnvironment.filesViewed({ environmentId, input: reference })
+      : null,
+  );
+  const unsentReviewComments = usePendingReviewComments(reference).length;
+  const ownReviewLine =
+    detail?.state === "open"
+      ? pullRequestOwnReviewLine({
+          changedFiles: detail.changedFiles,
+          viewedFiles:
+            detail.capabilities.viewedFiles === undefined
+              ? null
+              : (ownReviewMarksQuery.data?.files.filter((file) => file.state === "viewed").length ??
+                0),
+          unsentComments: unsentReviewComments,
+        })
+      : null;
   const isStackedPullRequest =
     detail !== null &&
     isStackedPullRequestBase(detail.baseBranch, branchRefsQuery.data?.refs ?? []);
@@ -2625,6 +2653,7 @@ export function PullRequestDetailPanel({
                         {mergeReadiness ? (
                           <PullRequestMergeReadinessChecklist
                             readiness={mergeReadiness}
+                            ownReviewLine={ownReviewLine}
                             actions={{
                               "resolve-conflicts": (
                                 <Button

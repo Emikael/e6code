@@ -1,3 +1,4 @@
+import { useDiffTabFileCount } from "~/diffPanelStore";
 import { prefersReducedMotion } from "~/lib/motion";
 import { pullRequestHostOf, type SourceControlProviderKind } from "@e6tools/contracts";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
@@ -13,6 +14,7 @@ import type {
   ProjectId,
   PullRequestState,
   ResolvedKeybindingsConfig,
+  ScopedThreadRef,
 } from "@e6tools/contracts";
 import {
   closestCenter,
@@ -157,8 +159,14 @@ export interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
-  /** Files changed in the working tree; counted on the Diff tab. */
-  changedFileCount?: number;
+  /**
+   * What the Diff tab counts: the files its panel shows for the selected scope, or the files
+   * changed in the working tree until the panel has said.
+   */
+  diffFileCount?: {
+    readonly threadRef: ScopedThreadRef | null;
+    readonly workingTreeFileCount: number;
+  };
   /** The thread's terminals with a running process; named on their tabs. */
   runningTerminalIds?: ReadonlyArray<string> | undefined;
   /** Terminals showing the Finished cue (see useFinishedTerminalIds). */
@@ -1217,8 +1225,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     [props.surfaces, props.terminalLabelsById],
   );
   const nameState = { terminalTabNames: tabNames };
+  const changedFileCount = useDiffTabFileCount(
+    props.diffFileCount?.threadRef,
+    props.diffFileCount?.workingTreeFileCount ?? 0,
+  );
   const titleState = {
-    changedFileCount: props.changedFileCount ?? 0,
+    changedFileCount,
     runningTerminalIds,
     ...(props.finishedTerminalIds ? { finishedTerminalIds: props.finishedTerminalIds } : {}),
     terminalTabNames: tabNames,

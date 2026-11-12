@@ -30,6 +30,13 @@ interface DiffPanelStoreState {
   branchBaseRefByThreadKey: Record<string, string | null>;
   /** Not persisted: a request outlives neither the page nor its first handling. */
   focusRequestByThreadKey: Record<string, DiffPanelFocusTarget>;
+  /**
+   * Not persisted: how many files the Diff panel last showed for its selected scope, for the Diff
+   * tab's label. Absent while the panel shows everything uncommitted, which the tab counts from
+   * the live working-tree status instead.
+   */
+  scopeFileCountByThreadKey: Record<string, number>;
+  reportScopeFileCount: (ref: ScopedThreadRef, count: number | null) => void;
   requestFocus: (ref: ScopedThreadRef, target: DiffPanelFocusTarget) => void;
   consumeFocusRequest: (ref: ScopedThreadRef) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: DiffPanelGitScope) => void;
@@ -50,6 +57,16 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
       focusRequestByThreadKey: {},
+      scopeFileCountByThreadKey: {},
+      reportScopeFileCount: (ref, count) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (state.scopeFileCountByThreadKey[threadKey] === (count ?? undefined)) return state;
+          const { [threadKey]: _previous, ...rest } = state.scopeFileCountByThreadKey;
+          return {
+            scopeFileCountByThreadKey: count === null ? rest : { ...rest, [threadKey]: count },
+          };
+        }),
       requestFocus: (ref, target) =>
         set((state) => ({
           focusRequestByThreadKey: {
@@ -171,4 +188,25 @@ export function selectThreadDiffPanelSelection(
 ): DiffPanelSelection {
   if (!ref) return DEFAULT_SELECTION;
   return byThreadKey[scopedThreadKey(ref)] ?? DEFAULT_SELECTION;
+}
+
+/**
+ * The Diff tab's file count: the files the Diff panel shows for its selected scope, so the label
+ * agrees with the rail and the footer; everything uncommitted until the panel has said otherwise.
+ */
+export function useDiffTabFileCount(
+  ref: ScopedThreadRef | null | undefined,
+  workingTreeFileCount: number,
+): number {
+  return useDiffPanelStore((state) =>
+    selectDiffTabFileCount(state.scopeFileCountByThreadKey, ref, workingTreeFileCount),
+  );
+}
+
+export function selectDiffTabFileCount(
+  scopeFileCountByThreadKey: Record<string, number>,
+  ref: ScopedThreadRef | null | undefined,
+  workingTreeFileCount: number,
+): number {
+  return (ref && scopeFileCountByThreadKey[scopedThreadKey(ref)]) ?? workingTreeFileCount;
 }

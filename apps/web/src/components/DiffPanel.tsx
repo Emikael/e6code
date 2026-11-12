@@ -695,6 +695,20 @@ export default function DiffPanel({
   );
   const railPaths = useMemo(() => railRows.map((row) => row.path), [railRows]);
   const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
+  // The Diff tab counts what this panel shows for its scope, as the rail and the footer do. Showing
+  // the live working tree, the tab's own count from status is already the same, so it is cleared.
+  const scopeFileCount =
+    selectedTurnId === null && selectedGitScope === "uncommitted" && pinState !== "pinned"
+      ? null
+      : railHostsChanges
+        ? (shownWorkingTreeFiles?.length ?? null)
+        : railRowsReady
+          ? railRows.length
+          : null;
+  useEffect(() => {
+    if (!routeThreadRef) return;
+    useDiffPanelStore.getState().reportScopeFileCount(routeThreadRef, scopeFileCount);
+  }, [routeThreadRef, scopeFileCount]);
   // Review marks: per thread and scope, keyed by what each file looks like now.
   // Uncommitted compares against HEAD, as `git status` counts do, so its marks also keep those
   // counts and Run details can check them whatever the whitespace setting.
