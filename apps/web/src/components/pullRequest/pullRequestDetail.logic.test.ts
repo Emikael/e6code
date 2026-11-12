@@ -45,16 +45,15 @@ import {
   readPullRequestDetailSnapshot,
   resolveDisplayedPullRequestDetail,
   resolvePullRequestReferenceHost,
-  resolvePullRequestPrimaryControl,
   allowsSinglePullRequestMerge,
   shouldRefreshPullRequestActivity,
   resolveBaseFreshness,
   resolveMergeReadiness,
+  mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
   joinNames,
   type PullRequestNextStepInput,
-  summarizePullRequestFindings,
   buildPullRequestTimeline,
   editPullRequestThreadComment,
   writePullRequestDetailSnapshot,
@@ -250,54 +249,6 @@ describe("review thread comment pages", () => {
 describe("pull request action menu", () => {
   it("keeps the group divider when auto-merge is the only action", () => {
     expect(pullRequestActionMenuHasGroup(false, true, false)).toBe(true);
-  });
-});
-
-describe("pull request primary control", () => {
-  const open = {
-    state: "open" as const,
-    isDraft: false,
-    mergeability: "mergeable" as const,
-    checksState: "passing" as const,
-    autoMergeEnabled: false,
-    hasMergeMethod: true,
-    canMerge: true,
-    canMarkReady: true,
-    canEnableAutoMerge: true,
-  };
-
-  it("moves pending and failing checks to auto-merge", () => {
-    expect(resolvePullRequestPrimaryControl({ ...open, checksState: "pending" })).toBe(
-      "enable-auto-merge",
-    );
-    expect(resolvePullRequestPrimaryControl({ ...open, checksState: "failing" })).toBe(
-      "enable-auto-merge",
-    );
-  });
-
-  it("does not offer auto-merge while the host state is unknown", () => {
-    expect(
-      resolvePullRequestPrimaryControl({
-        ...open,
-        checksState: "pending",
-        autoMergeEnabled: undefined,
-      }),
-    ).toBe("merge");
-  });
-
-  it("keeps armed and terminal states in the merge button slot", () => {
-    expect(resolvePullRequestPrimaryControl({ ...open, autoMergeEnabled: true })).toBe(
-      "auto-merge-armed",
-    );
-    expect(resolvePullRequestPrimaryControl({ ...open, state: "merged" })).toBe("merged");
-    expect(resolvePullRequestPrimaryControl({ ...open, state: "closed" })).toBe("closed");
-  });
-
-  it("keeps conflicts and drafts actionable before merge", () => {
-    expect(resolvePullRequestPrimaryControl({ ...open, mergeability: "conflicting" })).toBe(
-      "resolve",
-    );
-    expect(resolvePullRequestPrimaryControl({ ...open, isDraft: true })).toBe("ready");
   });
 });
 
@@ -1846,6 +1797,7 @@ describe("merge readiness checklist", () => {
   });
   const ready = {
     state: "open",
+    baseBranch: "main",
     checks: [
       ...Array.from({ length: 14 }, (_, index) => check("success", `build-${index}`)),
       ...Array.from({ length: 3 }, (_, index) => check("skipped", `skip-${index}`)),
@@ -1861,15 +1813,16 @@ describe("merge readiness checklist", () => {
   it("words every requirement of a ready pull request and counts them all", () => {
     const readiness = resolveMergeReadiness(ready);
     expect(readiness).toMatchObject({ met: 4, counted: 4 });
-    expect(readiness?.rows.map((row) => [row.label, row.detail])).toEqual([
-      ["Checks passed", "14 · 3 skipped"],
-      ["Approved", null],
-      ["No conflicts", null],
-      ["Up to date with base", null],
+    expect(readiness && mergeReadinessCountLabel(readiness)).toBe("4 of 4 met");
+    expect(readiness?.rows.map((row) => [row.label, row.word])).toEqual([
+      ["Checks: 14 passed, 3 skipped", "Met"],
+      ["Review", "Met"],
+      ["No conflicts", "Met"],
+      ["Up to date with main", "Met"],
     ]);
   });
 
-  it("offers the action that clears each failing row", () => {
+  it("offers the action that clears each unmet row, in words, never Blocked", () => {
     const readiness = resolveMergeReadiness({
       ...ready,
       checks: [check("failure", "lint"), check("cancelled", "e2e"), check("success", "unit")],
@@ -1879,13 +1832,26 @@ describe("merge readiness checklist", () => {
       baseComparison: "behind",
       behindBy: 3,
     });
-    expect(readiness?.rows.map((row) => [row.status, row.label, row.detail, row.action])).toEqual([
-      ["blocked", "2 checks failing", "of 3", null],
-      ["blocked", "Changes requested", null, null],
-      ["blocked", "Conflicts with the base branch", null, "resolve-conflicts"],
-      ["waiting", "Behind the base branch", "3 commits", "update-branch"],
+    expect(readiness?.rows.map((row) => [row.label, row.word, row.detail, row.action])).toEqual([
+      ["Checks: 2 of 3 failing", "Failing", null, null],
+      ["Review", "Changes requested", null, null],
+      ["Conflicts with main", "Conflicts", null, "resolve-conflicts"],
+      ["Behind main", "Behind", "3 commits", "update-branch"],
     ]);
+    expect(readiness?.rows.some((row) => row.word === "Blocked")).toBe(false);
     expect(readiness).toMatchObject({ met: 0, counted: 4 });
+  });
+
+  it("says who a requested review waits on, and offers to request one nobody was asked for", () => {
+    const pending = resolveMergeReadiness({
+      ...ready,
+      reviewDecision: "review-required",
+      approvalCount: 0,
+      pendingReviewers: ["ana"],
+    });
+    expect(pending?.rows[1]).toMatchObject({ status: "waiting", word: "Waiting on ana" });
+    const none = resolveMergeReadiness({ ...ready, reviewDecision: undefined, approvalCount: 0 });
+    expect(none?.rows[1]).toMatchObject({ word: "Not requested", action: "request-review" });
   });
 
   it("leaves what the host could not report out of the count", () => {
@@ -1893,89 +1859,33 @@ describe("merge readiness checklist", () => {
       ...ready,
       checks: [],
       checksState: null,
-      reviewDecision: undefined,
-      approvalCount: 0,
       mergeability: "unknown",
       baseComparison: undefined,
     });
-    expect(readiness?.rows.every((row) => row.status === "unknown")).toBe(true);
-    expect(readiness).toMatchObject({ met: 0, counted: 0 });
+    expect(readiness?.rows.map((row) => row.word)).toEqual([
+      "None",
+      "Met",
+      "Checking",
+      "Not reported",
+    ]);
+    expect(readiness).toMatchObject({ met: 1, counted: 1 });
   });
 
   it("trusts a newer rollup over a stale check list, and says checks are still running", () => {
     expect(
       resolveMergeReadiness({ ...ready, checksStale: true, checksState: "failing" })?.rows[0],
-    ).toMatchObject({ status: "blocked", label: "Checks failing", detail: null });
+    ).toMatchObject({ status: "blocked", label: "Checks failing", word: "Failing" });
     expect(
       resolveMergeReadiness({
         ...ready,
         checks: [check("pending", "e2e"), check("success", "unit")],
         checksState: "pending",
       })?.rows[0],
-    ).toMatchObject({ status: "waiting", label: "Checks running", detail: "1 of 2 done" });
+    ).toMatchObject({ status: "waiting", label: "Checks: 1 of 2 done", word: "Running" });
   });
 
   it("has no checklist once nothing is left to merge", () => {
     expect(resolveMergeReadiness({ ...ready, state: "merged" })).toBeNull();
-  });
-});
-
-describe("what fixing the findings would hand over", () => {
-  const thread = (id: string, body: string, isResolved = false): PullRequestReviewThread => ({
-    id,
-    path: "apps/web/src/page.tsx",
-    line: 12,
-    side: "right",
-    isResolved,
-    isOutdated: false,
-    comments: [
-      {
-        id: `${id}-comment`,
-        author: { login: "reviewer", name: null, avatarUrl: null },
-        body,
-        createdAt: "2026-07-03T00:00:00Z",
-        url: null,
-      },
-    ],
-  });
-  const failing: PullRequestCheck = {
-    name: "lint",
-    status: "failure",
-    description: null,
-    url: null,
-  };
-
-  it("counts unresolved review comments and failing checks the way the hand-off picks them", () => {
-    expect(
-      summarizePullRequestFindings({
-        reviewThreads: [thread("a", "rename this"), thread("b", "done", true), thread("c", " ")],
-        checks: [failing, { ...failing, name: "e2e", status: "success" }],
-        checksState: "failing",
-        checksStale: false,
-      }),
-    ).toBe("1 unresolved review comment · 1 failing check");
-  });
-
-  it("falls back to a newer failing rollup when the check list is stale", () => {
-    expect(
-      summarizePullRequestFindings({
-        reviewThreads: [],
-        checks: [],
-        checksState: "failing",
-        checksStale: true,
-      }),
-    ).toBe("failing checks");
-  });
-
-  it("offers nothing when there is nothing to fix", () => {
-    expect(
-      summarizePullRequestFindings({
-        reviewThreads: [thread("a", "done", true)],
-        checks: [{ ...failing, status: "success" }],
-        checksState: "passing",
-        checksStale: false,
-      }),
-    ).toBeNull();
   });
 });
 
