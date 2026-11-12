@@ -54,7 +54,10 @@ export const ThreadNowBar = memo(function ThreadNowBar({
         role="group"
         aria-label="Now"
         className={cn(
-          "mx-auto flex min-h-[46px] w-full max-w-(--chat-max-width) items-center gap-3 rounded-xl border bg-surface-raised px-3 py-2",
+          // A container, so a narrow thread column (a wide right panel) gives way in order:
+          // "since 14:02" first, then the step text truncates, then Notify keeps only its bell.
+          // The status word and the elapsed time always stay.
+          "@container/nowbar mx-auto flex min-h-[46px] w-full max-w-(--chat-max-width) items-center gap-3 rounded-xl border bg-surface-raised px-3 py-2",
           state.kind === "blocked" ? "border-warning-foreground" : "border-border",
         )}
       >
@@ -228,7 +231,9 @@ function ElapsedCue({
         <span ref={textRef} className="inline-block min-w-[7ch] text-end">
           {"elapsed" in initial ? initial.elapsed : ""}
         </span>
-        {` · since ${formatShortTimestamp(startedAt, timestampFormat)}`}
+        <span className="hidden @min-[38rem]/nowbar:inline">
+          {` · since ${formatShortTimestamp(startedAt, timestampFormat)}`}
+        </span>
       </>
     );
   if (earlierTurns === null) return <span className={TIME_CUE_CLASS}>{cue}</span>;
@@ -272,21 +277,28 @@ function WatchToggle({ watchKey }: { watchKey: string }) {
   const watched = isThreadWatched(choice, { attentionNotifications, notifyWatchedThreads });
   if (attentionNotifications === "off") return null;
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      aria-pressed={watched}
-      className={cn(
-        "sm:text-xs",
-        // Board 2: pressed is the secondary fill, a primary-edge line and a foreground icon.
-        watched &&
-          "border-primary-edge bg-secondary text-foreground hover:bg-secondary [--control-icon-color:var(--foreground)]",
-      )}
-      onClick={() => useThreadWatchStore.getState().choose(watchKey, !watched)}
-    >
-      <BellIcon aria-hidden className="size-3.5" />
-      {/* Phones keep the bell alone; the label stays the accessible name. */}
-      <span className="sr-only sm:not-sr-only">Notify me when done</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-pressed={watched}
+            className={cn(
+              "sm:text-xs",
+              // Board 2: pressed is the secondary fill, a primary-edge line and a foreground icon.
+              watched &&
+                "border-primary-edge bg-secondary text-foreground hover:bg-secondary [--control-icon-color:var(--foreground)]",
+            )}
+            onClick={() => useThreadWatchStore.getState().choose(watchKey, !watched)}
+          />
+        }
+      >
+        <BellIcon aria-hidden className="size-3.5" />
+        {/* A narrow bar keeps the bell alone; the label stays the accessible name. */}
+        <span className="sr-only @min-[30rem]/nowbar:not-sr-only">Notify me when done</span>
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">Notify me when done</TooltipPopup>
+    </Tooltip>
   );
 }
