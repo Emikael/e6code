@@ -89,6 +89,10 @@ thread's recap.
 While a thread is open, the bar under its header says what the agent is doing and for how long,
 what it is waiting for, or how long the last turn took.
 
+On mobile, a thread you come back to after a break shows the same **Where you left off** card
+above the composer, with your note when it is saved to an environment. While an agent works, the
+status above the composer shows which step of its plan it is on, such as "Step 3 of 5".
+
 ## Set a thought aside
 
 On web and desktop, press `mod+alt+p` from any screen, or choose **Park a thought** at the top of
@@ -97,14 +101,21 @@ the sidebar or in the command palette. Type the thought and press Enter to park 
 in the sidebar to start a thread from a thought, put it in the composer, or delete it. The start
 screen shows the first two under the composer.
 
-Parked thoughts and notes to self are kept in this browser or app until you choose to save them to
-an environment. E6 Code offers this once for each environment; once you accept, every device
-connected to that environment sees the same list, and anyone paired with that environment can read
-the thoughts and notes saved there. The foot of the Parked list says where your list is kept. On
-mobile, open **Settings → Parked** to park a thought, start a task from one, or delete one.
+Parked thoughts and notes to self stay in this browser or app until you choose to save them to an
+environment. The Parked list asks once for each environment, with what it would save, such as
+"Save 4 parked thoughts and 2 notes to Studio Mac?". Choose **Save**, and every device connected to
+that environment sees the same list; anyone paired with that environment can read the thoughts and
+notes saved there. Dismiss the question to keep everything in this browser; it is not asked again,
+and **Save to …** at the foot of the list asks again when you want. **Stop saving** keeps a copy in
+this browser and sends nothing more. The foot of the list says where your list is kept.
 
-Parked holds up to 200 thoughts, and up to 200 notes. When it is full, E6 Code asks you to remove
-one rather than dropping an old one.
+On mobile, open **Settings → Parked**. It asks the same question, and nothing is saved from the
+phone until you accept. Then you can park a thought, start a task from one, or delete one. A
+thought parked while the environment is unreachable shows as waiting and is saved when it is back.
+
+A thought or note holds up to 1,000 characters. Parked holds up to 200 thoughts, and up to 200
+notes. When it is full, E6 Code asks you to remove one rather than dropping an old one. If two
+devices change the same note, both versions are kept, and E6 Code says so.
 
 To set aside a message you are writing, with its attachments, use **Park it** in the composer
 instead; see [Messages and context](./composer.md#park-a-draft).
