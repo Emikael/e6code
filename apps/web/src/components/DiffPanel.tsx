@@ -71,6 +71,7 @@ import {
   pagingStepLabel,
   replyLabel,
 } from "./diffs/diffPaging.logic";
+import { PanelEmptyCard } from "./panel/PanelEmptyCard";
 import { PanelErrorCard } from "./panel/PanelErrorCard";
 import { DiffRailKeyHint, DiffReviewFooter } from "./diffs/DiffReviewFooter";
 import { useDiffPaging } from "./diffs/useDiffPaging";
@@ -1608,12 +1609,12 @@ export default function DiffPanel({
                       }
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground">
-                      <p>
+                    <div className="p-3">
+                      <PanelEmptyCard title="No changes">
                         {hasNoNetChanges
-                          ? "No net changes in this selection."
-                          : "No patch available for this selection."}
-                      </p>
+                          ? "Nothing in this selection differs from its base."
+                          : "No patch is available for this selection."}
+                      </PanelEmptyCard>
                     </div>
                   )
                 ) : lazySource || renderablePatch?.kind === "files" ? (
