@@ -74,6 +74,7 @@ import Migration0059 from "./Migrations/059_ProjectionThreadsPendingRequestSince
 import Migration0060 from "./Migrations/060_ProjectionThreadsPendingRequestSummary.ts";
 import Migration0061 from "./Migrations/061_ProjectionParkedEntries.ts";
 import Migration0062 from "./Migrations/062_ProjectionPendingApprovalsRequestKind.ts";
+import Migration0063 from "./Migrations/063_ProjectionParkedTombstoneText.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -148,6 +149,7 @@ const migrationEntries = [
   [60, "ProjectionThreadsPendingRequestSummary", Migration0060],
   [61, "ProjectionParkedEntries", Migration0061],
   [62, "ProjectionPendingApprovalsRequestKind", Migration0062],
+  [63, "ProjectionParkedTombstoneText", Migration0063],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

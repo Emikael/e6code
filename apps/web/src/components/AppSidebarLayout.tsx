@@ -209,14 +209,31 @@ function useFocusEntrySidebarFade(focusModeActive: boolean, panelAnimationsActiv
       return;
     }
     const container = document.querySelector(APP_SIDEBAR_CONTAINER);
-    if (!canAnimate(container)) return;
+    if (!canAnimate(container) || !(container instanceof HTMLElement)) return;
+    // While it fades it still sits over the content: it takes no clicks and
+    // leaves the tab order until the fade ends.
+    const wasInert = container.inert;
+    container.inert = true;
+    container.style.pointerEvents = "none";
+    const release = () => {
+      container.inert = wasInert;
+      container.style.pointerEvents = "";
+    };
     // Collapsed, the container sits a sidebar's width off screen; the fade starts where it was.
-    fadeRef.current = playTransient(container, {
+    const fade = playTransient(container, {
       opacity: [1, 0],
       transform: [`translateX(${width}px)`, `translateX(${width - 8}px)`],
       duration: MOTION_MS.state,
       ease: EASE_IN_OUT,
     });
+    void fade.finished.then(release);
+    fadeRef.current = {
+      finished: fade.finished,
+      cancel: () => {
+        fade.cancel();
+        release();
+      },
+    };
   });
   useEffect(() => () => fadeRef.current?.cancel(), []);
 }

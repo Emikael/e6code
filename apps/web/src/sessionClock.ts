@@ -129,8 +129,23 @@ function noteInteraction(): void {
   commit(resolveSession(current, Date.now()));
 }
 
+/**
+ * Scrolling to read counts as activity too. Wheel and touch moves fire many
+ * times a second, so they are noted at most once a minute and do nothing else
+ * in between. `scroll` itself is left out: the chat scrolls on its own while
+ * an agent streams, which is not the user being there.
+ */
+let lastScrollNotedAt = 0;
+function noteScrollInteraction(): void {
+  const nowMs = Date.now();
+  if (nowMs - lastScrollNotedAt < MINUTE_MS) return;
+  lastScrollNotedAt = nowMs;
+  commit(resolveSession(useSessionClockStore.getState().session, nowMs));
+}
+
 let tracking = false;
 const LISTENER_OPTIONS = { capture: true, passive: true } as const;
+const SCROLL_EVENTS = ["wheel", "touchmove"] as const;
 
 /**
  * Begins counting on this device. Called only while the clock or the reminder
@@ -142,6 +157,9 @@ export function ensureSessionTracking(): void {
   commit(resolveSession(readStored(), Date.now()));
   window.addEventListener("pointerdown", noteInteraction, LISTENER_OPTIONS);
   window.addEventListener("keydown", noteInteraction, LISTENER_OPTIONS);
+  for (const type of SCROLL_EVENTS) {
+    window.addEventListener(type, noteScrollInteraction, LISTENER_OPTIONS);
+  }
 }
 
 /** With the clock and the reminder both off: stop listening and forget the session. */
@@ -149,7 +167,11 @@ export function stopSessionTracking(): void {
   if (typeof window !== "undefined") {
     window.removeEventListener("pointerdown", noteInteraction, LISTENER_OPTIONS);
     window.removeEventListener("keydown", noteInteraction, LISTENER_OPTIONS);
+    for (const type of SCROLL_EVENTS) {
+      window.removeEventListener(type, noteScrollInteraction, LISTENER_OPTIONS);
+    }
   }
+  lastScrollNotedAt = 0;
   tracking = false;
   try {
     localStorage.removeItem(SESSION_CLOCK_STORAGE_KEY);

@@ -2,9 +2,11 @@
  * "Parked" in the sidebar footer and its list (board 4, F7). Each thought can
  * start a thread, go into the composer on screen, or be deleted with Undo.
  * The footer says where the list is kept: this browser, or the environments
- * that hold it (`parkedHomeLine`).
+ * the user accepted saving to (`parkedFooterLines`). Saving to an environment
+ * is offered once, as one dismissible line above the footer.
  */
 import { scopedProjectKey, scopeProjectRef } from "@e6tools/client-runtime/environment";
+import { parkedOfferDetail, parkedOfferQuestion } from "@e6tools/client-runtime/parked-sync";
 import { InboxIcon, TrashIcon, XIcon } from "lucide-react";
 import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -16,14 +18,15 @@ import {
   firstThingSource,
   formatParkedWhen,
   localDateKey,
-  parkedHomeLine,
+  parkedFooterLines,
   removeParkedEntry,
   selectFirstThing,
   selectParkedThoughts,
   useCaptureBarStore,
 } from "../../parkedThoughts";
 import {
-  selectParkedHome,
+  selectParkedFooter,
+  selectParkedOffer,
   usePromptStashStore,
   type PromptStashEntry,
 } from "../../promptStashStore";
@@ -278,25 +281,101 @@ function ParkedList({
           })}
         </ul>
       )}
+      <ParkedOffer />
       <div className="h-px bg-border" />
       <ParkedHomeLine />
     </section>
   );
 }
 
-/** Where the list is kept: this device, or the environments that hold it. */
-function ParkedHomeLine() {
-  const home = usePromptStashStore(selectParkedHome);
-  const syncedIds = usePromptStashStore(
-    useShallow((store) => Object.keys(store.stored.parkedServer)),
-  );
+/** An environment's name as the user sees it. */
+function useEnvironmentLabel(): (environmentId: string) => string {
   const { environments } = useEnvironments();
-  const labels = syncedIds.map(
-    (environmentId) =>
-      environments.find((environment) => environment.environmentId === environmentId)?.label ??
-      "this environment",
-  );
+  return (environmentId) =>
+    environments.find((environment) => environment.environmentId === environmentId)?.label ??
+    "this environment";
+}
+
+/**
+ * Asks once per environment whether to save parked thoughts and notes there,
+ * with what this browser holds. Dismissing keeps everything here and is not
+ * asked again; the footer offers it again on request.
+ */
+function ParkedOffer() {
+  const offer = usePromptStashStore(useShallow(selectParkedOffer));
+  const labelOf = useEnvironmentLabel();
+  if (!offer) return null;
+  const label = labelOf(offer.environmentId);
   return (
-    <p className="px-4 py-2.5 text-xs text-muted-foreground">{parkedHomeLine(home, labels)}</p>
+    <div className="flex items-start gap-2 border-t border-border py-2.5 pr-2 pl-4">
+      <p className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground">
+        <span className="text-foreground">{parkedOfferQuestion(offer, label)}</span>{" "}
+        {parkedOfferDetail(label)}
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="shrink-0 sm:text-xs"
+        onClick={() => {
+          if (!usePromptStashStore.getState().acceptParkedSync(offer.environmentId).written) {
+            toastManager.add({
+              type: "error",
+              title: "Could not keep this choice",
+              description: "Browser storage rejected the write. Nothing was sent.",
+            });
+          }
+        }}
+      >
+        Save
+      </Button>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label="Keep in this browser"
+        className="shrink-0"
+        onClick={() => usePromptStashStore.getState().declineParkedSync(offer.environmentId)}
+      >
+        <XIcon aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
+/** Where the list is kept, and the way to change that answer for each environment. */
+function ParkedHomeLine() {
+  // Compared as text: the selector builds new arrays on every store change.
+  const footerKey = usePromptStashStore((store) => JSON.stringify(selectParkedFooter(store)));
+  const footer = useMemo(
+    () => JSON.parse(footerKey) as ReturnType<typeof selectParkedFooter>,
+    [footerKey],
+  );
+  const labelOf = useEnvironmentLabel();
+  const lines = parkedFooterLines(footer, footer.savedOn.map(labelOf));
+  return (
+    <div className="flex flex-col items-start gap-1 px-4 py-2.5 text-xs text-muted-foreground">
+      {lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+      {footer.savedOn.map((environmentId) => (
+        <button
+          key={environmentId}
+          type="button"
+          className="underline-offset-2 hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+          onClick={() => usePromptStashStore.getState().declineParkedSync(environmentId)}
+        >
+          {footer.savedOn.length === 1 ? "Stop saving" : `Stop saving on ${labelOf(environmentId)}`}
+        </button>
+      ))}
+      {footer.saveLater.map((environmentId) => (
+        <button
+          key={environmentId}
+          type="button"
+          className="underline-offset-2 hover:text-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+          onClick={() => usePromptStashStore.getState().reopenParkedOffer(environmentId)}
+        >
+          {`Save to ${labelOf(environmentId)}…`}
+        </button>
+      ))}
+    </div>
   );
 }

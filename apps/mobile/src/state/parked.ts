@@ -1,10 +1,18 @@
 /**
- * Parked thoughts on mobile (phase 20). Thoughts live on each environment that
- * advertises `parkedSync`; this phone keeps only its unsent changes, in a file,
- * and sends them in order whenever that environment's list arrives (that is,
- * on every reconnect). See `@e6tools/client-runtime/parked-sync`.
+ * Parked thoughts on mobile (phase 20). Thoughts live on an environment that
+ * advertises `parkedSync` and that the user accepted saving to (asked once per
+ * environment, kept in a file); nothing is sent to any other. This phone keeps
+ * only its unsent changes, in a file, and sends them in order whenever that
+ * environment's list arrives (that is, on every reconnect). See
+ * `@e6tools/client-runtime/parked-sync`.
  */
-import { enqueueParkedOp, ParkedOp } from "@e6tools/client-runtime/parked-sync";
+import {
+  enqueueParkedOp,
+  mayParkIn,
+  ParkedConsents,
+  ParkedOp,
+  type ParkedConsent,
+} from "@e6tools/client-runtime/parked-sync";
 import type { EnvironmentId, OrchestrationParkedState } from "@e6tools/contracts";
 import { createParkedEnvironmentAtoms } from "@e6tools/client-runtime/state/parked";
 import * as Option from "effect/Option";
@@ -19,21 +27,41 @@ import { environmentServerConfigsAtom } from "./server";
 export const parkedEnvironment = createParkedEnvironmentAtoms(connectionAtomRuntime);
 
 const PARKED_QUEUE_FILE = "parked-queue.json";
+const PARKED_CONSENT_FILE = "parked-consent.json";
 const decodeQueue = Schema.decodeUnknownSync(Schema.Array(ParkedOp));
+const decodeConsents = Schema.decodeUnknownSync(ParkedConsents);
 
 /** This phone's changes the server has not answered yet. */
 export const parkedQueueAtom = Atom.make<ReadonlyArray<ParkedOp>>([]).pipe(Atom.keepAlive);
 
-async function queueFile() {
+/** The user's answer per environment to saving parked thoughts there. */
+export const parkedConsentsAtom = Atom.make<ParkedConsents>({}).pipe(Atom.keepAlive);
+
+async function documentFile(name: string) {
   const { File, Paths } = await import("expo-file-system");
-  return new File(Paths.document, PARKED_QUEUE_FILE);
+  return new File(Paths.document, name);
 }
+
+const queueFile = () => documentFile(PARKED_QUEUE_FILE);
 
 let queueLoaded: Promise<void> | null = null;
 
-/** Reads the stored queue once; later calls wait for the same read. */
+/** Reads the stored queue and answers once; later calls wait for the same read. */
 export function loadParkedQueue(): Promise<void> {
   queueLoaded ??= (async () => {
+    try {
+      const file = await documentFile(PARKED_CONSENT_FILE);
+      if (file.exists) {
+        const stored = decodeConsents(JSON.parse(await file.text()));
+        // An answer given before the read finished wins.
+        appAtomRegistry.set(parkedConsentsAtom, {
+          ...stored,
+          ...appAtomRegistry.get(parkedConsentsAtom),
+        });
+      }
+    } catch (error) {
+      console.warn("[parked] could not read the saving choices", error);
+    }
     try {
       const file = await queueFile();
       if (!file.exists) return;
@@ -46,6 +74,15 @@ export function loadParkedQueue(): Promise<void> {
     }
   })();
   return queueLoaded;
+}
+
+/** Records the user's answer for an environment; until "accepted" nothing goes there. */
+export function setParkedConsent(environmentId: string, consent: ParkedConsent): void {
+  const next = { ...appAtomRegistry.get(parkedConsentsAtom), [environmentId]: consent };
+  appAtomRegistry.set(parkedConsentsAtom, next);
+  void documentFile(PARKED_CONSENT_FILE)
+    .then((file) => writeFileAtomically(file, JSON.stringify(next)))
+    .catch((error) => console.warn("[parked] could not save the saving choice", error));
 }
 
 function persistQueue(ops: ReadonlyArray<ParkedOp>) {
@@ -76,11 +113,16 @@ export const parkedEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<Environme
   return ids;
 }).pipe(Atom.withLabel("mobile-parked:environments"));
 
-/** Each synced environment's list, once its first snapshot has arrived. */
+/**
+ * Each accepted environment's list, once its first snapshot has arrived. An
+ * environment the user has not accepted is not even read.
+ */
 export const parkedListsAtom = Atom.make(
   (get): ReadonlyMap<EnvironmentId, OrchestrationParkedState> => {
     const lists = new Map<EnvironmentId, OrchestrationParkedState>();
+    const consents = get(parkedConsentsAtom);
     for (const environmentId of get(parkedEnvironmentIdsAtom)) {
+      if (!mayParkIn(consents, environmentId)) continue;
       const result = get(parkedEnvironment.list({ environmentId, input: {} }));
       const value = Option.getOrNull(AsyncResult.value(result));
       if (value) lists.set(environmentId, value);

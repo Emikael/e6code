@@ -1,43 +1,63 @@
 /**
- * Keeps this browser's Parked list in step with each environment that holds
- * one (phase 20). Renders nothing.
+ * Keeps this browser's Parked list in step with each environment the user
+ * accepted saving to (phase 20). Renders nothing.
  *
- * For every connected environment advertising `parkedSync` it follows the
- * environment's list, uploads once whatever thoughts and notes this origin
- * kept before (the server keeps one copy however often they arrive), and sends
- * this device's queued changes in order. A change that cannot be sent waits
- * in storage; it goes out the next time that environment's list arrives, which
- * happens on every reconnect. Environments without `parkedSync` are left
- * alone, so their thoughts stay on this device as before.
+ * It tells the store which connected environments can hold a list, so the
+ * Parked list can offer saving there; nothing is sent to an environment until
+ * the user accepts. For every accepted environment it follows the
+ * environment's list, uploads once whatever thoughts and notes this browser
+ * kept for it (the server keeps one copy however often they arrive), and
+ * sends this device's queued changes in order. A change that cannot be sent
+ * waits in storage; it goes out the next time that environment's list
+ * arrives, which happens on every reconnect.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { CommandId, type EnvironmentId } from "@e6tools/contracts";
-import { parkedOpCommand, isParkedOpRefused } from "@e6tools/client-runtime/parked-sync";
+import {
+  isParkedOpRefused,
+  mayParkIn,
+  parkedOpCommand,
+  parkedOpProblem,
+} from "@e6tools/client-runtime/parked-sync";
 import { squashAtomCommandFailure } from "@e6tools/client-runtime/state/runtime";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useRef, useState } from "react";
 
-import { selectParkedImport, usePromptStashStore } from "../promptStashStore";
+import { selectNextParkedSend, usePromptStashStore, type ParkedNotice } from "../promptStashStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { useServerConfigs } from "../state/entities";
 import { parkedEnvironment } from "../state/parked";
 import { useAtomCommand } from "../state/use-atom-command";
 import { randomUUID } from "../lib/utils";
+import { toastManager } from "./ui/toast";
 
 export function ParkedSyncCoordinator() {
   const serverConfigs = useServerConfigs();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const consents = usePromptStashStore((store) => store.consents);
   useEffect(() => {
     usePromptStashStore.getState().setPrimaryEnvironmentId(primaryEnvironmentId);
   }, [primaryEnvironmentId]);
-  const synced: EnvironmentId[] = [];
+  const available: EnvironmentId[] = [];
   for (const [environmentId, config] of serverConfigs) {
-    if (config.environment.capabilities.parkedSync === true) synced.push(environmentId);
+    if (config.environment.capabilities.parkedSync === true) available.push(environmentId);
   }
-  return synced.map((environmentId) => (
-    <ParkedEnvironmentSync key={environmentId} environmentId={environmentId} />
-  ));
+  const availableKey = available.join("\n");
+  useEffect(() => {
+    usePromptStashStore
+      .getState()
+      .setAvailableEnvironmentIds(availableKey === "" ? [] : availableKey.split("\n"));
+  }, [availableKey]);
+  return available
+    .filter((environmentId) => mayParkIn(consents, environmentId))
+    .map((environmentId) => (
+      <ParkedEnvironmentSync key={environmentId} environmentId={environmentId} />
+    ));
+}
+
+function showNotice(notice: ParkedNotice | null) {
+  if (notice) toastManager.add({ ...notice });
 }
 
 function ParkedEnvironmentSync({ environmentId }: { environmentId: EnvironmentId }) {
@@ -49,6 +69,7 @@ function ParkedEnvironmentSync({ environmentId }: { environmentId: EnvironmentId
   const sending = useRef(false);
   // Bumped after a send settles, so the next queued change goes out at once.
   const [settled, setSettled] = useState(0);
+  // Uploads answered this session; the list that comes back shows what was kept.
   const uploadedIds = useRef(new Set<string>());
 
   useEffect(() => {
@@ -59,40 +80,57 @@ function ParkedEnvironmentSync({ environmentId }: { environmentId: EnvironmentId
   const connected = listValue !== null;
   useEffect(() => {
     if (!connected || sending.current) return;
-    const upload = selectParkedImport(stored, environmentId, primaryEnvironmentId).filter(
-      (entry) => !uploadedIds.current.has(entry.id),
-    );
-    const op = stored.parkedOps.find((candidate) => candidate.environmentId === environmentId);
-    if (upload.length === 0 && !op) return;
+    const store = usePromptStashStore.getState();
+    const next = selectNextParkedSend(store, environmentId, uploadedIds.current);
+    if (!next) return;
     sending.current = true;
     void (async () => {
       let progressed = false;
       try {
-        if (upload.length > 0) {
+        if (next.kind === "import") {
+          const ids = next.entries.map((entry) => entry.id);
+          // Bound to this environment before it leaves, so no other one ever gets it.
+          store.markParkedUpload(environmentId, ids, "sending");
           const result = await dispatch({
             environmentId,
             input: {
               type: "parked.import",
               commandId: CommandId.make(randomUUID()),
-              entries: upload,
+              entries: next.entries,
               createdAt: new Date().toISOString(),
             },
           });
-          // Sent or refused, not again this session: the list that comes back
-          // shows what the server kept, and anything it did not keep stays here.
-          if (result._tag === "Success" || isParkedOpRefused(squashAtomCommandFailure(result))) {
-            for (const entry of upload) uploadedIds.current.add(entry.id);
+          const refused =
+            result._tag === "Failure" && isParkedOpRefused(squashAtomCommandFailure(result));
+          // Answered: not again this session. Anything the server did not keep stays here.
+          if (result._tag === "Success" || refused) {
+            for (const id of ids) uploadedIds.current.add(id);
+            usePromptStashStore.getState().markParkedUpload(environmentId, ids, "answered");
             progressed = true;
+          }
+          if (refused) {
+            showNotice({
+              type: "warning",
+              title: "Could not save your parked thoughts",
+              description: "They are kept in this browser.",
+            });
           }
           return;
         }
-        if (!op) return;
+        const { op } = next;
+        // A change that can never be sent must not hold up the ones behind it.
+        const problem = parkedOpProblem(op);
+        if (problem !== null) {
+          showNotice(usePromptStashStore.getState().settleParkedOp(op.opId, "refused", problem));
+          progressed = true;
+          return;
+        }
         const result = await dispatch({ environmentId, input: parkedOpCommand(op) });
         if (result._tag === "Success") {
-          usePromptStashStore.getState().settleParkedOp(op.opId, "accepted");
+          showNotice(usePromptStashStore.getState().settleParkedOp(op.opId, "accepted"));
           progressed = true;
         } else if (isParkedOpRefused(squashAtomCommandFailure(result))) {
-          usePromptStashStore.getState().settleParkedOp(op.opId, "refused");
+          showNotice(usePromptStashStore.getState().settleParkedOp(op.opId, "refused"));
           progressed = true;
         }
         // Anything else is the connection: the change waits for the next list.

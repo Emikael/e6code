@@ -14,6 +14,8 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { expect, it } from "@effect/vitest";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -48,7 +50,7 @@ function systemLayer(databasePath: string) {
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
     Layer.provide(RepositoryIdentityResolver.layer),
-    Layer.provide(makeSqlitePersistenceLive(databasePath)),
+    Layer.provideMerge(makeSqlitePersistenceLive(databasePath)),
     Layer.provideMerge(
       ServerConfig.layerTest(process.cwd(), { prefix: "e6-orchestration-parked-test-" }),
     ),
@@ -83,9 +85,11 @@ const importOnce = (commandId: string) => ({
 });
 
 it.effect(
-  "keeps the Parked list across a restart, ignores a repeated upload and drops a deleted thread's note",
+  "keeps the Parked list and its tombstones across restarts, ignores a repeated upload and drops a deleted thread's note",
   () =>
     Effect.gen(function* () {
+      // The uploads below were written before the server's clock reads now.
+      yield* TestClock.setTime(Date.parse("2026-11-12T12:00:00.000Z"));
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "e6-parked-")),
       );
@@ -137,6 +141,35 @@ it.effect(
           }),
         ]);
         expect(afterRestart.removedEntryIds).toEqual(["thought-a"]);
+
+        // A cleared note leaves a tombstone that survives the next restart.
+        yield* engine.dispatch({
+          type: "parked.note.set",
+          commandId: CommandId.make("clear-note"),
+          threadId,
+          text: "",
+          baseUpdatedAt: null,
+          baseText: "Check dark mode on Android after this.",
+          createdAt: AT,
+        });
+      }).pipe(Effect.provide(systemLayer(databasePath)));
+
+      yield* Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const query = yield* ProjectionSnapshotQuery;
+        // The same old upload again: neither the thought nor the note comes back.
+        yield* engine.dispatch(importOnce("import-3"));
+        const state = yield* query.getParkedState();
+        expect(state.entries).toEqual([]);
+        expect(state.removedNotes).toEqual([
+          expect.objectContaining({ id: parkedNoteId(threadId) }),
+        ]);
+        // Removed entries keep no text on the server.
+        const sql = yield* SqlClient.SqlClient;
+        const texts = yield* sql<{ readonly text: string }>`
+          SELECT text FROM projection_parked_entries WHERE removed_at IS NOT NULL
+        `;
+        expect(texts.map((row) => row.text)).toEqual(["", ""]);
 
         const error = yield* Effect.flip(
           engine.dispatch({

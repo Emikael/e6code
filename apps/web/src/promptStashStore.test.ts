@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, MessageId, ParkedEntryId, ThreadId } from "@e6tools/contracts";
+import {
+  EnvironmentId,
+  MessageId,
+  ParkedEntryId,
+  ThreadId,
+  type OrchestrationParkedEntry,
+} from "@e6tools/contracts";
 import {
   collectAssistantCitations,
   serializeAssistantCitation,
@@ -15,8 +21,12 @@ import {
   selectThreadNote,
   PROMPT_STASH_STORAGE_KEY,
   MAX_STASH_ENTRY_ATTACHMENT_CHARS,
-  selectParkedImport,
+  PARKED_CACHE_STORAGE_KEY,
+  readPromptStashStorageForTest,
   partitionStashAttachments,
+  selectNextParkedSend,
+  selectParkedFooter,
+  selectParkedOffer,
   usePromptStashStore,
   writePromptStashStorageForTest,
   type PromptStashEntry,
@@ -523,9 +533,10 @@ describe("prompt stash context records", () => {
 
 describe("Parked list synced with an environment", () => {
   const ENV = "env-1";
-  const serverThought = (id: string, text = id) => ({
+  const OTHER = "env-2";
+  const serverThought = (id: string, text = id): OrchestrationParkedEntry => ({
     id: ParkedEntryId.make(id),
-    kind: "thought" as const,
+    kind: "thought",
     text,
     projectId: null,
     threadId: null,
@@ -533,94 +544,261 @@ describe("Parked list synced with an environment", () => {
     createdAt: "2026-11-12T09:00:00.000Z",
     updatedAt: "2026-11-12T09:00:00.000Z",
   });
+  const serverNote = (
+    text: string,
+    updatedAt = "2026-11-12T09:30:00.000Z",
+  ): OrchestrationParkedEntry => ({
+    ...serverThought("note:thread-1", text),
+    id: ParkedEntryId.make("note:thread-1"),
+    kind: "note" as const,
+    threadId: ThreadId.make("thread-1"),
+    updatedAt,
+  });
+  const list = (...entries: OrchestrationParkedEntry[]) => ({
+    entries,
+    removedEntryIds: [],
+  });
+  const store = () => usePromptStashStore.getState();
+  const nextSend = (environmentId = ENV, uploaded = new Set<string>()) =>
+    selectNextParkedSend(store(), environmentId, uploaded);
+  /** Stands in for the coordinator sending the first queued change and the server answering. */
+  const answerFirstOp = (outcome: "accepted" | "refused", reason?: string) => {
+    const next = nextSend();
+    if (next?.kind !== "op") throw new Error("nothing queued");
+    return store().settleParkedOp(next.op.opId, outcome, reason);
+  };
 
   beforeEach(() => {
     resetPromptStashStore();
-    usePromptStashStore.getState().setPrimaryEnvironmentId(ENV);
+    store().setPrimaryEnvironmentId(ENV);
+    store().setAvailableEnvironmentIds([ENV]);
   });
 
   afterEach(() => {
-    usePromptStashStore.getState().setPrimaryEnvironmentId(null);
+    store().setPrimaryEnvironmentId(null);
     resetPromptStashStore();
   });
 
-  it("uploads what this browser kept, and forgets its copy only once the server holds it", () => {
-    const store = usePromptStashStore.getState();
-    store.stashEntry(thought("old"));
-    store.stashEntry(makeEntry({ id: "draft" }));
-    store.receiveParkedList(ENV, { entries: [], removedEntryIds: [] });
-    const { stored } = usePromptStashStore.getState();
-    expect(selectParkedImport(stored, ENV, ENV).map((entry) => entry.id)).toEqual(["old"]);
+  it("sends nothing, new thoughts included, until the user accepts, then uploads once", () => {
+    store().stashEntry(thought("old"));
+    store().stashEntry(makeEntry({ id: "draft" }));
+    store().setThreadNote(`${ENV}:thread-1`, "Check Android");
+    expect(nextSend()).toBeNull();
+    expect(store().stored.parkedOps).toEqual([]);
+    expect(selectParkedOffer(store())).toEqual({ environmentId: ENV, thoughts: 1, notes: 1 });
+
+    store().acceptParkedSync(ENV);
+    expect(selectParkedOffer(store())).toBeNull();
+    const upload = nextSend();
+    expect(upload?.kind === "import" && upload.entries.map((entry) => entry.id).sort()).toEqual(
+      ["old", expect.any(String)].sort(),
+    );
     // Still listed, and still here, while the upload is on its way.
-    expect(usePromptStashStore.getState().entries.map((entry) => entry.id)).toContain("old");
-    store.receiveParkedList(ENV, { entries: [serverThought("old")], removedEntryIds: [] });
-    const after = usePromptStashStore.getState();
-    expect(after.stored.entries.map((entry) => entry.id)).toEqual(["draft"]);
-    expect(after.entries.filter((entry) => entry.id === "old")).toHaveLength(1);
-    expect(after.entries.find((entry) => entry.id === "old")?.environmentId).toBe(ENV);
+    store().receiveParkedList(ENV, list());
+    expect(store().entries.map((entry) => entry.id)).toContain("old");
+    store().receiveParkedList(ENV, list(serverThought("old"), serverNote("Check Android")));
+    expect(store().stored.entries.map((entry) => entry.id)).toEqual(["draft"]);
+    expect(store().entries.filter((entry) => entry.id === "old")).toHaveLength(1);
+    // From now on a new thought goes there.
+    store().stashEntry(thought("new"));
+    expect(nextSend()).toMatchObject({ kind: "op", op: { kind: "add", entryId: "new" } });
   });
 
-  it("queues a thought parked while the server is unreachable and shows it at once", () => {
-    const store = usePromptStashStore.getState();
-    store.receiveParkedList(ENV, { entries: [], removedEntryIds: [] });
-    store.stashEntry(thought("offline"));
-    let state = usePromptStashStore.getState();
-    expect(state.stored.parkedOps).toEqual([
-      expect.objectContaining({ kind: "add", entryId: "offline", environmentId: ENV }),
+  it("keeps everything here when declined, asks no more, and can be asked again", () => {
+    store().stashEntry(thought("mine"));
+    store().declineParkedSync(ENV);
+    expect(selectParkedOffer(store())).toBeNull();
+    store().stashEntry(thought("later"));
+    expect(nextSend()).toBeNull();
+    expect(store().stored.entries.map((entry) => entry.id)).toEqual(["later", "mine"]);
+    expect(selectParkedFooter(store())).toMatchObject({ savedOn: [], saveLater: [ENV] });
+    store().reopenParkedOffer(ENV);
+    expect(selectParkedOffer(store())).toMatchObject({ environmentId: ENV, thoughts: 2 });
+  });
+
+  it("keeps the answer across a reload", () => {
+    store().acceptParkedSync(ENV);
+    store().declineParkedSync(OTHER);
+    usePromptStashStore.setState({ consents: {} });
+    handlePromptStashStorageEvent(null);
+    expect(store().consents).toEqual({ [ENV]: "accepted", [OTHER]: "declined" });
+  });
+
+  it("uploads a thought to one environment only, even when the primary changes", () => {
+    store().setAvailableEnvironmentIds([ENV, OTHER]);
+    store().stashEntry({ ...thought("in-b"), projectKey: `${OTHER}:project-b` });
+    store().stashEntry(thought("no-project"));
+    store().acceptParkedSync(ENV);
+    const upload = nextSend(ENV);
+    const ids = upload?.kind === "import" ? upload.entries.map((entry) => entry.id) : [];
+    // A thought whose project is in another environment never goes to the primary.
+    expect(ids).toEqual(["no-project"]);
+    store().markParkedUpload(ENV, ids, "sending");
+    // The import is still on its way when the primary moves and B is accepted.
+    store().setPrimaryEnvironmentId(OTHER);
+    store().acceptParkedSync(OTHER);
+    const toB = nextSend(OTHER);
+    expect(toB?.kind === "import" && toB.entries.map((entry) => entry.id)).toEqual(["in-b"]);
+    // B's list arriving does not touch what is bound to A; A's list forgets it.
+    store().receiveParkedList(OTHER, list());
+    expect(store().stored.entries.map((entry) => entry.id)).toContain("no-project");
+    store().receiveParkedList(ENV, list(serverThought("no-project")));
+    expect(store().stored.entries.map((entry) => entry.id)).toEqual(["in-b"]);
+  });
+
+  it("queues a thought parked offline and sends it, in order, once the environment is back", () => {
+    store().acceptParkedSync(ENV);
+    store().setAvailableEnvironmentIds([]);
+    store().stashEntry(thought("offline"));
+    store().stashEntry(thought("offline-2"));
+    // Shown at once, though nothing can go yet.
+    expect(store().entries.map((entry) => entry.id)).toEqual(["offline-2", "offline"]);
+    expect(nextSend()).toBeNull();
+    store().setAvailableEnvironmentIds([ENV]);
+    expect(selectParkedFooter(store()).waiting).toBe(2);
+    expect(nextSend()).toMatchObject({ kind: "op", op: { entryId: "offline" } });
+    expect(answerFirstOp("accepted")).toBeNull();
+    expect(nextSend()).toMatchObject({ kind: "op", op: { entryId: "offline-2" } });
+    answerFirstOp("accepted");
+    store().receiveParkedList(ENV, list(serverThought("offline"), serverThought("offline-2")));
+    expect(store().stored.parkedOps).toEqual([]);
+    expect(
+      store()
+        .entries.map((entry) => entry.id)
+        .sort(),
+    ).toEqual(["offline", "offline-2"]);
+  });
+
+  it("keeps a refused thought here, says so, and lets the next change through", () => {
+    store().acceptParkedSync(ENV);
+    store().receiveParkedList(ENV, list());
+    store().stashEntry(thought("refused"));
+    store().stashEntry(thought("next"));
+    expect(answerFirstOp("refused")).toMatchObject({ title: "Could not save this thought" });
+    expect(store().stored.entries.map((entry) => entry.id)).toEqual(["refused"]);
+    expect(nextSend()).toMatchObject({ kind: "op", op: { entryId: "next" } });
+    expect(selectParkedFooter(store())).toMatchObject({ waiting: 1, keptHere: 1 });
+    // Tried once more only after the queue is empty, and with when it was first answered.
+    answerFirstOp("accepted");
+    const retry = nextSend();
+    expect(retry).toMatchObject({ kind: "import", entries: [{ id: "refused" }] });
+    expect(retry?.kind === "import" && retry.entries[0]?.sentAt).toEqual(expect.any(String));
+    expect(nextSend(ENV, new Set(["refused"]))).toBeNull();
+  });
+
+  it("keeps a thought over the length limit here instead of blocking the queue", () => {
+    store().acceptParkedSync(ENV);
+    // Queued by a build without the limit: refused before it is sent.
+    writePromptStashStorageForTest(
+      JSON.stringify({
+        version: 2,
+        state: {
+          entries: [],
+          parkedOps: [
+            {
+              kind: "add",
+              opId: "too-long",
+              environmentId: ENV,
+              entryId: "long",
+              text: "x".repeat(5_000),
+              projectId: null,
+              pinnedFor: null,
+              createdAt: "2026-11-12T09:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+    store().stashEntry(thought("short"));
+    expect(selectParkedFooter(store()).waiting).toBe(1);
+    expect(answerFirstOp("refused", "It is longer than 1,000 characters.")).toMatchObject({
+      description: "It is longer than 1,000 characters. It is kept in this browser.",
+    });
+    expect(store().stored.entries.map((entry) => entry.prompt.length)).toEqual([5_000]);
+    expect(nextSend()).toMatchObject({ kind: "op", op: { entryId: "short" } });
+    // A thought too long to send is kept here rather than queued.
+    store().stashEntry({ ...thought("pasted"), prompt: "y".repeat(1_500) });
+    expect(store().stored.parkedOps.map((op) => op.kind === "add" && op.entryId)).toEqual([
+      "short",
     ]);
-    expect(state.entries.map((entry) => entry.id)).toEqual(["offline"]);
-    // The server answered: the op leaves the queue, the server's copy remains.
-    store.settleParkedOp(state.stored.parkedOps[0]!.opId, "accepted");
-    store.receiveParkedList(ENV, { entries: [serverThought("offline")], removedEntryIds: [] });
-    state = usePromptStashStore.getState();
-    expect(state.stored.parkedOps).toEqual([]);
-    expect(state.entries.map((entry) => entry.id)).toEqual(["offline"]);
-  });
-
-  it("keeps a thought here when the server refuses to add it", () => {
-    const store = usePromptStashStore.getState();
-    store.receiveParkedList(ENV, { entries: [], removedEntryIds: [] });
-    store.stashEntry(thought("refused"));
-    const opId = usePromptStashStore.getState().stored.parkedOps[0]!.opId;
-    store.settleParkedOp(opId, "refused");
-    const state = usePromptStashStore.getState();
-    expect(state.stored.parkedOps).toEqual([]);
-    expect(state.stored.entries.map((entry) => entry.id)).toEqual(["refused"]);
   });
 
   it("hides a deleted synced thought until the server answers, and Undo sends nothing", () => {
-    const store = usePromptStashStore.getState();
-    store.receiveParkedList(ENV, { entries: [serverThought("a")], removedEntryIds: [] });
-    const index = usePromptStashStore.getState().entries.findIndex((entry) => entry.id === "a");
-    const { entry } = store.takeEntry("a");
-    expect(usePromptStashStore.getState().entries).toEqual([]);
-    store.restoreEntry(entry!, index);
-    const state = usePromptStashStore.getState();
-    expect(state.entries.map((candidate) => candidate.id)).toEqual(["a"]);
-    expect(state.stored.parkedOps).toEqual([
+    store().acceptParkedSync(ENV);
+    store().receiveParkedList(ENV, list(serverThought("first"), serverThought("a")));
+    store().takeEntry("first");
+    const index = store().entries.findIndex((entry) => entry.id === "a");
+    const { entry } = store().takeEntry("a");
+    expect(store().entries).toEqual([]);
+    store().restoreEntry(entry!, index);
+    expect(store().entries.map((candidate) => candidate.id)).toEqual(["a"]);
+    expect(store().stored.parkedOps).toEqual([
+      expect.objectContaining({ kind: "remove", entryId: "first" }),
       expect.objectContaining({ kind: "update", entryId: "a", text: "a" }),
     ]);
   });
 
-  it("edits a synced note from the version the server sent", () => {
-    const store = usePromptStashStore.getState();
+  it("edits a synced note from the text shown, and a second edit from the first one's", () => {
+    store().acceptParkedSync(ENV);
     const threadKey = `${ENV}:thread-1`;
-    store.receiveParkedList(ENV, {
-      entries: [
-        {
-          ...serverThought("note:thread-1", "Check Android."),
-          kind: "note",
-          threadId: ThreadId.make("thread-1"),
-          updatedAt: "2026-11-12T09:30:00.000Z",
-        },
-      ],
-      removedEntryIds: [],
-    });
-    store.setThreadNote(threadKey, "Check Android and iOS.");
-    const state = usePromptStashStore.getState();
-    expect(selectThreadNote(state.entries, threadKey)?.prompt).toBe("Check Android and iOS.");
-    expect(state.stored.parkedOps).toEqual([
-      expect.objectContaining({ kind: "note", baseUpdatedAt: "2026-11-12T09:30:00.000Z" }),
+    store().receiveParkedList(ENV, list(serverNote("A")));
+    store().setThreadNote(threadKey, "A plus");
+    // The first edit was sent and its reply lost; the user edits again.
+    store().setThreadNote(threadKey, "A plus more");
+    expect(selectThreadNote(store().entries, threadKey)?.prompt).toBe("A plus more");
+    expect(
+      store().stored.parkedOps.map((op) => op.kind === "note" && [op.text, op.baseText]),
+    ).toEqual([
+      ["A plus", "A"],
+      ["A plus more", "A plus"],
     ]);
+  });
+
+  it("says when a note edit was joined with one from another device", () => {
+    store().acceptParkedSync(ENV);
+    const threadKey = `${ENV}:thread-1`;
+    store().receiveParkedList(ENV, list(serverNote("Mine")));
+    store().setThreadNote(threadKey, "Mine, edited");
+    store().receiveParkedList(
+      ENV,
+      list(serverNote("Theirs\n\nMine, edited", "2026-11-12T10:00:00.000Z")),
+    );
+    expect(answerFirstOp("accepted")).toEqual({
+      type: "info",
+      title: "This note changed on another device. Both versions are kept.",
+    });
+  });
+
+  it("keeps a refused note's text here and shows it, and says why a clear did not happen", () => {
+    store().acceptParkedSync(ENV);
+    const threadKey = `${ENV}:thread-1`;
+    store().receiveParkedList(ENV, list(serverNote("Server")));
+    store().setThreadNote(threadKey, "Mine");
+    expect(answerFirstOp("refused")).toMatchObject({ title: "Could not save this note" });
+    expect(selectThreadNote(store().entries, threadKey)?.prompt).toBe("Mine");
+    store().setThreadNote(threadKey, "");
+    expect(answerFirstOp("refused")).toMatchObject({
+      title: "This note changed on another device, so it was not cleared.",
+    });
+  });
+
+  it("copies the environment's list here when the user stops saving there", () => {
+    store().acceptParkedSync(ENV);
+    store().receiveParkedList(ENV, list(serverThought("kept"), serverNote("A note")));
+    store().declineParkedSync(ENV);
+    expect(store().stored.parkedServer).toEqual({});
+    expect(store().entries.map((entry) => [entry.id, entry.environmentId])).toContainEqual([
+      "kept",
+      undefined,
+    ]);
+    expect(selectThreadNote(store().entries, `${ENV}:thread-1`)?.prompt).toBe("A note");
+    expect(nextSend()).toBeNull();
+  });
+
+  it("keeps the environment's list apart from drafts in storage", () => {
+    store().acceptParkedSync(ENV);
+    store().receiveParkedList(ENV, list(serverThought("cached")));
+    expect(readPromptStashStorageForTest(PROMPT_STASH_STORAGE_KEY)).not.toContain("cached");
+    expect(readPromptStashStorageForTest(PARKED_CACHE_STORAGE_KEY)).toContain("cached");
   });
 });

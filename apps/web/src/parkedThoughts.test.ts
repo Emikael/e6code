@@ -5,7 +5,8 @@ import {
   formatParkedWhen,
   localDateKey,
   nextLocalDateKey,
-  parkedHomeLine,
+  parkedFooterLines,
+  parkedLengthCount,
   parkThought,
   removeParkedEntry,
   selectFirstThing,
@@ -86,6 +87,15 @@ describe("selectFirstThing", () => {
     expect(selectFirstThing([entry("a")], "2026-11-12")).toBeNull();
   });
 
+  it("leads with the later of two thoughts pinned for the same day on two devices", () => {
+    const entries = [
+      entry("laptop", { pinnedFor: "2026-11-12", createdAt: "2026-11-11T18:00:00.000Z" }),
+      entry("phone", { pinnedFor: "2026-11-12", createdAt: "2026-11-11T21:00:00.000Z" }),
+    ];
+    expect(selectFirstThing(entries, "2026-11-12")?.id).toBe("phone");
+    expect(selectFirstThing(entries.toReversed(), "2026-11-12")?.id).toBe("phone");
+  });
+
   it("keeps a thought pinned for tomorrow out of today's chips", () => {
     const { chips } = selectParkedChips(
       [entry("tomorrow", { pinnedFor: "2026-11-13" }), entry("a")],
@@ -154,17 +164,31 @@ describe("firstThingSource", () => {
   });
 });
 
-describe("parkedHomeLine", () => {
-  it("says where the list is kept, and stops saying browser once an environment holds it", () => {
-    expect(parkedHomeLine("device", [])).toBe("Kept in this browser for now.");
-    expect(parkedHomeLine("synced", ["Studio Mac"])).toBe(
+describe("parkedFooterLines", () => {
+  it("says where the list is kept, and counts only what is really waiting or kept here", () => {
+    expect(parkedFooterLines({ waiting: 0, keptHere: 0 }, [])).toEqual([
+      "Kept in this browser for now.",
+    ]);
+    expect(parkedFooterLines({ waiting: 0, keptHere: 0 }, ["Studio Mac"])).toEqual([
       "Saved on Studio Mac, so your other devices see it too.",
-    );
-    expect(parkedHomeLine("synced", ["Studio Mac", "Laptop"])).toBe(
+    ]);
+    expect(parkedFooterLines({ waiting: 0, keptHere: 0 }, ["Studio Mac", "Laptop"])).toEqual([
       "Saved on your environments, so your other devices see it too.",
+    ]);
+    expect(parkedFooterLines({ waiting: 3, keptHere: 1 }, ["Studio Mac"])).toEqual([
+      "Saved on Studio Mac, so your other devices see it too.",
+      "3 waiting to be saved.",
+    ]);
+    expect(parkedFooterLines({ waiting: 0, keptHere: 2 }, ["Studio Mac"])[1]).toBe(
+      "2 kept only in this browser.",
     );
-    expect(parkedHomeLine("uploading", ["Studio Mac"])).toBe(
-      "Some are still in this browser, waiting to be saved.",
-    );
+  });
+});
+
+describe("parkedLengthCount", () => {
+  it("shows a count only near the limit", () => {
+    expect(parkedLengthCount(10)).toBeNull();
+    expect(parkedLengthCount(812)).toBe("812 / 1,000");
+    expect(parkedLengthCount(1_000)).toBe("1,000 / 1,000");
   });
 });

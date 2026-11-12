@@ -1,7 +1,7 @@
 import { applyParkedOps, type ParkedOp } from "@e6tools/client-runtime/parked-sync";
 import {
+  EnvironmentId,
   PARKED_THOUGHTS_MAX,
-  type EnvironmentId,
   type OrchestrationParkedEntry,
   type OrchestrationParkedState,
 } from "@e6tools/contracts";
@@ -10,30 +10,56 @@ import {
 export interface ParkedRow {
   readonly environmentId: EnvironmentId;
   readonly entry: OrchestrationParkedEntry;
+  /** Parked or changed on this phone and not answered by the environment yet. */
+  readonly waiting: boolean;
 }
 
 /**
- * Every synced environment's thoughts with this phone's unsent changes
- * applied, newest first. Notes stay with their thread, as on the web.
+ * The thoughts of every environment the user accepted, with this phone's
+ * unsent changes applied, newest first. An environment whose list has not
+ * arrived (offline) still shows what this phone queued for it. Notes stay
+ * with their thread, as on the web.
  */
 export function buildParkedRows(
   lists: ReadonlyMap<EnvironmentId, OrchestrationParkedState>,
   ops: ReadonlyArray<ParkedOp>,
+  acceptedEnvironmentIds: ReadonlyArray<string> = [...lists.keys()],
 ): ReadonlyArray<ParkedRow> {
   const rows: ParkedRow[] = [];
-  for (const [environmentId, state] of lists) {
-    const view = applyParkedOps(
-      state.entries,
-      ops.filter((op) => op.environmentId === environmentId),
+  for (const id of acceptedEnvironmentIds) {
+    const environmentId = EnvironmentId.make(id);
+    const envOps = ops.filter((op) => op.environmentId === environmentId);
+    const waiting = new Set(
+      envOps.flatMap((op) => (op.kind === "add" || op.kind === "update" ? [op.entryId] : [])),
     );
+    const view = applyParkedOps(lists.get(environmentId)?.entries ?? [], envOps);
     for (const entry of view) {
-      if (entry.kind === "thought") rows.push({ environmentId, entry });
+      if (entry.kind === "thought") {
+        rows.push({ environmentId, entry, waiting: waiting.has(entry.id) });
+      }
     }
   }
   return [...rows].sort(
     (left, right) =>
       right.entry.createdAt.localeCompare(left.entry.createdAt) ||
       right.entry.id.localeCompare(left.entry.id),
+  );
+}
+
+/**
+ * Where a new thought goes: the environment the user picked among those they
+ * accepted, else the first accepted one by name. Null until one is accepted.
+ */
+export function parkedTarget(
+  accepted: ReadonlyArray<{ readonly environmentId: string; readonly label: string }>,
+  picked: string | null,
+): string | null {
+  if (picked !== null && accepted.some((environment) => environment.environmentId === picked)) {
+    return picked;
+  }
+  return (
+    [...accepted].sort((left, right) => left.label.localeCompare(right.label))[0]?.environmentId ??
+    null
   );
 }
 

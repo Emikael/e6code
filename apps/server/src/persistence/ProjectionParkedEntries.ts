@@ -3,13 +3,16 @@ import {
   OrchestrationParkedEntry,
   ParkedEntryId,
   ParkedEntryKind,
+  PARKED_TOMBSTONE_MAX_AGE_MS,
   ParkedPinDate,
-  ParkedText,
   ProjectId,
   ThreadId,
   type OrchestrationParkedState,
+  type ParkedNoteTombstone,
 } from "@e6tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -21,7 +24,8 @@ import { toPersistenceSqlError, type ProjectionRepositoryError } from "./Errors.
 const ParkedEntryDbRow = Schema.Struct({
   id: ParkedEntryId,
   kind: ParkedEntryKind,
-  text: ParkedText,
+  /** Empty on a tombstone: a removed entry keeps no text. */
+  text: Schema.String,
   projectId: Schema.NullOr(ProjectId),
   threadId: Schema.NullOr(ThreadId),
   pinnedFor: Schema.NullOr(ParkedPinDate),
@@ -35,10 +39,16 @@ const RemoveParkedEntryInput = Schema.Struct({
   removedAt: IsoDateTime,
 });
 
+/** The oldest removal still remembered at `nowMs`, as stored. */
+const tombstoneCutoff = (nowMs: number) =>
+  DateTime.formatIso(DateTime.makeUnsafe(nowMs - PARKED_TOMBSTONE_MAX_AGE_MS));
+
 /**
- * Rows of the `parked` aggregate's projection (migration 061). A removed
- * thought keeps its row as a tombstone; a removed note is deleted, since its
- * id follows from the thread and needs no remembering.
+ * Rows of the `parked` aggregate's projection (migrations 061 and 063). A
+ * removed thought or cleared note keeps its row as a tombstone, without its
+ * text, for `PARKED_TOMBSTONE_MAX_AGE_DAYS`; older tombstones are deleted when
+ * the next entry is removed and are never listed. A deleted thread's note is
+ * deleted outright, since no import can bring it back.
  */
 export class ProjectionParkedEntryRepository extends Context.Service<
   ProjectionParkedEntryRepository,
@@ -94,12 +104,13 @@ export const make = Effect.gen(function* () {
       [
         sql`
           UPDATE projection_parked_entries
-          SET removed_at = ${input.removedAt}, updated_at = ${input.removedAt}
-          WHERE entry_id = ${input.entryId} AND kind = 'thought'
+          SET removed_at = ${input.removedAt}, updated_at = ${input.removedAt}, text = ''
+          WHERE entry_id = ${input.entryId}
         `,
         sql`
           DELETE FROM projection_parked_entries
-          WHERE entry_id = ${input.entryId} AND kind = 'note'
+          WHERE removed_at IS NOT NULL
+            AND removed_at < ${tombstoneCutoff(Date.parse(input.removedAt))}
         `,
       ],
       { discard: true },
@@ -144,15 +155,19 @@ export const make = Effect.gen(function* () {
         ),
       ),
     getState: () =>
-      listRows(undefined).pipe(
-        Effect.map((rows) => {
+      Effect.all([listRows(undefined), Clock.currentTimeMillis]).pipe(
+        Effect.map(([rows, nowMs]) => {
+          const cutoff = tombstoneCutoff(nowMs);
           const entries: OrchestrationParkedEntry[] = [];
           const removedEntryIds: ParkedEntryId[] = [];
+          const removedNotes: ParkedNoteTombstone[] = [];
           for (const { removedAt, ...entry } of rows) {
             if (removedAt === null) entries.push(entry);
+            else if (removedAt < cutoff) continue;
+            else if (entry.kind === "note") removedNotes.push({ id: entry.id, removedAt });
             else removedEntryIds.push(entry.id);
           }
-          return { entries, removedEntryIds };
+          return { entries, removedEntryIds, removedNotes };
         }),
         Effect.mapError(toPersistenceSqlError("ProjectionParkedEntryRepository.getState:query")),
       ),

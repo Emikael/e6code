@@ -22,6 +22,7 @@ import {
   selectThreadNote,
   usePromptStashStore,
 } from "~/promptStashStore";
+import { PARKED_INPUT_MAX_CHARS, parkedLengthCount } from "~/parkedThoughts";
 import { useThreadRecapStore } from "~/threadRecapStore";
 import { formatDayAwareTimestamp } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
@@ -222,6 +223,7 @@ function NoteEditor({
   onDone: (text: string | null) => void;
 }) {
   const [text, setText] = useState(initial);
+  const lengthCount = parkedLengthCount(text.length);
   return (
     <form
       className="flex min-w-0 items-center gap-2"
@@ -235,6 +237,8 @@ function NoteEditor({
         autoFocus
         autoComplete="off"
         value={text}
+        maxLength={PARKED_INPUT_MAX_CHARS}
+        aria-describedby={lengthCount ? `${id}-count` : undefined}
         placeholder="A note for when you come back"
         className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-foreground ring-1 ring-muted-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
         onChange={(event) => setText(event.target.value)}
@@ -246,6 +250,14 @@ function NoteEditor({
           }
         }}
       />
+      {lengthCount ? (
+        <span
+          id={`${id}-count`}
+          className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums"
+        >
+          {lengthCount}
+        </span>
+      ) : null}
       <Button type="submit" size="sm" variant="outline" className="sm:text-xs">
         Save
       </Button>
