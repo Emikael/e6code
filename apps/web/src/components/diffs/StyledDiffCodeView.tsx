@@ -275,6 +275,8 @@ type StyledDiffCodeViewProps<LAnnotation> = (
    * to restyle chrome the viewer owns — such as replacing its per-file line counts.
    */
   readonly unsafeCSSExtra?: string;
+  /** The height every file header takes, when the surface draws its own (32 by default). */
+  readonly headerHeight?: number;
 };
 
 /** The shared web CodeView surface: app styling and virtualized geometry stay paired here. */
@@ -283,6 +285,7 @@ export function StyledDiffCodeView<LAnnotation = undefined>({
   viewerRef,
   className,
   unsafeCSSExtra,
+  headerHeight = 32,
   ...props
 }: StyledDiffCodeViewProps<LAnnotation>) {
   return (
@@ -303,7 +306,7 @@ export function StyledDiffCodeView<LAnnotation = undefined>({
             ? `${DIFF_VIEW_UNSAFE_CSS}\n${unsafeCSSExtra}`
             : DIFF_VIEW_UNSAFE_CSS,
           itemMetrics: {
-            diffHeaderHeight: 32,
+            diffHeaderHeight: headerHeight,
             hunkSeparatorHeight: 24,
             // Pierre uses its general file spacing as a fallback in expanded-file layout paths.
             // Keep it zero alongside the explicit paddingTop or expanding the first file can
