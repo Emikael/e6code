@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { panelFillHolder } from "~/components/panel/panelFill";
 import { Button } from "~/components/ui/button";
 
 import { describePreviewError } from "./errorCodeMessages";
@@ -11,10 +12,12 @@ interface Props {
   /** Stringified Chromium error, e.g. "ERR_NAME_NOT_RESOLVED". */
   description: string;
   onReload: () => void;
+  /** The thread's composer holds text, so Send holds the screen's fill and Reload is outline. */
+  composerHasText: boolean;
 }
 
 /** Theme-aware tailwind port of Chromium's "This site can't be reached" page. */
-export function PreviewUnreachable({ url, code, description, onReload }: Props) {
+export function PreviewUnreachable({ url, code, description, onReload, composerHasText }: Props) {
   const [showDetails, setShowDetails] = useState(false);
   const host = safeHost(url) ?? url;
   const friendly = describePreviewError(description);
@@ -42,7 +45,7 @@ export function PreviewUnreachable({ url, code, description, onReload }: Props) 
           </div>
         ) : null}
 
-        <div className="mt-8 text-xs uppercase tracking-wide text-muted-foreground/70">
+        <div className="mt-8 text-xs uppercase tracking-wide text-muted-foreground">
           {errorLabel}
         </div>
 
@@ -56,7 +59,21 @@ export function PreviewUnreachable({ url, code, description, onReload }: Props) 
             {showDetails ? "Hide details" : "Details"}
           </Button>
           <div className="flex-1" />
-          <Button type="button" size="sm" onClick={onReload}>
+          <Button
+            type="button"
+            size="sm"
+            variant={
+              panelFillHolder({
+                view: { kind: "surface" },
+                composerHasText,
+                commentDraftOpen: false,
+                reviewStepPending: false,
+              }) === "surface-action"
+                ? "default"
+                : "outline"
+            }
+            onClick={onReload}
+          >
             Reload
           </Button>
         </div>

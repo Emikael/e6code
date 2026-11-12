@@ -438,8 +438,10 @@ export function DiffChangesPanel({
         <Tooltip>
           <TooltipTrigger
             render={
+              // Outline: the review footer's step holds the screen's one fill (`panelFill.ts`).
               <Button
                 size="xs"
+                variant="outline"
                 className="w-full"
                 disabled={commitDisabledReason !== null || busy}
                 onClick={() => void commit()}
@@ -705,7 +707,8 @@ function RowAction(props: {
             aria-label={props.label}
             // Keep disabled actions hoverable so the tooltip can say why.
             aria-disabled={disabled}
-            className={cn(disabled && "opacity-50")}
+            // A 24px hit area around the 20px button.
+            className={cn("after:absolute after:-inset-0.5", disabled && "opacity-50")}
             onClick={(event) => {
               event.stopPropagation();
               if (!disabled) props.onClick();

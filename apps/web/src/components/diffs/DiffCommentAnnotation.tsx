@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { formatShortcutLabel } from "~/keybindings";
 import { ATTACHED_SENTENCE } from "~/lib/attachedForAgent";
 import { cn } from "~/lib/utils";
 
@@ -28,6 +29,8 @@ interface DiffCommentAnnotationProps {
   heading?: string;
   placeholder?: string;
   submitLabel?: string;
+  /** What the submit key does, after "⌘Enter to": the comment is attached, not sent. */
+  submitHint?: string;
   pending?: boolean;
   secondaryAction?: DiffCommentSecondaryAction;
   focusOnMount?: boolean;
@@ -36,6 +39,18 @@ interface DiffCommentAnnotationProps {
    * (board 15) insets it past the line numbers, 44px, with the stronger `muted-foreground` edge.
    */
   surface?: "diff" | "file";
+}
+
+/** "⌘Enter" or "Ctrl+Enter", as the app writes shortcuts elsewhere. */
+function submitShortcutLabel(): string {
+  return formatShortcutLabel({
+    key: "enter",
+    modKey: true,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+  });
 }
 
 /** The shared inline comment treatment for file previews, thread diffs, and pull-request diffs. */
@@ -51,6 +66,7 @@ export function DiffCommentAnnotation({
   heading = "Your comment",
   placeholder = "Add a comment…",
   submitLabel = "Comment",
+  submitHint = "attach",
   pending = false,
   secondaryAction,
   focusOnMount = true,
@@ -134,7 +150,9 @@ export function DiffCommentAnnotation({
         }}
       />
       <div className="mt-1.5 flex items-center gap-1">
-        <span className="mr-auto text-[10px] text-muted-foreground/70">⌘/Ctrl Enter to send</span>
+        <span className="mr-auto text-[10px] text-muted-foreground">
+          {`${submitShortcutLabel()} to ${submitHint}`}
+        </span>
         <Button
           className="text-muted-foreground hover:text-foreground"
           variant="ghost"
@@ -154,7 +172,14 @@ export function DiffCommentAnnotation({
             {secondaryAction.label}
           </Button>
         ) : null}
-        <Button size="xs" disabled={pending || !trimmedText} onClick={() => onComment(trimmedText)}>
+        {/* Outline: the key attaches and sends nothing, so this never holds the screen's fill
+            (`panelFill.ts`). */}
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={pending || !trimmedText}
+          onClick={() => onComment(trimmedText)}
+        >
           {submitLabel}
         </Button>
       </div>

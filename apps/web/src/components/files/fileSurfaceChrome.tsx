@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { PanelErrorCard } from "~/components/panel/PanelErrorCard";
 import { Spinner } from "~/components/ui/spinner";
 import { Button } from "~/components/ui/button";
 import { Toggle } from "~/components/ui/toggle";
@@ -136,25 +137,22 @@ export function FileSurfaceLoading(props: { readonly className?: string }) {
   );
 }
 
+/** Board 14's error card, centred where the file would be: what failed, that the file is safe, Retry. */
 export function FileSurfaceFailure(props: {
   readonly message: string;
+  readonly title?: string;
   readonly onRetry?: () => void;
 }) {
   return (
-    <div
-      role="alert"
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-xs leading-relaxed"
-    >
-      <p className="text-destructive">{props.message}</p>
-      {props.onRetry ? (
-        <button
-          type="button"
-          onClick={props.onRetry}
-          className="rounded-md border border-input px-2.5 py-1 text-xs text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Try again
-        </button>
-      ) : null}
+    <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <PanelErrorCard
+          title={props.title ?? "Could not show this file"}
+          reason={props.message}
+          reassurance="The file is not affected."
+          onRetry={props.onRetry}
+        />
+      </div>
     </div>
   );
 }

@@ -30,6 +30,7 @@ import { useProjectPathSearch } from "~/state/queries";
 import { cn } from "~/lib/utils";
 import type { RecentFile } from "~/uiStateStore";
 
+import { PanelErrorCard } from "../panel/PanelErrorCard";
 import { BrowseAllFilesRow, ChangedFileLists, FilesFilterSwitch } from "./FileExplorerLists";
 import type { FilesFilter, ThreadChangedFile } from "./threadChangedFiles";
 
@@ -603,13 +604,14 @@ export default function FileBrowserPanel({
         </div>
       ) : null}
       {error || pathSearch.error ? (
-        <button
-          type="button"
-          onClick={handleRefresh}
-          className="p-4 text-left text-xs leading-relaxed text-destructive"
-        >
-          {error ?? pathSearch.error} Click to retry.
-        </button>
+        <div className="p-2">
+          <PanelErrorCard
+            title="Could not list files"
+            reason={error ?? pathSearch.error ?? ""}
+            reassurance="Your files are not affected."
+            onRetry={handleRefresh}
+          />
+        </div>
       ) : null}
       {query.trim() && pathSearch.truncated && !pathSearch.isPending ? (
         <div className="px-3 py-1 text-xs text-muted-foreground">

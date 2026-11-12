@@ -80,6 +80,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import { shortcutLabelForCommand } from "../keybindings";
 import { dispatchSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { useComposerHasText } from "../hooks/useComposerHasText";
+import { panelFillHolder } from "./panel/panelFill";
 import { DiffViewMenu } from "./diffs/DiffViewMenu";
 import {
   diffLastSeenKey,
@@ -149,8 +150,6 @@ const GIT_SCOPE_LABELS: Record<DiffPanelGitScope, string> = {
   unstaged: "Unstaged",
   branch: "Branch changes",
 };
-const SEGMENT_SELECTED_CLASS_NAME =
-  "data-pressed:ring-1 data-pressed:ring-inset data-pressed:ring-primary-edge";
 const GIT_SCOPE_SOURCE_KINDS = {
   uncommitted: "working-tree",
   staged: "staged",
@@ -694,6 +693,20 @@ export default function DiffPanel({
   );
   const railPaths = useMemo(() => railRows.map((row) => row.path), [railRows]);
   const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
+  // The Diff tab counts what this panel shows for its scope, as the rail and the footer do. Showing
+  // the live working tree, the tab's own count from status is already the same, so it is cleared.
+  const scopeFileCount =
+    selectedTurnId === null && selectedGitScope === "uncommitted" && pinState !== "pinned"
+      ? null
+      : railHostsChanges
+        ? (shownWorkingTreeFiles?.length ?? null)
+        : railRowsReady
+          ? railRows.length
+          : null;
+  useEffect(() => {
+    if (!routeThreadRef) return;
+    useDiffPanelStore.getState().reportScopeFileCount(routeThreadRef, scopeFileCount);
+  }, [routeThreadRef, scopeFileCount]);
   // Review marks: per thread and scope, keyed by what each file looks like now.
   // Uncommitted compares against HEAD, as `git status` counts do, so its marks also keep those
   // counts and Run details can check them whatever the whitespace setting.
@@ -1149,6 +1162,7 @@ export default function DiffPanel({
   );
   // While the composer holds text, Send owns the screen's one filled button.
   const composerHasText = useComposerHasText(composerDraftTarget);
+  const [commentDraftOpen, setCommentDraftOpen] = useState(false);
   const { settleThread } = useThreadActions();
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const threadSettled = activeThread?.settledOverride === "settled";
@@ -1454,12 +1468,8 @@ export default function DiffPanel({
           }}
         >
           {/* The chosen segment takes the selected edge; a fill change alone is too faint. */}
-          <Toggle value="stacked" className={SEGMENT_SELECTED_CLASS_NAME}>
-            Stacked
-          </Toggle>
-          <Toggle value="split" className={SEGMENT_SELECTED_CLASS_NAME}>
-            Split
-          </Toggle>
+          <Toggle value="stacked">Stacked</Toggle>
+          <Toggle value="split">Split</Toggle>
         </ToggleGroup>
         <DiffViewMenu
           wordWrap={wordWrap}
@@ -1489,15 +1499,15 @@ export default function DiffPanel({
   return (
     <DiffPanelShell mode={mode} header={headerRow} rootRef={diffAreaRef}>
       {!activeThread ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
+        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground">
           Select a thread to inspect turn diffs.
         </div>
       ) : !isGitRepo ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
+        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
       ) : selectedTurnId !== null && orderedTurnDiffSummaries.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
+        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground">
           No completed turns yet.
         </div>
       ) : (
@@ -1598,7 +1608,7 @@ export default function DiffPanel({
                       }
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
+                    <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground">
                       <p>
                         {hasNoNetChanges
                           ? "No net changes in this selection."
@@ -1634,6 +1644,7 @@ export default function DiffPanel({
                         sectionId={reviewSectionId}
                         sectionTitle={reviewSectionTitle}
                         composerDraftTarget={composerDraftTarget}
+                        onCommentDraftOpenChange={setCommentDraftOpen}
                         headerHeight={DIFF_FILE_HEADER_HEIGHT}
                         unsafeCSSExtra={DIFF_FILE_HEADER_CSS}
                         renderCustomHeader={(fileDiff, fileKey) => {
@@ -1685,12 +1696,12 @@ export default function DiffPanel({
                 ) : (
                   <div className="min-h-0 flex-1 overflow-auto p-2">
                     <div className="space-y-2">
-                      <p className="text-[11px] text-muted-foreground/75">
+                      <p className="text-[11px] text-muted-foreground">
                         {renderablePatch?.kind === "raw" ? renderablePatch.reason : null}
                       </p>
                       <pre
                         className={cn(
-                          "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+                          "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground",
                           wordWrap
                             ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                             : "overflow-auto",
@@ -1712,7 +1723,14 @@ export default function DiffPanel({
                     : null
                 }
                 primary={footerPrimary}
-                primaryOutline={composerHasText}
+                primaryOutline={
+                  panelFillHolder({
+                    view: { kind: "diff" },
+                    composerHasText,
+                    commentDraftOpen,
+                    reviewStepPending: footerPrimary !== null,
+                  }) !== "review-step"
+                }
               />
             ) : null}
           </div>

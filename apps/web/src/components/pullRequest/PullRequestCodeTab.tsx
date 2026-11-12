@@ -78,6 +78,7 @@ import { DiffRailKeyHint, DiffReviewFooter } from "../diffs/DiffReviewFooter";
 import { DiffReviewToggle } from "../diffs/DiffReviewTick";
 import { useCodeViewFileReveal } from "../diffs/useCodeViewFileReveal";
 import { useDiffPaging } from "../diffs/useDiffPaging";
+import { panelFillHolder } from "../panel/panelFill";
 import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -220,6 +221,7 @@ function PullRequestCodeTab({
   onRefresh,
   refreshToken = 0,
   composerHasText = false,
+  onFillInputsChange,
 }: {
   environmentId: EnvironmentId;
   reference: PullRequestRef;
@@ -238,6 +240,8 @@ function PullRequestCodeTab({
   refreshToken?: number;
   /** The thread's composer holds text: Send owns the one fill, so the footer's turns outline. */
   composerHasText?: boolean;
+  /** Told what decides the screen's fill here, so the merge footer outside can yield it. */
+  onFillInputsChange?: (inputs: PullRequestCodeFillInputs) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -789,6 +793,34 @@ function PullRequestCodeTab({
   const nextChangeShortcut = shortcutLabelForCommand(keybindings, "diff.nextChange", {
     context: { diffFocus: true },
   });
+  const reviewPrimary =
+    filesViewedEnabled && pagingItems.length > 0
+      ? paging.step.kind === "done"
+        ? moreFilesToLoad
+          ? {
+              label: diffQuery.isPending ? "Loading more files..." : "Load more files",
+              onClick: loadNextSlice,
+            }
+          : null
+        : {
+            label: pagingStepLabel(paging.step) ?? "Next change",
+            onClick: paging.advance,
+            shortcut: nextChangeShortcut,
+          }
+      : null;
+  const reviewStepPending = reviewPrimary !== null;
+  const commentDraftOpen = draft !== null;
+  useEffect(() => {
+    onFillInputsChange?.({ reviewStepPending, commentDraftOpen });
+  }, [commentDraftOpen, onFillInputsChange, reviewStepPending]);
+  const reviewStepHoldsFill =
+    panelFillHolder({
+      // The merge button's readiness does not matter here: a pending step outranks it.
+      view: { kind: "pull-request", tab: "code", nextStepHasAction: false, mergeReady: false },
+      composerHasText,
+      commentDraftOpen,
+      reviewStepPending,
+    }) === "review-step";
   const selectPagingFile = paging.select;
   const selectRailFile = useCallback(
     (path: string) => {
@@ -913,7 +945,8 @@ function PullRequestCodeTab({
           variant="ghost-muted"
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand diff" : "Collapse diff"}
-          className="mr-1 rounded hover:bg-transparent"
+          // A 24px hit area around the 20px button.
+          className="mr-1 rounded after:absolute after:-inset-0.5 hover:bg-transparent"
           onClick={(event) => {
             event.stopPropagation();
             toggleFile(item.id);
@@ -1118,6 +1151,7 @@ function PullRequestCodeTab({
             rangeLabel={`${draft.path}:${getReviewPositionAnchor(draft.position).line}`}
             text=""
             submitLabel="Add to review"
+            submitHint="add to review"
             {...(onAddToAgentSelection
               ? {
                   secondaryAction: {
@@ -1773,27 +1807,19 @@ function PullRequestCodeTab({
                   })
                 : ""
           }
-          primaryOutline={composerHasText}
+          primaryOutline={!reviewStepHoldsFill}
           // Comments here go into the pull request review, which the Review button sends.
           reply={null}
-          primary={
-            paging.step.kind === "done"
-              ? moreFilesToLoad
-                ? {
-                    label: diffQuery.isPending ? "Loading more files..." : "Load more files",
-                    onClick: loadNextSlice,
-                  }
-                : null
-              : {
-                  label: pagingStepLabel(paging.step) ?? "Next change",
-                  onClick: paging.advance,
-                  shortcut: nextChangeShortcut,
-                }
-          }
+          primary={reviewPrimary}
         />
       ) : null}
     </div>
   );
+}
+
+export interface PullRequestCodeFillInputs {
+  readonly reviewStepPending: boolean;
+  readonly commentDraftOpen: boolean;
 }
 
 export default PullRequestCodeTab;

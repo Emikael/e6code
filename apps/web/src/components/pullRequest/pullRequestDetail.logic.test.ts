@@ -59,6 +59,7 @@ import {
   buildPullRequestTimeline,
   editPullRequestThreadComment,
   writePullRequestDetailSnapshot,
+  pullRequestOwnReviewLine,
 } from "./pullRequestDetail.logic";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 
@@ -2145,5 +2146,34 @@ describe("pullRequestCodeTabLabel", () => {
   it("counts the files on the Code tab", () => {
     expect(pullRequestCodeTabLabel(1)).toBe("Code · 1 file");
     expect(pullRequestCodeTabLabel(5)).toBe("Code · 5 files");
+  });
+});
+
+describe("your own review line", () => {
+  it("says the files viewed and the comments not sent, and that neither blocks merging", () => {
+    expect(pullRequestOwnReviewLine({ changedFiles: 5, viewedFiles: 2, unsentComments: 1 })).toBe(
+      "Your own review: 2 of 5 files, 1 comment not sent yet. This does not block merging.",
+    );
+  });
+
+  it("leaves out the comment clause when nothing waits", () => {
+    expect(pullRequestOwnReviewLine({ changedFiles: 1, viewedFiles: 0, unsentComments: 0 })).toBe(
+      "Your own review: 0 of 1 file. This does not block merging.",
+    );
+  });
+
+  it("leaves out the files clause where the host keeps no viewed marks", () => {
+    expect(
+      pullRequestOwnReviewLine({ changedFiles: 3, viewedFiles: null, unsentComments: 2 }),
+    ).toBe("Your own review: 2 comments not sent yet. This does not block merging.");
+    expect(
+      pullRequestOwnReviewLine({ changedFiles: 3, viewedFiles: null, unsentComments: 0 }),
+    ).toBeNull();
+  });
+
+  it("says nothing for a pull request with no files", () => {
+    expect(
+      pullRequestOwnReviewLine({ changedFiles: 0, viewedFiles: 0, unsentComments: 1 }),
+    ).toBeNull();
   });
 });

@@ -24,6 +24,7 @@ import {
   useThreadRecentHistory,
 } from "~/browserHistoryStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
+import { useComposerHasText } from "~/hooks/useComposerHasText";
 import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
 import {
   ATTACHED_SENTENCE,
@@ -147,6 +148,7 @@ export function PreviewView({
   const attachedNoteCount = useComposerDraftStore((store) =>
     attachedCount(store.getComposerDraft(threadRef), "note"),
   );
+  const composerHasText = useComposerHasText(threadRef);
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(threadRef.environmentId);
   const environmentHostname = environmentHttpBaseUrl
     ? new URL(environmentHttpBaseUrl).hostname
@@ -924,6 +926,7 @@ export function PreviewView({
               code={navStatus.code}
               description={navStatus.description}
               onReload={handleRefresh}
+              composerHasText={composerHasText}
             />
           </div>
         ) : null}
@@ -942,6 +945,12 @@ export function PreviewView({
           }
           onDone={finishAnnotating}
         />
+      ) : attachedNoteCount > 0 ? (
+        // After Done annotating the notes still wait in the composer; say so, as the Diff, Files
+        // and Terminal footers do.
+        <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+          <AttachedCountButton count={attachedNoteCount} kind="note" />
+        </div>
       ) : null}
     </div>
   );

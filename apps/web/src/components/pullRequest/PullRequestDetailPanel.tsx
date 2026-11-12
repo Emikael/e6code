@@ -132,12 +132,17 @@ import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import { DiffPanelLoadingState } from "../DiffPanelShell";
 import { PanelErrorCard } from "../panel/PanelErrorCard";
-import type { PullRequestAgentSelectionInput } from "./PullRequestCodeTab";
+import { panelFillHolder } from "../panel/panelFill";
+import type {
+  PullRequestAgentSelectionInput,
+  PullRequestCodeFillInputs,
+} from "./PullRequestCodeTab";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
 import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
 import { PullRequestCommentComposer } from "./PullRequestCommentComposer";
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
 import { PullRequestNextStepCard } from "./PullRequestNextStepCard";
+import { usePendingReviewComments } from "./pullRequestReviewStore";
 import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestTimelineTab } from "./PullRequestTimelineTab";
 import {
@@ -169,6 +174,7 @@ import {
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
+  pullRequestOwnReviewLine,
   pullRequestCodeTabLabel,
   pullRequestHostName,
   type MergeReadiness,
@@ -450,9 +456,12 @@ const READINESS_STATUS = {
  */
 function PullRequestMergeReadinessChecklist({
   readiness,
+  ownReviewLine,
   actions,
 }: {
   readiness: MergeReadiness;
+  /** "Your own review: 2 of 5 files, ...": advisory, neutral, and never counted above. */
+  ownReviewLine: string | null;
   /** Rendered before a row's status word, keyed by that row's action. */
   actions: Partial<Record<NonNullable<MergeReadiness["rows"][number]["action"]>, ReactNode>>;
 }) {
@@ -496,6 +505,9 @@ function PullRequestMergeReadinessChecklist({
           );
         })}
       </ul>
+      {ownReviewLine ? (
+        <p className="px-0.5 text-xs text-muted-foreground">{ownReviewLine}</p>
+      ) : null}
     </section>
   );
 }
@@ -588,6 +600,12 @@ export function PullRequestDetailPanel({
       : null;
   const [threadPickerOpen, setThreadPickerOpen] = useState(false);
   const [tab, setTab] = useState<DetailTab>("summary");
+  // What the Code tab says about its own review footer and comment draft, which decides whether
+  // the merge button may hold the screen's one fill while the Code tab is shown.
+  const [codeFillInputs, setCodeFillInputs] = useState<PullRequestCodeFillInputs>({
+    reviewStepPending: false,
+    commentDraftOpen: false,
+  });
   const [timelineOrder, setTimelineOrder] = useState<"newest" | "oldest">("newest");
   const [codeCommitScope, setCodeCommitScope] = useState<{
     readonly pullRequestKey: string;
@@ -832,6 +850,26 @@ export function PullRequestDetailPanel({
           },
         }),
   );
+  // "Your own review" under Merge readiness: the same viewed marks the Code tab reads (one shared
+  // query per pull request), and the review comments written here and not yet submitted.
+  const ownReviewMarksQuery = useEnvironmentQuery(
+    detail?.state === "open" && detail.capabilities.viewedFiles !== undefined
+      ? pullRequestEnvironment.filesViewed({ environmentId, input: reference })
+      : null,
+  );
+  const unsentReviewComments = usePendingReviewComments(reference).length;
+  const ownReviewLine =
+    detail?.state === "open"
+      ? pullRequestOwnReviewLine({
+          changedFiles: detail.changedFiles,
+          viewedFiles:
+            detail.capabilities.viewedFiles === undefined
+              ? null
+              : (ownReviewMarksQuery.data?.files.filter((file) => file.state === "viewed").length ??
+                0),
+          unsentComments: unsentReviewComments,
+        })
+      : null;
   const isStackedPullRequest =
     detail !== null &&
     isStackedPullRequestBase(detail.baseBranch, branchRefsQuery.data?.refs ?? []);
@@ -1827,9 +1865,20 @@ export function PullRequestDetailPanel({
                 ? "Merge when ready is on"
                 : null;
   const mergeButtonLabel = pendingAction === "merge" ? "Merging..." : selectedMergeMethodLabel;
-  // The fill goes to the merge only once everything is met; until then the card holds the next
-  // action and the merge stays outlined.
-  const mergeTakesFill = nextStep?.kind === "ready" && !composerHasText;
+  // One fill per screen: the merge holds it only once everything is met, and on the Code tab only
+  // once the review footer has no step left; until then the card or the review step holds it.
+  const fillHolder = panelFillHolder({
+    view: {
+      kind: "pull-request",
+      tab,
+      nextStepHasAction: nextStep?.primary != null,
+      mergeReady: nextStep?.kind === "ready",
+    },
+    composerHasText,
+    commentDraftOpen: tab === "code" && codeFillInputs.commentDraftOpen,
+    reviewStepPending: tab === "code" && codeFillInputs.reviewStepPending,
+  });
+  const mergeTakesFill = fillHolder === "merge";
 
   const mergeFooter =
     detail?.state === "open" ? (
@@ -1990,7 +2039,8 @@ export function PullRequestDetailPanel({
                             size="icon-micro"
                             variant="ghost-muted"
                             onClick={onBack}
-                            className="-ml-1.5"
+                            // A 24px hit area around the 20px button.
+                            className="-ml-1.5 after:absolute after:-inset-0.5"
                             aria-label="Back to this thread's pull requests"
                           >
                             <ArrowLeftIcon aria-hidden className="size-3.5" />
@@ -2185,7 +2235,7 @@ export function PullRequestDetailPanel({
                               aria-label={
                                 refreshing ? "Refreshing pull request" : "More pull request actions"
                               }
-                              className="size-6"
+                              className="sm:size-7"
                               size="icon-xs"
                               variant="ghost-muted"
                             />
@@ -2583,7 +2633,7 @@ export function PullRequestDetailPanel({
                             step={nextStep}
                             pending={handoff !== null || actionPending}
                             onAction={runNextStepAction}
-                            primaryOutline={composerHasText}
+                            primaryOutline={fillHolder !== "next-step"}
                             renderAction={(action, primary) =>
                               action.kind === "request-review" ? (
                                 <PullRequestReviewerPicker
@@ -2604,6 +2654,7 @@ export function PullRequestDetailPanel({
                         {mergeReadiness ? (
                           <PullRequestMergeReadinessChecklist
                             readiness={mergeReadiness}
+                            ownReviewLine={ownReviewLine}
                             actions={{
                               "resolve-conflicts": (
                                 <Button
@@ -2698,6 +2749,7 @@ export function PullRequestDetailPanel({
                     onRefresh={refreshDetail}
                     refreshToken={codeRefreshToken}
                     composerHasText={composerHasText}
+                    onFillInputsChange={setCodeFillInputs}
                   />
                 </Suspense>
               </div>
