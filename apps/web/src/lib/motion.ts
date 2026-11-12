@@ -1,6 +1,7 @@
 import { spring } from "animejs/easings/spring";
 import { waapi } from "animejs/waapi";
 import type { DOMTargetsParam, WAAPIAnimationParams } from "animejs";
+import type { InterfaceMotion } from "@e6tools/contracts/settings";
 
 /**
  * Shared motion vocabulary for the web client.
@@ -38,16 +39,67 @@ const SPRING_CSS = {
   snappy: waapi.convertEase(SPRING_SNAPPY.ease, 40),
 } as const;
 
-/** Exposes the spring curves as `--ease-spring-*`, installed once at startup before first render. */
+/**
+ * Exposes the spring curves as `--ease-spring-*` and `EASE_OUT` as `--ease-motion-out`,
+ * installed once at startup before first render.
+ */
 export function installMotionTokens(root: HTMLElement = document.documentElement) {
+  root.style.setProperty("--ease-motion-out", EASE_OUT);
   root.style.setProperty("--ease-spring-gentle", SPRING_CSS.gentle);
   root.style.setProperty("--ease-spring-snappy", SPRING_CSS.snappy);
 }
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+/**
+ * Root attribute the Motion setting sets when it forces reduced motion.
+ * Stylesheet rules for reduced motion match it as well as the media query
+ * (see the `motion-reduce` and `motion-safe` variants in `index.css`).
+ */
+export const REDUCED_MOTION_ATTRIBUTE = "data-reduced-motion";
+
+/** Reduced motion is on when the system asks for it or the Motion setting forces it. */
+export function resolveReducedMotion(
+  systemPrefersReduced: boolean,
+  interfaceMotion: InterfaceMotion,
+): boolean {
+  return systemPrefersReduced || interfaceMotion === "reduced";
+}
+
+let interfaceMotion: InterfaceMotion = "system";
+const interfaceMotionListeners = new Set<() => void>();
+
+/** Applies the Motion setting to scripted motion and to the root attribute CSS matches. */
+export function applyInterfaceMotion(
+  next: InterfaceMotion,
+  root: HTMLElement | undefined = typeof document === "undefined"
+    ? undefined
+    : document.documentElement,
+) {
+  root?.toggleAttribute(REDUCED_MOTION_ATTRIBUTE, next === "reduced");
+  if (next === interfaceMotion) return;
+  interfaceMotion = next;
+  for (const listener of interfaceMotionListeners) listener();
+}
+
+function reducedMotionMedia(): MediaQueryList | undefined {
+  return typeof window === "undefined" ? undefined : window.matchMedia?.(REDUCED_MOTION_QUERY);
+}
+
+/** The single reduced-motion check for scripted motion; it honors the Motion setting. */
 export function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(REDUCED_MOTION_QUERY).matches;
+  return resolveReducedMotion(reducedMotionMedia()?.matches ?? false, interfaceMotion);
+}
+
+/** Calls `listener` when the system preference or the Motion setting changes. */
+export function subscribeReducedMotion(listener: () => void): () => void {
+  const media = reducedMotionMedia();
+  media?.addEventListener("change", listener);
+  interfaceMotionListeners.add(listener);
+  return () => {
+    media?.removeEventListener("change", listener);
+    interfaceMotionListeners.delete(listener);
+  };
 }
 
 /** Element motion is unavailable in test DOMs and very old engines; callers skip it there. */
@@ -129,5 +181,88 @@ export function createMomentRegistry<K, V>(windowMs: number) {
     settle(key: K) {
       moments.delete(key);
     },
+  };
+}
+
+/**
+ * Board 10's moments: one-shot, opacity and transform only, token durations.
+ * Each plays when something arrives in the thread or panel being looked at;
+ * none plays on the way out, and none plays for a background thread.
+ */
+const MOMENTS = {
+  /** A card arrives: rise 6px and fade in. */
+  rise: {
+    opacity: [0, 1],
+    transform: ["translateY(6px)", "none"],
+    duration: MOTION_MS.state,
+    ease: EASE_OUT,
+  },
+  /** A plan step completes: its segment fills from the left (the element sets `origin-left`). */
+  fill: { transform: ["scaleX(0)", "scaleX(1)"], duration: MOTION_MS.state, ease: EASE_OUT },
+  /** A status glyph settles into a state the user caused, by scale and fade. */
+  settle: {
+    opacity: [0, 1],
+    transform: ["scale(0.8)", "none"],
+    duration: MOTION_MS.state,
+    ease: EASE_OUT,
+  },
+} satisfies Record<string, WAAPIAnimationParams>;
+
+export type Moment = keyof typeof MOMENTS;
+
+/** Plays a moment, or nothing under reduced motion or where elements cannot animate. */
+export function playMoment(element: Element | null, moment: Moment): TransientMotion | null {
+  if (!canAnimate(element) || prefersReducedMotion()) return null;
+  return playTransient(element, MOMENTS[moment]);
+}
+
+export interface MomentWatch {
+  /** What is being looked at (a thread, a pull request); null while it loads. */
+  readonly key: string | null;
+  readonly value: boolean;
+  /** How many times `value` turned on while the same key stayed in view. */
+  readonly count: number;
+}
+
+/**
+ * Counts a state turning on under the viewer's eyes. Opening something that is
+ * already on, or a value that arrives while the key is still loading, does not
+ * count; switching to another key starts over.
+ */
+export function nextMomentWatch(
+  previous: MomentWatch,
+  key: string | null,
+  value: boolean,
+): MomentWatch {
+  if (key !== previous.key) return { key, value, count: 0 };
+  const turnedOn = key !== null && value && !previous.value;
+  return { key, value, count: previous.count + (turnedOn ? 1 : 0) };
+}
+
+export interface PlanMeterWatch {
+  readonly key: string;
+  readonly completedSteps: number;
+  readonly totalSteps: number;
+}
+
+/**
+ * The plan meter segments to fill: those completed since the last render of
+ * the same thread and plan. A new thread or a replaced plan fills nothing.
+ */
+export function newlyCompletedSegments(
+  previous: PlanMeterWatch | null,
+  next: PlanMeterWatch,
+): { readonly from: number; readonly to: number } | null {
+  if (
+    previous === null ||
+    previous.key !== next.key ||
+    previous.totalSteps !== next.totalSteps ||
+    next.completedSteps <= previous.completedSteps
+  ) {
+    return null;
+  }
+  return {
+    from: Math.max(0, previous.completedSteps),
+    to: Math.min(next.completedSteps, next.totalSteps),
   };
 }

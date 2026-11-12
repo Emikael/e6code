@@ -192,6 +192,8 @@ import {
   resolvePullRequestState,
 } from "./pullRequestPresentation";
 import { PullRequestGlyph } from "./pullRequestIcons";
+import { useMomentCount } from "../../hooks/useMomentCount";
+import { SettlingGlyph } from "../SettlingGlyph";
 import { usePullRequestMergeCommandStore } from "./pullRequestMergeCommand";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { destructiveApprovalPendingIn } from "../chat/holdToConfirm";
@@ -1562,6 +1564,8 @@ export function PullRequestDetailPanel({
   const statePresentation = detail
     ? resolvePullRequestState({ state: detail.state, isDraft: detail.isDraft })
     : null;
+  // A merge while this pull request is open settles its state glyph once (board 10).
+  const mergeMoment = useMomentCount(detail?.url ?? null, detail?.state === "merged");
   // Approvals that still stand, and only those. A superseded one is dimmed beside the reviewer
   // who gave it, so counting it here would have the header assert in a number what the row next
   // to it has just qualified.
@@ -2059,7 +2063,11 @@ export function PullRequestDetailPanel({
               {/* State in a word, number, branches and age. */}
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge variant="outline" className="shrink-0 text-muted-foreground">
-                  <statePresentation.Icon aria-hidden className="size-3" />
+                  <SettlingGlyph
+                    icon={statePresentation.Icon}
+                    moment={mergeMoment}
+                    className="size-3"
+                  />
                   {statePresentation.label}
                 </Badge>
                 <Tooltip>

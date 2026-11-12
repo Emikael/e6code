@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import { pullRequestHostOf, type SourceControlProviderKind } from "@e6tools/contracts";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
@@ -227,8 +228,6 @@ type TabContextMenuAction =
   | "close-to-right"
   | "close-all";
 
-const prefersReducedMotion = () =>
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
 
 function tabScrollViewport(root: HTMLDivElement | null): HTMLDivElement | null {

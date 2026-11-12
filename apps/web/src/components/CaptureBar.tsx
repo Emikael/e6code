@@ -165,11 +165,13 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
   };
 
   return (
+    // Board 10: the bar opens from scale 0.98 and 4px up in 120ms. Closing unmounts it at once.
     <DialogPopup
       showCloseButton={false}
       bottomStickOnMobile={false}
       viewportClassName="grid-rows-[0.6fr_auto_1fr]"
-      className="max-w-110 overflow-hidden rounded-xl"
+      backdropClassName="duration-120 motion-reduce:transition-none"
+      className="max-w-110 overflow-hidden rounded-xl duration-120 ease-(--ease-motion-out) data-starting-style:-translate-y-1 motion-reduce:transition-none"
     >
       <DialogTitle className="sr-only">Park a thought</DialogTitle>
       <form

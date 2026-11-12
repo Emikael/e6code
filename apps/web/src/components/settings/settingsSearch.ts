@@ -221,6 +221,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["attention composer compact full chip effort permissions plan build mode footer"],
   },
   {
+    id: "interface-motion",
+    title: "Motion",
+    to: "/settings/attention",
+    searchTerms: ["attention motion animation reduced reduce transitions accessibility calm still"],
+  },
+  {
     id: "recap-trigger",
     title: "Show where you left off",
     to: "/settings/attention",

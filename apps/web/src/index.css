@@ -4,6 +4,27 @@
 @custom-variant light (&:not(.dark, .dark *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
+/* Motion setting: Reduced sets data-reduced-motion on the root (lib/motion.ts), and takes the
+   same path as the system preference. Rules written against the media query directly must
+   match the attribute too; a shadow root reads --reduced-motion-transition instead. */
+@custom-variant motion-reduce {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where([data-reduced-motion], [data-reduced-motion] *) {
+    @slot;
+  }
+}
+@custom-variant motion-safe {
+  @media (prefers-reduced-motion: no-preference) {
+    &:not(:where([data-reduced-motion], [data-reduced-motion] *)) {
+      @slot;
+    }
+  }
+}
+:root[data-reduced-motion] {
+  --reduced-motion-transition: none;
+}
 
 /* On mobile, morph the expanded hero composer into the compact docked
    composer while it moves; the rest of the app remains visually stationary. */
@@ -1932,8 +1953,8 @@ code {
    so opening a finished thread never replays the fade. Opacity only, one
    shot, no layout change. */
 @media (prefers-reduced-motion: no-preference) {
-  .chat-markdown[data-streaming] > *,
-  .chat-markdown[data-streaming] .chat-markdown-shiki {
+  :root:not([data-reduced-motion]) .chat-markdown[data-streaming] > *,
+  :root:not([data-reduced-motion]) .chat-markdown[data-streaming] .chat-markdown-shiki {
     transition: opacity 600ms ease-out;
 
     @starting-style {
@@ -2155,6 +2176,14 @@ code {
   .preview-loading-progress[data-loading="true"] {
     transform: scaleX(0.9);
   }
+}
+:root[data-reduced-motion] .preview-loading-progress,
+:root[data-reduced-motion] .preview-loading-progress[data-loading="true"] {
+  transition: none;
+  animation: none;
+}
+:root[data-reduced-motion] .preview-loading-progress[data-loading="true"] {
+  transform: scaleX(0.9);
 }
 
 /* Let the sortable rows open label clearance before painting the dividers.

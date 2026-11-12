@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import { scopedThreadKey } from "@e6tools/client-runtime/environment";
 import type { ScopedThreadRef, SnapShotSource } from "@e6tools/contracts";
 
@@ -104,7 +105,7 @@ export function setSnapShotAnimationDestination(
   target: HTMLElement,
   source?: SnapShotSource,
 ): void {
-  if (!target.isConnected || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (!target.isConnected || prefersReducedMotion()) {
     return;
   }
   const bridge = getDesktopSnapShotBridge();

@@ -13,9 +13,10 @@ import {
 } from "@e6tools/client-runtime/work-log/thread-recap";
 import type { WorkLogEntry } from "@e6tools/client-runtime/work-log/entries";
 import { PencilIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
+import { playMoment } from "~/lib/motion";
 import {
   THREAD_NOTES_FULL_MESSAGE,
   selectThreadNote,
@@ -184,7 +185,9 @@ export function ThreadRecapHost({
 
   if (!current.recap) return null;
   return (
+    // A recap for another thread, or one asked for again, arrives as a new card.
     <ThreadRecapCard
+      key={`${threadKey}:${current.handledRequest}`}
       threadKey={threadKey}
       recap={current.recap}
       onDismiss={() => setState({ ...current, recap: null })}
@@ -276,8 +279,15 @@ function ThreadRecapCard({
     (store) => selectThreadNote(store.entries, threadKey)?.prompt ?? null,
   );
   const [editingNote, setEditingNote] = useState(false);
+  // Board 10: a recap arrives by rising 6px into place; dismissing it is instant.
+  const cardRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const motion = playMoment(cardRef.current, "rise");
+    return () => motion?.cancel();
+  }, []);
   return (
     <section
+      ref={cardRef}
       aria-label="Where you left off"
       className="mb-2.5 flex flex-col gap-3 rounded-xl border border-border bg-surface-raised px-4 py-3.5"
     >
