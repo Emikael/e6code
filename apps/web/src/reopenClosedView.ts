@@ -4,6 +4,8 @@ import type { OpenPreviewMutation } from "./browser/openFileInPreview";
 import type { ClosedView, ClosedViewEntry } from "./closedViewStore";
 import type { PullRequestListPreferences } from "./components/pullRequest/pullRequestListPreferences";
 import { openPreviewSession } from "./components/preview/openPreviewSession";
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
+import { useUiStateStore } from "./uiStateStore";
 import {
   type RightPanelSurface,
   type ThreadRightPanelState,
@@ -98,6 +100,12 @@ export function closedViewNeedsWorkspace(view: ClosedView): boolean {
   return surface.kind === "files" || (surface.kind === "file" && !surface.attachment);
 }
 
+/** The line a file was last left at in this thread, recorded when its view closed. */
+function lastLine(ref: ClosedView["threadRef"], relativePath: string): number | null {
+  const recent = useUiStateStore.getState().recentFilesByThreadKey[scopedThreadKey(ref)];
+  return recent?.find((file) => file.path === relativePath)?.line ?? null;
+}
+
 export async function reopenClosedView(
   view: ClosedView,
   options: {
@@ -129,17 +137,25 @@ export async function reopenClosedView(
       panels.openBrowser(ref, null);
       break;
     case "files":
-      // The Files tab comes back showing the file it showed.
+      // The Files tab comes back showing the file it showed, where the reader left it.
       if (surface.relativePath !== undefined) {
-        panels.openFile(ref, surface.relativePath, surface.revealLine ?? undefined);
+        panels.openFile(
+          ref,
+          surface.relativePath,
+          lastLine(ref, surface.relativePath) ?? surface.revealLine ?? undefined,
+        );
       } else panels.open(ref, "files");
       break;
     case "file":
       if (surface.attachment) panels.openAttachment(ref, surface.attachment);
       else {
-        // A file kept as its own tab comes back as one, at its line.
+        // A file kept as its own tab comes back as one, at the line the reader left it.
         panels.keepFileAsTab(ref, surface.relativePath);
-        panels.openFile(ref, surface.relativePath, surface.revealLine ?? undefined);
+        panels.openFile(
+          ref,
+          surface.relativePath,
+          lastLine(ref, surface.relativePath) ?? surface.revealLine ?? undefined,
+        );
       }
       break;
     case "device":

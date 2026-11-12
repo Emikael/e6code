@@ -134,16 +134,56 @@ describe("nextAppliedDiffPreview", () => {
 
 describe("userActionAnswer", () => {
   it("waits for the first preview that settled after the action", () => {
-    expect(userActionAnswer({ since: 10, settledAt: 5, pending: false, failed: false })).toBeNull();
-    expect(userActionAnswer({ since: 10, settledAt: 12, pending: true, failed: false })).toBeNull();
-    expect(userActionAnswer({ since: 10, settledAt: 12, pending: false, failed: false })).toBe(
-      "answered",
-    );
+    expect(
+      userActionAnswer({
+        since: 10,
+        settledAt: 5,
+        pending: false,
+        failed: false,
+        refreshStarted: true,
+      }),
+    ).toBeNull();
+    expect(
+      userActionAnswer({
+        since: 10,
+        settledAt: 12,
+        pending: true,
+        failed: false,
+        refreshStarted: true,
+      }),
+    ).toBeNull();
+    expect(
+      userActionAnswer({
+        since: 10,
+        settledAt: 12,
+        pending: false,
+        failed: false,
+        refreshStarted: true,
+      }),
+    ).toBe("answered");
   });
 
   it("ends when the refresh fails", () => {
-    expect(userActionAnswer({ since: 10, settledAt: 5, pending: false, failed: true })).toBe(
-      "failed",
-    );
+    expect(
+      userActionAnswer({
+        since: 10,
+        settledAt: 5,
+        pending: false,
+        failed: true,
+        refreshStarted: true,
+      }),
+    ).toBe("failed");
+  });
+
+  it("is not ended by an error left from before the action's refresh started", () => {
+    expect(
+      userActionAnswer({
+        since: 10,
+        settledAt: 5,
+        pending: false,
+        failed: true,
+        refreshStarted: false,
+      }),
+    ).toBeNull();
   });
 });

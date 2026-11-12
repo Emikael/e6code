@@ -7,7 +7,9 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { scopedThreadKey } from "@e6tools/client-runtime/environment";
 import { type ClosedViewEntry, useClosedViewStore } from "./closedViewStore";
+import { useUiStateStore } from "./uiStateStore";
 import { __setClientSettingsForTests } from "./hooks/useSettings";
 import { readThreadPreviewState, resetPreviewStateForTests } from "./previewStateStore";
 import {
@@ -88,6 +90,27 @@ describe("reopenClosedView", () => {
     expect(state.surfaces).toMatchObject([
       { id: "files", relativePath: "src/app.ts", revealLine: 7 },
     ]);
+  });
+
+  it("brings a file back at the line the reader left it, not where it was first opened", async () => {
+    useUiStateStore.getState().recordRecentFile(scopedThreadKey(threadRef), "src/app.ts", 140);
+    await reopenClosedView(
+      {
+        kind: "panel-tab",
+        threadRef,
+        surface: {
+          kind: "files",
+          id: "files",
+          relativePath: "src/app.ts",
+          revealLine: 7,
+          revealRequestId: 4,
+        },
+      },
+      { openPreview: vi.fn(), workspaceAvailable: true },
+    );
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
+    expect(state.surfaces).toMatchObject([{ id: "files", revealLine: 140 }]);
+    useUiStateStore.setState({ recentFilesByThreadKey: {} });
   });
 
   it("does not reopen workspace tabs without an available project", async () => {

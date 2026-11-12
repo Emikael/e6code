@@ -51,13 +51,18 @@ export type FilesFilterChoice = "all" | "changed";
 
 /** Files tab state kept per thread on this device (F18). */
 export interface UiFilesState {
-  /** The last files opened in each thread, newest first, at most RECENT_FILES_LIMIT. */
+  /**
+   * The last files opened in each thread, newest first, at most RECENT_FILES_STORED_LIMIT: more
+   * than "Recently opened" shows, since the ones among Changed are filtered out before it cuts.
+   */
   recentFilesByThreadKey: Record<string, RecentFile[]>;
   /** The explorer filter each thread was left on; absent until the reader picks one. */
   filesFilterByThreadKey: Record<string, FilesFilterChoice>;
 }
 
+/** How many "Recently opened" shows. */
 export const RECENT_FILES_LIMIT = 5;
+export const RECENT_FILES_STORED_LIMIT = 30;
 /** Threads whose Files tab state is kept; the oldest are forgotten first. */
 const FILES_STATE_THREAD_LIMIT = 200;
 
@@ -221,7 +226,7 @@ function sanitizeRecentFiles(value: unknown): Record<string, RecentFile[]> {
             file.path.length > 0 &&
             (file.line === null || (Number.isSafeInteger(file.line) && file.line > 0)),
         )
-        .slice(0, RECENT_FILES_LIMIT)
+        .slice(0, RECENT_FILES_STORED_LIMIT)
         .map((file) => ({ path: file.path, line: file.line }));
       return valid.length > 0 ? [[threadKey, valid]] : [];
     }),
@@ -260,7 +265,7 @@ export function recordRecentFile(
   if (current[0]?.path === path && current[0].line === nextLine) return state;
   const files = [{ path, line: nextLine }, ...current.filter((file) => file.path !== path)].slice(
     0,
-    RECENT_FILES_LIMIT,
+    RECENT_FILES_STORED_LIMIT,
   );
   const { [threadKey]: _previous, ...rest } = state.recentFilesByThreadKey;
   return {

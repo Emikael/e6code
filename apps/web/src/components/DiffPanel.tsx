@@ -408,20 +408,27 @@ export default function DiffPanel({
   const appliedPreviewForScope = appliedPreview?.key === previewKey ? appliedPreview.data : null;
   // The pin holds back the agent's changes only. The user's own stage, commit or refresh asks for
   // a fresh preview, and the first one to settle after it is applied; then the pin holds again.
-  const [userActionAt, setUserActionAt] = useState<number | null>(null);
+  const [userAction, setUserAction] = useState<{
+    readonly at: number;
+    readonly refreshStarted: boolean;
+  } | null>(null);
   const refreshPreviewQuery = branchDiffPreview.refresh;
   const markUserChange = useCallback(() => {
-    setUserActionAt(Date.now());
+    setUserAction({ at: Date.now(), refreshStarted: false });
     refreshPreviewQuery();
   }, [refreshPreviewQuery]);
+  if (userAction !== null && !userAction.refreshStarted && branchDiffPreview.isPending) {
+    setUserAction({ ...userAction, refreshStarted: true });
+  }
   const userAnswer =
-    userActionAt === null
+    userAction === null
       ? null
       : userActionAnswer({
-          since: userActionAt,
+          since: userAction.at,
           settledAt: branchDiffPreview.dataUpdatedAt,
           pending: branchDiffPreview.isPending,
           failed: branchDiffPreview.error !== null,
+          refreshStarted: userAction.refreshStarted || branchDiffPreview.isPending,
         });
   const sourceOfPreview = (preview: typeof livePreview | null) =>
     preview?.sources.find((source) => source.kind === GIT_SCOPE_SOURCE_KINDS[selectedGitScope]);
@@ -443,7 +450,7 @@ export default function DiffPanel({
     answersUser: userAnswer === "answered",
   });
   if (nextApplied !== appliedPreview) setAppliedPreview(nextApplied);
-  if (userAnswer !== null) setUserActionAt(null);
+  if (userAnswer !== null) setUserAction(null);
   const shownPreview =
     pinState === "pinned" && userAnswer !== "answered" ? appliedPreviewForScope : livePreview;
   const pinnedChangeCount =

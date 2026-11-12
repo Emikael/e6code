@@ -46,7 +46,11 @@ interface FileBrowserPanelProps {
   workspaceMutationId: string | null;
   /** The Changed filter and its lists, where the explorer sits beside a thread. */
   lists?: FileExplorerListsProps | undefined;
+  /** Files whose edit is held, unsaved, behind the agent's change: their rows say "unsaved". */
+  unsavedPaths?: ReadonlySet<string> | undefined;
 }
+
+const NO_UNSAVED_PATHS: ReadonlySet<string> = new Set();
 
 export interface FileExplorerListsProps {
   readonly filter: FilesFilter;
@@ -126,6 +130,7 @@ export default function FileBrowserPanel({
   onRefreshSelectedFile,
   workspaceMutationId,
   lists,
+  unsavedPaths = NO_UNSAVED_PATHS,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -262,6 +267,8 @@ export default function FileBrowserPanel({
   });
 
   const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
+  // Read by the tree's row renderer, which is fixed when the tree is created.
+  const unsavedPathsRef = useRef(unsavedPaths);
   const dragMention = useMemo(
     () =>
       createFileTreeDragMentionController({
@@ -286,6 +293,10 @@ export default function FileBrowserPanel({
     flattenEmptyDirectories: true,
     initialExpansion: "closed",
     icons: E6_PIERRE_ICONS,
+    renderRowDecoration: ({ item }) =>
+      unsavedPathsRef.current.has(item.path.replace(/\/$/, ""))
+        ? { text: "unsaved", title: "Your edit is not saved yet" }
+        : null,
     onSelectionChange: (selectedPaths) => {
       // The drag controller's selection cache must track every change,
       // including reveal-driven ones, or drags act on a stale selection.
@@ -491,6 +502,12 @@ export default function FileBrowserPanel({
     treeModelRef.current = model;
   }, [model]);
   useEffect(() => {
+    if (unsavedPathsRef.current === unsavedPaths) return;
+    unsavedPathsRef.current = unsavedPaths;
+    // Redraws the rows; the tree has no git status of its own to keep.
+    model.setGitStatus(undefined);
+  }, [model, unsavedPaths]);
+  useEffect(() => {
     const panel = panelRef.current;
     if (panel === null) {
       return;
@@ -511,7 +528,7 @@ export default function FileBrowserPanel({
       className="flex min-h-0 min-w-0 flex-1 flex-col"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
-      <div className="flex shrink-0 items-center gap-1 px-2 pt-2.5 pb-2">
+      <div className="flex shrink-0 items-center gap-1 px-2 pt-2.5 pb-2.5">
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -519,7 +536,8 @@ export default function FileBrowserPanel({
           onValueChange={handleSearchValueChange}
           onClose={closeSearch}
         />
-        {directoryPaths.length > 0 ? (
+        {/* Refresh and expand-all act on the tree, so they show only while it does. */}
+        {!showsLists && directoryPaths.length > 0 ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -547,7 +565,7 @@ export default function FileBrowserPanel({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+        {showsLists ? null : <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />}
       </div>
       {lists && lists.changed.length > 0 ? (
         <div className="flex shrink-0 px-2 pb-2.5">
@@ -565,10 +583,23 @@ export default function FileBrowserPanel({
             changed={lists.changed}
             recent={lists.recent}
             selectedPath={selectedPath}
+            unsavedPaths={unsavedPaths}
             onOpenFile={lists.onOpenFile}
           />
           <span className="flex-1" />
           <BrowseAllFilesRow shortcut={lists.browseShortcut} onBrowse={lists.onBrowseAll} />
+        </div>
+      ) : null}
+      {lists && lists.changed.length === 0 && lists.recent.length > 0 && !query.trim() ? (
+        // Nothing changed, so the tree is all there is: Recently opened sits above it.
+        <div className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto px-2 pb-2.5">
+          <ChangedFileLists
+            changed={lists.changed}
+            recent={lists.recent}
+            selectedPath={selectedPath}
+            unsavedPaths={unsavedPaths}
+            onOpenFile={lists.onOpenFile}
+          />
         </div>
       ) : null}
       {error || pathSearch.error ? (

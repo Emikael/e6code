@@ -23,7 +23,15 @@ import {
 import { mediaFileReference } from "@e6tools/client-runtime/media-reference";
 import { FolderTree } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -91,7 +99,7 @@ import {
   setMarkdownTaskChecked,
 } from "./filePreviewMode";
 import { FileMoreMenu } from "./FileMoreMenu";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { heldFilePaths, useFileEditStore } from "./fileEditStore";
 import { useFileEditSession } from "./useFileEditSession";
 import { useThreadFilesContext } from "./useThreadFilesContext";
 import { recentFilesOutsideChanged, resolveFilesFilter } from "./threadChangedFiles";
@@ -101,7 +109,7 @@ import { openCommandPalette } from "~/commandPaletteBus";
 import { useDiffPanelStore } from "~/diffPanelStore";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { useRightPanelStore } from "~/rightPanelStore";
-import { useUiStateStore } from "~/uiStateStore";
+import { RECENT_FILES_LIMIT, useUiStateStore } from "~/uiStateStore";
 import { DiffStat } from "../DiffStat";
 import { Button } from "../ui/button";
 import { MenuItem } from "../ui/menu";
@@ -126,7 +134,8 @@ interface FilePreviewPanelProps {
   variant: "files" | "kept";
   onOpenFile: (relativePath: string) => void;
   /** "Keep as its own tab", offered by the Files tab. */
-  onKeepAsTab: (relativePath: string) => void;
+  /** `line` is where the reader is in the file, so the kept tab opens there. */
+  onKeepAsTab: (relativePath: string, line: number | undefined) => void;
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
@@ -600,6 +609,8 @@ interface EditableFileSurfaceProps {
   onEdit: (contents: string) => void;
   /** The line at the middle of the view, read when the file is left, for Recently opened. */
   onLeave: (line: number | null) => void;
+  /** Kept at the line at the middle of the view as the reader scrolls. */
+  viewLineRef: RefObject<number | null>;
 }
 
 interface FileSelectionOverride {
@@ -619,6 +630,7 @@ function EditableFileSurface({
   onPostRender,
   onEdit,
   onLeave,
+  viewLineRef,
 }: EditableFileSurfaceProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -649,6 +661,7 @@ function EditableFileSurface({
     const measure = () => {
       frame = null;
       centerLineRef.current = readCenterLine(scroller, fileContainerRef.current);
+      viewLineRef.current = centerLineRef.current;
     };
     const onScroll = () => {
       if (frame === null) frame = requestAnimationFrame(measure);
@@ -658,7 +671,7 @@ function EditableFileSurface({
       scroller.removeEventListener("scroll", onScroll);
       if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [viewLineRef]);
   useEffect(() => () => onLeaveRef.current(centerLineRef.current), []);
   const editor = useMemo(
     () =>
@@ -1016,6 +1029,7 @@ function EditableFileSurface({
                       // Remounted on Edit, so the draft starts from the saved words.
                       key={`${entry.id}:${entry.kind}`}
                       kind={entry.kind}
+                      surface="file"
                       rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
                       heading={`Your comment · ${formatFileCommentLines(entry.startLine, entry.endLine)}`}
                       text={entry.text}
@@ -1056,6 +1070,7 @@ function RenderedMarkdownSurface({
   | "wordWrap"
   | "onPostRender"
   | "onLeave"
+  | "viewLineRef"
 > & {
   threadRef: ScopedThreadRef;
   readOnly: boolean;
@@ -1084,12 +1099,17 @@ function RenderedMarkdownSurface({
   );
 }
 
-/** Whether the element is narrower than the Files tab needs for its explorer column. */
+/**
+ * Whether the element is narrower than the Files tab needs for its explorer column. Measured
+ * before the first paint, so a narrow panel never shows the column for a frame.
+ */
 function useNarrowPanel(ref: RefObject<HTMLElement | null>): boolean {
   const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = ref.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
+    if (!element) return;
+    setNarrow(element.getBoundingClientRect().width < FILE_EXPLORER_COLUMN_MIN_PANEL_WIDTH);
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
       if (entry) setNarrow(entry.contentRect.width < FILE_EXPLORER_COLUMN_MIN_PANEL_WIDTH);
     });
@@ -1153,6 +1173,11 @@ export default function FilePreviewPanel({
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isDirectory ? null : relativePath;
   const surfaceRef = useRef<HTMLDivElement>(null);
+  // Where the reader is in the open file; Keep as its own tab opens the tab there.
+  const viewLineRef = useRef<number | null>(null);
+  useEffect(() => {
+    viewLineRef.current = null;
+  }, [relativePath]);
   const narrow = useNarrowPanel(surfaceRef);
   // The header button's state; see resolveFileExplorerLayout.
   const [explorerOpen, setExplorerOpen] = useState(false);
@@ -1253,7 +1278,7 @@ export default function FilePreviewPanel({
     changedCount: threadFiles.changed.length,
   });
   const recentFiles = useMemo(
-    () => recentFilesOutsideChanged(storedRecent ?? [], threadFiles.changed),
+    () => recentFilesOutsideChanged(storedRecent ?? [], threadFiles.changed, RECENT_FILES_LIMIT),
     [storedRecent, threadFiles.changed],
   );
   const workspaceFile = previewPath !== null && attachment === undefined && !isHostFile;
@@ -1263,17 +1288,33 @@ export default function FilePreviewPanel({
   const changedFile = workspaceFile
     ? (threadFiles.changed.find((entry) => entry.path === previewPath) ?? null)
     : null;
+  // The footer speaks for the open file: when the agent changed it, and in which turn.
+  const footerCaption =
+    previewPath === null || changedFile === null
+      ? null
+      : threadFiles.latestTurnPaths.has(previewPath)
+        ? `Changed by ${threadFiles.agentName} in the latest turn.`
+        : "Changed in this thread.";
   const editable =
     workspaceFile && !isMedia && !isPdf && file.data !== null && !file.data.truncated;
   const editSession = useFileEditSession({
     environmentId,
     cwd,
+    threadKey,
     relativePath: editable ? previewPath : null,
     contents: file.data?.contents ?? null,
     serverContents: editable ? (file.serverData?.contents ?? null) : null,
     turnKey: threadFiles.turnKey,
     onPendingChange,
   });
+  // Joined, so typing into a held edit does not hand the explorer a new set on every key.
+  const unsavedPathsKey = useFileEditStore((state) =>
+    [...heldFilePaths(state.byFileKey, threadKey)].join("\u0000"),
+  );
+  const unsavedPaths = useMemo(
+    () => new Set(unsavedPathsKey.length === 0 ? [] : unsavedPathsKey.split("\u0000")),
+    [unsavedPathsKey],
+  );
   const viewDiff = useCallback(() => {
     if (!changedFile) return;
     const diffs = useDiffPanelStore.getState();
@@ -1367,6 +1408,7 @@ export default function FilePreviewPanel({
         selectedPathRevealId={revealRequestId}
         onOpenFile={openFromExplorer}
         workspaceMutationId={workspaceMutationId}
+        unsavedPaths={unsavedPaths}
         {...(previewPath && !isMedia && !isPdf ? { onRefreshSelectedFile: file.refresh } : {})}
         lists={{
           filter: filesFilter,
@@ -1400,7 +1442,9 @@ export default function FilePreviewPanel({
                 {editSession.canUndo ? (
                   <span className="flex shrink-0 items-center gap-1">
                     <span className="text-muted-foreground text-xs" aria-live="polite">
-                      Your edit saved
+                      {editSession.history.tookTheirs
+                        ? `Took ${threadFiles.agentName}'s version`
+                        : "Your edit saved"}
                     </span>
                     <Button size="compact" variant="ghost" onClick={editSession.undo}>
                       Undo
@@ -1423,30 +1467,19 @@ export default function FilePreviewPanel({
                     )}
                   </Button>
                 ) : null}
-                {canToggleRendered && renderedMode ? (
-                  <ToggleGroup
-                    size="segmented"
-                    variant="segmented"
-                    aria-label="File view"
-                    value={[rendered ? "rendered" : "source"]}
-                    onValueChange={(next) => {
-                      const pressed = next[0] === "rendered";
-                      if (next.length === 0 || pressed === rendered) return;
-                      setRenderedPreferred(pressed);
-                      setHandledReveal(
-                        pressed && relativePath !== null
-                          ? { path: relativePath, requestId: revealRequestId }
-                          : null,
-                      );
-                    }}
-                  >
-                    <Toggle value="source">Source</Toggle>
-                    <Toggle value="rendered">Rendered</Toggle>
-                  </ToggleGroup>
-                ) : null}
                 <FileMoreMenu
                   wordWrap={showsRawText ? wordWrap : null}
                   onWordWrapChange={(next) => updateClientSettings({ wordWrap: next })}
+                  rendered={canToggleRendered && renderedMode ? rendered : null}
+                  onRenderedChange={(pressed) => {
+                    if (pressed === rendered) return;
+                    setRenderedPreferred(pressed);
+                    setHandledReveal(
+                      pressed && relativePath !== null
+                        ? { path: relativePath, requestId: revealRequestId }
+                        : null,
+                    );
+                  }}
                   editor={
                     canOpenInEditor && absolutePath
                       ? { environmentId, keybindings, availableEditors, absolutePath }
@@ -1456,7 +1489,8 @@ export default function FilePreviewPanel({
                   onCopyPath={copyPath}
                   onKeepAsTab={
                     variant === "files" && previewPath !== null && !isHostFile
-                      ? () => onKeepAsTab(previewPath)
+                      ? () =>
+                          onKeepAsTab(previewPath, viewLineRef.current ?? revealLine ?? undefined)
                       : null
                   }
                 >
@@ -1637,6 +1671,7 @@ export default function FilePreviewPanel({
                     wordWrap={wordWrap}
                     onPostRender={onFilePostRender}
                     onEdit={editSession.edit}
+                    viewLineRef={viewLineRef}
                     onLeave={(line) => {
                       if (line !== null) recordRecentFile(threadKey, relativePath, line);
                     }}
@@ -1655,10 +1690,10 @@ export default function FilePreviewPanel({
             </aside>
           ) : null}
         </div>
-        {workspaceFile && previewPath !== null && threadFiles.latestTurnPaths.has(previewPath) ? (
+        {footerCaption !== null ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
             <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
-              {`Changed by ${threadFiles.agentName} in the latest turn.`}
+              {footerCaption}
             </span>
           </div>
         ) : null}

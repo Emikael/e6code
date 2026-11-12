@@ -52,7 +52,7 @@ function BreadcrumbLabel(props: {
           <span
             className={cn(
               "block max-w-40 truncate rounded-sm px-0.5",
-              props.current ? "font-medium text-foreground" : "text-muted-foreground",
+              props.current ? "text-foreground" : "text-muted-foreground",
             )}
           />
         }
@@ -249,30 +249,41 @@ function DirectoryBreadcrumb(props: FileBreadcrumbsProps & { readonly crumb: Fil
   );
 }
 
+/**
+ * Board 15's breadcrumb: the folders as muted mono text, "packages / shared / src /", each a menu
+ * of its entries, then the file name. The project itself is not a crumb; the explorer is beside it.
+ */
 export function FileBreadcrumbs(props: FileBreadcrumbsProps) {
   const hostPath = isAbsolutePath(props.relativePath);
   const breadcrumbs = useMemo(
-    () => fileBreadcrumbs(props.projectName, props.relativePath),
+    () =>
+      fileBreadcrumbs(props.projectName, props.relativePath).filter(
+        (crumb) => crumb.kind !== "project",
+      ),
     [props.projectName, props.relativePath],
   );
 
-  return breadcrumbs.map((crumb, index) => (
+  return breadcrumbs.map((crumb) => (
     <div
-      key={crumb.path || "project"}
-      className="flex min-w-0 shrink-0 items-center"
+      key={crumb.path}
+      className="flex min-w-0 shrink-0 items-center font-mono text-xs"
       data-current-file-crumb={crumb.kind === "file"}
     >
-      {index > 0 ? (
-        <ChevronRightIcon className="mx-1 size-3.5 shrink-0 text-muted-foreground/60" />
-      ) : null}
       {crumb.kind === "file" ? (
         <span aria-current="page">
           <BreadcrumbLabel current label={crumb.label} pathLabel={crumb.path} />
         </span>
-      ) : hostPath ? (
-        <BreadcrumbLabel label={crumb.label} pathLabel={crumb.path} />
       ) : (
-        <DirectoryBreadcrumb {...props} crumb={crumb} />
+        <>
+          {hostPath ? (
+            <BreadcrumbLabel label={crumb.label} pathLabel={crumb.path} />
+          ) : (
+            <DirectoryBreadcrumb {...props} crumb={crumb} />
+          )}
+          <span aria-hidden className="mx-0.5 text-muted-foreground">
+            /
+          </span>
+        </>
       )}
     </div>
   ));

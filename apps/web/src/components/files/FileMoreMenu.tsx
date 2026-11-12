@@ -10,18 +10,23 @@ import {
   MenuCheckboxItem,
   MenuItem,
   MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
 
 /**
- * The file header's More menu (board 15): Wrap, Open in editor, Open in Browser, Copy path and
+ * The file header's More menu (board 15): Wrap, Source or Rendered, Open in editor, Open in Browser, Copy path and
  * Keep as its own tab. Each item is left out where it does not apply, and `children` adds the
  * file's own commands, such as Revert my edits, at the end.
  */
 export function FileMoreMenu(props: {
   readonly wordWrap: boolean | null;
   readonly onWordWrapChange: (wordWrap: boolean) => void;
+  /** Source or Rendered, for files that render (Markdown, tables, HTML); null elsewhere. */
+  readonly rendered: boolean | null;
+  readonly onRenderedChange: (rendered: boolean) => void;
   readonly editor: {
     readonly environmentId: EnvironmentId;
     readonly keybindings: ResolvedKeybindingsConfig;
@@ -34,14 +39,26 @@ export function FileMoreMenu(props: {
   readonly children?: ReactNode;
 }) {
   const sections = [
-    props.wordWrap === null ? null : (
-      <MenuCheckboxItem
-        key="wrap"
-        checked={props.wordWrap}
-        onCheckedChange={(checked) => props.onWordWrapChange(Boolean(checked))}
-      >
-        Wrap
-      </MenuCheckboxItem>
+    props.wordWrap === null && props.rendered === null ? null : (
+      <Fragment key="view">
+        {props.wordWrap === null ? null : (
+          <MenuCheckboxItem
+            checked={props.wordWrap}
+            onCheckedChange={(checked) => props.onWordWrapChange(Boolean(checked))}
+          >
+            Wrap
+          </MenuCheckboxItem>
+        )}
+        {props.rendered === null ? null : (
+          <MenuRadioGroup
+            value={props.rendered ? "rendered" : "source"}
+            onValueChange={(value) => props.onRenderedChange(value === "rendered")}
+          >
+            <MenuRadioItem value="source">Source</MenuRadioItem>
+            <MenuRadioItem value="rendered">Rendered</MenuRadioItem>
+          </MenuRadioGroup>
+        )}
+      </Fragment>
     ),
     props.editor || props.onOpenInBrowser ? (
       <Fragment key="open">

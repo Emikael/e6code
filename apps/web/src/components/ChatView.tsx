@@ -10519,7 +10519,9 @@ export default function ChatView(props: ChatViewProps) {
           revealLine={renderedRightPanelSurface.revealLine ?? null}
           revealRequestId={renderedRightPanelSurface.revealRequestId ?? 0}
           onOpenFile={openFileSurface}
-          onKeepAsTab={(path) => useRightPanelStore.getState().keepFileAsTab(activeThreadRef, path)}
+          onKeepAsTab={(path, line) =>
+            useRightPanelStore.getState().keepFileAsTab(activeThreadRef, path, line)
+          }
           onPendingChange={handleFilePendingChange}
           selectedFilePending={isFileSurfacePending(
             renderedRightPanelSurface,

@@ -369,6 +369,14 @@ describe("rightPanelStore", () => {
     expect(store.getUserActionRevision(refA)).toBe(revision);
   });
 
+  it("keeps the reader's resting choice through a migration", () => {
+    expect(migratePersistedRightPanelState({ restingOpen: false, byThreadKey: {} }, 14)).toEqual({
+      byThreadKey: {},
+      restingOpen: false,
+    });
+    expect(migratePersistedRightPanelState({ byThreadKey: {} }, 14)).toEqual({ byThreadKey: {} });
+  });
+
   it("restores a saved maximized panel during migration", () => {
     const migrated = migratePersistedRightPanelState({
       byThreadKey: {
@@ -730,6 +738,14 @@ describe("rightPanelStore", () => {
         },
       ],
     });
+  });
+
+  it("keeps a file as its own tab at the line the reader was on", () => {
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().keepFileAsTab(refA, "src/index.ts", 120);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toContainEqual(expect.objectContaining({ id: "file:src/index.ts", revealLine: 120 }));
   });
 
   it("keeps a file as its own tab, and shows it there when opened again", () => {

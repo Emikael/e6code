@@ -269,4 +269,25 @@ describe("FileSaveCoordinator", () => {
     await vi.runAllTimersAsync();
     expect(persist).toHaveBeenCalledOnce();
   });
+
+  it("saves a held edit kept from an earlier visit over the file, without checking again", async () => {
+    vi.useFakeTimers();
+    const persist = vi
+      .fn<(contents: string) => Promise<AtomCommandResult<void, never>>>()
+      .mockResolvedValue(AsyncResult.success(undefined));
+    const check = vi.fn<(contents: string) => Promise<boolean>>().mockResolvedValue(false);
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      persist,
+      onPendingChange: vi.fn(),
+      onConfirmed: vi.fn(),
+      check,
+    });
+
+    coordinator.release("kept");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(check).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledExactlyOnceWith("kept");
+    coordinator.dispose();
+  });
 });

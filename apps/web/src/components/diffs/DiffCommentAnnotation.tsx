@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { cn } from "~/lib/utils";
 
 import { isCommentSubmitShortcut } from "./commentSubmitShortcut";
 
@@ -29,6 +30,11 @@ interface DiffCommentAnnotationProps {
   pending?: boolean;
   secondaryAction?: DiffCommentSecondaryAction;
   focusOnMount?: boolean;
+  /**
+   * Where the saved card sits: a diff (board 12) insets it 28px with the `input` edge; a file
+   * (board 15) insets it past the line numbers, 44px, with the stronger `muted-foreground` edge.
+   */
+  surface?: "diff" | "file";
 }
 
 /** Said on every surface that attaches context to the next message. */
@@ -50,6 +56,7 @@ export function DiffCommentAnnotation({
   pending = false,
   secondaryAction,
   focusOnMount = true,
+  surface = "diff",
 }: DiffCommentAnnotationProps) {
   // A draft reopened from a saved comment starts from its words.
   const [localDraftText, setLocalDraftText] = useState(text);
@@ -70,7 +77,10 @@ export function DiffCommentAnnotation({
     return (
       <div
         data-diff-comment-annotation
-        className="my-1.5 ms-7 me-3 flex min-w-0 flex-col gap-1.5 rounded-lg border border-input bg-card px-3 py-2.5 font-sans text-foreground"
+        className={cn(
+          "my-1.5 me-3 flex min-w-0 flex-col gap-1.5 rounded-lg border bg-card px-3 py-2.5 font-sans text-foreground",
+          surface === "file" ? "ms-11 mb-2 border-muted-foreground" : "ms-7 border-input",
+        )}
         contentEditable={false}
         onPointerDown={(event) => event.stopPropagation()}
       >
