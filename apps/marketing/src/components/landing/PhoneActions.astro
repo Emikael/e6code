@@ -1,0 +1,25 @@
+---
+import { ANDROID_PLAY_STORE_URL, DESKTOP_LINK_URL, IOS_APP_STORE_URL } from "../../lib/site";
+
+// A phone visitor's actions (board 21), in the hero and the final call. The
+// app runs on a computer, so the filled action shares the desktop link
+// (initShare in index.astro wires every [data-share]) and the store is an
+// outline button under it. Shown only on iOS and Android.
+interface Props {
+  class?: string;
+}
+---
+
+<div class:list={["stack phone-actions for-phone", Astro.props.class]}>
+  <button type="button" class="lp-btn lp-btn--primary lp-btn--touch" data-share={DESKTOP_LINK_URL}>
+    <span aria-live="polite">Share the desktop link</span>
+  </button>
+  <a class="lp-btn lp-btn--outline lp-btn--touch on-ios" href={IOS_APP_STORE_URL}>Get the iOS app</a>
+  <a class="lp-btn lp-btn--outline lp-btn--touch on-android" href={ANDROID_PLAY_STORE_URL}>Get the Android app</a>
+</div>
+
+<style>
+  .phone-actions {
+    gap: 8px;
+  }
+</style>

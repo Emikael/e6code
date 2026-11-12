@@ -158,6 +158,8 @@ const imageProps = {
   const changelogLink = document.getElementById("changelog-link") as HTMLAnchorElement;
   const releasesPageLink = document.getElementById("releases-page-link") as HTMLAnchorElement;
   const tabs = page.querySelectorAll<HTMLButtonElement>(".channel-toggle button");
+  // Over the nightly sky the nav and the header take the dark tokens in either theme.
+  const overSky = [document.querySelector(".site-header"), page.querySelector(".download-head")];
   // Only release-asset links; mobile store cards have no data-asset and keep their href.
   const cards = page.querySelectorAll<HTMLAnchorElement>("a[data-asset]");
 
@@ -176,6 +178,10 @@ const imageProps = {
   async function load(channel: ReleaseChannel) {
     const fallback = channel === "nightly" ? NIGHTLY_RELEASES_URL : RELEASES_URL;
     page.dataset.channel = channel;
+    for (const element of overSky) {
+      if (channel === "nightly") element?.setAttribute("data-theme", "dark");
+      else element?.removeAttribute("data-theme");
+    }
     tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.channel === channel)));
     releasesPageLink.href = fallback;
     changelogLink.href = fallback;
@@ -228,22 +234,10 @@ const imageProps = {
   }
 
   /* The nightly sky reaches up behind the site nav, which has no background,
-     and the sky is dark in both themes. The nav takes the dark (Slate) tokens
-     from Layout.astro while it shows. An open menu pushes the sky down, so the
-     open nav gets the dark page fill instead. */
-  :global(body:has(.download-page[data-channel="nightly"]) .site-header) {
-    --bg: #1a1d23;
-    --bg-card: #22252c;
-    --fg: #f0f1f5;
-    --fg-muted: #b1b5c0;
-    --border: #ffffff1c;
-    --border-strong: #ffffff2c;
-    --ring: #d4d7de;
-    --hover: #ffffff0f;
-    color-scheme: dark;
-  }
-
-  :global(body:has(.download-page[data-channel="nightly"]) .site-header:has([data-open])) {
+     and the sky is dark in both themes, so while it shows the script puts the
+     nav and this header on the dark tokens (data-theme="dark", Layout.astro).
+     An open menu pushes the sky down, so the open nav gets the dark page fill. */
+  :global(.site-header[data-theme="dark"]:has([data-open])) {
     background: var(--bg);
   }
 
@@ -263,15 +257,17 @@ const imageProps = {
   .sky {
     position: absolute;
     top: -80px;
-    bottom: 0;
     /* Break out of the page padding so the sky spans the full viewport width. */
     left: 50%;
     width: 100vw;
     margin-left: -50vw;
     z-index: -1;
     background: url("/nightly-sky.svg") center / cover no-repeat;
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 100%);
+    /* Opaque behind every line of the header, so its text reads on the sky in
+       both themes; it fades out across the header's bottom padding and margin. */
+    bottom: -2rem;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 4.5rem), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 4.5rem), transparent 100%);
     opacity: 0;
     transform: scale(1.04);
     transition: opacity 0.9s ease, transform 1.4s cubic-bezier(0.2, 0.7, 0.2, 1);

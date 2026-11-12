@@ -1,9 +1,10 @@
 ---
 import { shipped } from "../../lib/shipped";
-import { ANDROID_PLAY_STORE_URL, DESKTOP_LINK_URL, IOS_APP_STORE_URL } from "../../lib/site";
+import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../../lib/site";
 import DownloadButtons from "./DownloadButtons.astro";
 import HeroArt from "./HeroArt.astro";
 import InstallCommand from "./InstallCommand.astro";
+import PhoneActions from "./PhoneActions.astro";
 ---
 
 <!-- On iOS and Android the hero follows board 21: the app runs on a computer,
@@ -25,13 +26,7 @@ import InstallCommand from "./InstallCommand.astro";
         E6 Code runs on your computer and drives the coding agents you already pay for. The phone app connects to it.
       </p>
       <DownloadButtons class="for-desktop" />
-      <div class="stack phone-actions for-phone">
-        <button type="button" class="lp-btn lp-btn--primary lp-btn--touch" data-share={DESKTOP_LINK_URL}>
-          <span aria-live="polite">Share the desktop link</span>
-        </button>
-        <a class="lp-btn lp-btn--outline lp-btn--touch on-ios" href={IOS_APP_STORE_URL}>Get the iOS app</a>
-        <a class="lp-btn lp-btn--outline lp-btn--touch on-android" href={ANDROID_PLAY_STORE_URL}>Get the Android app</a>
-      </div>
+      <PhoneActions />
       <InstallCommand class="for-desktop">
         <p class="t-body muted">Or try it once without installing: <code>npx @e6code/e6@latest</code></p>
       </InstallCommand>
@@ -73,10 +68,6 @@ import InstallCommand from "./InstallCommand.astro";
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
-  }
-
-  .phone-actions {
     gap: 8px;
   }
 
