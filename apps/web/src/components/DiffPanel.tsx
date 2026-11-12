@@ -53,6 +53,7 @@ import { DiffChangesPanel, type DiffChangesSection } from "./diffs/DiffChangesPa
 import { DIFF_FILE_RAIL_CLASS_NAME, DiffFileRail, DiffFileRailHeader } from "./diffs/DiffFileRail";
 import {
   diffRailRows,
+  foldGeneratedFiles,
   FILE_RAIL_OPEN_MIN_WIDTH,
   isFileRailOpen,
   railFolderHints,
@@ -71,6 +72,7 @@ import {
   pagingStepLabel,
   replyLabel,
 } from "./diffs/diffPaging.logic";
+import { diffErrorReason, threadDiffCwd } from "./diffs/diffScope.logic";
 import { PanelEmptyCard } from "./panel/PanelEmptyCard";
 import { PanelErrorCard } from "./panel/PanelErrorCard";
 import { DiffRailKeyHint, DiffReviewFooter } from "./diffs/DiffReviewFooter";
@@ -241,7 +243,11 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const activeCwd =
+    threadDiffCwd({
+      worktreePath: activeThread?.worktreePath,
+      workspaceRoot: activeProject?.workspaceRoot,
+    }) ?? undefined;
   const activeRepositoryRoot = activeThread?.worktreePath
     ? undefined
     : activeProject?.repositoryIdentity?.rootPath;
@@ -332,6 +338,18 @@ export default function DiffPanel({
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
   const codeViewMountKey = `${collapseScopeKey ?? reviewSectionId}:${codeViewRevision}`;
+  const lastSeenKey = routeThreadRef
+    ? diffLastSeenKey(scopedThreadKey(routeThreadRef), reviewSectionId)
+    : null;
+  // Where the reader stopped is read once per scope, so paging on does not move the line.
+  const storedLastSeen = useDiffReviewStore((state) =>
+    lastSeenKey ? (state.lastSeen[lastSeenKey] ?? null) : null,
+  );
+  const [resumeAt, setResumeAt] = useState<{
+    readonly key: string | null;
+    readonly position: DiffLastSeen | null;
+  }>({ key: null, position: null });
+  if (resumeAt.key !== lastSeenKey) setResumeAt({ key: lastSeenKey, position: storedLastSeen });
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
     : GIT_SCOPE_LABELS[selectedGitScope];
@@ -357,7 +375,8 @@ export default function DiffPanel({
     },
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
-  const primaryBranchDiffPreview = useEnvironmentQuery(
+  // Only the thread's own folder: a failure shows the error card, never another checkout's diff.
+  const branchDiffPreview = useEnvironmentQuery(
     selectedTurnId === null && activeThread && activeCwd
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
@@ -370,27 +389,6 @@ export default function DiffPanel({
         })
       : null,
   );
-  const shouldRetryBranchDiffAtEnvironmentCwd =
-    selectedTurnId === null &&
-    primaryBranchDiffPreview.error?.includes("configured workspace root") === true &&
-    serverConfig?.cwd !== undefined &&
-    serverConfig.cwd !== activeCwd;
-  const fallbackBranchDiffPreview = useEnvironmentQuery(
-    shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
-      ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
-          input: {
-            cwd: serverConfig.cwd,
-            ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
-            ignoreWhitespace: diffIgnoreWhitespace,
-            ...(includeIndexSplit ? { includeIndexSplit: true } : {}),
-          },
-        })
-      : null,
-  );
-  const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
-    ? fallbackBranchDiffPreview
-    : primaryBranchDiffPreview;
   const canRefreshGitDiff =
     isGitRepo && selectedTurnId === null && activeThread != null && activeCwd != null;
   const activeThreadRefreshKey = routeThreadRef
@@ -580,7 +578,7 @@ export default function DiffPanel({
     retry,
     requestFile,
     readyFilePaths,
-    renderableFiles,
+    renderableFiles: allRenderableFiles,
     settledFileCount,
     loadNextFiles,
   } = useReviewFilePatches({
@@ -594,6 +592,15 @@ export default function DiffPanel({
     preview: renderablePatch,
   });
   const refreshBranchDiffPreview = refreshPreviewQuery;
+  // Generated files (lockfiles, build output) fold out of the body, the rail and every count
+  // until the reader opens "N generated files hidden".
+  const [showGenerated, setShowGenerated] = useState(false);
+  const toggleGenerated = useCallback(() => setShowGenerated((shown) => !shown), []);
+  const generatedFold = useMemo(
+    () => foldGeneratedFiles(allRenderableFiles, resolveFileDiffPath, showGenerated),
+    [allRenderableFiles, showGenerated],
+  );
+  const renderableFiles = generatedFold.items;
 
   useEffect(() => {
     if (!canRefreshGitDiff) return;
@@ -634,12 +641,19 @@ export default function DiffPanel({
     () => renderableFiles.map(getCachedFileEntry),
     [renderableFiles],
   );
+  // Files start folded when the setting asks, except the one where the reader stopped, so the
+  // "You stopped here" line is in view when they come back.
+  const resumePath = resumeAt.key === lastSeenKey ? (resumeAt.position?.path ?? null) : null;
   const defaultCollapsedDiffFileKeys = useMemo(
     () =>
       settings.diffFilesCollapsed
-        ? new Set(renderableFileEntries.map((file) => file.fileKey))
+        ? new Set(
+            renderableFileEntries
+              .filter((file) => resolveFileDiffPath(file.fileDiff) !== resumePath)
+              .map((file) => file.fileKey),
+          )
         : EMPTY_COLLAPSED_DIFF_FILE_KEYS,
-    [renderableFileEntries, settings.diffFilesCollapsed],
+    [renderableFileEntries, resumePath, settings.diffFilesCollapsed],
   );
   const collapsedDiffFileKeys =
     collapsedDiffFiles.scopeKey === collapseScopeKey
@@ -647,13 +661,13 @@ export default function DiffPanel({
       : defaultCollapsedDiffFileKeys;
   const renderLoadingBoundary = useCallback(
     () =>
-      settledFileCount < renderableFiles.length ? (
+      settledFileCount < allRenderableFiles.length ? (
         <DiffFileLoadingBoundary
           load={loadNextFiles}
-          count={renderableFiles.length - settledFileCount}
+          count={allRenderableFiles.length - settledFileCount}
         />
       ) : null,
-    [settledFileCount, renderableFiles.length, loadNextFiles],
+    [settledFileCount, allRenderableFiles.length, loadNextFiles],
   );
   const diffFileKeys = useMemo(
     () => renderableFileEntries.map((file) => file.fileKey),
@@ -663,7 +677,11 @@ export default function DiffPanel({
   const noDiffFilesCollapsed = !diffFileKeys.some((fileKey) => collapsedDiffFileKeys.has(fileKey));
   const diffLineStat = useMemo(() => {
     if (!selectedTurn && selectedGitSource?.files) {
-      return selectedGitSource.files.reduce(
+      return foldGeneratedFiles(
+        selectedGitSource.files,
+        (file) => file.path,
+        showGenerated,
+      ).items.reduce(
         (total, file) => ({
           additions: total.additions + file.additions,
           deletions: total.deletions + file.deletions,
@@ -672,7 +690,7 @@ export default function DiffPanel({
       );
     }
     return getDiffLineStat(renderableFiles);
-  }, [renderableFiles, selectedGitSource, selectedTurn]);
+  }, [renderableFiles, selectedGitSource, selectedTurn, showGenerated]);
   // In the body's order, so the rail and the diff read the same way down.
   // Folder hints depend on the paths alone, so patches loading in batches do not redo them.
   const railPathsKey = renderableFiles.map(resolveFileDiffPath).join("\u0000");
@@ -694,16 +712,15 @@ export default function DiffPanel({
   );
   const railPaths = useMemo(() => railRows.map((row) => row.path), [railRows]);
   const railRowsReady = renderablePatch !== null || lazySource !== null || !isLoadingSelectedPatch;
-  // The Diff tab counts what this panel shows for its scope, as the rail and the footer do. Showing
-  // the live working tree, the tab's own count from status is already the same, so it is cleared.
-  const scopeFileCount =
-    selectedTurnId === null && selectedGitScope === "uncommitted" && pinState !== "pinned"
-      ? null
-      : railHostsChanges
-        ? (shownWorkingTreeFiles?.length ?? null)
-        : railRowsReady
-          ? railRows.length
-          : null;
+  // The Diff tab counts what this panel lists for its scope, as the rail and the footer do.
+  const railWorkingTreeFileCount = shownWorkingTreeFiles
+    ? foldGeneratedFiles(shownWorkingTreeFiles, (file) => file.path, showGenerated).items.length
+    : null;
+  const scopeFileCount = railHostsChanges
+    ? railWorkingTreeFileCount
+    : railRowsReady
+      ? railRows.length
+      : null;
   useEffect(() => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().reportScopeFileCount(routeThreadRef, scopeFileCount);
@@ -1072,9 +1089,6 @@ export default function DiffPanel({
     (path: string) => reviewStatusOf(path) === "reviewed",
     [reviewStatusOf],
   );
-  const lastSeenKey = routeThreadRef
-    ? diffLastSeenKey(scopedThreadKey(routeThreadRef), reviewSectionId)
-    : null;
   // Kept by the change's fingerprint, so it finds the same change after the agent edits above it.
   const recordLastSeen = useCallback(
     (path: string, change: number) => {
@@ -1129,15 +1143,6 @@ export default function DiffPanel({
     },
     [revealDiffFile, selectPagingFile],
   );
-  // Where the reader stopped is read once per scope, so paging on does not move the line.
-  const storedLastSeen = useDiffReviewStore((state) =>
-    lastSeenKey ? (state.lastSeen[lastSeenKey] ?? null) : null,
-  );
-  const [resumeAt, setResumeAt] = useState<{
-    readonly key: string | null;
-    readonly position: DiffLastSeen | null;
-  }>({ key: null, position: null });
-  if (resumeAt.key !== lastSeenKey) setResumeAt({ key: lastSeenKey, position: storedLastSeen });
   const resumeMarker = useMemo<DiffLineMarker | null>(() => {
     const position = resumeAt.key === lastSeenKey ? resumeAt.position : null;
     if (!position) return null;
@@ -1220,7 +1225,10 @@ export default function DiffPanel({
       })}
     />
   );
-  const railCurrentPath = paging.currentPath ?? selectedFilePath;
+  // Before the reader moves, the footer counts from the first file ("File 1 of 5"); the rail
+  // marks that same file, so the two always agree on where the reader is.
+  const pagingCurrentPath = paging.currentPath ?? pagingCurrentFile?.path ?? null;
+  const railCurrentPath = paging.currentPath ?? selectedFilePath ?? pagingCurrentPath;
   const selectChangedRailFile = useCallback(
     (filePath: string, section: DiffChangesSection) => {
       selectPagingFile(filePath);
@@ -1544,7 +1552,7 @@ export default function DiffPanel({
                 railHostsChanges && activeThread && activeCwd ? (
                   <nav aria-label="Changed files" className={DIFF_FILE_RAIL_CLASS_NAME}>
                     <DiffFileRailHeader
-                      fileCount={shownWorkingTreeFiles?.length ?? null}
+                      fileCount={railWorkingTreeFileCount}
                       meta={review.enabled ? `${review.viewedCount} reviewed` : null}
                     />
                     <DiffChangesPanel
@@ -1553,13 +1561,15 @@ export default function DiffPanel({
                       files={shownWorkingTreeFiles ?? []}
                       agentRunning={agentRunning}
                       selected={changedFileReveal}
-                      currentPath={paging.currentPath}
+                      currentPath={pagingCurrentPath}
                       currentCaption={railCurrentCaption}
                       onSelectFile={selectChangedRailFile}
                       consumeCommitFocusRequest={consumeCommitFocusRequest}
                       reviewStatusOf={review.enabled ? review.statusOf : null}
                       order={railPaths}
                       onUserChange={markUserChange}
+                      showGenerated={showGenerated}
+                      onToggleGenerated={toggleGenerated}
                     />
                     {review.enabled ? railKeyHint : null}
                   </nav>
@@ -1572,6 +1582,11 @@ export default function DiffPanel({
                     currentCaption={railCurrentCaption}
                     onSelect={selectRailFile}
                     footer={review.enabled ? railKeyHint : null}
+                    generated={{
+                      count: generatedFold.generatedCount,
+                      shown: showGenerated,
+                      onToggle: toggleGenerated,
+                    }}
                   />
                 )
               ) : null}
@@ -1591,7 +1606,7 @@ export default function DiffPanel({
                     <div className="p-3">
                       <PanelErrorCard
                         title="Could not load this diff"
-                        reason={selectedPatchError}
+                        reason={diffErrorReason(selectedPatchError)}
                         reassurance="Your changes are not affected."
                         onRetry={
                           selectedTurn ? activeCheckpointDiff.refresh : refreshDiffFromUserAction

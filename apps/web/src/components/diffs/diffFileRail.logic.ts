@@ -14,8 +14,6 @@ export interface DiffRailRow extends DiffRailFile {
    * (`themePalettes.ts` beside `themePalette.ts`), else null.
    */
   readonly folder: string | null;
-  /** A lockfile, snapshot or build output, folded away by default. */
-  readonly generated: boolean;
 }
 
 /** The panel width from which the rail starts open, when the user has not chosen. */
@@ -125,20 +123,28 @@ export function diffRailRows(
     ...file,
     name: splitPath(file.path).name,
     folder: hints.get(file.path) ?? null,
-    generated: diffFileTier(file.path) === "generated",
   }));
 }
 
-/** The rows on show, and how many generated files the fold hides. Order is kept. */
-export function visibleRailRows(
-  rows: readonly DiffRailRow[],
-  showGenerated: boolean,
-): { rows: DiffRailRow[]; generatedCount: number } {
-  const generatedCount = rows.filter((row) => row.generated).length;
+/**
+ * What the Diff shows with generated files folded: the rail, the body and every count use the
+ * same list, so "5 files" lists five. Order is kept; `shown` brings the folded files back.
+ */
+export function foldGeneratedFiles<T>(
+  items: readonly T[],
+  pathOf: (item: T) => string,
+  shown: boolean,
+): { items: T[]; generatedCount: number } {
+  const isGenerated = (item: T) => diffFileTier(pathOf(item)) === "generated";
   return {
-    rows: showGenerated ? [...rows] : rows.filter((row) => !row.generated),
-    generatedCount,
+    items: shown ? [...items] : items.filter((item) => !isGenerated(item)),
+    generatedCount: items.filter(isGenerated).length,
   };
+}
+
+/** How many of these files the Diff lists before its generated files are opened. */
+export function listedDiffFileCount(files: ReadonlyArray<{ readonly path: string }>): number {
+  return foldGeneratedFiles(files, (file) => file.path, false).items.length;
 }
 
 /** "1 file", "5 files". */

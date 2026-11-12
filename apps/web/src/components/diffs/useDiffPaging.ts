@@ -18,6 +18,7 @@ import {
   changeStart,
   landAfterMark,
   nextDiffStep,
+  scrolledCurrentPath,
   type DiffPagingFile,
   type DiffPagingStep,
 } from "./diffPaging.logic";
@@ -301,7 +302,6 @@ export function useDiffPaging(options: {
             return [{ item, top, bottom: top + rendered.element.offsetHeight }];
           })
           .toSorted((left, right) => left.top - right.top);
-        const inView = placed.find((entry) => entry.bottom > scrollTop + 4);
         const ended = placed.filter(
           (entry) =>
             !entry.item.collapsed &&
@@ -322,7 +322,17 @@ export function useDiffPaging(options: {
                   ...previous.seen,
                   ...unseen.map(({ item }) => [item.path, item.fileDiff.hunks.length] as const),
                 ]);
-          return { current: inView?.item.path ?? previous.current, seen: nextSeen };
+          const current = scrolledCurrentPath(
+            placed.map((entry) => ({
+              path: entry.item.path,
+              top: entry.top,
+              bottom: entry.bottom,
+            })),
+            scrollTop,
+            viewport,
+            previous.current,
+          );
+          return { current, seen: nextSeen };
         });
       });
     },

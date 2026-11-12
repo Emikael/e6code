@@ -1478,7 +1478,7 @@ export default function FilePreviewPanel({
               className="min-w-0 flex-1 rounded-none"
               data-file-breadcrumbs
             >
-              <div className="flex h-full w-max min-w-full items-center text-xs">
+              <div className="flex h-full w-full min-w-0 items-center text-xs">
                 <FileBreadcrumbs
                   cwd={cwd}
                   environmentId={environmentId}

@@ -1,22 +1,24 @@
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
-import { memo, useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 
 import type { DiffReviewStatus } from "~/diffReviewStore";
 import { cn } from "~/lib/utils";
 
 import { DiffStat } from "../DiffStat";
 import { Skeleton } from "../ui/skeleton";
-import {
-  fileCountLabel,
-  generatedFoldLabel,
-  visibleRailRows,
-  type DiffRailRow,
-} from "./diffFileRail.logic";
+import { fileCountLabel, generatedFoldLabel, type DiffRailRow } from "./diffFileRail.logic";
 import { DiffReviewTick } from "./DiffReviewTick";
 
 /** The rail's width at every scope, so switching scope never moves the diff beside it. */
 export const DIFF_FILE_RAIL_CLASS_NAME =
   "flex w-[min(244px,45%)] min-w-0 shrink-0 flex-col border-r border-border bg-sidebar";
+
+/** Generated files folded out of the Diff, and the row that brings them back. */
+export interface GeneratedFilesFold {
+  readonly count: number;
+  readonly shown: boolean;
+  readonly onToggle: () => void;
+}
 
 /** The rail's heading row: the file count and any count beside it. View › File list hides it. */
 export function DiffFileRailHeader(props: {
@@ -53,9 +55,11 @@ export function DiffFileRail(props: {
   readonly currentCaption?: string | null;
   /** Below the rows, at the rail's foot. */
   readonly footer?: ReactNode;
+  /** The generated files the Diff folds out of `rows`, the body and its counts. */
+  readonly generated: GeneratedFilesFold;
 }) {
-  const [showGenerated, setShowGenerated] = useState(false);
-  const view = props.rows ? visibleRailRows(props.rows, showGenerated) : null;
+  const view = props.rows;
+  const { generated } = props;
   return (
     <nav aria-label="Changed files" className={DIFF_FILE_RAIL_CLASS_NAME}>
       <DiffFileRailHeader
@@ -71,11 +75,11 @@ export function DiffFileRail(props: {
               <Skeleton className="h-3 w-8 rounded-full" />
             </div>
           ))
-        ) : view.rows.length === 0 && view.generatedCount === 0 ? (
+        ) : view.length === 0 && generated.count === 0 ? (
           <p className="px-2 py-1.5 text-muted-foreground text-xs">No changed files.</p>
         ) : (
           <>
-            {view.rows.map((row) => (
+            {view.map((row) => (
               <DiffFileRailRow
                 key={row.path}
                 row={row}
@@ -85,20 +89,20 @@ export function DiffFileRail(props: {
                 onSelect={props.onSelect}
               />
             ))}
-            {view.generatedCount > 0 ? (
+            {generated.count > 0 ? (
               <button
                 type="button"
-                aria-expanded={showGenerated}
-                onClick={() => setShowGenerated((current) => !current)}
+                aria-expanded={generated.shown}
+                onClick={generated.onToggle}
                 className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-muted-foreground text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
               >
-                {showGenerated ? (
+                {generated.shown ? (
                   <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
                 ) : (
                   <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
                 )}
                 <span className="min-w-0 flex-1 truncate">
-                  {generatedFoldLabel(view.generatedCount, showGenerated)}
+                  {generatedFoldLabel(generated.count, generated.shown)}
                 </span>
               </button>
             ) : null}

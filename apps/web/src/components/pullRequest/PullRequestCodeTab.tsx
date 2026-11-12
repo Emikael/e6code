@@ -70,6 +70,7 @@ import { DiffFileRail } from "../diffs/DiffFileRail";
 import {
   diffRailRows,
   FILE_RAIL_OPEN_MIN_WIDTH,
+  foldGeneratedFiles,
   isFileRailOpen,
   railFolderHints,
 } from "../diffs/diffFileRail.logic";
@@ -646,6 +647,8 @@ function PullRequestCodeTab({
     () => railFolderHints(railPathsKey === "" ? [] : railPathsKey.split("\u0000")),
     [railPathsKey],
   );
+  // The rail folds generated files away until the reader opens them.
+  const [showGeneratedFiles, setShowGeneratedFiles] = useState(false);
   const railRows = useMemo(
     () =>
       diffRailRows(
@@ -667,6 +670,7 @@ function PullRequestCodeTab({
       ),
     [files, omittedFileStats, railHints],
   );
+  const railFold = foldGeneratedFiles(railRows, (row) => row.path, showGeneratedFiles);
 
   // A failed slice must not be asked for again on its own. The files already loaded keep the
   // sentinel on screen, so re-arming it after a failure would request the same slice forever.
@@ -1681,7 +1685,12 @@ function PullRequestCodeTab({
       <div ref={attachBody} className="flex min-h-0 flex-1 overflow-hidden">
         {fileTreeOpen ? (
           <DiffFileRail
-            rows={railRows}
+            rows={railFold.items}
+            generated={{
+              count: railFold.generatedCount,
+              shown: showGeneratedFiles,
+              onToggle: () => setShowGeneratedFiles((shown) => !shown),
+            }}
             reviewStatusOf={filesViewedEnabled ? reviewStatusOf : null}
             reviewedCount={filesViewed.viewedCount}
             currentPath={paging.currentPath}

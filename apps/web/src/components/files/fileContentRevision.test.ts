@@ -31,4 +31,20 @@ describe("file cache identity", () => {
       cacheKey,
     );
   });
+
+  it("does not hand Undo's restored contents the key that still holds the edit", () => {
+    const original = projectFileEditorCacheKey("local", "/repo", "file.json", "before", undefined);
+    // After an edit the editor keeps the original key for the edited text.
+    const editorFile = { cacheKey: original, contents: "before, edited" };
+
+    const restored = projectFileEditorCacheKey("local", "/repo", "file.json", "before", editorFile);
+    expect(restored).not.toBe(original);
+    // Once the editor shows the restored text under that key, the key holds still.
+    expect(
+      projectFileEditorCacheKey("local", "/repo", "file.json", "before", {
+        cacheKey: restored,
+        contents: "before",
+      }),
+    ).toBe(restored);
+  });
 });

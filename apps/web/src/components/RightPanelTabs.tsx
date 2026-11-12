@@ -819,6 +819,13 @@ type RightPanelTabProps = RightPanelTabHandlers & {
   panelId: string;
   /** The keys that close this tab, for `aria-keyshortcuts`. */
   closeKeyShortcuts: string;
+  /**
+   * Not fully in the strip's view: listed by the "N more" menu and not drawn, so no fragment of
+   * it shows at the strip's edge.
+   */
+  outOfView: boolean;
+  /** The active tab's width limit, the strip's own; its label truncates within it. */
+  maxWidth: number | null;
 };
 
 const NO_PREVIEW_SESSIONS: Readonly<Record<string, PreviewSessionSnapshot>> = {};
@@ -903,8 +910,11 @@ function RunningDot() {
 function TabLabelText({ label }: { label: SurfaceTitleParts }) {
   return (
     <>
-      <span className="min-w-0 truncate">{label.name}</span>
-      {label.state ? <span className="shrink-0 whitespace-pre"> · {label.state}</span> : null}
+      {/* The name gives way first; the state words truncate only once it has. */}
+      <span className="min-w-0 shrink-[1000] truncate">{label.name}</span>
+      {label.state ? (
+        <span className="min-w-0 truncate whitespace-pre"> · {label.state}</span>
+      ) : null}
     </>
   );
 }
@@ -1093,11 +1103,16 @@ function RightPanelTab(props: RightPanelTabProps) {
       onContextMenu={(event) => onContextMenu(event, surface)}
       {...listeners}
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        ...(props.maxWidth !== null ? { maxWidth: props.maxWidth } : {}),
+      }}
       className={cn(
         "cursor-pointer group/tab flex h-7 max-w-56 shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs",
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
         props.active ? PANEL_TAB_ACTIVE_CLASS : PANEL_TAB_IDLE_CLASS,
+        props.outOfView && "invisible",
         // The focus ring sits inside the tab, which the track would otherwise clip.
         "has-[[data-panel-tab-trigger]:focus-visible]:ring-2 has-[[data-panel-tab-trigger]:focus-visible]:ring-ring has-[[data-panel-tab-trigger]:focus-visible]:ring-inset",
         isDragging && "relative z-10",
@@ -1217,6 +1232,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
   // Tabs the strip cannot fully show, in tab order; listed by the "N more" menu.
   const [hiddenTabIds, setHiddenTabIds] = useState<readonly string[]>([]);
+  // The scrolling strip's width; the active tab never grows past it, so it truncates its label
+  // instead of being clipped.
+  const [stripWidth, setStripWidth] = useState<number | null>(null);
   const runningTerminalIds = useMemo(
     () => new Set(props.runningTerminalIds ?? []),
     [props.runningTerminalIds],
@@ -1292,20 +1310,36 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     };
   }, [props.open]);
 
-  const updateHiddenTabs = (viewport: HTMLDivElement) => {
+  // Measured on every scroll and resize of the strip: which tabs it cannot fully show, and how
+  // wide it is, so the active tab can be held to that width. An active tab that a longer label
+  // (Diff learning its file count) pushed out of view is scrolled back here.
+  const updateHiddenTabs = useEffectEvent((viewport: HTMLDivElement) => {
+    const activeId = props.activeSurfaceId ?? RUN_DETAILS_TAB_ID;
     const bounds = viewport.getBoundingClientRect();
     const extents: TabExtent[] = [];
+    let activeTab: HTMLElement | null = null;
     for (const element of viewport.querySelectorAll<HTMLElement>("[data-panel-tab-id]")) {
       const rect = element.getBoundingClientRect();
       extents.push({ id: element.dataset.panelTabId ?? "", start: rect.left, end: rect.right });
+      if (element.dataset.panelTabId === activeId) activeTab = element;
     }
     const next = tabsOutOfView(extents, bounds.left, bounds.right);
+    if (activeTab && next.includes(activeId)) {
+      activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    // The room the strip has: its own width plus whatever the bar leaves free beside it. Its own
+    // width alone would follow a narrowed tab down and never let it grow back.
+    const spare =
+      viewport
+        .closest("[data-right-panel-tabbar]")
+        ?.querySelector<HTMLElement>("[data-tab-strip-spare]")?.clientWidth ?? 0;
+    setStripWidth(Math.floor(viewport.clientWidth + spare));
     setHiddenTabIds((current) =>
       current.length === next.length && current.every((id, index) => id === next[index])
         ? current
         : next,
     );
-  };
+  });
 
   const hiddenTabs = hiddenTabIds.flatMap((id): HiddenPanelTab[] => {
     if (id === RUN_DETAILS_TAB_ID && props.onShowRunDetails) {
@@ -1538,9 +1572,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     setRenamingDevice(null);
   });
 
-  // A newly active tab, tabs that start overflowing, or an active tab whose label grows (Diff
-  // learning its file count) can sit outside the scrolled strip; the active tab is never hidden.
-  const activeTabHidden = hiddenTabIds.includes(props.activeSurfaceId ?? RUN_DETAILS_TAB_ID);
+  // A newly active tab, or tabs that start overflowing, can sit outside the scrolled strip.
   const hasHiddenTabs = hiddenTabIds.length > 0;
   useEffect(() => {
     if (!hasHiddenTabs) return;
@@ -1549,7 +1581,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       tabListRef.current?.querySelectorAll<HTMLElement>("[data-panel-tab-id]") ?? [],
     ).find((element) => element.dataset.panelTabId === activeId);
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [props.activeSurfaceId, hasHiddenTabs, activeTabHidden]);
+  }, [props.activeSurfaceId, hasHiddenTabs]);
 
   const attachTabList = (root: HTMLDivElement | null) => {
     const viewport = tabScrollViewport(root);
@@ -1643,9 +1675,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           <ScrollArea
             ref={attachTabList}
             hideScrollbars
-            scrollFade
             // Sized to its tabs so Add sits beside them; shrinks and scrolls when they do not fit.
-            // Square, so the track's rounding does not clip the end tabs' corners.
+            // Square, so the track's rounding does not clip the end tabs' corners. No fade: tabs
+            // not fully in view are not drawn, so the strip's edges never show a fragment.
             className="w-auto min-w-0 flex-initial rounded-none"
             data-right-panel-tab-list
           >
@@ -1685,6 +1717,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     ownsDesktopTitleBar,
                     panelId,
                     closeKeyShortcuts,
+                    outOfView: hiddenTabIds.includes(surface.id),
+                    maxWidth: surface.id === props.activeSurfaceId ? stripWidth : null,
                     onActivate: onActivateTab,
                     onClose: onCloseTab,
                     onAuxClick: onTabAuxClick,
@@ -1844,7 +1878,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             </MenuPopup>
           </Menu>
         ) : null}
-        <span aria-hidden className="min-w-0 flex-1" />
+        <span aria-hidden data-tab-strip-spare className="min-w-0 flex-1" />
         {props.layoutControls}
         {ownsDesktopTitleBar && !props.layoutControls ? (
           <span aria-hidden className="hidden w-24 shrink-0 wco:block" />

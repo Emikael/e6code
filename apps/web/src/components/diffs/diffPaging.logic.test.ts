@@ -7,6 +7,7 @@ import {
   pagingPositionLabel,
   pagingStepLabel,
   replyLabel,
+  scrolledCurrentPath,
   type DiffPagingFile,
 } from "./diffPaging.logic";
 
@@ -143,5 +144,25 @@ describe("labels", () => {
     expect(replyLabel(3)).toBe("Reply with 3 comments");
     expect(changeCaption(1, 2)).toBe("change 1 of 2");
     expect(changeCaption(1, 1)).toBeNull();
+  });
+});
+
+describe("scrolledCurrentPath", () => {
+  const placed = [
+    { path: "a.ts", top: 0, bottom: 400 },
+    { path: "b.ts", top: 400, bottom: 500 },
+    { path: "c.ts", top: 500, bottom: 560 },
+  ];
+
+  it("keeps the reader's file while it is in view, though it cannot reach the top", () => {
+    expect(scrolledCurrentPath(placed, 100, 600, "c.ts")).toBe("c.ts");
+  });
+
+  it("moves to the first file in view once the reader's file has scrolled away", () => {
+    expect(scrolledCurrentPath(placed, 420, 100, "a.ts")).toBe("b.ts");
+  });
+
+  it("starts from the first file in view", () => {
+    expect(scrolledCurrentPath(placed, 0, 600, null)).toBe("a.ts");
   });
 });
