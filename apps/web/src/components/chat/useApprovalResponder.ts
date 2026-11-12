@@ -1,4 +1,9 @@
 import {
+  answeredPendingIds,
+  approvalAnswers,
+  approvalAnswersKey,
+} from "@e6tools/client-runtime/approval-answers";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@e6tools/client-runtime/state/runtime";
@@ -8,42 +13,59 @@ import type {
   ProviderApprovalDecision,
   ThreadId,
 } from "@e6tools/contracts";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 
 import { useAtomCommand } from "~/state/use-atom-command";
 import { threadEnvironment } from "~/state/threads";
-import { approvalActivationAllowed, pruneAnsweredRequestIds } from "./approvalActions";
+import { approvalActivationAllowed } from "./approvalActions";
 
-const NO_ANSWERED: ReadonlySet<ApprovalRequestId> = new Set();
+const NO_THREAD = "";
 
 /**
  * Answers one thread's approval requests, for the thread view and the start
- * screen's approval card. `respondingRequestIds` holds the requests whose
- * answer is in flight, or was acknowledged while the request is still in
- * `pendingRequestIds` (the provider's resolution has not arrived yet), so
- * their buttons stay disabled until the request leaves. A failure reaches
- * `onError` with a readable message.
+ * screen's approval card. Answers go through the client's shared answer
+ * store, so a request answered on one surface is not answerable on another,
+ * or again after a remount: `respondingRequestIds` holds the pending requests
+ * whose answer is in flight or acknowledged (the provider's resolution has
+ * not arrived yet), and `sentRequestIds` the acknowledged ones. A failure
+ * reaches `onError` with a readable message and frees the request.
  */
 export function useApprovalResponder(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId | null;
   /** The thread's pending approval ids, from its detail. */
   readonly pendingRequestIds: ReadonlyArray<ApprovalRequestId>;
+  /** False while the detail is loading: an empty list then does not mean resolved. */
+  readonly pendingKnown: boolean;
   readonly onError: (threadId: ThreadId, message: string) => void;
 }) {
-  const { environmentId, threadId, pendingRequestIds, onError } = input;
+  const { environmentId, threadId, pendingRequestIds, pendingKnown, onError } = input;
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
   });
-  const [inFlightRequestIds, setInFlightRequestIds] = useState<ApprovalRequestId[]>([]);
-  const [answeredRequestIds, setAnsweredRequestIds] = useState(NO_ANSWERED);
+  const key = threadId ? approvalAnswersKey(environmentId, threadId) : NO_THREAD;
+  const answers = useSyncExternalStore(approvalAnswers.subscribe, () =>
+    approvalAnswers.forThread(key),
+  );
+
+  // Forget answers whose request the provider resolved.
+  useEffect(() => {
+    if (key !== NO_THREAD && pendingKnown) approvalAnswers.prune(key, pendingRequestIds);
+  }, [key, pendingKnown, pendingRequestIds]);
 
   const respond = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision, feedback?: string) => {
       if (!threadId) return;
-      setInFlightRequestIds((existing) =>
-        existing.includes(requestId) ? existing : [...existing, requestId],
-      );
+      const answerKey = approvalAnswersKey(environmentId, threadId);
+      // Answered here or on another surface already: never send a second answer.
+      if (!approvalAnswers.begin(answerKey, requestId)) return;
       const result = await respondToThreadApproval({
         environmentId,
         input: {
@@ -53,35 +75,30 @@ export function useApprovalResponder(input: {
           ...(feedback !== undefined ? { feedback } : {}),
         },
       });
-      if (result._tag === "Success") {
-        setAnsweredRequestIds((answered) => new Set(answered).add(requestId));
-      } else if (!isAtomCommandInterrupted(result)) {
+      approvalAnswers.settle(answerKey, requestId, result._tag === "Success");
+      if (result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         onError(
           threadId,
           error instanceof Error ? error.message : "Failed to submit approval decision.",
         );
       }
-      setInFlightRequestIds((existing) => existing.filter((id) => id !== requestId));
       return result;
     },
     [environmentId, onError, respondToThreadApproval, threadId],
   );
 
-  // Answered ids matter only while their request is still pending.
-  const answeredStillPending = useMemo(
-    () => pruneAnsweredRequestIds(answeredRequestIds, pendingRequestIds),
-    [answeredRequestIds, pendingRequestIds],
+  const answeredRequestIds = useMemo(
+    () => answeredPendingIds(answers, pendingRequestIds),
+    [answers, pendingRequestIds],
   );
-  const respondingRequestIds = useMemo(
-    () =>
-      answeredStillPending.size === 0
-        ? inFlightRequestIds
-        : [...new Set([...inFlightRequestIds, ...answeredStillPending])],
-    [answeredStillPending, inFlightRequestIds],
+  const respondingRequestIds = useMemo(() => [...answeredRequestIds], [answeredRequestIds]);
+  const sentRequestIds = useMemo(
+    () => respondingRequestIds.filter((id) => answers.get(id) === "sent"),
+    [answers, respondingRequestIds],
   );
 
-  return { respondingRequestIds, answeredRequestIds: answeredStillPending, respond };
+  return { respondingRequestIds, sentRequestIds, answeredRequestIds, respond };
 }
 
 /**

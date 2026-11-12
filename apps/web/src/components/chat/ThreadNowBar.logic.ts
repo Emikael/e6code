@@ -1,5 +1,5 @@
 import { formatRunningThreadStatus } from "@e6tools/client-runtime/state/agent-state";
-import { SUBAGENT_APPROVAL_PHRASE } from "@e6tools/client-runtime/pending-requests";
+import { approvalPhrase, approvalWordingKind } from "@e6tools/client-runtime/pending-requests";
 import type {
   OrchestrationCheckpointSummary,
   ProviderRequestKind,
@@ -62,6 +62,7 @@ export interface NowBarInput {
   readonly currentAction: string | null;
   readonly pendingApprovals: ReadonlyArray<{
     readonly requestKind: ProviderRequestKind;
+    readonly unnamedKind?: true;
     readonly createdAt: string;
   }>;
   readonly pendingUserInputs: ReadonlyArray<{
@@ -93,11 +94,14 @@ export function approvalAskText(
 ): string {
   const [first] = approvals;
   if (!first) return `${provider} is waiting for your approval`;
-  if (first.requestKind === "command") {
-    const commands = approvals.filter((approval) => approval.requestKind === "command").length;
+  const kind = approvalWordingKind(first);
+  if (kind === "command") {
+    const commands = approvals.filter(
+      (approval) => approvalWordingKind(approval) === "command",
+    ).length;
     return `${provider} wants to run ${plural(commands, "command")}`;
   }
-  return `${provider} ${SUBAGENT_APPROVAL_PHRASE[first.requestKind]}`;
+  return `${provider} ${approvalPhrase(kind)}`;
 }
 
 /** "Claude asks 1 question: keep the spring animation, or cut to a fade?" */

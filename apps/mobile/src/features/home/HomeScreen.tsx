@@ -58,6 +58,7 @@ import {
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
+import { ApprovalAnswerNotice } from "./ApprovalAnswerNotice";
 import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
   buildThreadListV2Items,
@@ -1300,6 +1301,13 @@ export function HomeScreen(props: HomeScreenProps) {
               }}
             />
           </SwipeableScrollGateProvider>
+          <ApprovalAnswerNotice
+            bottom={
+              Platform.OS === "ios"
+                ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
+                : Math.max(insets.bottom, 16) + 88
+            }
+          />
         </View>
       </View>
     );

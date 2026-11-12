@@ -156,7 +156,8 @@ export interface ThreadDetailScreenProps {
   readonly subagentRequests?: ReadonlyMap<string, SubagentUserRequest>;
   /** Title of the subagent behind activePendingUserInput, when one asked. */
   readonly activePendingUserInputAgentTitle?: string | null;
-  readonly respondingApprovalId: ApprovalRequestId | null;
+  /** The shown approval's answer: in flight, acknowledged, or not yet given. */
+  readonly activeApprovalAnswerState: "sending" | "sent" | null;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
@@ -1093,7 +1094,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                           ),
                         )}
                         agentTitle={props.activePendingApprovalAgentTitle ?? null}
-                        respondingApprovalId={props.respondingApprovalId}
+                        answerState={props.activeApprovalAnswerState}
+                        agentName={threadAgentName(props.selectedThread)}
                         onRespond={props.onRespondToApproval}
                       />
                     ) : null}
