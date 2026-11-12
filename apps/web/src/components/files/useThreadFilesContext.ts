@@ -21,8 +21,10 @@ export interface ThreadFilesContext {
   readonly changed: ReadonlyArray<ThreadChangedFile>;
   /** Workspace paths the latest turn changed. */
   readonly latestTurnPaths: ReadonlySet<string>;
-  /** The thread's provider, "Claude"; "The agent" when unknown. */
+  /** The thread's provider, "Claude"; "The agent" when unknown. Starts a sentence. */
   readonly agentName: string;
+  /** The same name inside a sentence: "the agent" when unknown. */
+  readonly agentNameInSentence: string;
   /** Changes when a turn starts, so edit history scoped to a turn can be dropped. */
   readonly turnKey: string | null;
   /** Workspace paths the thread's changes leave deleted, so their edit history can go. */
@@ -57,6 +59,8 @@ export function useThreadFilesContext(threadRef: ScopedThreadRef, cwd: string): 
     const toWorkspacePath = (path: string) =>
       resolveDiffPathForWorkspace({ filePath: path, workspaceRoot: cwd, repositoryRoot });
     const latest = checkpoints?.at(-1);
+    const knownName =
+      (providerName ? PROVIDER_DISPLAY_NAMES[providerName as ProviderDriverKind] : null) ?? null;
     const changes = {
       workingTree: workingTree ?? [],
       checkpoints: checkpoints ?? [],
@@ -68,9 +72,8 @@ export function useThreadFilesContext(threadRef: ScopedThreadRef, cwd: string): 
       latestTurnPaths: new Set(
         (latest?.files ?? []).flatMap((file) => toWorkspacePath(file.path) ?? []),
       ),
-      agentName:
-        (providerName ? PROVIDER_DISPLAY_NAMES[providerName as ProviderDriverKind] : null) ??
-        "The agent",
+      agentName: knownName ?? "The agent",
+      agentNameInSentence: knownName ?? "the agent",
       turnKey,
     };
   }, [checkpoints, cwd, providerName, repositoryRoot, turnKey, workingTree]);

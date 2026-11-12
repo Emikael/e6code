@@ -1243,7 +1243,7 @@ export default function FilePreviewPanel({
     previewPath === null || changedFile === null
       ? null
       : threadFiles.latestTurnPaths.has(previewPath)
-        ? `Changed by ${threadFiles.agentName} in the latest turn.`
+        ? `Changed by ${threadFiles.agentNameInSentence} in the latest turn.`
         : "Changed in this thread.";
   // Comments wait in the composer; the footer counts the thread's, as the Diff does, and leads
   // there.
@@ -1404,7 +1404,7 @@ export default function FilePreviewPanel({
                       {editSession.history.held !== null
                         ? "Your edit is not saved"
                         : editSession.history.tookTheirs
-                          ? `Took ${threadFiles.agentName}'s version`
+                          ? `Took ${threadFiles.agentNameInSentence}'s version`
                           : "Your edit saved"}
                     </span>
                     <Button size="compact" variant="ghost" onClick={editSession.undo}>
@@ -1523,7 +1523,7 @@ export default function FilePreviewPanel({
               Keep mine
             </Button>
             <Button size="compact" variant="ghost" onClick={editSession.takeTheirs}>
-              {`Take ${threadFiles.agentName}'s`}
+              {`Take ${threadFiles.agentNameInSentence}'s`}
             </Button>
           </div>
         ) : null}
@@ -1654,7 +1654,8 @@ export default function FilePreviewPanel({
           ) : null}
         </div>
         {footerCaption !== null || attachedComments > 0 ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+          // 48px with or without the attached-comments button, so the editor never jumps.
+          <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
             <span className="min-w-0 flex-1 basis-[200px] text-muted-foreground text-xs">
               {footerCaption}
             </span>
