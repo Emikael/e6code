@@ -837,21 +837,6 @@ export function PreviewView({
         }
       />
 
-      {annotating ? (
-        <div
-          role="status"
-          className="flex shrink-0 items-center gap-2.5 border-b border-border bg-surface-raised py-1 pe-1.5 ps-3"
-        >
-          <span className="min-w-0 flex-1 font-medium text-[13px] text-foreground">
-            Annotating. Click an element or drag a region.
-          </span>
-          <Button size="compact" variant="ghost" onClick={finishAnnotating}>
-            Finish
-            <Kbd className="h-[18px] min-w-[18px] border border-border bg-transparent">Esc</Kbd>
-          </Button>
-        </div>
-      ) : null}
-
       {desktopOverlay?.importedCookieGrant ? (
         <div className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-foreground">
           <p>
@@ -895,6 +880,22 @@ export function PreviewView({
         ) : null}
         {snapshot && desktopOverlay ? (
           <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} />
+        ) : null}
+        {annotating ? (
+          // Board 17: a floating card inset over the page. The page is a <webview> composited
+          // with the DOM, so the card paints above it the way the agent's cursor does.
+          <div
+            role="status"
+            className="absolute inset-x-2.5 top-2.5 z-40 flex items-center gap-2.5 rounded-xl border border-border bg-surface-floating py-1.5 pe-1.5 ps-3 shadow-lg"
+          >
+            <span className="min-w-0 flex-1 font-medium text-[13px] text-foreground">
+              Annotating. Click an element or drag a region.
+            </span>
+            <Button size="compact" variant="ghost" onClick={finishAnnotating}>
+              Finish
+              <Kbd className="h-5 min-w-5 border border-border border-b-2 bg-card">Esc</Kbd>
+            </Button>
+          </div>
         ) : null}
         {runtimeTabId &&
         desktopOverlay &&

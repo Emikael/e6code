@@ -18,6 +18,8 @@ export interface GhosttyCellRange {
 }
 
 const DEFAULT_SELECTION_BACKGROUND = "rgba(72, 122, 191, 0.35)";
+/** Board 16: selected output carries a 2px line at its left edge as well as the wash. */
+const SELECTION_EDGE_WIDTH = 2;
 
 function cssColor(color: GhosttyColor): string {
   return `rgb(${color.r}, ${color.g}, ${color.b})`;
@@ -103,6 +105,8 @@ export function renderGhosttySnapshot(options: {
   readonly previousCursorY?: number | null;
   readonly focused?: boolean;
   readonly selectionBackground?: string;
+  /** CSS color of the line drawn in the left padding beside selected rows. */
+  readonly selectionEdge?: string;
   readonly hoveredLinkRange?: GhosttyCellRange | null;
   /** Vertical origin of row 0; defaults to the horizontal padding. */
   readonly originY?: number;
@@ -120,6 +124,7 @@ export function renderGhosttySnapshot(options: {
   } = options;
   const focused = options.focused ?? true;
   const selectionBackground = options.selectionBackground ?? DEFAULT_SELECTION_BACKGROUND;
+  const selectionEdge = options.selectionEdge;
   const hoveredLinkRange = options.hoveredLinkRange ?? null;
   const originY = options.originY ?? padding;
   const rowsToDraw = forceFull
@@ -153,6 +158,14 @@ export function renderGhosttySnapshot(options: {
 
     context.fillStyle = cssColor(snapshot.background);
     context.fillRect(padding, top, snapshot.cols * metrics.width, metrics.height);
+    if (selectionEdge !== undefined) {
+      // The padding is outside the cell grid, so the edge is cleared with its row.
+      context.fillRect(0, top, padding, metrics.height);
+      if (row.cells.some((cell) => cell.selected)) {
+        context.fillStyle = selectionEdge;
+        context.fillRect(0, top, Math.min(SELECTION_EDGE_WIDTH, padding), metrics.height);
+      }
+    }
 
     let backgroundStart = 0;
     while (backgroundStart < row.cells.length) {

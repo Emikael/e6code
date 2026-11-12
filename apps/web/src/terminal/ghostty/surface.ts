@@ -1852,6 +1852,9 @@ export class GhosttyTerminalSurface {
       ...(this.theme.selectionBackground !== undefined
         ? { selectionBackground: this.theme.selectionBackground }
         : {}),
+      ...(this.theme.selectionEdge !== undefined
+        ? { selectionEdge: this.theme.selectionEdge }
+        : {}),
     });
     this.positionInput();
     this.renderedCursorY =

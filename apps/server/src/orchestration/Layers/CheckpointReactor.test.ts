@@ -903,7 +903,7 @@ describe("CheckpointReactor", () => {
       expect(thread?.checkpoints[0]).toMatchObject({
         checkpointTurnCount: 1,
         files: [
-          { path: "large.txt", kind: "modified", additions: largeFileLineCount, deletions: 0 },
+          { path: "large.txt", kind: "added", additions: largeFileLineCount, deletions: 0 },
           { path: "README.md", kind: "modified", additions: 1, deletions: 1 },
         ],
       });
@@ -933,6 +933,79 @@ describe("CheckpointReactor", () => {
           "README.md",
         ),
       ).toBe("v2\n");
+    }),
+  );
+
+  effectIt.effect("reports whether a turn added, deleted, renamed or modified each file", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ seedFilesystemCheckpoints: false }),
+      );
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const write = (name: string, content: string) =>
+        NodeFS.writeFileSync(NodePath.join(harness.cwd, name), content, "utf8");
+      write("gone.txt", "temporary\n");
+      write("old.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
+
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-kinds"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      harness.provider.emit({
+        type: "turn.started",
+        eventId: EventId.make("evt-turn-started-kinds"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-1"),
+      });
+      expect(yield* harness.nextReceipt).toMatchObject({
+        type: "checkpoint.baseline.captured",
+        checkpointTurnCount: 0,
+      });
+
+      write("README.md", "v2\n");
+      write("added.txt", "new\n");
+      NodeFS.rmSync(NodePath.join(harness.cwd, "gone.txt"));
+      NodeFS.renameSync(
+        NodePath.join(harness.cwd, "old.txt"),
+        NodePath.join(harness.cwd, "renamed.txt"),
+      );
+      harness.provider.emit({
+        type: "turn.completed",
+        eventId: EventId.make("evt-turn-completed-kinds"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-1"),
+        payload: { state: "completed" },
+      });
+
+      expect(yield* harness.nextReceipt).toMatchObject({
+        type: "checkpoint.diff.finalized",
+        turnId: "turn-1",
+      });
+      const thread = (yield* Effect.promise(harness.readModel)).threads.find(
+        (entry) => entry.id === "thread-1",
+      );
+      expect(thread?.checkpoints[0]?.files).toEqual([
+        { path: "added.txt", kind: "added", additions: 1, deletions: 0 },
+        { path: "gone.txt", kind: "deleted", additions: 0, deletions: 1 },
+        { path: "README.md", kind: "modified", additions: 1, deletions: 1 },
+        { path: "renamed.txt", kind: "renamed", additions: 0, deletions: 0 },
+      ]);
+      yield* Effect.promise(harness.drain);
     }),
   );
 

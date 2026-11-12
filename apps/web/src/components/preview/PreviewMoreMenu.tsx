@@ -132,6 +132,7 @@ export function PreviewMoreMenu({
               <Button
                 variant="ghost"
                 size="icon-xs"
+                className="sm:size-7"
                 type="button"
                 aria-label="More: screenshot, record, float over chat, open in system browser, DevTools, device size, zoom"
               />

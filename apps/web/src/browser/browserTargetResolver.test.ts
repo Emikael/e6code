@@ -348,3 +348,54 @@ describe("browser target resolver", () => {
     expect(publicHosts.filter((host) => !isPublicFaviconHost(host))).toEqual([]);
   });
 });
+
+describe("local addresses printed by an environment", () => {
+  const environmentId = EnvironmentId.make("environment-1");
+
+  it("keeps localhost for a local environment", async () => {
+    const { resolveLocalAddressForEnvironment } = await import("./browserTargetResolver");
+    expect(
+      resolveLocalAddressForEnvironment(
+        "http://127.0.0.1:3773",
+        environmentId,
+        "http://localhost:5733/",
+      ),
+    ).toBe("http://localhost:5733/");
+  });
+
+  it("uses a remote environment's own host", async () => {
+    const { resolveLocalAddressForEnvironment } = await import("./browserTargetResolver");
+    expect(
+      resolveLocalAddressForEnvironment(
+        "http://100.65.180.100:3773",
+        environmentId,
+        "http://localhost:5733/settings",
+      ),
+    ).toBe("http://100.65.180.100:5733/settings");
+  });
+
+  it("cannot open one through a tunnel or a disconnected environment", async () => {
+    const { resolveLocalAddressForEnvironment } = await import("./browserTargetResolver");
+    expect(
+      resolveLocalAddressForEnvironment(
+        "https://quiet-river.trycloudflare.com",
+        environmentId,
+        "http://localhost:5733/",
+      ),
+    ).toBeNull();
+    expect(
+      resolveLocalAddressForEnvironment(null, environmentId, "http://localhost:5733/"),
+    ).toBeNull();
+  });
+
+  it("leaves other addresses alone", async () => {
+    const { resolveLocalAddressForEnvironment } = await import("./browserTargetResolver");
+    expect(
+      resolveLocalAddressForEnvironment(
+        "https://quiet-river.trycloudflare.com",
+        environmentId,
+        "https://example.com/docs",
+      ),
+    ).toBe("https://example.com/docs");
+  });
+});

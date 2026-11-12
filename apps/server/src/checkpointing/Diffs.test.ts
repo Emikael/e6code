@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { parseTurnDiffFilesFromNumstat } from "./Diffs.ts";
+import { parseTurnDiffFilesFromNumstat, parseTurnDiffFilesFromRawNumstat } from "./Diffs.ts";
 
 describe("parseTurnDiffFilesFromNumstat", () => {
   it("returns an empty list when no files changed", () => {
@@ -50,5 +50,39 @@ describe("parseTurnDiffFilesFromNumstat", () => {
     expect(parseTurnDiffFilesFromNumstat(`1\t0\t${path}\0`)).toEqual([
       { path, additions: 1, deletions: 0 },
     ]);
+  });
+});
+
+describe("parseTurnDiffFilesFromRawNumstat", () => {
+  it("gives each file the kind git reports, with its counts", () => {
+    // Recorded from `git diff --raw --numstat -z` over an add, a delete, an edit and a rename.
+    const output = [
+      ":000000 100644 0000000 8ba3a16 A",
+      "added.txt",
+      ":100644 000000 587be6b 0000000 D",
+      "gone.txt",
+      ":100644 100644 28ce6a8 2ea3be2 M",
+      "mod.txt",
+      ":100644 100644 b414108 b414108 R100",
+      "old.txt",
+      "new.txt",
+      "1\t0\tadded.txt",
+      "0\t1\tgone.txt",
+      "1\t0\tmod.txt",
+      "0\t0\t",
+      "old.txt",
+      "new.txt",
+      "",
+    ].join("\0");
+    expect(parseTurnDiffFilesFromRawNumstat(output)).toEqual([
+      { path: "added.txt", kind: "added", additions: 1, deletions: 0 },
+      { path: "gone.txt", kind: "deleted", additions: 0, deletions: 1 },
+      { path: "mod.txt", kind: "modified", additions: 1, deletions: 0 },
+      { path: "new.txt", kind: "renamed", additions: 0, deletions: 0 },
+    ]);
+  });
+
+  it("returns an empty list when nothing changed", () => {
+    expect(parseTurnDiffFilesFromRawNumstat("")).toEqual([]);
   });
 });

@@ -4,6 +4,7 @@ import type {
   PullRequestState,
 } from "@e6tools/contracts";
 import { isMacPlatform } from "@e6tools/shared/keybindings";
+import { getTerminalLabel } from "@e6tools/shared/terminalLabels";
 
 import type { RightPanelSurface } from "~/rightPanelStore";
 import { PULL_REQUEST_STATE_PRESENTATION } from "./pullRequest/pullRequestIcons";
@@ -16,6 +17,10 @@ export interface SurfaceTitleState {
   readonly runningTerminalIds?: ReadonlySet<string>;
   /** Terminals whose process stopped while out of view, until they are looked at. */
   readonly finishedTerminalIds?: ReadonlySet<string>;
+  /** Whether a device tab's device is running, once known. */
+  readonly deviceRunning?: boolean;
+  /** Terminal tab names by surface id when several terminal tabs are open (`terminalTabNames`). */
+  readonly terminalTabNames?: ReadonlyMap<string, string>;
   /** The resolved lifecycle of a pull request tab, once known. */
   readonly pullRequestStatus?: {
     readonly state: PullRequestState;
@@ -33,6 +38,36 @@ export function runningTerminalCount(
   }
   return surface.terminalIds.filter((terminalId) => runningTerminalIds.has(terminalId)).length;
 }
+
+/**
+ * Names for terminal tabs that must be told apart. One terminal tab is "Terminal" (board 16).
+ * With several, each takes its first pane's label ("zsh", or "Terminal 2" for an unnamed one),
+ * or "Terminal 1", "Terminal 2" in tab order when those labels collide.
+ */
+export function terminalTabNames(
+  surfaces: ReadonlyArray<RightPanelSurface>,
+  terminalLabelsById: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> {
+  const terminalSurfaces = surfaces.filter(
+    (surface): surface is Extract<RightPanelSurface, { kind: "terminal" }> =>
+      surface.kind === "terminal",
+  );
+  if (terminalSurfaces.length < 2) return NO_TERMINAL_TAB_NAMES;
+  const labels = terminalSurfaces.map((surface) => {
+    const first = surface.terminalIds[0];
+    return first === undefined ? null : (terminalLabelsById.get(first) ?? getTerminalLabel(first));
+  });
+  const distinct =
+    labels.every((label) => label !== null) && new Set(labels).size === labels.length;
+  return new Map(
+    terminalSurfaces.map((surface, index) => [
+      surface.id,
+      distinct ? labels[index]! : `Terminal ${index + 1}`,
+    ]),
+  );
+}
+
+const NO_TERMINAL_TAB_NAMES: ReadonlyMap<string, string> = new Map();
 
 /** A tab's name and, apart, its state in words, so a strip can truncate the name alone. */
 export interface SurfaceTitleParts {
@@ -69,13 +104,14 @@ export function surfaceTitleParts(
       };
     case "terminal": {
       // Board 16: "Terminal · 1 running", "Terminal · Finished", or "Terminal". Each pane's own
-      // label is in its header.
+      // label is in its header; several terminal tabs take names (`terminalTabNames`).
+      const name = state.terminalTabNames?.get(surface.id) ?? "Terminal";
       const running = runningTerminalCount(surface, state.runningTerminalIds);
-      if (running > 0) return { name: "Terminal", state: `${running} running` };
+      if (running > 0) return { name, state: `${running} running` };
       const finished = surface.terminalIds.some((terminalId) =>
         state.finishedTerminalIds?.has(terminalId),
       );
-      return { name: "Terminal", state: finished ? "Finished" : null };
+      return { name, state: finished ? "Finished" : null };
     }
     case "pull-request": {
       const status = state.pullRequestStatus;
@@ -86,7 +122,11 @@ export function surfaceTitleParts(
     case "pull-requests":
       return { name: "Pull requests", state: null };
     case "device":
-      return { name: surface.title ?? surface.target?.name ?? "Device", state: null };
+      // Board 18: "iPhone 16 · running" while the device runs.
+      return {
+        name: surface.title ?? surface.target?.name ?? "Device",
+        state: state.deviceRunning ? "running" : null,
+      };
     case "preview":
       return { name: previewTitle(surface, sessions), state: null };
   }

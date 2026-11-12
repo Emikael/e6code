@@ -1,7 +1,7 @@
 import { DeviceHostUpdates } from "./DeviceHostUpdates";
 import type { DeviceSummary, ScopedThreadRef } from "@e6tools/contracts";
 import { MoreHorizontal, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 import { useRightPanelStore, type RightPanelSurface } from "~/rightPanelStore";
@@ -73,17 +73,23 @@ export function DevicePanel(props: {
     state.hosts.find((host) => host.id === hostId)?.label ?? "Device host";
   const bootingDevices =
     state.bootingDevices?.filter((device) => device.threadId === threadId) ?? [];
+  // Only the start this panel asked for can be cancelled; a device another thread or client is
+  // starting shows "Starting" with no button.
   const groups = useMemo(
     () =>
-      deviceListGroups(state.devices, [
-        ...(state.bootingDevices ?? []),
-        ...(pendingDevice && !pendingDevice.booted ? [pendingDevice] : []),
-      ]),
+      deviceListGroups(
+        state.devices,
+        state.bootingDevices ?? [],
+        pendingDevice && !pendingDevice.booted ? [pendingDevice] : [],
+      ),
     [pendingDevice, state.bootingDevices, state.devices],
   );
   const [setupOpen, setSetupOpen] = useState(false);
+  // The device whose start the user cancelled: its open then fails, which is not an error.
+  const cancelledDeviceKeyRef = useRef<string | null>(null);
   // Cancel while starting shuts the device down again; the open waiting on it then fails.
   const cancelStarting = (device: DeviceSummary) => {
+    cancelledDeviceKeyRef.current = deviceKey(device);
     setOperationError(null);
     void shutdown({
       environmentId,
@@ -97,6 +103,7 @@ export function DevicePanel(props: {
     const device = state.devices.find((candidate) => deviceKey(candidate) === value);
     if (!device) return;
     setOperationError(null);
+    cancelledDeviceKeyRef.current = null;
     setPendingDevice(device);
     try {
       const result = await open({
@@ -108,8 +115,11 @@ export function DevicePanel(props: {
           platform: device.platform,
         },
       });
-      if (result._tag === "Failure") setOperationError(formatEnvironmentQueryError(result.cause));
-      else
+      if (result._tag === "Failure") {
+        if (cancelledDeviceKeyRef.current !== value) {
+          setOperationError(formatEnvironmentQueryError(result.cause));
+        }
+      } else
         useRightPanelStore.getState().openDevice(props.threadRef, {
           hostId: result.value.hostId,
           deviceId: result.value.deviceId,
@@ -117,6 +127,7 @@ export function DevicePanel(props: {
           name: device.name,
         });
     } finally {
+      if (cancelledDeviceKeyRef.current === value) cancelledDeviceKeyRef.current = null;
       setPendingDevice(null);
     }
   };
@@ -214,6 +225,7 @@ export function DevicePanel(props: {
                     <Button
                       size="icon-xs"
                       variant="ghost"
+                      className="sm:size-7"
                       aria-label="More: home, float over chat, power off, close"
                     />
                   }
@@ -244,9 +256,12 @@ export function DevicePanel(props: {
                     </>
                   ) : null}
                   <MenuItem onClick={floatActive}>Float over chat</MenuItem>
-                  <MenuSeparator />
-                  <MenuItem onClick={() => closeActive(true)}>Power off</MenuItem>
                   <MenuItem onClick={() => closeActive(false)}>Close</MenuItem>
+                  {/* Power off ends the device for every thread, so it stands apart from Close. */}
+                  <MenuSeparator />
+                  <MenuItem variant="destructive" onClick={() => closeActive(true)}>
+                    Power off
+                  </MenuItem>
                 </MenuPopup>
               </Menu>
             </>
@@ -256,7 +271,7 @@ export function DevicePanel(props: {
         {activeDevice ? (
           <>
             <span className="min-w-0 truncate font-medium text-[13px]">{activeDevice.name}</span>
-            <span className="min-w-0 shrink truncate text-muted-foreground text-xs">
+            <span className="min-w-0 shrink truncate font-mono text-[11px] text-muted-foreground tabular-nums leading-[14px]">
               {`${activeDevice.version} · ${hostLabel(activeDevice.hostId)}`}
             </span>
             <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-foreground text-xs">
@@ -390,7 +405,7 @@ export function DevicePanel(props: {
                                 "size-2 shrink-0 rounded-full",
                                 row.state === "running" && "bg-foreground",
                                 row.state === "off" && "border-[1.5px] border-muted-foreground",
-                                row.state === "starting" &&
+                                (row.state === "starting" || row.state === "starting-elsewhere") &&
                                   "border-[1.5px] border-dashed border-muted-foreground",
                               )}
                             />
@@ -410,27 +425,29 @@ export function DevicePanel(props: {
                             >
                               {word}
                             </span>
-                            <Button
-                              size="compact"
-                              variant={row.primary ? "outline" : "ghost"}
-                              aria-label={
-                                action === "Cancel"
-                                  ? `Cancel starting ${row.device.name}`
-                                  : `${action} ${row.device.name}`
-                              }
-                              disabled={
-                                action === "Cancel"
-                                  ? false
-                                  : pendingDeviceKey !== null && pendingDeviceKey !== key
-                              }
-                              onClick={() =>
-                                action === "Cancel"
-                                  ? cancelStarting(row.device)
-                                  : void selectDevice(key)
-                              }
-                            >
-                              {action}
-                            </Button>
+                            {action === null ? null : (
+                              <Button
+                                size="compact"
+                                variant={row.primary ? "outline" : "ghost"}
+                                aria-label={
+                                  action === "Cancel"
+                                    ? `Cancel starting ${row.device.name}`
+                                    : `${action} ${row.device.name}`
+                                }
+                                disabled={
+                                  action === "Cancel"
+                                    ? false
+                                    : pendingDeviceKey !== null && pendingDeviceKey !== key
+                                }
+                                onClick={() =>
+                                  action === "Cancel"
+                                    ? cancelStarting(row.device)
+                                    : void selectDevice(key)
+                                }
+                              >
+                                {action}
+                              </Button>
+                            )}
                           </div>
                         </Fragment>
                       );

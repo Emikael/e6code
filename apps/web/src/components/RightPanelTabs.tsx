@@ -102,6 +102,7 @@ import {
   runningTerminalCount,
   surfaceTitle,
   surfaceTitleParts,
+  terminalTabNames,
   tabsOutOfView,
   type SurfaceTitleParts,
   type TabExtent,
@@ -835,6 +836,56 @@ function PullRequestPanelTab(
   );
 }
 
+/** Whether a device tab's device is booted; only device tabs subscribe to device state. */
+function useDeviceTabRunning(
+  surface: Extract<RightPanelSurface, { kind: "device" }>,
+  environmentId: EnvironmentId | null,
+): boolean {
+  const { state } = useDeviceState(environmentId);
+  const target = surface.target;
+  if (!target) return false;
+  return state.devices.some(
+    (device) => device.hostId === target.hostId && device.id === target.deviceId && device.booted,
+  );
+}
+
+/** A device tab reads "iPhone 16 · running", with the running dot, while its device runs. */
+function DevicePanelTab(
+  props: Omit<RightPanelTabProps, "surface" | "label" | "pullRequestStatus" | "running"> & {
+    surface: Extract<RightPanelSurface, { kind: "device" }>;
+  },
+) {
+  const running = useDeviceTabRunning(props.surface, props.environmentId);
+  return (
+    <RightPanelTab
+      {...props}
+      running={running}
+      label={surfaceTitleParts(props.surface, NO_PREVIEW_SESSIONS, NO_TERMINAL_LABELS, {
+        deviceRunning: running,
+      })}
+      pullRequestStatus={null}
+    />
+  );
+}
+
+/** A device row in the "N more" menu says whether it runs, as its tab does. */
+function DeviceMenuRowLabel(props: {
+  surface: Extract<RightPanelSurface, { kind: "device" }>;
+  environmentId: EnvironmentId | null;
+}) {
+  const running = useDeviceTabRunning(props.surface, props.environmentId);
+  return (
+    <>
+      {running ? <RunningDot /> : null}
+      <TabLabelText
+        label={surfaceTitleParts(props.surface, NO_PREVIEW_SESSIONS, NO_TERMINAL_LABELS, {
+          deviceRunning: running,
+        })}
+      />
+    </>
+  );
+}
+
 /** A process-running dot: solid and neutral, never the working-agent halo. Words always sit beside it. */
 function RunningDot() {
   return <span aria-hidden className="size-2 shrink-0 rounded-full bg-foreground" />;
@@ -1162,10 +1213,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     () => new Set(props.runningTerminalIds ?? []),
     [props.runningTerminalIds],
   );
+  const tabNames = useMemo(
+    () => terminalTabNames(props.surfaces, props.terminalLabelsById),
+    [props.surfaces, props.terminalLabelsById],
+  );
+  const nameState = { terminalTabNames: tabNames };
   const titleState = {
     changedFileCount: props.changedFileCount ?? 0,
     runningTerminalIds,
     ...(props.finishedTerminalIds ? { finishedTerminalIds: props.finishedTerminalIds } : {}),
+    terminalTabNames: tabNames,
   };
   const panelId = useId();
   const closeKeyShortcuts = useMemo(
@@ -1591,7 +1648,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     active: surface.id === props.activeSurfaceId,
                     focusable: surface.id === focusableTabId,
                     pending: isFileSurfacePending(surface, props.pendingSurfaceIds),
-                    title: surfaceTitle(surface, props.previewSessions, props.terminalLabelsById),
+                    title: surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      nameState,
+                    ),
                     running: runningTerminalCount(surface, runningTerminalIds) > 0,
                     audio: tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
@@ -1615,6 +1677,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     onStartRename: onStartRenameTab,
                     onFinishRename: onFinishRenameTab,
                   };
+                  if (surface.kind === "device") {
+                    const { running: _running, ...deviceTabProps } = tabProps;
+                    return (
+                      <DevicePanelTab key={surface.id} {...deviceTabProps} surface={surface} />
+                    );
+                  }
                   return surface.kind === "pull-request" ? (
                     <PullRequestPanelTab
                       key={surface.id}
@@ -1673,6 +1741,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                         surface={tab.surface}
                         environmentId={props.environmentId}
                         seed={props.pullRequestStatusSeeds?.[tab.surface.id]}
+                      />
+                    ) : tab.surface?.kind === "device" ? (
+                      <DeviceMenuRowLabel
+                        surface={tab.surface}
+                        environmentId={props.environmentId}
                       />
                     ) : (
                       <TabLabelText label={tab.label} />
@@ -1777,7 +1850,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           : {
               role: "tabpanel",
               "aria-label": focusedSurface
-                ? surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById)
+                ? surfaceTitle(
+                    focusedSurface,
+                    props.previewSessions,
+                    props.terminalLabelsById,
+                    nameState,
+                  )
                 : "Run details",
             })}
       >

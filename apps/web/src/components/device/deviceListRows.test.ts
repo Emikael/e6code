@@ -25,6 +25,7 @@ describe("the device list", () => {
         device("Pixel 9", "android", true),
       ],
       [device("Pixel 8", "android", false)],
+      [device("Pixel 8", "android", false)],
     );
     expect(groups.map((group) => group.label)).toEqual(["iOS simulators", "Android emulators"]);
     expect(
@@ -36,6 +37,18 @@ describe("the device list", () => {
       "iPhone SE:off:false",
       "Pixel 9:running:false",
       "Pixel 8:starting:false",
+    ]);
+  });
+
+  it("offers Cancel only for a start this client asked for", () => {
+    const groups = deviceListGroups(
+      [device("Pixel 8", "android", false), device("Pixel 9", "android", false)],
+      [device("Pixel 8", "android", false), device("Pixel 9", "android", false)],
+      [device("Pixel 9", "android", false)],
+    );
+    expect(groups[0]!.rows.map((row) => `${row.device.name}:${row.state}`)).toEqual([
+      "Pixel 8:starting-elsewhere",
+      "Pixel 9:starting",
     ]);
   });
 });

@@ -31,3 +31,53 @@ export function parseTurnDiffFilesFromNumstat(numstat: string): ReadonlyArray<Tu
 
   return files.toSorted((left, right) => left.path.localeCompare(right.path));
 }
+
+/** What a checkpoint did to a file, in the words `VcsFileChangeKind` uses. */
+export type TurnDiffFileKind =
+  | "added"
+  | "deleted"
+  | "modified"
+  | "renamed"
+  | "copied"
+  | "type-changed";
+
+export interface TurnDiffFileWithKind extends TurnDiffFileSummary {
+  readonly kind: TurnDiffFileKind;
+}
+
+const RAW_STATUS_KINDS: Record<string, TurnDiffFileKind> = {
+  A: "added",
+  D: "deleted",
+  M: "modified",
+  R: "renamed",
+  C: "copied",
+  T: "type-changed",
+};
+
+/**
+ * Reads one `git diff --raw --numstat -z` run: the raw records (":mode mode sha sha STATUS", then
+ * the path, or the source and destination for a rename or copy) come first, then the numstat
+ * records. One git call gives each file its kind and its counts; a status this does not know
+ * reads as modified.
+ */
+export function parseTurnDiffFilesFromRawNumstat(
+  output: string,
+): ReadonlyArray<TurnDiffFileWithKind> {
+  const records = output.split("\0");
+  const kinds = new Map<string, TurnDiffFileKind>();
+  let index = 0;
+  for (; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (!record.startsWith(":")) break;
+    const status = record.slice(record.lastIndexOf(" ") + 1);
+    const letter = status.charAt(0);
+    const twoPaths = letter === "R" || letter === "C";
+    const path = records[index + (twoPaths ? 2 : 1)] ?? "";
+    index += twoPaths ? 2 : 1;
+    if (path.length > 0) kinds.set(path, RAW_STATUS_KINDS[letter] ?? "modified");
+  }
+  return parseTurnDiffFilesFromNumstat(records.slice(index).join("\0")).map((file) => ({
+    ...file,
+    kind: kinds.get(file.path) ?? "modified",
+  }));
+}
