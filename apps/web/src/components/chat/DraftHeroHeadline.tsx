@@ -266,11 +266,12 @@ export function DraftHeroHeadline({
       : "Add a project to start";
 
   return (
-    <div className="relative flex flex-col items-center gap-3">
-      <E6Monogram assemble className="mb-1 size-10 shadow-xs" />
+    // Phones centre the hero; wider windows align it to the column's start (board 1).
+    <div className="relative flex flex-col items-center gap-3 sm:items-start">
+      <E6Monogram assemble className="mb-1 size-10 shadow-xs sm:hidden" />
       <h1
         aria-label={headingLabel}
-        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-[2rem]"
+        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-left sm:text-[2rem] sm:leading-9 sm:tracking-[-0.03em]"
       >
         {hasResolvedProject ? (
           <>What should we work on in {projectSelector}?</>
@@ -281,7 +282,7 @@ export function DraftHeroHeadline({
         )}
       </h1>
       {hasResolvedProject ? (
-        <p className="max-w-xl text-center text-sm text-balance text-muted-foreground">
+        <p className="max-w-xl text-center text-sm text-balance text-muted-foreground sm:text-left">
           {agentLabel ? (
             <>
               <span className="text-foreground">{agentLabel}</span>

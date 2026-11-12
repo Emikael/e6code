@@ -389,6 +389,12 @@ interface TimelineRowActivityState {
   agentState: ThreadAgentState | null;
   /** A live thinking timeline already reads "Working for …", so the plain working row stands down. */
   liveTimelineHeading: boolean;
+  /**
+   * Set while the now bar shows above the timeline: it owns the status word
+   * and the ticking time, so the working row keeps only this action text.
+   * Undefined when there is no now bar.
+   */
+  nowBarAction: string | null | undefined;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -524,6 +530,10 @@ interface MessagesTimelineProps {
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
   activeTurnStartedAt: string | null;
+  /** The now bar's current action; see {@link TimelineRowActivityState.nowBarAction}. */
+  nowBarAction?: string | null | undefined;
+  /** Scrolls to a message once per nonce, e.g. the recap's "You asked". */
+  revealMessageRequest?: { readonly messageId: string; readonly nonce: number } | null;
   /** Live bootstrap progress for this thread, or null when none is tracked. */
   worktreeSetup?: WorktreeSetupSnapshot | null;
   onCancelWorktreeSetup?: () => void;
@@ -606,6 +616,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isPreparingWorktree = false,
   isCompacting = false,
   activeTurnStartedAt,
+  nowBarAction,
+  revealMessageRequest = null,
   agentPanelModel,
   onOpenAgents = NOOP_OPEN_AGENTS,
   subagentProviderKind = null,
@@ -931,6 +943,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+
+  const handledRevealNonceRef = useRef(revealMessageRequest?.nonce ?? 0);
+  useEffect(() => {
+    if (!revealMessageRequest || revealMessageRequest.nonce === handledRevealNonceRef.current) {
+      return;
+    }
+    handledRevealNonceRef.current = revealMessageRequest.nonce;
+    const index = rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === revealMessageRequest.messageId,
+    );
+    if (index < 0) {
+      toastManager.add({
+        type: "info",
+        title: "Not in the loaded part of the thread",
+        description: "Load earlier messages to find it.",
+      });
+      return;
+    }
+    onManualNavigation();
+    void listRef.current?.scrollToIndex({
+      index,
+      animated: !prefersReducedMotion,
+      viewOffset: 24,
+    });
+  }, [listRef, onManualNavigation, prefersReducedMotion, revealMessageRequest, rows]);
 
   // "Show in thread" from Run details: open the subagent's card, scroll to
   // it and light its row for a moment. Only requests made while this list is
@@ -1459,10 +1496,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       pendingAttention,
       agentState: agentStateKey === null ? null : (JSON.parse(agentStateKey) as ThreadAgentState),
       liveTimelineHeading,
+      nowBarAction,
     }),
     [
       backgroundWorktreeSetup,
       liveTimelineHeading,
+      nowBarAction,
       pendingAttention,
       agentStateKey,
       isCompacting,
@@ -2836,6 +2875,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     pendingAttention,
     agentState,
     liveTimelineHeading,
+    nowBarAction,
   } = use(TimelineRowActivityCtx);
   const status = resolveWorkingRowStatus({
     isPreparingWorktree,
@@ -2852,6 +2892,22 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   // The live thinking timeline already says "Working for …"; setup, compacting and waiting
   // states, and a setup chip, still need this row.
   if (status.kind === "working" && liveTimelineHeading && !backgroundWorktreeSetup) return null;
+  if (nowBarAction !== undefined && !setupOrCompacting) {
+    // The now bar says Working, blocked or paused and ticks the time; this row keeps
+    // only what the agent is doing, unless the live thinking timeline shows it already.
+    const action = liveTimelineHeading ? null : nowBarAction;
+    if (action === null && !backgroundWorktreeSetup) return null;
+    return (
+      <div className="border-b border-border/60 pb-2 pt-1">
+        <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-xs text-muted-foreground">
+          {action !== null ? <span className="min-w-0 truncate">{action}</span> : null}
+          {backgroundWorktreeSetup ? (
+            <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
   const label =
     status.kind === "preparing" ? (
       "Setting up worktree…"
@@ -3123,11 +3179,13 @@ function ThinkingTimelineHeading({
   failedStepCount: number;
   expanded: boolean;
 }) {
+  // With the now bar showing, its timer is the only one that ticks.
+  const { nowBarAction } = use(TimelineRowActivityCtx);
   return (
     <span className="flex min-h-6 min-w-0 items-center gap-2 px-0.5 text-sm leading-relaxed">
       <span className="shrink-0 font-medium text-foreground tabular-nums">
         {active ? (
-          heading.startedAt ? (
+          heading.startedAt && nowBarAction === undefined ? (
             <>
               Working for <WorkingTimer createdAt={heading.startedAt} />
             </>

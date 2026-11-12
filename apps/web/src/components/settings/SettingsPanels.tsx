@@ -706,6 +706,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.sidebarElapsedTimeEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled
         ? ["Elapsed time in the thread list"]
         : []),
+      ...(settings.recapTrigger !== DEFAULT_UNIFIED_SETTINGS.recapTrigger
+        ? ["Show where you left off"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -844,6 +847,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarThreadPreviewCount,
       settings.needsYouSectionEnabled,
       settings.sidebarElapsedTimeEnabled,
+      settings.recapTrigger,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.attentionNotifications,
@@ -947,6 +951,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       needsYouSectionEnabled: DEFAULT_UNIFIED_SETTINGS.needsYouSectionEnabled,
       sidebarElapsedTimeEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled,
+      recapTrigger: DEFAULT_UNIFIED_SETTINGS.recapTrigger,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,

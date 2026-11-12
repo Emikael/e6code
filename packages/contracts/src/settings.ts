@@ -231,6 +231,10 @@ const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
 export const AttentionNotifications = Schema.Literals(["blocked", "all", "off"]);
 export type AttentionNotifications = typeof AttentionNotifications.Type;
 
+/** When an opened thread shows "Where you left off": after 5 or more minutes away, always, or never. */
+export const RecapTrigger = Schema.Literals(["after-break", "always", "never"]);
+export type RecapTrigger = typeof RecapTrigger.Type;
+
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
 const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
@@ -505,6 +509,9 @@ export const ClientSettingsSchema = Schema.Struct({
   // whole-minute ages on sidebar rows.
   needsYouSectionEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarElapsedTimeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  recapTrigger: RecapTrigger.pipe(
+    Schema.withDecodingDefault(Effect.succeed("after-break" as const)),
+  ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -1716,6 +1723,7 @@ export const ClientSettingsPatch = Schema.Struct({
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
   needsYouSectionEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarElapsedTimeEnabled: Schema.optionalKey(Schema.Boolean),
+  recapTrigger: Schema.optionalKey(RecapTrigger),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

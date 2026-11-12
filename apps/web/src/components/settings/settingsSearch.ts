@@ -209,6 +209,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "recap-trigger",
+    title: "Show where you left off",
+    to: "/settings/attention",
+    searchTerms: ["attention recap where was i left off summary break away return catch up"],
+  },
+  {
     id: "sidebar-elapsed-time",
     title: "Elapsed time in the thread list",
     to: "/settings/attention",
