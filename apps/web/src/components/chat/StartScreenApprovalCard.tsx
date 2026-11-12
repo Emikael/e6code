@@ -6,21 +6,22 @@
  *
  * Approvals are easy to clear on impulse here, away from the thread, so:
  * nothing is bound to Enter or focused on arrival, "Always allow this
- * session" sits under More, a destructive command keeps hold-to-allow, and
- * there is no approve-all.
+ * session" sits under More, a destructive command keeps hold-to-allow, there
+ * is no approve-all, a detail too long to show whole is only answered in the
+ * thread, and a request answered anywhere on this client is not offered again.
  */
 import {
   approvalFeedbackAgentName,
   readApprovalFeedbackDraft,
 } from "@e6tools/client-runtime/approval-feedback";
-import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import { scopeProjectRef } from "@e6tools/client-runtime/environment";
 import {
+  approvalWordingKind,
   derivePendingRequests,
   describeShownApprovalAsk,
 } from "@e6tools/client-runtime/pending-requests";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
-import type { ProviderApprovalDecision, ThreadId } from "@e6tools/contracts";
+import type { ApprovalRequestId, ProviderApprovalDecision, ThreadId } from "@e6tools/contracts";
 import { ArrowRightIcon, EllipsisIcon, TriangleAlertIcon } from "lucide-react";
 import * as Option from "effect/Option";
 import { memo, useCallback, useId, useMemo, useState, type ReactNode } from "react";
@@ -34,7 +35,9 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import {
   approvalAnswerAnnouncement,
+  approvalAwayFromThread,
   approvalMoreLabel,
+  approvalSentLabel,
   firstUnansweredRequest,
   layoutApprovalActions,
 } from "./approvalActions";
@@ -49,7 +52,8 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
   thread,
   agent,
   fact,
-  cue,
+  since,
+  renderCue,
   onOpen,
 }: {
   thread: EnvironmentThreadShell;
@@ -57,8 +61,10 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
   agent: string;
   /** "Codex wants to run 1 command", from the shell until the detail arrives. */
   fact: string;
-  /** "asked 4m ago". */
-  cue: ReactNode;
+  /** When the thread started waiting, until the shown request's own time is known. */
+  since: string;
+  /** "asked 4m ago", for the request shown. */
+  renderCue: (since: string) => ReactNode;
   onOpen: () => void;
 }) {
   const threadState = useEnvironmentThread(thread.environmentId, thread.id);
@@ -83,10 +89,12 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
       description: message,
     });
   }, []);
+  const detailLoaded = Option.isSome(threadState.data);
   const { respondingRequestIds, answeredRequestIds, respond } = useApprovalResponder({
     environmentId: thread.environmentId,
     threadId: thread.id,
     pendingRequestIds,
+    pendingKnown: detailLoaded,
     onError,
   });
   // One request at a time. A request answered here stays in the detail until
@@ -96,19 +104,24 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
     [answeredRequestIds, approvals],
   );
   const approval = shown?.request ?? null;
-  const destructive = useMemo(
-    () => (approval ? classifyDestructiveApproval(approval) : null),
-    [approval],
-  );
+  // Every request here was answered (on this card or elsewhere): say so until it resolves.
+  const allSent = detailLoaded && approvals.length > 0 && approval === null;
+  // Answered here only when the card shows all of it; otherwise only the thread answers it.
+  const verdict = useMemo(() => (approval ? approvalAwayFromThread(approval) : null), [approval]);
+  const destructive = verdict?.kind === "hold" ? verdict.destructive : null;
   // The provider's own words stay in the thread's composer; here the card says
   // Approve and Decline (board 1). Cancel stops the turn, so it stays in the thread.
   const layout = layoutApprovalActions(approval?.options, destructive);
   const moreOptions = layout.more.filter((option) => option.decision !== "cancel");
   const activationAllowed = useApprovalSwapGuard(approval?.requestId ?? null);
-  const [declineMessageOpen, setDeclineMessageOpen] = useState(false);
+  // Keyed by request: a message written for one request never declines another.
+  const [declineMessageFor, setDeclineMessageFor] = useState<ApprovalRequestId | null>(null);
+  const declineMessageOpen = approval !== null && declineMessageFor === approval.requestId;
   const busy = approval === null || respondingRequestIds.includes(approval.requestId);
   const headline =
-    approval && shown ? describeShownApprovalAsk(agent, approval.requestKind, shown) : null;
+    approval && shown
+      ? describeShownApprovalAsk(agent, approvalWordingKind(approval), shown)
+      : null;
   const answer = (decision: ProviderApprovalDecision, feedback?: string, guarded = true) => {
     if (!approval || (guarded && !activationAllowed())) return;
     const what = approval.detail?.split("\n", 1)[0] || thread.title;
@@ -135,7 +148,7 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
             {project.title}
           </span>
         ) : null}
-        {cue}
+        {renderCue(approval?.createdAt ?? since)}
       </div>
       <p className="text-sm leading-[22px] text-foreground">
         {
@@ -144,15 +157,28 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
         }
       </p>
       {approval?.detail ? (
-        <pre className="max-h-24 overflow-auto rounded-lg bg-surface-well px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre text-foreground">
+        // Wrapped, and tall enough for the longest detail answered here, so
+        // every line is on screen; the scroll is only a fallback.
+        <pre className="max-h-44 overflow-auto rounded-lg bg-surface-well px-3 py-2 font-mono text-[13px] leading-5 break-all whitespace-pre-wrap text-foreground">
           {approval.detail}
         </pre>
       ) : null}
-      {declineMessageOpen && approval && feedbackAgent ? (
+      {verdict?.kind === "open-thread" ? (
+        <p className="text-xs leading-4 text-muted-foreground">
+          Too long to review here. Open the thread to read all of it.
+        </p>
+      ) : null}
+      {allSent ? (
+        <p role="status" className="text-xs leading-4 text-muted-foreground">
+          {approvalSentLabel(agent)}
+        </p>
+      ) : null}
+      {declineMessageOpen && approval && feedbackAgent && verdict?.kind !== "open-thread" ? (
         <DeclineWithMessage
+          key={approval.requestId}
           agentName={feedbackAgent}
           disabled={busy}
-          onCancel={() => setDeclineMessageOpen(false)}
+          onCancel={() => setDeclineMessageFor(null)}
           // Typed and submitted on purpose, so no swap guard.
           onDecline={(feedback) => answer("decline", feedback, false)}
         />
@@ -163,7 +189,8 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
         key={approval?.requestId ?? "loading"}
         className="flex flex-wrap items-center gap-2"
       >
-        {layout.approve?.kind === "hold" && approval ? (
+        {allSent || verdict?.kind === "open-thread" ? null : layout.approve?.kind === "hold" &&
+          approval ? (
           <HoldToAllowButton
             size="default"
             reason={layout.approve.reason}
@@ -184,7 +211,7 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
             Approve
           </Button>
         ) : null}
-        {layout.decline ? (
+        {layout.decline && !allSent && verdict?.kind !== "open-thread" ? (
           <Button
             variant="outline"
             className={ACTION_CLASS}
@@ -194,7 +221,9 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
             Decline
           </Button>
         ) : null}
-        {moreOptions.length > 0 || feedbackAgent ? (
+        {(moreOptions.length > 0 || feedbackAgent) &&
+        !allSent &&
+        verdict?.kind !== "open-thread" ? (
           <Menu>
             <MenuTrigger
               disabled={busy}
@@ -222,7 +251,11 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
                 </MenuItem>
               ))}
               {feedbackAgent ? (
-                <MenuItem onClick={() => setDeclineMessageOpen(true)}>
+                <MenuItem
+                  onClick={() => {
+                    if (approval) setDeclineMessageFor(approval.requestId);
+                  }}
+                >
                   Decline with a message
                 </MenuItem>
               ) : null}

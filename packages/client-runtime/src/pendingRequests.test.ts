@@ -1,6 +1,7 @@
 import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  approvalWordingKind,
   derivePendingRequests,
   describePendingApprovalAsk,
   describePendingQuestionAsk,
@@ -46,6 +47,7 @@ describe("pending approvals", () => {
         {
           requestId: "per-legacy",
           requestKind: "command",
+          unnamedKind: true,
           createdAt: requested.createdAt,
           detail: "*",
         },
@@ -235,7 +237,7 @@ describe("pending approvals", () => {
     ]);
   });
 
-  it("derives dynamic tool requests as actionable generic approvals", () => {
+  it("derives dynamic tool and unknown requests as actionable approvals with generic wording", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "approval-open-dynamic-tool",
@@ -251,14 +253,31 @@ describe("pending approvals", () => {
       }),
     ];
 
-    expect(derivePendingRequests(activities).approvals).toEqual([
-      {
-        requestId: "req-dynamic-tool",
-        requestKind: "command",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        detail: "Search the web",
-      },
-    ]);
+    const [approval] = derivePendingRequests(activities).approvals;
+    // Still checked as a command for destructive wording, but never called one.
+    expect(approval).toEqual({
+      requestId: "req-dynamic-tool",
+      requestKind: "command",
+      unnamedKind: true,
+      createdAt: "2026-02-23T00:00:01.000Z",
+      detail: "Search the web",
+    });
+    expect(approvalWordingKind(approval!)).toBeNull();
+    expect(
+      describeShownApprovalAsk("OpenCode", approvalWordingKind(approval!), { index: 0, total: 1 }),
+    ).toBe("OpenCode is waiting for your approval");
+
+    const unknown = derivePendingRequests([
+      makeActivity({
+        id: "approval-open-unknown",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        tone: "approval",
+        payload: { requestId: "req-unknown", requestType: "teleport_approval" },
+      }),
+    ]).approvals[0];
+    expect(unknown?.unnamedKind).toBe(true);
   });
 
   it("clears stale pending approvals when provider reports unknown pending request", () => {
@@ -675,5 +694,44 @@ describe("describeShownApprovalAsk", () => {
     expect(describeShownApprovalAsk("Claude", "file-change", { index: 0, total: 1 })).toBe(
       "Claude wants to change files",
     );
+  });
+
+  it("words every kind, and a request with no known kind generically", () => {
+    const alone = { index: 0, total: 1 };
+    const among = { index: 1, total: 2 };
+    const cases = [
+      ["command", "wants to run 1 command", "wants to run this command · 2 of 2"],
+      ["file-read", "wants to read a file", "wants to read this file · 2 of 2"],
+      ["file-change", "wants to change files", "wants to make this change · 2 of 2"],
+      ["mcp-elicitation", "wants app access", "wants app access · 2 of 2"],
+      ["permission", "wants an app permission", "wants this app permission · 2 of 2"],
+      [null, "is waiting for your approval", "is waiting for your approval · 2 of 2"],
+    ] as const;
+    for (const [kind, single, several] of cases) {
+      expect(describeShownApprovalAsk("OpenCode", kind, alone)).toBe(`OpenCode ${single}`);
+      expect(describeShownApprovalAsk("OpenCode", kind, among)).toBe(`OpenCode ${several}`);
+    }
+  });
+
+  it("words every kind from the shell summary the same way", () => {
+    const base = { approvalCount: 1, userInputCount: 0, questionCount: 0, approvalKindCount: 1 };
+    expect(describePendingApprovalAsk("Codex", { ...base, approvalKind: "file-read" })).toBe(
+      "Codex wants to read a file",
+    );
+    expect(describePendingApprovalAsk("Codex", { ...base, approvalKind: "mcp-elicitation" })).toBe(
+      "Codex wants app access",
+    );
+    expect(describePendingApprovalAsk("Codex", { ...base, approvalKind: "permission" })).toBe(
+      "Codex wants an app permission",
+    );
+    expect(
+      describePendingApprovalAsk("OpenCode", { ...base, approvalKind: "dynamic_tool_call" }),
+    ).toBe("OpenCode is waiting for your approval");
+  });
+
+  it("words a subagent's unnamed request generically", () => {
+    expect(
+      describeSubagentUserRequest({ kind: "approval", requestKind: null, detail: "x" }),
+    ).toEqual({ text: "is waiting for your approval", code: "x" });
   });
 });

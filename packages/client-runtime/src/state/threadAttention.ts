@@ -229,6 +229,33 @@ export function formatAttentionAge(since: string, now: string): string {
 }
 
 /**
+ * How long something has run, for elapsed cues (a working row): "<1m" in the
+ * first minute, as boards 1 and 8 draw it, else as {@link formatAttentionAge}.
+ * A request's age keeps "now" ("asked just now").
+ */
+export function formatElapsedAge(since: string, now: string): string {
+  const age = formatAttentionAge(since, now);
+  return age === "now" ? "<1m" : age;
+}
+
+/**
+ * A request's age for a screen reader: "just now", "12 minutes ago",
+ * "2 hours 5 minutes ago", or past a day "since Tue".
+ */
+export function describeAttentionAgeSpoken(since: string, now: string): string {
+  const age = formatAttentionAge(since, now);
+  if (age === "" || age.startsWith("since ")) return age;
+  if (age === "now") return "just now";
+  const units = { h: "hour", m: "minute" } as const;
+  const words = age.split(" ").map((part) => {
+    const count = Number(part.slice(0, -1));
+    const unit = units[part.slice(-1) as keyof typeof units];
+    return `${count} ${unit}${count === 1 ? "" : "s"}`;
+  });
+  return `${words.join(" ")} ago`;
+}
+
+/**
  * Where "Go to next thread that needs you" lands: Blocked (Earlier
  * included), then To review, starting after the open thread and wrapping.
  * The open thread itself is skipped; null when nothing else is waiting.

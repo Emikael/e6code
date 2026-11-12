@@ -338,6 +338,14 @@ export interface ThreadListV2NeedsYouHeaderListItem {
   readonly count: number;
 }
 
+/** "Earlier · 3": threads blocked over a day, folded into one row (F1). */
+export interface ThreadListV2NeedsYouEarlierListItem {
+  readonly type: "v2-needs-you-earlier";
+  readonly key: "v2-needs-you-earlier";
+  readonly count: number;
+  readonly expanded: boolean;
+}
+
 /** One thread blocked on you, in the Needs you section. */
 export interface ThreadListV2NeedsYouListItem {
   readonly type: "v2-needs-you";
@@ -350,16 +358,26 @@ export interface ThreadListV2NeedsYouListItem {
 export type ThreadListV2ListItem =
   | ThreadListV2NeedsYouHeaderListItem
   | ThreadListV2NeedsYouListItem
+  | ThreadListV2NeedsYouEarlierListItem
   | ThreadListV2ThreadListItem
   | ThreadListV2PendingListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem;
 
+/** Needs you, split as F1 shows it: the last day's blocked threads, and older ones. */
+export interface ThreadListV2NeedsYou {
+  readonly blocked: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
+  readonly earlier: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
+}
+
+export const NO_NEEDS_YOU: ThreadListV2NeedsYou = { blocked: [], earlier: [] };
+
 /**
  * The Needs you section (F1, board 8): threads blocked on an approval, an
  * answer or a failure, from the shared attention selector, so web and mobile
  * agree on membership and order. Blocked tier only; To review needs visit
- * state mobile does not keep. Rows older than a day follow the recent ones.
+ * state mobile does not keep. Rows older than a day are kept apart, for the
+ * "Earlier" row.
  * Follows the list's environment and project scope, and steps aside while
  * searching. A thread keeps its normal row below, so the list stays a stable
  * map.
@@ -373,8 +391,8 @@ export function selectThreadListV2NeedsYou(input: {
   }> | null;
   readonly searchQuery: string;
   readonly now: string;
-}): ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>> {
-  if (input.searchQuery.trim().length > 0) return [];
+}): ThreadListV2NeedsYou {
+  if (input.searchQuery.trim().length > 0) return NO_NEEDS_YOU;
   const projectKeys = input.projectRefs
     ? new Set(input.projectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`))
     : null;
@@ -384,7 +402,33 @@ export function selectThreadListV2NeedsYou(input: {
       (projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
   const attention = selectThreadAttention(scoped, { now: input.now });
-  return [...attention.blocked, ...attention.earlier];
+  return { blocked: attention.blocked, earlier: attention.earlier };
+}
+
+/**
+ * The previous Needs you lists when nothing a row shows changed (each item's
+ * key, kind, since and thread are the same), so a minute tick that changes
+ * nothing does not rebuild the list.
+ */
+export function reuseThreadListV2NeedsYou(
+  previous: ThreadListV2NeedsYou,
+  next: ThreadListV2NeedsYou,
+): ThreadListV2NeedsYou {
+  const same = (
+    a: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>,
+    b: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>,
+  ) =>
+    a.length === b.length &&
+    a.every(
+      (item, index) =>
+        item.key === b[index]!.key &&
+        item.kind === b[index]!.kind &&
+        item.since === b[index]!.since &&
+        item.thread === b[index]!.thread,
+    );
+  return same(previous.blocked, next.blocked) && same(previous.earlier, next.earlier)
+    ? previous
+    : next;
 }
 
 /**
@@ -447,7 +491,9 @@ export function describeThreadListV2NeedsYou(
  */
 export function buildThreadListV2ListItems(input: {
   /** Leads the list under a "Needs you" header; see `selectThreadListV2NeedsYou`. */
-  readonly needsYou?: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
+  readonly needsYou?: ThreadListV2NeedsYou;
+  /** Opens the "Earlier" row into its threads. Collapsed by default. */
+  readonly needsYouEarlierExpanded?: boolean;
   readonly items: ReadonlyArray<ThreadListV2Item>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly snoozedCount?: number;
@@ -479,22 +525,39 @@ export function buildThreadListV2ListItems(input: {
   const settledShelfHeaderIndex = input.settledShelfHeaderIndex ?? null;
   const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? threadItems.length;
   const snoozedEnd = settledShelfHeaderIndex ?? threadItems.length;
-  const needsYou = input.needsYou ?? [];
-  const firstApproval = needsYou.find((item) => item.kind === "approval");
+  const { blocked, earlier } = input.needsYou ?? NO_NEEDS_YOU;
+  // The first recent approval opens with its actions; a day-old one does not.
+  const firstApproval = blocked.find((item) => item.kind === "approval");
+  const needsYouRow = (
+    item: ThreadAttentionItem<EnvironmentThreadShell>,
+  ): ThreadListV2ListItem => ({
+    type: "v2-needs-you",
+    key: `v2-needs-you:${item.key}`,
+    item,
+    expanded: item === firstApproval,
+  });
+  const earlierExpanded = input.needsYouEarlierExpanded === true;
   const result: ThreadListV2ListItem[] = [
-    ...(needsYou.length > 0
+    ...(blocked.length + earlier.length > 0
       ? [
           {
             type: "v2-needs-you-header" as const,
             key: "v2-needs-you-header" as const,
-            count: needsYou.length,
+            // Earlier threads are folded, still counted.
+            count: blocked.length + earlier.length,
           },
-          ...needsYou.map((item): ThreadListV2ListItem => ({
-            type: "v2-needs-you",
-            key: `v2-needs-you:${item.key}`,
-            item,
-            expanded: item === firstApproval,
-          })),
+          ...blocked.map(needsYouRow),
+          ...(earlier.length > 0
+            ? [
+                {
+                  type: "v2-needs-you-earlier" as const,
+                  key: "v2-needs-you-earlier" as const,
+                  count: earlier.length,
+                  expanded: earlierExpanded,
+                },
+                ...(earlierExpanded ? earlier.map(needsYouRow) : []),
+              ]
+            : []),
         ]
       : []),
     ...threadItems.slice(0, activeEnd),

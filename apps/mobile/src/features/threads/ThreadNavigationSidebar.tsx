@@ -846,6 +846,8 @@ function ThreadNavigationSidebarPane(
         previous.type === "v2-needs-you" ||
         item.type === "v2-needs-you-header" ||
         item.type === "v2-needs-you" ||
+        previous.type === "v2-needs-you-earlier" ||
+        item.type === "v2-needs-you-earlier" ||
         previous.type === "v2-thread" ||
         previous.type === "v2-show-more" ||
         previous.type === "v2-pending" ||

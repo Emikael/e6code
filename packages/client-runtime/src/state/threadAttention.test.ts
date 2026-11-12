@@ -3,7 +3,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   countOpenThreads,
+  describeAttentionAgeSpoken,
   formatAttentionAge,
+  formatElapsedAge,
   openThreadReminderText,
   isThreadFailed,
   nextNeedsYouTarget,
@@ -171,6 +173,23 @@ describe("isThreadFailed", () => {
     expect(
       isThreadFailed(shell("a", { sessionStatus: "running", turn: { state: "error", at: NOW } })),
     ).toBe(false);
+  });
+});
+
+describe("elapsed and spoken ages", () => {
+  it("reads <1m for elapsed time in the first minute, as boards 1 and 8 draw it", () => {
+    expect(formatElapsedAge("2026-04-10T11:59:30.000Z", NOW)).toBe("<1m");
+    expect(formatElapsedAge("2026-04-10T11:48:00.000Z", NOW)).toBe("12m");
+  });
+
+  it("speaks a request's age in words", () => {
+    expect(describeAttentionAgeSpoken("2026-04-10T11:59:30.000Z", NOW)).toBe("just now");
+    expect(describeAttentionAgeSpoken("2026-04-10T11:59:00.000Z", NOW)).toBe("1 minute ago");
+    expect(describeAttentionAgeSpoken("2026-04-10T11:48:00.000Z", NOW)).toBe("12 minutes ago");
+    expect(describeAttentionAgeSpoken("2026-04-10T09:55:00.000Z", NOW)).toBe(
+      "2 hours 5 minutes ago",
+    );
+    expect(describeAttentionAgeSpoken("2026-04-10T11:00:00.000Z", NOW)).toBe("1 hour ago");
   });
 });
 

@@ -31,6 +31,8 @@ interface ComposerPendingApprovalActionsProps {
     decision: ProviderApprovalDecision,
     feedback?: string,
   ) => Promise<unknown>;
+  /** "Sent. Waiting for Codex.": shown instead of the actions once answered. */
+  sentLabel?: string | null;
 }
 
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
@@ -40,6 +42,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   declineFeedback = null,
   destructive = null,
   onRespondToApproval,
+  sentLabel = null,
 }: ComposerPendingApprovalActionsProps) {
   const feedbackDraft = declineFeedback?.draft ?? null;
   const primaryOptions = options.filter(
@@ -53,6 +56,14 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   const respond = (decision: ProviderApprovalDecision, feedback?: string) => {
     if (activationAllowed()) void onRespondToApproval(requestId, decision, feedback);
   };
+
+  if (sentLabel !== null) {
+    return (
+      <span key={requestId} role="status" className="text-xs text-muted-foreground">
+        {sentLabel}
+      </span>
+    );
+  }
 
   return (
     <Fragment key={requestId}>

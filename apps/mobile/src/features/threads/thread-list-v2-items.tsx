@@ -57,7 +57,9 @@ import {
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import {
+  describeAttentionAgeSpoken,
   formatAttentionAge,
+  formatElapsedAge,
   type ThreadAttentionItem,
 } from "@e6tools/client-runtime/state/thread-attention";
 import { useMinuteClock } from "../../lib/useMinuteClock";
@@ -205,18 +207,56 @@ export const ThreadListV2NeedsYouHeader = memo(function ThreadListV2NeedsYouHead
   readonly count: number;
 }) {
   return (
-    <View accessibilityRole="header" className="mb-2 mt-4 flex-row items-center gap-2 px-4">
+    // One element for screen readers: "Needs you, 2 blocked", read as a header.
+    <View
+      accessible
+      accessibilityRole="header"
+      accessibilityLabel={`Needs you, ${props.count} blocked`}
+      className="mb-2 mt-4 flex-row items-center gap-2 px-4"
+    >
       <Text className="flex-1 text-[13px] leading-[18px] font-e6-medium text-foreground">
         Needs you
       </Text>
-      <View
-        accessibilityLabel={`${props.count} blocked`}
-        className="h-5 min-w-5 items-center justify-center rounded bg-warning px-1.5"
-      >
+      <View className="h-5 min-w-5 items-center justify-center rounded bg-warning px-1.5">
         <Text className="text-[11px] leading-[14px] font-e6-medium text-warning-foreground tabular-nums">
           {props.count}
         </Text>
       </View>
+    </View>
+  );
+});
+
+/**
+ * "Earlier · 3": threads blocked for more than a day, folded into one row
+ * (F1). Tapping opens them below it; they stay counted in the header.
+ */
+export const ThreadListV2NeedsYouEarlierRow = memo(function ThreadListV2NeedsYouEarlierRow(props: {
+  readonly count: number;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+}) {
+  return (
+    <View className="px-4 pb-2">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Earlier, ${props.count} blocked for over a day`}
+        accessibilityHint={props.expanded ? "Hides them." : "Shows them."}
+        accessibilityState={{ expanded: props.expanded }}
+        onPress={props.onToggle}
+        className="min-h-11 flex-row items-center gap-2 rounded-xl border border-border px-3.5 py-2.5"
+        style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      >
+        <Text className="flex-1 text-sm font-e6-medium text-foreground-secondary">
+          {`Earlier · ${props.count}`}
+        </Text>
+        <SymbolView
+          name="chevron.down"
+          size={12}
+          tintColorClassName="accent-icon-muted"
+          type="monochrome"
+          style={{ transform: [{ rotate: props.expanded ? "180deg" : "0deg" }] }}
+        />
+      </Pressable>
     </View>
   );
 });
@@ -256,7 +296,12 @@ function NeedsYouGlyph(props: {
  */
 export function WholeMinutesSince(props: { readonly since: string; readonly prefix?: string }) {
   const nowMs = useMinuteClock(true);
-  const age = formatAttentionAge(props.since, new Date(nowMs).toISOString());
+  const now = new Date(nowMs).toISOString();
+  // Elapsed time reads "<1m" at first (board 8); a request's age reads "just now".
+  const age =
+    props.prefix === undefined
+      ? formatElapsedAge(props.since, now)
+      : formatAttentionAge(props.since, now);
   if (!age) return null;
   const text =
     props.prefix === undefined
@@ -283,14 +328,32 @@ export function WholeMinutesSince(props: { readonly since: string; readonly pref
 export const ThreadListV2NeedsYouRow = memo(function ThreadListV2NeedsYouRow(props: {
   readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  /** Replaces the detail: "Sent. Waiting for Codex." once every request is answered. */
+  readonly note?: string;
 }) {
   const { item, onSelectThread } = props;
-  const caption = describeThreadListV2NeedsYou(item, threadAgentName(item.thread));
+  const described = describeThreadListV2NeedsYou(item, threadAgentName(item.thread));
+  const caption = props.note === undefined ? described : { ...described, detail: props.note };
+  // The label carries everything under the Pressable: what is asked and how long ago.
+  const nowMs = useMinuteClock(true);
+  const age = describeAttentionAgeSpoken(item.since, new Date(nowMs).toISOString());
+  const label = [
+    item.thread.title,
+    caption.status,
+    caption.detail,
+    age.startsWith("since ")
+      ? `waiting ${age}`
+      : age
+        ? `${item.kind === "failed" ? "failed" : "asked"} ${age}`
+        : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <View className="px-4 pb-2">
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${item.thread.title}, ${caption.status}`}
+        accessibilityLabel={label}
         accessibilityHint="Opens the thread."
         onPress={() => onSelectThread(item.thread)}
         className="min-h-16 flex-row items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3"

@@ -9,6 +9,7 @@ import { scopeThreadRef } from "@e6tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
 import {
   formatAttentionAge,
+  formatElapsedAge,
   type ThreadAttentionItem,
 } from "@e6tools/client-runtime/state/thread-attention";
 import {
@@ -186,7 +187,10 @@ export function DraftHeroFooter({
                     "The agent"
                   }
                   fact={blockedFact(item)}
-                  cue={<AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />}
+                  since={item.since}
+                  renderCue={(since) => (
+                    <AttentionCue verb={attentionCueVerb(item.kind)} since={since} />
+                  )}
                   onOpen={() => openThread(item.thread)}
                 />
               ) : (
@@ -378,11 +382,11 @@ function AttentionCue({ verb, since }: { verb: string; since: string }) {
 function WorkingCue({ startedAt }: { startedAt: string }) {
   const nowMinute = useNowMinute();
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
-  const age = formatAttentionAge(startedAt, minuteToIso(nowMinute));
+  const age = formatElapsedAge(startedAt, minuteToIso(nowMinute));
   if (age === "") return null;
   const label = age.startsWith("since ")
     ? age
-    : `${age === "now" ? "<1m" : age} · since ${formatShortTimestamp(startedAt, timestampFormat)}`;
+    : `${age} · since ${formatShortTimestamp(startedAt, timestampFormat)}`;
   return <span className={TIME_CUE_CLASS}>{label}</span>;
 }
 

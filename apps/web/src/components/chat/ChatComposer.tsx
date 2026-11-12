@@ -1437,6 +1437,8 @@ export interface ChatComposerProps {
   activePendingDraftAnswers: Record<string, PendingUserInputDraftAnswer>;
   activePendingQuestionIndex: number;
   respondingRequestIds: ApprovalRequestId[];
+  /** "Sent. Waiting for Codex." once the shown approval is answered, until it resolves. */
+  approvalSentLabel?: string | null;
 
   // Plan
   showPlanFollowUpPrompt: boolean;
@@ -1584,6 +1586,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activePendingDraftAnswers,
     activePendingQuestionIndex,
     respondingRequestIds,
+    approvalSentLabel = null,
     showPlanFollowUpPrompt,
     activeProposedPlan,
     runtimeMode,
@@ -6211,6 +6214,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             : null
                         }
                         onRespondToApproval={onRespondToApproval}
+                        sentLabel={approvalSentLabel}
                       />
                     </ComposerBanner.Actions>
                   </ComposerBanner.Row>

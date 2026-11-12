@@ -50,6 +50,7 @@ import {
 } from "../threads/thread-list-items";
 import {
   ThreadListV2PendingRow,
+  ThreadListV2NeedsYouEarlierRow,
   ThreadListV2NeedsYouHeader,
   ThreadListV2NeedsYouRow,
   ThreadListV2Row,
@@ -58,17 +59,22 @@ import {
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
+import { ApprovalAnswerNotice } from "./ApprovalAnswerNotice";
 import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  NO_NEEDS_YOU,
+  reuseThreadListV2NeedsYou,
   selectThreadListV2NeedsYou,
+  type ThreadListV2NeedsYou,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
 } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
+import { useAttentionPreferences } from "../threads/use-attention-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   buildHomeListLayout,
@@ -775,11 +781,15 @@ export function HomeScreen(props: HomeScreenProps) {
       ),
     [props.pendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
   );
-  // Blocked threads lead the list (F1). Recomputed with the list's minute tick,
-  // so a request turning a day old moves without waiting for new data.
-  const threadListV2NeedsYou = useMemo(
-    () =>
-      threadListV2Enabled
+  // Blocked threads lead the list (F1), unless turned off in Settings → Thread
+  // behavior. Recomputed with the list's minute tick, so a request turning a
+  // day old moves to Earlier without waiting for new data; a tick that changes
+  // nothing keeps the previous lists, so the list items are not rebuilt.
+  const { needsYouSectionEnabled } = useAttentionPreferences();
+  const previousNeedsYou = useRef<ThreadListV2NeedsYou>(NO_NEEDS_YOU);
+  const threadListV2NeedsYou = useMemo(() => {
+    const next =
+      threadListV2Enabled && needsYouSectionEnabled
         ? selectThreadListV2NeedsYou({
             threads: props.threads,
             environmentId: props.selectedEnvironmentId,
@@ -787,20 +797,29 @@ export function HomeScreen(props: HomeScreenProps) {
             searchQuery: props.searchQuery,
             now: new Date().toISOString(),
           })
-        : [],
-    [
-      nowMinute,
-      props.searchQuery,
-      props.selectedEnvironmentId,
-      props.threads,
-      threadListV2Enabled,
-      v2ScopedProjectGroup,
-    ],
+        : NO_NEEDS_YOU;
+    const kept = reuseThreadListV2NeedsYou(previousNeedsYou.current, next);
+    previousNeedsYou.current = kept;
+    return kept;
+  }, [
+    nowMinute,
+    needsYouSectionEnabled,
+    props.searchQuery,
+    props.selectedEnvironmentId,
+    props.threads,
+    threadListV2Enabled,
+    v2ScopedProjectGroup,
+  ]);
+  const [needsYouEarlierExpanded, setNeedsYouEarlierExpanded] = useState(false);
+  const toggleNeedsYouEarlier = useCallback(
+    () => setNeedsYouEarlierExpanded((expanded) => !expanded),
+    [],
   );
   const threadListV2Items = useMemo(
     () =>
       buildThreadListV2ListItems({
         needsYou: threadListV2NeedsYou,
+        needsYouEarlierExpanded,
         items: threadListV2Layout.items,
         pendingTasks: v2PendingTasks,
         snoozedCount: threadListV2Layout.snoozedCount,
@@ -816,6 +835,7 @@ export function HomeScreen(props: HomeScreenProps) {
       snoozedShelfExpanded,
       threadListV2Layout,
       threadListV2NeedsYou,
+      needsYouEarlierExpanded,
       v2PendingTasks,
     ],
   );
@@ -833,6 +853,15 @@ export function HomeScreen(props: HomeScreenProps) {
         (nextItem?.type === "v2-pending" && !nextItem.showPendingDivider);
       if (item.type === "v2-needs-you-header") {
         return <ThreadListV2NeedsYouHeader count={item.count} />;
+      }
+      if (item.type === "v2-needs-you-earlier") {
+        return (
+          <ThreadListV2NeedsYouEarlierRow
+            count={item.count}
+            expanded={item.expanded}
+            onToggle={toggleNeedsYouEarlier}
+          />
+        );
       }
       if (item.type === "v2-needs-you") {
         return item.expanded ? (
@@ -949,6 +978,7 @@ export function HomeScreen(props: HomeScreenProps) {
     },
     [
       handleDeleteThread,
+      toggleNeedsYouEarlier,
       activeReorderEnvironmentIds,
       threadMovePlanners,
       pendingOrder,
@@ -1300,6 +1330,13 @@ export function HomeScreen(props: HomeScreenProps) {
               }}
             />
           </SwipeableScrollGateProvider>
+          <ApprovalAnswerNotice
+            bottom={
+              Platform.OS === "ios"
+                ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
+                : Math.max(insets.bottom, 16) + 88
+            }
+          />
         </View>
       </View>
     );

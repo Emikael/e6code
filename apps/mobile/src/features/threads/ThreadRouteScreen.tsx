@@ -1149,7 +1149,7 @@ function ThreadRouteContent(
           activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
           subagentRequests={requests.subagentRequests}
           activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
-          respondingApprovalId={requests.respondingApprovalId}
+          activeApprovalAnswerState={requests.activeApprovalAnswerState}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
           activePendingUserInputAnswers={requests.activePendingUserInputAnswers}

@@ -1,20 +1,21 @@
 /**
  * Board 8's first Needs you card: the first thread waiting on an approval,
  * expanded with Approve, Decline and More. It subscribes to that one thread's
- * detail while shown. A destructive command, or a request still loading,
- * shows the ordinary row, which opens the thread.
+ * detail while shown. A destructive command, a detail too long to show
+ * whole, or a request still loading shows the ordinary row, which opens the
+ * thread; once every request is answered, the row says it was sent.
  */
 import {
   approvalActivationAllowed,
   approvalAnswerAnnouncement,
-  pruneAnsweredRequestIds,
+  approvalSentLabel,
 } from "@e6tools/client-runtime/approval-answers";
 import { derivePendingRequests } from "@e6tools/client-runtime/pending-requests";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import type { ThreadAttentionItem } from "@e6tools/client-runtime/state/thread-attention";
-import type { ApprovalRequestId, ProviderApprovalDecision } from "@e6tools/contracts";
+import type { ProviderApprovalDecision } from "@e6tools/contracts";
 import * as Option from "effect/Option";
-import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import { AccessibilityInfo, Pressable, ScrollView, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -22,6 +23,7 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { threadEnvironment, useEnvironmentThread } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { sendApprovalAnswer, useApprovalAnswers } from "../../state/use-approval-answers";
 import {
   BlockedDiamond,
   ThreadListV2NeedsYouRow,
@@ -29,10 +31,12 @@ import {
 } from "../threads/thread-list-v2-items";
 import { THREAD_LIST_V2_MONO_FONT as MONO_FONT } from "../threads/thread-list-v2-row-appearance";
 import { threadAgentName } from "../threads/threadListV2";
+import { showApprovalAnswerNotice } from "./ApprovalAnswerNotice";
 import { homeApprovalCardModel } from "./home-approval-card";
 
-const NO_ANSWERED: ReadonlySet<ApprovalRequestId> = new Set();
 const NO_ACTIVITIES: never[] = [];
+// Eight 20pt lines plus padding: the longest detail answered here fits whole.
+const DETAIL_MAX_HEIGHT = 180;
 
 export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
   readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
@@ -45,21 +49,22 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
     onSome: (detail) => detail.activities,
   });
   const approvals = useMemo(() => derivePendingRequests(activities).approvals, [activities]);
-  // Answered requests stay in the detail until the provider resolves them.
-  const [answeredAll, setAnswered] = useState(NO_ANSWERED);
-  const answered = useMemo(
-    () =>
-      pruneAnsweredRequestIds(
-        answeredAll,
-        approvals.map((approval) => approval.requestId),
-      ),
-    [answeredAll, approvals],
+  const pendingRequestIds = useMemo(
+    () => approvals.map((approval) => approval.requestId),
+    [approvals],
   );
-  const [inFlight, setInFlight] = useState<ApprovalRequestId | null>(null);
+  // Answered here, in the thread or on another card: the client-wide store says.
+  const { key: answersKey, answered } = useApprovalAnswers({
+    environmentId: thread.environmentId,
+    threadId: thread.id,
+    pendingRequestIds,
+    pendingKnown: Option.isSome(detailState.data),
+  });
+  const agent = threadAgentName(thread);
   const model = homeApprovalCardModel({
     approvals,
     answered,
-    provider: threadAgentName(thread),
+    provider: agent,
     threadTitle: thread.title,
   });
   const shownRequestId = model.kind === "card" ? model.approval.requestId : null;
@@ -72,24 +77,30 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
     label: "thread approval response",
   });
 
-  if (model.kind === "open-thread") {
-    return <ThreadListV2NeedsYouRow item={props.item} onSelectThread={props.onSelectThread} />;
+  if (model.kind !== "card") {
+    return (
+      <ThreadListV2NeedsYouRow
+        item={props.item}
+        onSelectThread={props.onSelectThread}
+        {...(model.kind === "sent" ? { note: approvalSentLabel(agent) } : {})}
+      />
+    );
   }
 
   const { approval } = model;
-  const busy = inFlight === approval.requestId;
   const answer = (decision: ProviderApprovalDecision) => {
-    if (busy || !approvalActivationAllowed(shownAt.current, performance.now())) return;
-    setInFlight(approval.requestId);
-    void respondToApproval({
-      environmentId: thread.environmentId,
-      input: { threadId: thread.id, requestId: approval.requestId, decision },
-    }).then((result) => {
-      setInFlight((current) => (current === approval.requestId ? null : current));
-      if (result._tag !== "Success") return;
-      setAnswered((current) => new Set(current).add(approval.requestId));
+    if (!approvalActivationAllowed(shownAt.current, performance.now())) return;
+    void sendApprovalAnswer(answersKey, approval.requestId, () =>
+      respondToApproval({
+        environmentId: thread.environmentId,
+        input: { threadId: thread.id, requestId: approval.requestId, decision },
+      }),
+    ).then((result) => {
+      if (result?._tag !== "Success") return;
       // The card simply goes, so say what happened.
-      AccessibilityInfo.announceForAccessibility(approvalAnswerAnnouncement(decision, model.what));
+      const announcement = approvalAnswerAnnouncement(decision, model.what);
+      showApprovalAnswerNotice(announcement);
+      AccessibilityInfo.announceForAccessibility(announcement);
     });
   };
 
@@ -114,20 +125,22 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
               {thread.title}
             </Text>
           </Pressable>
-          <WholeMinutesSince since={props.item.since} prefix="asked" />
+          {/* The age of the request shown, not of the oldest one. */}
+          <WholeMinutesSince since={approval.createdAt} prefix="asked" />
         </View>
         <Text className="text-base leading-6 text-foreground">{model.headline}</Text>
         {approval.detail ? (
+          // Every line, wrapped: nobody approves what they did not read. The
+          // model sends anything longer than this shows whole to the thread.
           <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled
             className="rounded-lg bg-subtle"
+            style={{ maxHeight: DETAIL_MAX_HEIGHT }}
             contentContainerClassName="px-3 py-2.5"
           >
             <Text
               className="text-[13px] leading-5 text-foreground"
               style={{ fontFamily: MONO_FONT }}
-              numberOfLines={1}
             >
               {approval.detail}
             </Text>
@@ -136,26 +149,28 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
         {/* Keyed by request: a press that began on an answered request never
             lands on the one that replaces it. Nothing here answers to a key. */}
         <View key={approval.requestId} className="flex-row items-center gap-2">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy }}
-            disabled={busy}
-            onPress={() => answer("accept")}
-            className="h-11 flex-1 items-center justify-center rounded-[10px] border border-primary-edge bg-primary px-4"
-            style={({ pressed }) => ({ opacity: busy ? 0.5 : pressed ? 0.8 : 1 })}
-          >
-            <Text className="text-[15px] font-e6-medium text-primary-foreground">Approve</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy }}
-            disabled={busy}
-            onPress={() => answer("decline")}
-            className="h-11 items-center justify-center rounded-[10px] border border-input-border bg-card px-4"
-            style={({ pressed }) => ({ opacity: busy ? 0.5 : pressed ? 0.7 : 1 })}
-          >
-            <Text className="text-[15px] font-e6-medium text-foreground">Decline</Text>
-          </Pressable>
+          {model.approve ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => answer("accept")}
+              className="h-11 flex-1 items-center justify-center rounded-[10px] border border-primary-edge bg-primary px-4"
+              style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+            >
+              <Text className="text-[15px] font-e6-medium text-primary-foreground">Approve</Text>
+            </Pressable>
+          ) : null}
+          {model.decline ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => answer("decline")}
+              className="h-11 items-center justify-center rounded-[10px] border border-input-border bg-card px-4"
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text className="text-[15px] font-e6-medium text-foreground">Decline</Text>
+            </Pressable>
+          ) : null}
+          {/* Board 8 always draws More; it is left out when the provider
+              offers nothing for it, as an empty menu helps no one. */}
           {model.more.length > 0 ? (
             <ControlPillMenu
               accessible

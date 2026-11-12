@@ -1,14 +1,16 @@
 /**
  * "Where you left off" above the composer (board 9, F4). Decided once when
- * the thread's log has loaded, then held still while the agent keeps working.
- * The visit is recorded when you open the thread and again when you leave it
- * or the app goes to the background.
+ * the thread's log, the stored visits and the device's recap setting have
+ * all loaded (a thread opened from a notification on a cold launch waits for
+ * them), then held still while the agent keeps working. The visit is
+ * recorded once visits are loaded, and again when you leave the thread or the
+ * app goes to the background.
  */
 import { useAtomValue } from "@effect/atom-react";
 import type { ThreadRecap } from "@e6tools/client-runtime/work-log/thread-recap";
 import { parkedNoteId, type EnvironmentId, type ThreadId } from "@e6tools/contracts";
 import * as Option from "effect/Option";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AppState, Pressable, View } from "react-native";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 
@@ -17,6 +19,8 @@ import { AppText as Text } from "../../components/AppText";
 import {
   readThreadVisit,
   recordThreadVisit,
+  subscribeThreadVisitsLoaded,
+  threadVisitsLoaded,
   type ThreadVisit,
 } from "../../persistence/thread-visits";
 import { parkedListsAtom } from "../../state/parked";
@@ -29,10 +33,12 @@ import {
   latestRecapActivityAt,
   type RecapThreadDetail,
 } from "./thread-recap";
+import { useAttentionPreferences } from "./use-attention-preferences";
 
 interface RecapHostState {
   readonly threadKey: string;
-  readonly previous: ThreadVisit | null;
+  /** Undefined until stored visits have loaded. */
+  readonly previous: ThreadVisit | null | undefined;
   /** Undefined until the thread's log has loaded and the recap was decided. */
   readonly recap: ThreadRecap | null | undefined;
 }
@@ -56,26 +62,35 @@ export function ThreadRecapHost(props: {
   /** False while another card owns the space above the composer. */
   readonly visible: boolean;
   readonly onOpenChanges: () => void;
+  /** Scrolls the feed to the message "You asked" quotes. */
+  readonly onRevealAsk: (messageId: string) => void;
 }) {
   const { environmentId, threadId } = props;
+  const visitsLoaded = useSyncExternalStore(subscribeThreadVisitsLoaded, threadVisitsLoaded);
+  const attention = useAttentionPreferences();
   const threadKey = `${environmentId}:${threadId}`;
   const detailState = useSelectedThreadDetailState();
   const detail = Option.getOrNull(detailState.data);
   const ready = detailState.status === "live" && detail !== null && detail.id === threadId;
   const note = useThreadNote(threadId);
 
+  const readPrevious = () => (visitsLoaded ? readThreadVisit(environmentId, threadId) : undefined);
   const [state, setState] = useState<RecapHostState>(() => ({
     threadKey,
-    previous: readThreadVisit(environmentId, threadId),
+    previous: readPrevious(),
     recap: undefined,
   }));
   // A new thread starts over, reading its previous visit before this one is recorded.
   let current = state;
   if (current.threadKey !== threadKey) {
-    current = { threadKey, previous: readThreadVisit(environmentId, threadId), recap: undefined };
+    current = { threadKey, previous: readPrevious(), recap: undefined };
     setState(current);
   }
-  if (ready && current.recap === undefined) {
+  if (current.previous === undefined && visitsLoaded) {
+    current = { ...current, previous: readThreadVisit(environmentId, threadId) };
+    setState(current);
+  }
+  if (ready && attention.loaded && current.previous !== undefined && current.recap === undefined) {
     // Decided once per visit, so the clock is read here rather than subscribed to.
     current = {
       ...current,
@@ -83,6 +98,7 @@ export function ThreadRecapHost(props: {
         detail,
         previous: current.previous,
         nowMs: Date.now(),
+        trigger: attention.recapTrigger,
         provider: props.provider,
         note,
       }),
@@ -97,6 +113,8 @@ export function ThreadRecapHost(props: {
   } | null>(null);
   if (ready) detailRef.current = { threadId, detail };
   useEffect(() => {
+    // Recording before stored visits load would hide the previous visit.
+    if (!visitsLoaded) return;
     const record = () => {
       // Leaving one thread for another: the ref may already hold the next one's log.
       const seen = detailRef.current?.threadId === threadId ? detailRef.current.detail : null;
@@ -115,7 +133,7 @@ export function ThreadRecapHost(props: {
       subscription.remove();
       record();
     };
-  }, [environmentId, threadId]);
+  }, [environmentId, threadId, visitsLoaded]);
 
   if (!current.recap || !props.visible) return null;
   return (
@@ -128,6 +146,7 @@ export function ThreadRecapHost(props: {
         recap={current.recap}
         onDismiss={() => setState({ ...current, recap: null })}
         onOpenChanges={props.onOpenChanges}
+        onRevealAsk={props.onRevealAsk}
       />
     </Animated.View>
   );
@@ -147,8 +166,10 @@ export function ThreadRecapCard(props: {
   readonly recap: ThreadRecap;
   readonly onDismiss: () => void;
   readonly onOpenChanges: () => void;
+  readonly onRevealAsk: (messageId: string) => void;
 }) {
   const { recap } = props;
+  const changedFiles = recap.sinceThen?.files.length ?? 0;
   const files = recap.sinceThen
     ? formatRecapFiles(recap.sinceThen.files, recap.sinceThen.moreFiles)
     : null;
@@ -181,11 +202,19 @@ export function ThreadRecapCard(props: {
         </Pressable>
       </View>
       {recap.youAsked ? (
-        <RecapRow label="You asked">
-          <Text className="text-[15px] leading-[22px] text-foreground" numberOfLines={3}>
-            {recap.youAsked.text}
-          </Text>
-        </RecapRow>
+        // Tapping it scrolls the feed to the message (F4).
+        <Pressable
+          accessibilityRole="button"
+          accessibilityHint="Scrolls to your message."
+          onPress={() => props.onRevealAsk(recap.youAsked!.messageId)}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
+          <RecapRow label="You asked">
+            <Text className="text-[15px] leading-[22px] text-foreground" numberOfLines={3}>
+              {recap.youAsked.text}
+            </Text>
+          </RecapRow>
+        </Pressable>
       ) : null}
       {recap.sinceThen ? (
         <RecapRow label={`Changed since ${formatRecapSince(recap.since, Date.now())}`}>
@@ -212,16 +241,20 @@ export function ThreadRecapCard(props: {
           </Text>
         </RecapRow>
       ) : null}
-      {recap.sinceThen && recap.sinceThen.files.length > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={props.onOpenChanges}
-          className="h-11 items-center justify-center rounded-[10px] border border-input-border bg-card px-4"
-          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-        >
-          <Text className="text-[15px] font-e6-medium text-foreground">Changes so far</Text>
-        </Pressable>
-      ) : null}
+      {/* Board 9 always draws this button. With no files changed it stays,
+          disabled, in the header slot's words for none (F5). */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: changedFiles === 0 }}
+        disabled={changedFiles === 0}
+        onPress={props.onOpenChanges}
+        className="h-11 items-center justify-center rounded-[10px] border border-input-border bg-card px-4"
+        style={({ pressed }) => ({ opacity: changedFiles === 0 ? 0.5 : pressed ? 0.7 : 1 })}
+      >
+        <Text className="text-[15px] font-e6-medium text-foreground">
+          {changedFiles === 0 ? "No changes yet" : "Changes so far"}
+        </Text>
+      </Pressable>
     </View>
   );
 }

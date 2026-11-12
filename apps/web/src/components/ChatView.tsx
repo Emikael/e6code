@@ -13,6 +13,7 @@ import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { useApprovalResponder, useApprovalSwapGuard } from "./chat/useApprovalResponder";
+import { approvalSentLabel } from "./chat/approvalActions";
 import { ThreadHandoffDialog } from "./chat/ThreadHandoffDialog";
 import { useThreadStopCommandsStore } from "./chat/threadStopCommands";
 import {
@@ -24,7 +25,8 @@ import {
 } from "@e6tools/client-runtime/state/thread-handoff";
 import {
   derivePendingRequests,
-  SUBAGENT_APPROVAL_PHRASE,
+  approvalPhrase,
+  approvalWordingKind,
   subagentUserRequests,
 } from "@e6tools/client-runtime/pending-requests";
 import {
@@ -9382,12 +9384,24 @@ export default function ChatView(props: ChatViewProps) {
     () => pendingApprovals.map((approval) => approval.requestId),
     [pendingApprovals],
   );
-  const { respondingRequestIds, respond: onRespondToApproval } = useApprovalResponder({
+  const {
+    respondingRequestIds,
+    sentRequestIds,
+    respond: onRespondToApproval,
+  } = useApprovalResponder({
     environmentId,
     threadId: activeThreadId ?? null,
     pendingRequestIds: pendingApprovalIds,
+    // A thread still loading is built from its shell with no activities.
+    pendingKnown: serverThread != null,
     onError: setThreadError,
   });
+  // An answered request stays until the provider resolves it; say so, so it
+  // does not read as a stuck control.
+  const activeApprovalSentLabel =
+    activePendingApproval !== null && sentRequestIds.includes(activePendingApproval.requestId)
+      ? approvalSentLabel(recapSource.provider)
+      : null;
   // The frontier card's Decline and Approve ignore a click just after the
   // shown request changes; the composer's own controls guard themselves.
   const frontierApprovalAllowed = useApprovalSwapGuard(activePendingApproval?.requestId ?? null);
@@ -10871,7 +10885,7 @@ export default function ChatView(props: ChatViewProps) {
                             <span className="font-medium text-foreground">
                               {activePendingApproval
                                 ? activePendingApprovalAgentTitle
-                                  ? `${activePendingApprovalAgentTitle} ${SUBAGENT_APPROVAL_PHRASE[activePendingApproval.requestKind]}`
+                                  ? `${activePendingApprovalAgentTitle} ${approvalPhrase(approvalWordingKind(activePendingApproval))}`
                                   : "Approval required at turn frontier"
                                 : pendingUserInputs.length > 0
                                   ? activePendingUserInputAgentTitle
@@ -10886,7 +10900,11 @@ export default function ChatView(props: ChatViewProps) {
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
-                            {activePendingApproval ? (
+                            {activePendingApproval && activeApprovalSentLabel !== null ? (
+                              <span role="status" className="text-muted-foreground">
+                                {activeApprovalSentLabel}
+                              </span>
+                            ) : activePendingApproval ? (
                               // Keyed by request, so a press that began on an answered
                               // request never lands on the one that replaces it.
                               <Fragment key={activePendingApproval.requestId}>
@@ -11194,6 +11212,7 @@ export default function ChatView(props: ChatViewProps) {
                             activePendingDraftAnswers={activePendingDraftAnswers}
                             activePendingQuestionIndex={activePendingQuestionIndex}
                             respondingRequestIds={respondingRequestIds}
+                            approvalSentLabel={activeApprovalSentLabel}
                             showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                             activeProposedPlan={activeProposedPlan}
                             threadSyncPhase={activeEnvironmentUnavailable ? null : threadSyncPhase}

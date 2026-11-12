@@ -21,6 +21,25 @@ const CACHE_SCHEMA_VERSION = 1;
 
 const visits = new Map<string, ThreadVisit>();
 let database: MobileDatabase.MobileDatabase["Service"] | undefined;
+// False until the stored visits are read (or could not be): a thread opened
+// before then, say from a notification on a cold launch, waits for them.
+let loaded = false;
+const loadedListeners = new Set<() => void>();
+const markLoaded = () => {
+  if (loaded) return;
+  loaded = true;
+  for (const listener of loadedListeners) listener();
+};
+
+/** Whether stored visits have been read; for `useSyncExternalStore`. */
+export function threadVisitsLoaded(): boolean {
+  return loaded;
+}
+
+export function subscribeThreadVisitsLoaded(listener: () => void): () => void {
+  loadedListeners.add(listener);
+  return () => loadedListeners.delete(listener);
+}
 
 const visitKey = (environmentId: EnvironmentId, threadId: ThreadId) =>
   `${environmentId}:${threadId}`;
@@ -68,7 +87,8 @@ export function attachThreadVisitDatabase(service: MobileDatabase.MobileDatabase
         if (visit && key && !visits.has(key)) visits.set(key, visit);
       }
     })
-    .catch(() => undefined);
+    .catch(() => undefined)
+    .finally(markLoaded);
 }
 
 export function readThreadVisit(
