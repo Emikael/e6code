@@ -300,6 +300,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     "--sidebar-width": `${sidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...controlsPlacement,
+    // Focus mode has no sidebar control to make room for (board 3); the header keeps only its
+    // usual inset, or the window controls' where they sit at the left.
+    ...(focusModeActive
+      ? { "--workspace-titlebar-content-left": "max(1.25rem, var(--workspace-controls-left))" }
+      : {}),
   } as CSSProperties;
 
   useEffect(() => {
