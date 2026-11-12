@@ -24,7 +24,8 @@ interface CheckpointLike {
   readonly status: string;
   readonly files: ReadonlyArray<{
     readonly path: string;
-    /** "added", "deleted" or "modified"; a path this list does not know reads as modified. */
+    /** Git's word for the change ("added", "deleted", "renamed", "copied", "modified"…); older
+     * servers send "modified" for every file, and a word this list does not know reads as modified. */
     readonly kind?: string;
     readonly additions: number;
     readonly deletions: number;
@@ -32,6 +33,8 @@ interface CheckpointLike {
 }
 
 const NEW_KINDS = new Set(["added", "untracked"]);
+// A copy's destination is a file the turn created.
+const CHECKPOINT_NEW_KINDS = new Set(["added", "copied"]);
 
 /**
  * Merges the working tree with the thread's checkpoints into the files the thread has touched.
@@ -63,7 +66,7 @@ export function mergeThreadChangedFiles(input: {
         repositoryPath: file.path,
         additions: file.additions,
         deletions: file.deletions,
-        isNew: file.kind === "added" || (previous?.isNew ?? false),
+        isNew: CHECKPOINT_NEW_KINDS.has(file.kind ?? "") || (previous?.isNew ?? false),
         diff: { kind: "turn", turnId: checkpoint.turnId },
       });
     }
