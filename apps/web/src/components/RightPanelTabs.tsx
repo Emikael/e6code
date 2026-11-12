@@ -1643,7 +1643,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             hideScrollbars
             scrollFade
             // Sized to its tabs so Add sits beside them; shrinks and scrolls when they do not fit.
-            className="w-auto min-w-0 flex-initial"
+            // Square, so the track's rounding does not clip the end tabs' corners.
+            className="w-auto min-w-0 flex-initial rounded-none"
             data-right-panel-tab-list
           >
             <div className="flex h-full w-max min-w-full items-center gap-0.5">
