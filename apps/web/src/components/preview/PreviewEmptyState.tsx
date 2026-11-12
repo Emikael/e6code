@@ -52,7 +52,7 @@ export function PreviewEmptyState({
       >
         <span aria-hidden className="size-2 shrink-0 rounded-full bg-foreground" />
         <span className="shrink-0 font-medium text-[13px]">{serverName(server)}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-xs">
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground tabular-nums leading-[14px]">
           {`${server.host}:${server.port}`}
         </span>
         <span className="shrink-0 font-medium text-foreground text-xs">Running</span>
@@ -72,7 +72,7 @@ export function PreviewEmptyState({
         <div key={`recent:${entry.url}`} className="flex min-h-10 items-center gap-2.5">
           <Clock aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="shrink-0 font-medium text-[13px]">Recent</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-xs">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground tabular-nums leading-[14px]">
             {label}
           </span>
           <Button
@@ -100,7 +100,7 @@ export function PreviewEmptyState({
     <div className="flex h-full min-h-0 overflow-y-auto bg-sidebar">
       <section aria-label="Nothing open" className="flex w-full flex-col gap-3 p-4">
         <div className="flex flex-col gap-0.5">
-          <h2 className="font-semibold text-base">Nothing open</h2>
+          <h2 className="font-semibold text-sm leading-5">Nothing open</h2>
           <p className="text-muted-foreground text-xs">
             {rows.length > 0
               ? "Pick a running server or type an address."
@@ -108,7 +108,7 @@ export function PreviewEmptyState({
           </p>
         </div>
         {rows.length > 0 ? (
-          <div className="flex flex-col rounded-lg border border-border bg-card px-3 py-1">
+          <div className="flex flex-col rounded-xl border border-border bg-surface-raised px-3 py-1">
             {rows.map((row, index) => (
               <Fragment key={row.key}>
                 {index > 0 ? <div aria-hidden className="h-px bg-border" /> : null}

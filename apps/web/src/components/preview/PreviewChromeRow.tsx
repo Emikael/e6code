@@ -103,6 +103,7 @@ export function PreviewChromeRow({
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    className="sm:size-7"
                     onClick={canGoBack ? onBack : NOOP}
                     disabled={!canGoBack}
                     aria-label="Back"
@@ -120,6 +121,7 @@ export function PreviewChromeRow({
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    className="sm:size-7"
                     onClick={canGoForward ? onForward : NOOP}
                     disabled={!canGoForward}
                     aria-label="Forward"
@@ -137,6 +139,7 @@ export function PreviewChromeRow({
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    className="sm:size-7"
                     onClick={refreshDisabled ? NOOP : onRefresh}
                     disabled={refreshDisabled}
                     aria-label={loading ? "Stop" : "Refresh"}
@@ -153,7 +156,7 @@ export function PreviewChromeRow({
           {leadingActions}
 
           {/* Board 17: the address field keeps a visible muted-foreground hairline. */}
-          <InputGroup className="h-7 flex-1 border-muted-foreground bg-card shadow-none">
+          <InputGroup className="h-[30px] flex-1 border-muted-foreground bg-card shadow-none">
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -193,7 +196,7 @@ export function PreviewChromeRow({
             <Tooltip>
               <TooltipTrigger
                 render={
-                  // A pressed toggle carries a primary-edge line, not a wash alone.
+                  // Pressed, the toggle takes the secondary fill and a primary-edge line (board 17).
                   <Button
                     variant="outline"
                     size="compact"
@@ -203,7 +206,7 @@ export function PreviewChromeRow({
                     type="button"
                     className={cn(
                       pickActive &&
-                        "border-primary-edge shadow-[inset_0_0_0_1px_var(--primary-edge)]",
+                        "border-primary-edge bg-secondary shadow-[inset_0_0_0_1px_var(--primary-edge)] dark:bg-secondary [:hover,[data-pressed]]:bg-secondary dark:[:hover,[data-pressed]]:bg-secondary",
                     )}
                   />
                 }
