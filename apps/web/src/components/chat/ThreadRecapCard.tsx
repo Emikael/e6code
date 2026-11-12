@@ -16,7 +16,11 @@ import { PencilIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
-import { PARKED_FULL_MESSAGE, selectThreadNote, usePromptStashStore } from "~/promptStashStore";
+import {
+  THREAD_NOTES_FULL_MESSAGE,
+  selectThreadNote,
+  usePromptStashStore,
+} from "~/promptStashStore";
 import { useThreadRecapStore } from "~/threadRecapStore";
 import { formatDayAwareTimestamp } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
@@ -342,7 +346,8 @@ function ThreadRecapCard({
               setEditingNote(false);
               if (text === null) return;
               const result = usePromptStashStore.getState().setThreadNote(threadKey, text);
-              if (result.refused) toastManager.add({ type: "error", title: PARKED_FULL_MESSAGE });
+              if (result.refused)
+                toastManager.add({ type: "error", title: THREAD_NOTES_FULL_MESSAGE });
               else if (!result.written)
                 toastManager.add({ type: "error", title: "Could not save the note" });
             }}

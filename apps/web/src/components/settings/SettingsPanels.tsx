@@ -718,6 +718,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.focusHoldsFinished !== DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished
         ? ["Hold finished threads in focus mode"]
         : []),
+      ...(settings.sessionClockEnabled !== DEFAULT_UNIFIED_SETTINGS.sessionClockEnabled
+        ? ["Session clock"]
+        : []),
+      ...(settings.breakReminderMinutes !== DEFAULT_UNIFIED_SETTINGS.breakReminderMinutes
+        ? ["Break reminder"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -859,6 +865,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.composerControls,
       settings.focusHoldsFinished,
       settings.openThreadReminderAt,
+      settings.sessionClockEnabled,
+      settings.breakReminderMinutes,
       settings.agentActivityDetail,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
@@ -966,6 +974,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       composerControls: DEFAULT_UNIFIED_SETTINGS.composerControls,
       focusHoldsFinished: DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished,
       openThreadReminderAt: DEFAULT_UNIFIED_SETTINGS.openThreadReminderAt,
+      sessionClockEnabled: DEFAULT_UNIFIED_SETTINGS.sessionClockEnabled,
+      breakReminderMinutes: DEFAULT_UNIFIED_SETTINGS.breakReminderMinutes,
       agentActivityDetail: DEFAULT_UNIFIED_SETTINGS.agentActivityDetail,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,

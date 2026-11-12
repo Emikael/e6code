@@ -249,7 +249,7 @@ import { ThreadNow, type ThreadNowItem } from "./chat/ThreadNow";
 import { ThreadNowBar } from "./chat/ThreadNowBar";
 import { ThreadRecapHost, type ThreadRecapSource } from "./chat/ThreadRecapCard";
 import { useThreadNowBar } from "./chat/useThreadNowBar";
-import { selectRetryMessage } from "./chat/ThreadNowBar.logic";
+import { earlierTurnDurations, selectRetryMessage } from "./chat/ThreadNowBar.logic";
 import { ThreadNextCard } from "./chat/ThreadNextCard";
 import { deriveNextCard } from "./chat/ThreadNextCard.logic";
 import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
@@ -1755,6 +1755,9 @@ export default function ChatView(props: ChatViewProps) {
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
   const [restingComposerControlsVisible, setRestingComposerControlsVisible] = useState(false);
+  const [providerSendUnavailableReason, setProviderSendUnavailableReason] = useState<string | null>(
+    null,
+  );
   const citeAssistantText = useCallback(
     (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => {
       const inserted = composerRef.current?.citeAssistantText(citation, sourceAnchor) ?? false;
@@ -7861,6 +7864,14 @@ export default function ChatView(props: ChatViewProps) {
   };
   // In focus the focus bar carries a finished turn (board 3); the now bar keeps every other state.
   const showNowBar = !(focusModeActive && nowBar.state.kind === "done");
+  // The elapsed time's tooltip lists how long this thread's earlier turns took.
+  const earlierTurnsCue = useMemo(
+    () =>
+      nowBar.state.kind === "working"
+        ? earlierTurnDurations(timelineMessages, activeThreadShell?.latestTurn?.turnId ?? null)
+        : null,
+    [activeThreadShell?.latestTurn?.turnId, nowBar.state.kind, timelineMessages],
+  );
   // The now bar's Retry resends your last message as it was, only when the turn it started failed.
   const retryMessage = selectRetryMessage(timelineMessages, activeThreadShell?.latestTurn);
   const onRetryFailedTurn =
@@ -7870,7 +7881,7 @@ export default function ChatView(props: ChatViewProps) {
   const retryUnavailableReason =
     activeEnvironmentUnavailable || selectedProviderEntry === undefined
       ? "The agent is not available right now, so Retry cannot send."
-      : null;
+      : providerSendUnavailableReason;
 
   const queuedMessages = useQueuedMessages(activeThreadKey ?? "");
   // Puts queued messages back into the composer, e.g. after Stop or a failed
@@ -10697,9 +10708,14 @@ export default function ChatView(props: ChatViewProps) {
                   watchKey={activeThreadKey}
                   onRetry={onRetryFailedTurn}
                   retryUnavailableReason={retryUnavailableReason}
-                  onReviewDiff={() => {
-                    if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
-                  }}
+                  earlierTurns={earlierTurnsCue}
+                  onReviewDiff={
+                    nextCard
+                      ? null
+                      : () => {
+                          if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
+                        }
+                  }
                 />
               ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
@@ -11198,6 +11214,7 @@ export default function ChatView(props: ChatViewProps) {
                               isGitRepo || showComposerEnvironmentIndicator
                             }
                             onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
+                            onProviderSendUnavailableReasonChange={setProviderSendUnavailableReason}
                             timelineOverflows={timelineOverflows}
                             onComposerOverlayHeightChange={publishComposerOverlayHeight}
                             onRestingChange={onComposerRestingChange}

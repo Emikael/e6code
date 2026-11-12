@@ -2,11 +2,12 @@
  * "Parked" in the sidebar footer and its list (board 4, F7). Each thought can
  * start a thread, go into the composer on screen, or be deleted with Undo.
  * Parked thoughts stay in this browser until they sync through the server, and
- * the list says so.
+ * the list says so ("browser", not "device": the desktop app and a browser on
+ * one machine hold different lists).
  */
 import { scopedProjectKey, scopeProjectRef } from "@e6tools/client-runtime/environment";
-import { InboxIcon, Trash2Icon, XIcon } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { InboxIcon, TrashIcon, XIcon } from "lucide-react";
+import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useParkedActions } from "../../hooks/useParkedActions";
@@ -22,17 +23,23 @@ import { usePromptStashStore, type PromptStashEntry } from "../../promptStashSto
 import { useProjects } from "../../state/entities";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { Button } from "../ui/button";
+import { Dialog, DialogClose, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
 
-export const SidebarParked = memo(function SidebarParked() {
+/** Parked thoughts in list order, on the minute clock so a day change re-sorts them. */
+function useParkedThoughts(): ReadonlyArray<PromptStashEntry> {
   const entries = usePromptStashStore((store) => store.entries);
-  const open = useCaptureBarStore((store) => store.listOpen);
-  const setOpen = useCaptureBarStore((store) => store.setListOpen);
   const nowMinute = useNowMinute();
   const today = localDateKey(Date.parse(`${nowMinute}:00.000Z`));
-  const thoughts = useMemo(() => selectParkedThoughts(entries, today), [entries, today]);
+  return useMemo(() => selectParkedThoughts(entries, today), [entries, today]);
+}
+
+export const SidebarParked = memo(function SidebarParked() {
+  const open = useCaptureBarStore((store) => store.listOpen);
+  const setOpen = useCaptureBarStore((store) => store.setListOpen);
+  const thoughts = useParkedThoughts();
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -52,7 +59,15 @@ export const SidebarParked = memo(function SidebarParked() {
             className="w-100"
             viewportClassName="p-0 [--viewport-inline-padding:0px]"
           >
-            <ParkedList thoughts={thoughts} onDone={() => setOpen(false)} />
+            <ParkedList
+              thoughts={thoughts}
+              onDone={() => setOpen(false)}
+              closeButton={
+                <PopoverClose render={CLOSE_BUTTON}>
+                  <XIcon aria-hidden />
+                </PopoverClose>
+              }
+            />
           </PopoverPopup>
         </Popover>
       </SidebarMenuItem>
@@ -60,12 +75,53 @@ export const SidebarParked = memo(function SidebarParked() {
   );
 });
 
+const CLOSE_BUTTON = <Button size="icon-sm" variant="ghost" aria-label="Close" />;
+
+/**
+ * The same list as a dialog, opened from the command palette, so Parked stays
+ * reachable in focus mode and with the sidebar collapsed.
+ */
+export function ParkedListDialogHost() {
+  const open = useCaptureBarStore((store) => store.listDialogOpen);
+  const setOpen = useCaptureBarStore((store) => store.setListDialogOpen);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {open ? <ParkedListDialog onDone={() => setOpen(false)} /> : null}
+    </Dialog>
+  );
+}
+
+function ParkedListDialog({ onDone }: { onDone: () => void }) {
+  const thoughts = useParkedThoughts();
+  return (
+    <DialogPopup
+      showCloseButton={false}
+      bottomStickOnMobile={false}
+      viewportClassName="grid-rows-[0.6fr_auto_1fr]"
+      className="max-w-100 overflow-hidden rounded-xl"
+    >
+      <DialogTitle className="sr-only">Parked</DialogTitle>
+      <ParkedList
+        thoughts={thoughts}
+        onDone={onDone}
+        closeButton={
+          <DialogClose render={CLOSE_BUTTON}>
+            <XIcon aria-hidden />
+          </DialogClose>
+        }
+      />
+    </DialogPopup>
+  );
+}
+
 function ParkedList({
   thoughts,
   onDone,
+  closeButton,
 }: {
   thoughts: ReadonlyArray<PromptStashEntry>;
   onDone: () => void;
+  closeButton: ReactElement;
 }) {
   const { startThreadWith, putInComposer } = useParkedActions();
   const projects = useProjects();
@@ -84,6 +140,14 @@ function ParkedList({
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}:00.000Z`);
   const selected = thoughts.find((entry) => entry.id === selectedId) ?? thoughts[0] ?? null;
+  // Picking a row replaces the focused button with the open row, so focus moves to its
+  // first action instead of falling to the page.
+  const focusOpenRowRef = useRef(false);
+  const startThreadButtonRef = useCallback((element: HTMLButtonElement | null) => {
+    if (!element || !focusOpenRowRef.current) return;
+    focusOpenRowRef.current = false;
+    element.focus();
+  }, []);
 
   // The thought leaves Parked once it has gone somewhere.
   const use = async (entry: PromptStashEntry, action: typeof startThreadWith) => {
@@ -114,9 +178,8 @@ function ParkedList({
         <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
           {thoughts.length}
         </span>
-        <PopoverClose render={<Button size="icon-sm" variant="ghost" aria-label="Close" />}>
-          <XIcon aria-hidden />
-        </PopoverClose>
+        {/* The popover or the dialog supplies its own close control. */}
+        {closeButton}
       </div>
       {thoughts.length === 0 ? (
         <p className="px-4 pb-3 text-sm text-muted-foreground">
@@ -138,11 +201,12 @@ function ParkedList({
                   <p className="text-sm leading-[22px] break-words text-foreground">
                     {entry.prompt}
                   </p>
-                  {meta ? <span className="text-[11px] text-muted-foreground">{meta}</span> : null}
                   <div className="flex items-center gap-1.5">
                     <Button
+                      ref={startThreadButtonRef}
                       size="sm"
                       variant="outline"
+                      className="sm:text-xs"
                       onClick={() => void use(entry, startThreadWith)}
                     >
                       Start thread
@@ -150,6 +214,7 @@ function ParkedList({
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="sm:text-xs"
                       onClick={() => void use(entry, putInComposer)}
                     >
                       Put in composer
@@ -161,7 +226,7 @@ function ParkedList({
                       aria-label="Delete"
                       onClick={() => remove(entry)}
                     >
-                      <Trash2Icon aria-hidden />
+                      <TrashIcon aria-hidden />
                     </Button>
                   </div>
                 </li>
@@ -172,13 +237,20 @@ function ParkedList({
                 <button
                   type="button"
                   aria-expanded={false}
-                  onClick={() => setSelectedId(entry.id)}
+                  onClick={() => {
+                    focusOpenRowRef.current = true;
+                    setSelectedId(entry.id);
+                  }}
                   className="flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="w-full truncate text-sm leading-[22px] text-foreground">
                     {entry.prompt}
                   </span>
-                  {meta ? <span className="text-[11px] text-muted-foreground">{meta}</span> : null}
+                  {meta ? (
+                    <span className="font-mono text-[11px] leading-[14px] text-muted-foreground tabular-nums">
+                      {meta}
+                    </span>
+                  ) : null}
                 </button>
               </li>
             );
@@ -186,7 +258,7 @@ function ParkedList({
         </ul>
       )}
       <div className="h-px bg-border" />
-      <p className="px-4 py-2.5 text-xs text-muted-foreground">Kept on this device for now.</p>
+      <p className="px-4 py-2.5 text-xs text-muted-foreground">Kept in this browser for now.</p>
     </section>
   );
 }

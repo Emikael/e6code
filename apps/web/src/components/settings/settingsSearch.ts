@@ -247,6 +247,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["attention minutes age working duration sidebar time clock"],
   },
   {
+    id: "session-clock",
+    title: "Session clock",
+    to: "/settings/attention",
+    searchTerms: ["attention session time today open how long hours clock header"],
+  },
+  {
+    id: "break-reminder",
+    title: "Break reminder",
+    to: "/settings/attention",
+    searchTerms: ["attention break pause rest hyperfocus reminder session time header"],
+  },
+  {
     id: "color-scheme",
     title: "Color scheme",
     to: "/settings/appearance",

@@ -253,6 +253,10 @@ export type AgentActivityDetail = typeof AgentActivityDetail.Type;
 export const OpenThreadReminderAt = Schema.Literals(["off", 3, 5, 8]);
 export type OpenThreadReminderAt = typeof OpenThreadReminderAt.Type;
 
+/** Minutes of session time before the break reminder's header line, or off. */
+export const BreakReminderMinutes = Schema.Literals(["off", 25, 50, 90]);
+export type BreakReminderMinutes = typeof BreakReminderMinutes.Type;
+
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
 const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
@@ -537,6 +541,15 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.catchDecoding(() => Effect.succeedSome(5 as const)),
     Schema.withDecodingDefault(Effect.succeed(5 as const)),
   ),
+  // Attention page, Time. Opt in: session time is counted on this device from the day's
+  // first interaction and never sent to a server.
+  sessionClockEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  breakReminderMinutes: BreakReminderMinutes.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("off" as const)),
+    Schema.withDecodingDefault(Effect.succeed("off" as const)),
+  ),
+  /** Hides the one-time "What changed" card on the start screen. */
+  attentionIntroDismissed: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -1772,6 +1785,9 @@ export const ClientSettingsPatch = Schema.Struct({
   composerControls: Schema.optionalKey(ComposerControls),
   focusHoldsFinished: Schema.optionalKey(Schema.Boolean),
   openThreadReminderAt: Schema.optionalKey(OpenThreadReminderAt),
+  sessionClockEnabled: Schema.optionalKey(Schema.Boolean),
+  breakReminderMinutes: Schema.optionalKey(BreakReminderMinutes),
+  attentionIntroDismissed: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

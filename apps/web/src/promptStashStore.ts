@@ -41,6 +41,9 @@ export const PARKED_CAPS: Readonly<Record<ParkedEntryKind, number>> = {
 };
 
 export const PARKED_FULL_MESSAGE = "Parked is full. Remove one to add another.";
+/** Notes are listed only in their own thread's recap, so the way out names that. */
+export const THREAD_NOTES_FULL_MESSAGE =
+  "You have 200 thread notes. Clear one in its thread's recap, or delete an old thread, to add another.";
 /**
  * Budget for an entry's serialized attachment payload. localStorage is a
  * ~5MB origin-wide quota shared with the composer draft store, so oversized
@@ -119,7 +122,7 @@ function clearOrphanedPendingImages(
   entries: ReadonlyArray<PromptStashEntry>,
 ): ReadonlyArray<PromptStashEntry> {
   return entries.map((entry) => {
-    if (!entry.pendingImageCount) return entry;
+    if (!entry.pendingImageCount || encodingInThisTab.has(entry.id)) return entry;
     const lostCount = entry.pendingImageCount;
     return {
       ...entry,
@@ -184,6 +187,12 @@ function resolveBaseStorage(): { storage: StateStorage; durable: boolean } {
 const { storage: baseStashStorage, durable: storageIsDurable } = resolveBaseStorage();
 
 /**
+ * Entries whose images this tab is still encoding. Their pending count is
+ * real, so a re-read of storage must not settle it as orphaned.
+ */
+const encodingInThisTab = new Set<string>();
+
+/**
  * Persists the queue, immediately rather than debounced. Stashing is a
  * deliberate, infrequent keystroke — not a per-character autosave — so there
  * is nothing to coalesce, and the caller clears the composer on the strength
@@ -213,11 +222,15 @@ function persistEntries(entries: ReadonlyArray<PromptStashEntry>): {
   }
 }
 
-/** Reads the persisted queue, settling stale pending counts. */
+/**
+ * Reads the persisted queue, settling stale pending counts. Null when the
+ * payload cannot be read or decoded; an empty key reads as no entries.
+ */
 function readPersistedEntries(): ReadonlyArray<PromptStashEntry> | null {
   try {
     const raw = baseStashStorage.getItem(PROMPT_STASH_STORAGE_KEY);
-    if (typeof raw !== "string" || raw.length === 0) return null;
+    if (raw === null || raw === "") return [];
+    if (typeof raw !== "string") return null;
     const parsed: unknown = JSON.parse(raw);
     const state = (parsed as { state?: unknown } | null)?.state;
     if (!state) return null;
@@ -288,10 +301,20 @@ interface PromptStashStoreState {
   ) => { attached: boolean; durable: boolean };
 }
 
+/**
+ * Every tab of the origin shares one stored list. A write re-reads it first
+ * so a thought parked in another tab since this one last looked is kept, not
+ * overwritten (decision 10: parked work is never lost silently). When storage
+ * cannot be read, the in-memory list is the best there is.
+ */
+function latestEntries(inMemory: ReadonlyArray<PromptStashEntry>): ReadonlyArray<PromptStashEntry> {
+  return readPersistedEntries() ?? inMemory;
+}
+
 export const usePromptStashStore = create<PromptStashStoreState>()((set, get) => ({
   entries: [],
   stashEntry: (entry) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     const kind = parkedEntryKind(entry);
     if (countParkedEntries(entries, kind) >= PARKED_CAPS[kind]) {
       return { refused: true, written: false, durable: false };
@@ -302,14 +325,17 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     // keeps the composer intact on failure, so a stashed copy would
     // duplicate the prompt.
     if (!written) {
+      set(() => ({ entries }));
       return { refused: false, written: false, durable: false };
     }
+    if (entry.pendingImageCount) encodingInThisTab.add(entry.id);
     set(() => ({ entries: nextEntries }));
     return { refused: false, written: true, durable };
   },
   restoreEntry: (entry, index) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     if (entries.some((candidate) => candidate.id === entry.id)) {
+      set(() => ({ entries }));
       return { written: true, durable: true };
     }
     const nextEntries = [...entries];
@@ -319,7 +345,7 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     return { written, durable };
   },
   setThreadNote: (threadKey, text) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     const existing = entries.find(
       (entry) => parkedEntryKind(entry) === "note" && entry.threadKey === threadKey,
     );
@@ -330,6 +356,7 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
       trimmed.length > 0 &&
       countParkedEntries(entries, "note") >= MAX_THREAD_NOTES
     ) {
+      set(() => ({ entries }));
       return { refused: true, written: false, durable: false };
     }
     const nextEntries: PromptStashEntry[] =
@@ -352,7 +379,7 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     return { refused: false, written, durable };
   },
   setPinnedThought: (pinnedFor, text, projectKey) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     const existing = entries.find(
       (entry) => parkedEntryKind(entry) === "thought" && entry.pinnedFor === pinnedFor,
     );
@@ -363,6 +390,7 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
       trimmed.length > 0 &&
       countParkedEntries(entries, "thought") >= MAX_PARKED_THOUGHTS
     ) {
+      set(() => ({ entries }));
       return { refused: true, written: false, durable: false };
     }
     const nextEntries: PromptStashEntry[] =
@@ -386,10 +414,13 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     return { refused: false, written, durable };
   },
   unpinEntry: (entryId) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     const index = entries.findIndex((candidate) => candidate.id === entryId);
     const existing = index === -1 ? undefined : entries[index];
-    if (!existing || existing.pinnedFor === undefined) return { written: true, durable: true };
+    if (!existing || existing.pinnedFor === undefined) {
+      set(() => ({ entries }));
+      return { written: true, durable: true };
+    }
     const { pinnedFor: _pinnedFor, ...unpinned } = existing;
     const nextEntries = [...entries];
     nextEntries[index] = unpinned;
@@ -398,20 +429,28 @@ export const usePromptStashStore = create<PromptStashStoreState>()((set, get) =>
     return { written, durable };
   },
   takeEntry: (entryId) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     const entry = entries.find((candidate) => candidate.id === entryId) ?? null;
-    if (!entry) return { entry: null, durable: true };
+    encodingInThisTab.delete(entryId);
+    if (!entry) {
+      set(() => ({ entries }));
+      return { entry: null, durable: true };
+    }
     const nextEntries = entries.filter((candidate) => candidate.id !== entryId);
     const { durable } = persistEntries(nextEntries);
     set(() => ({ entries: nextEntries }));
     return { entry, durable };
   },
   finalizeEntryImages: (entryId, images) => {
-    const entries = get().entries;
+    const entries = latestEntries(get().entries);
     const index = entries.findIndex((candidate) => candidate.id === entryId);
     const existing = index === -1 ? undefined : entries[index];
+    encodingInThisTab.delete(entryId);
     // Restored or deleted mid-encode: nothing to attach to.
-    if (!existing) return { attached: false, durable: true };
+    if (!existing) {
+      set(() => ({ entries }));
+      return { attached: false, durable: true };
+    }
     const nextEntries = [...entries];
     nextEntries[index] = {
       ...existing,
@@ -446,8 +485,7 @@ export function selectThreadNote(
   );
 }
 
-// Hydrate once at startup. Like the app's other persisted stores, tabs are
-// last-write-wins: no cross-tab merging or storage-event syncing.
+// Hydrate at startup, and again whenever another tab writes the list.
 {
   try {
     baseStashStorage.removeItem(LEGACY_PROMPT_STASH_STORAGE_KEY);
@@ -459,6 +497,12 @@ export function selectThreadNote(
   if (persisted) {
     usePromptStashStore.setState({ entries: persisted });
   }
+  if (storageIsDurable && typeof window !== "undefined") {
+    window.addEventListener("storage", (event) => {
+      if (event.key !== null && event.key !== PROMPT_STASH_STORAGE_KEY) return;
+      usePromptStashStore.setState({ entries: readPersistedEntries() ?? [] });
+    });
+  }
 }
 
 /**
@@ -466,7 +510,11 @@ export function selectThreadNote(
  * reads and rehydrates, without needing a real `localStorage` global.
  * Pass an empty string to clear.
  */
-export function writePromptStashStorageForTest(raw: string): void {
+export function writePromptStashStorageForTest(
+  raw: string,
+  options: { rehydrate?: boolean } = {},
+): void {
   baseStashStorage.setItem(PROMPT_STASH_STORAGE_KEY, raw);
+  if (options.rehydrate === false) return;
   usePromptStashStore.setState({ entries: readPersistedEntries() ?? [] });
 }

@@ -301,3 +301,56 @@ export function countChangedFiles(
   }
   return paths.size;
 }
+
+const MAX_EARLIER_TURNS = 5;
+
+/** "4m", "12m", "40s": whole minutes once past one, as a fact, never an estimate. */
+function formatTurnLength(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes}m` : formatWorkedDuration(minutes * 60_000);
+}
+
+/**
+ * The elapsed time's tooltip (F5, decision 7): how long this thread's earlier
+ * turns took, oldest first, as plain facts ("Earlier turns: 4m, 12m, 2m").
+ * Each turn runs from the message that started it to its last reply. Null
+ * when there is no earlier turn to list.
+ */
+export function earlierTurnDurations(
+  messages: ReadonlyArray<{
+    readonly role: string;
+    readonly turnId: TurnId | null;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+  }>,
+  runningTurnId: TurnId | null,
+): string | null {
+  const durations: string[] = [];
+  let startedAt: number | null = null;
+  let endedAt: number | null = null;
+  let turnId: TurnId | null = null;
+  const close = () => {
+    if (startedAt !== null && endedAt !== null && turnId !== null && turnId !== runningTurnId) {
+      durations.push(formatTurnLength(endedAt - startedAt));
+    }
+  };
+  for (const message of messages) {
+    if (message.role === "user") {
+      close();
+      startedAt = Date.parse(message.createdAt);
+      endedAt = null;
+      turnId = null;
+      continue;
+    }
+    if (startedAt === null || message.turnId === null) continue;
+    const end = Date.parse(message.updatedAt);
+    if (!Number.isFinite(end)) continue;
+    turnId = message.turnId;
+    endedAt = endedAt === null ? end : Math.max(endedAt, end);
+  }
+  close();
+  if (durations.length === 0) return null;
+  return `Earlier turns: ${durations.slice(-MAX_EARLIER_TURNS).join(", ")}`;
+}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { WorkLogEntry } from "../../session-logic";
 import {
+  earlierTurnDurations,
   countChangedFiles,
   deriveNowBarState,
   doneSummary,
@@ -274,5 +275,35 @@ describe("selectRetryMessage", () => {
     expect(
       selectRetryMessage([{ ...asked("turn-2"), attachments: [{ id: "image" }] }], failedTurn),
     ).toBeNull();
+  });
+});
+
+describe("earlierTurnDurations", () => {
+  const message = (
+    role: "user" | "assistant",
+    turnId: string | null,
+    createdAt: string,
+    updatedAt = createdAt,
+  ) => ({
+    role,
+    turnId: turnId === null ? null : TurnId.make(turnId),
+    createdAt: `2026-11-12T${createdAt}Z`,
+    updatedAt: `2026-11-12T${updatedAt}Z`,
+  });
+
+  it("lists finished turns oldest first, leaving out the running one", () => {
+    const messages = [
+      message("user", null, "09:00:00"),
+      message("assistant", "t1", "09:01:00", "09:04:10"),
+      message("user", null, "09:10:00"),
+      message("assistant", "t2", "09:10:05", "09:10:40"),
+      message("user", null, "09:20:00"),
+      message("assistant", "t3", "09:20:05", "09:21:00"),
+    ];
+    expect(earlierTurnDurations(messages, TurnId.make("t3"))).toBe("Earlier turns: 4m, 40s");
+  });
+
+  it("says nothing before a turn has finished", () => {
+    expect(earlierTurnDurations([message("user", null, "09:00:00")], null)).toBeNull();
   });
 });

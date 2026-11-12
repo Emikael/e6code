@@ -1,14 +1,14 @@
 /**
- * Settings → Attention: how much E6 Code asks of your attention.
+ * Settings → Attention: how much E6 Code asks of your attention (board 6).
  *
- * Laid out as the four groups of the Attention board (Notifications, Start
- * and layout, Threads, Time) in a two-column grid. Each group renders only
- * the rows that exist so far; later rows join their group without moving
- * the others. The starting-point tiles go above the grid.
+ * Three starting points on top, then the four groups of the board
+ * (Notifications, Start and layout, Threads, Time) as cards in a two-column
+ * grid, each with its heading inside.
  */
 import {
   DEFAULT_CLIENT_SETTINGS,
   type AgentActivityDetail,
+  type BreakReminderMinutes,
   type ComposerControls,
   type OpenThreadReminderAt,
   type RecapTrigger,
@@ -18,14 +18,16 @@ import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSetti
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import {
-  SettingResetButton,
-  SettingsPageContainer,
-  SettingsRow,
-  SettingsSection,
-} from "./settingsLayout";
+import { AttentionCard, AttentionStartingPoints, ATTENTION_ROW_CLASS } from "./AttentionCard";
+import { ATTENTION_PRESETS, resolveAttentionPreset } from "./attentionPresets";
+import { SettingResetButton, SettingsPageContainer, SettingsRow } from "./settingsLayout";
 import { NotificationSettingsSection } from "./NotificationSettings";
 import { searchableSetting } from "./settingsSearch";
+
+/** Board 6's segmented control: a well with the chosen option raised and outlined. */
+export const ATTENTION_SEGMENT_GROUP_CLASS = "rounded-lg bg-surface-well p-0.5";
+export const ATTENTION_SEGMENT_CLASS =
+  "h-[26px] px-2.5 data-pressed:bg-card data-pressed:shadow-none data-pressed:ring-1 data-pressed:ring-inset data-pressed:ring-primary-edge dark:data-pressed:bg-card";
 
 const RECAP_TRIGGER_LABELS = {
   "after-break": "After a break",
@@ -46,6 +48,19 @@ const OPEN_THREAD_REMINDER_OPTIONS: ReadonlyArray<{
 const openThreadReminderLabel = (value: OpenThreadReminderAt) =>
   OPEN_THREAD_REMINDER_OPTIONS.find((option) => option.value === value)?.label ?? "Off";
 
+const BREAK_REMINDER_OPTIONS: ReadonlyArray<{
+  readonly value: BreakReminderMinutes;
+  readonly label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: 25, label: "After 25 minutes" },
+  { value: 50, label: "After 50 minutes" },
+  { value: 90, label: "After 90 minutes" },
+];
+
+const breakReminderLabel = (value: BreakReminderMinutes) =>
+  BREAK_REMINDER_OPTIONS.find((option) => option.value === value)?.label ?? "Off";
+
 const AGENT_ACTIVITY_LABELS = {
   summary: "Summary",
   live: "Live",
@@ -64,16 +79,24 @@ export function AttentionSettingsPanel() {
   const focusHoldsFinished = useClientSettings((s) => s.focusHoldsFinished);
   const openThreadReminderAt = useClientSettings((s) => s.openThreadReminderAt);
   const agentActivityDetail = useClientSettings((s) => s.agentActivityDetail);
+  const sessionClockEnabled = useClientSettings((s) => s.sessionClockEnabled);
+  const breakReminderMinutes = useClientSettings((s) => s.breakReminderMinutes);
+  const startingPoint = useClientSettings(resolveAttentionPreset);
   const updateSettings = useUpdateClientSettings();
 
   return (
-    <SettingsPageContainer>
+    <SettingsPageContainer className="gap-6">
+      <AttentionStartingPoints
+        selected={startingPoint}
+        onSelect={(preset) => updateSettings(ATTENTION_PRESETS[preset])}
+      />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] items-start gap-4">
         <NotificationSettingsSection />
 
-        <SettingsSection id="attention-start-and-layout" title="Start and layout">
+        <AttentionCard id="attention-start-and-layout" title="Start and layout">
           <SettingsRow
             {...searchableSetting("needs-you-section")}
+            className={ATTENTION_ROW_CLASS}
             description="Blocked agents first, then work to review. The list below keeps its order."
             resetAction={
               needsYouSectionEnabled !== DEFAULT_CLIENT_SETTINGS.needsYouSectionEnabled ? (
@@ -99,6 +122,7 @@ export function AttentionSettingsPanel() {
           />
           <SettingsRow
             {...searchableSetting("open-thread-reminder")}
+            className={ATTENTION_ROW_CLASS}
             description="A quiet line in the composer when this many threads are open."
             resetAction={
               openThreadReminderAt !== DEFAULT_CLIENT_SETTINGS.openThreadReminderAt ? (
@@ -124,7 +148,7 @@ export function AttentionSettingsPanel() {
               >
                 <SelectTrigger
                   size="sm"
-                  className="w-full sm:w-40"
+                  className="w-full sm:w-auto"
                   aria-label={`Open-thread reminder: ${openThreadReminderLabel(openThreadReminderAt).toLowerCase()}`}
                 >
                   <SelectValue>{openThreadReminderLabel(openThreadReminderAt)}</SelectValue>
@@ -141,6 +165,7 @@ export function AttentionSettingsPanel() {
           />
           <SettingsRow
             {...searchableSetting("composer-controls")}
+            className={ATTENTION_ROW_CLASS}
             description="Compact keeps effort, permissions and mode behind one chip."
             resetAction={
               composerControls !== DEFAULT_CLIENT_SETTINGS.composerControls ? (
@@ -156,6 +181,7 @@ export function AttentionSettingsPanel() {
               <ToggleGroup
                 aria-label="Composer controls"
                 variant="segmented"
+                className={ATTENTION_SEGMENT_GROUP_CLASS}
                 value={[composerControls]}
                 onValueChange={(next) => {
                   const value = next[0];
@@ -165,18 +191,19 @@ export function AttentionSettingsPanel() {
                 }}
               >
                 {Object.entries(COMPOSER_CONTROLS_LABELS).map(([value, label]) => (
-                  <Toggle key={value} value={value}>
+                  <Toggle key={value} value={value} className={ATTENTION_SEGMENT_CLASS}>
                     {label}
                   </Toggle>
                 ))}
               </ToggleGroup>
             }
           />
-        </SettingsSection>
+        </AttentionCard>
 
-        <SettingsSection id="attention-threads" title="Threads">
+        <AttentionCard id="attention-threads" title="Threads">
           <SettingsRow
             {...searchableSetting("recap-trigger")}
+            className={ATTENTION_ROW_CLASS}
             description="A short recap built from the thread itself."
             resetAction={
               recapTrigger !== DEFAULT_CLIENT_SETTINGS.recapTrigger ? (
@@ -198,7 +225,7 @@ export function AttentionSettingsPanel() {
               >
                 <SelectTrigger
                   size="sm"
-                  className="w-full sm:w-40"
+                  className="w-full sm:w-auto"
                   aria-label={`Show where you left off: ${RECAP_TRIGGER_LABELS[recapTrigger].toLowerCase()}`}
                 >
                   <SelectValue>{RECAP_TRIGGER_LABELS[recapTrigger]}</SelectValue>
@@ -215,6 +242,7 @@ export function AttentionSettingsPanel() {
           />
           <SettingsRow
             {...searchableSetting("agent-activity-detail")}
+            className={ATTENTION_ROW_CLASS}
             description="Summary folds tool calls into one line. Live shows each step."
             resetAction={
               agentActivityDetail !== DEFAULT_CLIENT_SETTINGS.agentActivityDetail ? (
@@ -232,6 +260,7 @@ export function AttentionSettingsPanel() {
               <ToggleGroup
                 aria-label="Agent activity"
                 variant="segmented"
+                className={ATTENTION_SEGMENT_GROUP_CLASS}
                 value={[agentActivityDetail]}
                 onValueChange={(next) => {
                   const value = next[0];
@@ -241,7 +270,7 @@ export function AttentionSettingsPanel() {
                 }}
               >
                 {Object.entries(AGENT_ACTIVITY_LABELS).map(([value, label]) => (
-                  <Toggle key={value} value={value}>
+                  <Toggle key={value} value={value} className={ATTENTION_SEGMENT_CLASS}>
                     {label}
                   </Toggle>
                 ))}
@@ -250,6 +279,7 @@ export function AttentionSettingsPanel() {
           />
           <SettingsRow
             {...searchableSetting("focus-holds-finished")}
+            className={ATTENTION_ROW_CLASS}
             description="Anything that blocks an agent still comes through."
             resetAction={
               focusHoldsFinished !== DEFAULT_CLIENT_SETTINGS.focusHoldsFinished ? (
@@ -273,11 +303,12 @@ export function AttentionSettingsPanel() {
               />
             }
           />
-        </SettingsSection>
+        </AttentionCard>
 
-        <SettingsSection id="attention-time" title="Time">
+        <AttentionCard id="attention-time" title="Time">
           <SettingsRow
             {...searchableSetting("sidebar-elapsed-time")}
+            className={ATTENTION_ROW_CLASS}
             description="Whole minutes only, so nothing ticks at the edge of your eye."
             resetAction={
               sidebarElapsedTimeEnabled !== DEFAULT_CLIENT_SETTINGS.sidebarElapsedTimeEnabled ? (
@@ -301,7 +332,76 @@ export function AttentionSettingsPanel() {
               />
             }
           />
-        </SettingsSection>
+          <SettingsRow
+            {...searchableSetting("session-clock")}
+            className={ATTENTION_ROW_CLASS}
+            description="Shows how long E6 Code has been open today."
+            resetAction={
+              sessionClockEnabled !== DEFAULT_CLIENT_SETTINGS.sessionClockEnabled ? (
+                <SettingResetButton
+                  label="Session clock"
+                  onClick={() =>
+                    updateSettings({
+                      sessionClockEnabled: DEFAULT_CLIENT_SETTINGS.sessionClockEnabled,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={sessionClockEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({ sessionClockEnabled: Boolean(checked) })
+                }
+                aria-label="Session clock"
+              />
+            }
+          />
+          <SettingsRow
+            {...searchableSetting("break-reminder")}
+            className={ATTENTION_ROW_CLASS}
+            description="A quiet line in the header. It never interrupts."
+            resetAction={
+              breakReminderMinutes !== DEFAULT_CLIENT_SETTINGS.breakReminderMinutes ? (
+                <SettingResetButton
+                  label="Break reminder"
+                  onClick={() =>
+                    updateSettings({
+                      breakReminderMinutes: DEFAULT_CLIENT_SETTINGS.breakReminderMinutes,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={String(breakReminderMinutes)}
+                onValueChange={(value) => {
+                  const option = BREAK_REMINDER_OPTIONS.find(
+                    (candidate) => String(candidate.value) === value,
+                  );
+                  if (option) updateSettings({ breakReminderMinutes: option.value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  aria-label={`Break reminder: ${breakReminderLabel(breakReminderMinutes).toLowerCase()}`}
+                >
+                  <SelectValue>{breakReminderLabel(breakReminderMinutes)}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {BREAK_REMINDER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} hideIndicator value={String(option.value)}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            }
+          />
+        </AttentionCard>
       </div>
     </SettingsPageContainer>
   );

@@ -7,7 +7,8 @@ import { canRequestSystemNotifications, unlockNotificationAudio } from "../../th
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
+import { AttentionCard, ATTENTION_ROW_CLASS } from "./AttentionCard";
+import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 export const ATTENTION_NOTIFICATION_LABELS = {
@@ -119,9 +120,10 @@ export function NotificationSettingsSection() {
     });
 
   return (
-    <SettingsSection id="attention-notifications" title="Notifications">
+    <AttentionCard id="attention-notifications" title="Notifications">
       <SettingsRow
         {...searchableSetting("attention-notifications")}
+        className={ATTENTION_ROW_CLASS}
         description={
           permissionMessage
             ? `${NOTIFY_ME_DESCRIPTION} ${permissionMessage}`
@@ -156,7 +158,7 @@ export function NotificationSettingsSection() {
           >
             <SelectTrigger
               size="sm"
-              className="w-full sm:w-56"
+              className="w-full sm:w-auto"
               aria-label={`Notify me: ${ATTENTION_NOTIFICATION_LABELS[attentionNotifications].toLowerCase()}`}
             >
               <SelectValue>{ATTENTION_NOTIFICATION_LABELS[attentionNotifications]}</SelectValue>
@@ -173,6 +175,7 @@ export function NotificationSettingsSection() {
       />
       <SettingsRow
         {...searchableSetting("notify-watched-threads")}
+        className={ATTENTION_ROW_CLASS}
         description="For threads you sent a message to. Change it per thread from the now bar."
         resetAction={
           notifyWatchedThreads !== DEFAULT_CLIENT_SETTINGS.notifyWatchedThreads ? (
@@ -198,6 +201,7 @@ export function NotificationSettingsSection() {
       />
       <SettingsRow
         {...searchableSetting("hold-finished-threads")}
+        className={ATTENTION_ROW_CLASS}
         description="They arrive together when you send, switch thread or stop typing."
         resetAction={
           holdFinishedUntilBreakpoint !== DEFAULT_CLIENT_SETTINGS.holdFinishedUntilBreakpoint ? (
@@ -223,6 +227,7 @@ export function NotificationSettingsSection() {
       />
       <SettingsRow
         {...searchableSetting("attention-sound")}
+        className={ATTENTION_ROW_CLASS}
         description="One short sound when an agent is blocked."
         resetAction={
           attentionSoundEnabled !== DEFAULT_CLIENT_SETTINGS.attentionSoundEnabled ? (
@@ -247,6 +252,6 @@ export function NotificationSettingsSection() {
           />
         }
       />
-    </SettingsSection>
+    </AttentionCard>
   );
 }

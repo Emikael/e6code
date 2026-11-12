@@ -250,7 +250,7 @@ import { readPullRequestListPreferences } from "~/components/pullRequest/pullReq
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
 import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
 import { useThreadRecapStore } from "~/threadRecapStore";
-import { openCaptureBar } from "~/parkedThoughts";
+import { openCaptureBar, openParkedListDialog } from "~/parkedThoughts";
 import { openDoneToday } from "./DoneTodayDialog";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
@@ -2310,6 +2310,17 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "capture.park",
     run: async () => {
       openCaptureBar();
+    },
+  });
+  // The Parked list, reachable in focus mode and with the sidebar collapsed.
+  actionItems.push({
+    kind: "action",
+    value: "action:parked-list",
+    searchTerms: ["parked", "thoughts", "later", "inbox", "list"],
+    title: "Parked",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openParkedListDialog();
     },
   });
   // Done today: what got finished since midnight, and Wrap up.

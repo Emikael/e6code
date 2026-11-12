@@ -14,8 +14,13 @@ import {
   MAX_PARKED_THOUGHTS,
   PARKED_FULL_MESSAGE,
   usePromptStashStore,
+  writePromptStashStorageForTest,
   type PromptStashEntry,
 } from "./promptStashStore";
+
+/** Seeds the stored list, which every write re-reads first. */
+const seed = (entries: ReadonlyArray<PromptStashEntry>) =>
+  writePromptStashStorageForTest(JSON.stringify({ version: 2, state: { entries } }));
 
 const entry = (id: string, overrides: Partial<PromptStashEntry> = {}): PromptStashEntry => ({
   id,
@@ -28,7 +33,7 @@ const entry = (id: string, overrides: Partial<PromptStashEntry> = {}): PromptSta
 });
 
 afterEach(() => {
-  usePromptStashStore.setState({ entries: [] });
+  seed([]);
 });
 
 describe("selectParkedThoughts", () => {
@@ -111,7 +116,7 @@ describe("formatParkedWhen", () => {
 
 describe("parkThought", () => {
   it("parks a trimmed thought with its project, and Undo puts it back in place", () => {
-    usePromptStashStore.setState({ entries: [entry("older")] });
+    seed([entry("older")]);
     const result = parkThought("  Try view transitions for the sidebar  ", "env:project");
     expect(result.kind).toBe("parked");
     const parked = usePromptStashStore.getState().entries[0];
@@ -130,9 +135,7 @@ describe("parkThought", () => {
   });
 
   it("says Parked is full instead of dropping the oldest", () => {
-    usePromptStashStore.setState({
-      entries: Array.from({ length: MAX_PARKED_THOUGHTS }, (_, index) => entry(`t${index}`)),
-    });
+    seed(Array.from({ length: MAX_PARKED_THOUGHTS }, (_, index) => entry(`t${index}`)));
     expect(parkThought("One more", null)).toEqual({
       kind: "refused",
       message: PARKED_FULL_MESSAGE,

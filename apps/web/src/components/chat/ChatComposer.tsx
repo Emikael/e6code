@@ -1472,6 +1472,11 @@ export interface ChatComposerProps {
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
   onRestingControlsVisibilityChange: (visible: boolean) => void;
+  /**
+   * Why this composer's provider cannot take a message (no provider, Antigravity not signed
+   * in), or null when it can. Sends from outside the composer (Retry) follow the same rule.
+   */
+  onProviderSendUnavailableReasonChange: (reason: string | null) => void;
   /** Whether the timeline has more content than fits above the composer. */
   timelineOverflows: boolean;
   onComposerOverlayHeightChange: (height: number) => void;
@@ -1601,6 +1606,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     restingControlsHost,
     restingControlsHaveLeadingContext,
     onRestingControlsVisibilityChange,
+    onProviderSendUnavailableReasonChange,
     timelineOverflows,
     onComposerOverlayHeightChange,
     onRestingChange,
@@ -4201,9 +4207,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Files remain tied to the environment that owns their uploaded bytes.
   const parkedEntries = usePromptStashStore((state) => state.entries);
-  // Drafts and parked thoughts both come back into a composer; notes stay with their recap.
+  // The composer's own menu holds only drafts parked with Mod+S. Thoughts live in the
+  // sidebar's Parked list (with its Undo and count); notes stay with their recap.
   const stashQueue = useMemo(
-    () => parkedEntries.filter((entry) => parkedEntryKind(entry) !== "note"),
+    () => parkedEntries.filter((entry) => parkedEntryKind(entry) === "draft"),
     [parkedEntries],
   );
   const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
@@ -4591,7 +4598,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (prompt.length === 0 && images.length === 0 && files.length === 0) {
       const entries = usePromptStashStore
         .getState()
-        .entries.filter((candidate) => parkedEntryKind(candidate) !== "note");
+        .entries.filter((candidate) => parkedEntryKind(candidate) === "draft");
       const entry = entries.length === 1 ? entries[0] : undefined;
       if (entry && !entry.pendingImageCount) {
         await restoreStashEntry(entry);
@@ -4837,6 +4844,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
   }, [isComposerResting, onRestingChange]);
+  // The same rule `getSendContext().providerAvailable` applies, said in words.
+  const providerSendUnavailableReason =
+    multipleModelSelections !== null
+      ? null
+      : noProviderAvailable
+        ? "The agent is not available right now, so Retry cannot send."
+        : providerSendBlockReason;
+  useLayoutEffect(() => {
+    onProviderSendUnavailableReasonChange(providerSendUnavailableReason);
+  }, [providerSendUnavailableReason, onProviderSendUnavailableReasonChange]);
   const restingImagePreviewCounts = getRestingComposerImagePreviewCounts(
     standaloneComposerImages.length,
   );

@@ -412,6 +412,27 @@ describe("ClientSettings agent activity and open-thread reminder", () => {
   });
 });
 
+describe("ClientSettings session clock, break reminder and intro card", () => {
+  it("starts with the clock and reminder off and the What changed card unseen", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.sessionClockEnabled).toBe(false);
+    expect(decoded.breakReminderMinutes).toBe("off");
+    expect(decoded.attentionIntroDismissed).toBe(false);
+  });
+
+  it("keeps and patches a choice, and turns a malformed reminder off", () => {
+    expect(
+      encodeClientSettings(
+        decodeClientSettings({ breakReminderMinutes: 50, attentionIntroDismissed: true }),
+      ),
+    ).toMatchObject({ breakReminderMinutes: 50, attentionIntroDismissed: true });
+    expect(
+      decodeClientSettingsPatch({ breakReminderMinutes: 90, sessionClockEnabled: true }),
+    ).toEqual({ breakReminderMinutes: 90, sessionClockEnabled: true });
+    expect(decodeClientSettings({ breakReminderMinutes: 40 }).breakReminderMinutes).toBe("off");
+  });
+});
+
 describe("ClientSettings chat width", () => {
   it("keeps the comfortable width for existing settings without a saved width", () => {
     expect(decodeClientSettings({}).chatWidth).toBe("comfortable");

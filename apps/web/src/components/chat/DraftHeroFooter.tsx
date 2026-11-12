@@ -31,7 +31,12 @@ import { memo, useCallback, useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useParkedActions } from "~/hooks/useParkedActions";
-import { localDateKey, openParkedList, selectParkedChips } from "~/parkedThoughts";
+import {
+  localDateKey,
+  openParkedList,
+  removeParkedEntry,
+  selectParkedChips,
+} from "~/parkedThoughts";
 import { usePromptStashStore, type PromptStashEntry } from "~/promptStashStore";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useThreadAttention } from "~/hooks/useThreadAttention";
@@ -50,6 +55,7 @@ import { BlockedDiamond } from "../SidebarNeedsYou";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { toastManager } from "../ui/toast";
 import {
   attentionCueVerb,
   formatAttentionCue,
@@ -62,6 +68,7 @@ import {
   type WorkingThread,
 } from "./DraftHeroFooter.logic";
 import { PlanStepMeter } from "./PlanStepMeter";
+import { useWhatChangedVisible, WhatChangedCard } from "./WhatChangedCard";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
@@ -143,11 +150,21 @@ export function DraftHeroFooter({
   const nowMinute = useNowMinute();
   const today = localDateKey(Date.parse(minuteToIso(nowMinute)));
   const parked = useMemo(() => selectParkedChips(parkedEntries, today), [parkedEntries, today]);
-  if (!hasLists && !hasProjectRows && hints.length === 0 && parked.chips.length === 0) return null;
+  const showWhatChanged = useWhatChangedVisible();
+  if (
+    !hasLists &&
+    !hasProjectRows &&
+    hints.length === 0 &&
+    parked.chips.length === 0 &&
+    !showWhatChanged
+  ) {
+    return null;
+  }
   return (
     // Sits in the start screen's flow; long lists scroll the page with it.
     <div className="flex flex-col gap-6">
       {parked.chips.length > 0 ? <ParkedChips chips={parked.chips} more={parked.more} /> : null}
+      {showWhatChanged ? <WhatChangedCard /> : null}
       {blocked.length > 0 ? (
         <section aria-label="Needs you" className="flex flex-col gap-2">
           <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(attention.blockedCount)}</h3>
@@ -271,7 +288,7 @@ function MoreLine({ count, where }: { count: number; where: string }) {
  * puts its thought in this composer and leaves Parked; "N more" opens the list.
  */
 function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; more: number }) {
-  const { putInComposer } = useParkedActions();
+  const { putInComposer, takeBackFromComposer } = useParkedActions();
   return (
     <section aria-label="Parked" className="-mt-3 flex flex-wrap items-center gap-1.5">
       <h3 className={LIST_HEADING_CLASS}>Parked</h3>
@@ -285,7 +302,21 @@ function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; 
                 className={cn(PARKED_CHIP_CLASS, "max-w-62.5")}
                 onClick={() => {
                   void putInComposer(entry.prompt, entry.projectKey).then((placed) => {
-                    if (placed) usePromptStashStore.getState().takeEntry(entry.id);
+                    if (!placed) return;
+                    const removed = removeParkedEntry(entry.id);
+                    if (!removed) return;
+                    // Undo puts the thought back in Parked and takes it out of the composer.
+                    toastManager.add({
+                      type: "success",
+                      title: "Put in composer",
+                      actionProps: {
+                        children: "Undo",
+                        onClick: () => {
+                          usePromptStashStore.getState().restoreEntry(removed.entry, removed.index);
+                          takeBackFromComposer(removed.entry.prompt);
+                        },
+                      },
+                    });
                   });
                 }}
               />
