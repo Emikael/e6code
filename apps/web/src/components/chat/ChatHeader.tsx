@@ -43,6 +43,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import GitActionsControl from "../GitActionsControl";
+import { SessionClockCue } from "./SessionClockCue";
 import { isTrailingDoubleClick, resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -733,6 +734,7 @@ export const ChatHeader = memo(function ChatHeader({
         ) : null}
         {statusRegion}
         <span className="grow" />
+        <SessionClockCue />
         {isServerThread ? (
           <FocusNeedsYouPill
             currentThreadKey={scopedThreadKey(activeThreadRef)}
@@ -852,6 +854,8 @@ export const ChatHeader = memo(function ChatHeader({
         ) : null}
       </WorkspaceBreadcrumb>
       {statusRegion}
+      {/* Opt-in session time and break reminder: still, quiet, never focused. */}
+      <SessionClockCue />
       {/* Which machine runs this thread, as a dot and a word, only while it is not reachable.
           Narrow headers drop only the machine name. */}
       <EnvironmentConnectionChip environmentId={activeThreadEnvironmentId} />

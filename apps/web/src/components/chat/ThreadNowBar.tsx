@@ -31,6 +31,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   watchKey,
   onRetry,
   retryUnavailableReason = null,
+  earlierTurns = null,
   onReviewDiff,
 }: {
   state: NowBarState;
@@ -40,6 +41,8 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   onRetry: (() => void) | null;
   /** Why Retry cannot send right now (the provider is unavailable); the button stays, disabled. */
   retryUnavailableReason?: string | null;
+  /** "Earlier turns: 4m, 12m, 2m", the elapsed time's tooltip; null before a turn finished. */
+  earlierTurns?: string | null;
   /** Absent while the Next card under the timeline already offers Review diff. */
   onReviewDiff: (() => void) | null;
 }) {
@@ -77,7 +80,9 @@ export const ThreadNowBar = memo(function ThreadNowBar({
             </span>
             {state.progress ? <PlanStepMeter progress={state.progress} /> : null}
             <span className={TEXT_CLASS}>{state.text}</span>
-            {state.startedAt ? <ElapsedCue startedAt={state.startedAt} /> : null}
+            {state.startedAt ? (
+              <ElapsedCue startedAt={state.startedAt} earlierTurns={earlierTurns} />
+            ) : null}
             <WatchToggle watchKey={watchKey} />
           </>
         ) : state.kind === "blocked" ? (
@@ -168,7 +173,13 @@ function readElapsed(startedAt: string) {
  * they hold a fixed width so nothing beside them shifts. The tick stops while
  * the page is hidden. Past a day the whole cue becomes "since Tue".
  */
-function ElapsedCue({ startedAt }: { startedAt: string }) {
+function ElapsedCue({
+  startedAt,
+  earlierTurns,
+}: {
+  startedAt: string;
+  earlierTurns: string | null;
+}) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const textRef = useRef<HTMLSpanElement>(null);
   const initial = readElapsed(startedAt);
@@ -207,14 +218,36 @@ function ElapsedCue({ startedAt }: { startedAt: string }) {
   }, [day, startedAt]);
 
   if (initial === null) return null;
-  if (day !== null) return <span className={TIME_CUE_CLASS}>since {day}</span>;
+  const cue =
+    day !== null ? (
+      <>since {day}</>
+    ) : (
+      <>
+        <span ref={textRef} className="inline-block min-w-[7ch] text-end">
+          {"elapsed" in initial ? initial.elapsed : ""}
+        </span>
+        {` · since ${formatShortTimestamp(startedAt, timestampFormat)}`}
+      </>
+    );
+  if (earlierTurns === null) return <span className={TIME_CUE_CLASS}>{cue}</span>;
+  // How long earlier turns took, as facts; never an estimate of this one (decision 7).
   return (
-    <span className={TIME_CUE_CLASS}>
-      <span ref={textRef} className="inline-block min-w-[7ch] text-end">
-        {"elapsed" in initial ? initial.elapsed : ""}
-      </span>
-      {` · since ${formatShortTimestamp(startedAt, timestampFormat)}`}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            tabIndex={0}
+            className={cn(
+              TIME_CUE_CLASS,
+              "rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+          />
+        }
+      >
+        {cue}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{earlierTurns}</TooltipPopup>
+    </Tooltip>
   );
 }
 

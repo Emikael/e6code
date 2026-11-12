@@ -68,6 +68,7 @@ import {
   type WorkingThread,
 } from "./DraftHeroFooter.logic";
 import { PlanStepMeter } from "./PlanStepMeter";
+import { useWhatChangedVisible, WhatChangedCard } from "./WhatChangedCard";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
@@ -149,11 +150,21 @@ export function DraftHeroFooter({
   const nowMinute = useNowMinute();
   const today = localDateKey(Date.parse(minuteToIso(nowMinute)));
   const parked = useMemo(() => selectParkedChips(parkedEntries, today), [parkedEntries, today]);
-  if (!hasLists && !hasProjectRows && hints.length === 0 && parked.chips.length === 0) return null;
+  const showWhatChanged = useWhatChangedVisible();
+  if (
+    !hasLists &&
+    !hasProjectRows &&
+    hints.length === 0 &&
+    parked.chips.length === 0 &&
+    !showWhatChanged
+  ) {
+    return null;
+  }
   return (
     // Sits in the start screen's flow; long lists scroll the page with it.
     <div className="flex flex-col gap-6">
       {parked.chips.length > 0 ? <ParkedChips chips={parked.chips} more={parked.more} /> : null}
+      {showWhatChanged ? <WhatChangedCard /> : null}
       {blocked.length > 0 ? (
         <section aria-label="Needs you" className="flex flex-col gap-2">
           <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(attention.blockedCount)}</h3>
