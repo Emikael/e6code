@@ -51,8 +51,13 @@ import { threadNotificationFact } from "~/threadNotificationPolicy";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatShortTimestamp, formatUpcomingTimestamp } from "~/timestampFormat";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
-import { resolveWorkingStartedAt } from "../Sidebar.logic";
+import {
+  resolveWorkingStartedAt,
+  runningThreadMarkKind,
+  THREAD_STATUS_MARKS,
+} from "../Sidebar.logic";
 import { BlockedDiamond } from "../SidebarNeedsYou";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "../ThreadStatusMarker";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -501,6 +506,8 @@ const WorkingRow = memo(function WorkingRow({
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const { thread } = row;
   const progress = thread.agentState ? null : thread.planProgress;
+  // Retrying and waiting on a usage limit are neutral, as in the sidebar; the caption names them.
+  const markKind = runningThreadMarkKind(thread);
   const caption = workingCaption(thread, (resetsAt) =>
     formatUpcomingTimestamp(resetsAt, timestampFormat),
   );
@@ -515,9 +522,13 @@ const WorkingRow = memo(function WorkingRow({
         )}
       >
         <span
-          aria-hidden
-          className="mx-1 size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
-        />
+          className={cn(
+            "mx-1 inline-flex w-2 shrink-0 justify-center",
+            THREAD_STATUS_TONE_TEXT[THREAD_STATUS_MARKS[markKind].tone],
+          )}
+        >
+          <ThreadStatusMarker kind={markKind} marker={THREAD_STATUS_MARKS[markKind].marker} />
+        </span>
         <span className="min-w-0 shrink truncate text-[13px] leading-[18px] font-medium text-foreground">
           {thread.title}
         </span>

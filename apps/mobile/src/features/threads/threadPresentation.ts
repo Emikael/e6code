@@ -98,7 +98,7 @@ export function resolveThreadStatus(
   if (hasPlanReadyPrompt) {
     return {
       kind: "plan-ready",
-      label: "Plan Ready",
+      label: "Plan ready",
       pillClassName: "bg-subtle",
       textClassName: "text-foreground-muted",
     };

@@ -17,21 +17,14 @@ import {
   joinThreadRowStatus,
 } from "@e6tools/client-runtime/state/agent-state";
 import {
+  CheckIcon,
   ChevronDownIcon,
-  CircleAlertIcon,
-  CircleCheckIcon,
-  CirclePauseIcon,
   EllipsisIcon,
-  EyeIcon,
   FileIcon,
   FocusIcon,
-  ListChecksIcon,
-  MessageCircleQuestionIcon,
   PanelBottomIcon,
   PencilIcon,
-  ShieldQuestionIcon,
   SquarePenIcon,
-  type LucideIcon,
 } from "lucide-react";
 import {
   memo,
@@ -44,7 +37,15 @@ import {
 } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { SessionClockCue } from "./SessionClockCue";
-import { isTrailingDoubleClick, resolveSidebarThreadStatus } from "../Sidebar.logic";
+import {
+  isTrailingDoubleClick,
+  resolveSidebarThreadStatus,
+  runningStatusMarkKind,
+  THREAD_STATUS_MARKS,
+  type ThreadStatusMark,
+  type ThreadStatusMarkKind,
+} from "../Sidebar.logic";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "../ThreadStatusMarker";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -154,20 +155,18 @@ export function resolveRenameCommit(input: {
   return { action: "commit", title: trimmed };
 }
 
-type ThreadHeaderStatusKind =
-  | "approval"
-  | "input"
-  | "paused"
-  | "working"
-  | "monitoring"
-  | "failed"
-  | "done";
-
-interface ThreadHeaderStatus {
-  readonly kind: ThreadHeaderStatusKind;
+interface ThreadHeaderStatus extends ThreadStatusMark {
+  readonly kind: ThreadStatusMarkKind;
   readonly label: string;
   /** Truncatable detail after the label, such as "step 4 of 6". */
   readonly detail: string | null;
+}
+
+function headerStatus(
+  kind: ThreadStatusMarkKind,
+  text: { readonly label: string; readonly detail: string | null },
+): ThreadHeaderStatus {
+  return { kind, ...text, ...THREAD_STATUS_MARKS[kind] };
 }
 
 /**
@@ -193,48 +192,38 @@ export function resolveThreadHeaderStatus(
   const status = resolveSidebarThreadStatus(thread);
   switch (status) {
     case "approval":
-      return { kind: "approval", label: "Needs approval", detail: null };
+      return headerStatus("approval", { label: "Needs approval", detail: null });
     case "input":
-      return { kind: "input", label: "Needs your answer", detail: null };
+      return headerStatus("input", { label: "Needs your answer", detail: null });
     case "paused":
     case "working":
-      return {
-        kind: status,
-        ...formatRunningThreadStatus({
+      return headerStatus(
+        runningStatusMarkKind(status, thread.agentState),
+        formatRunningThreadStatus({
           agentState: thread.agentState,
           planProgress: thread.planProgress,
           formatResetTime,
         }),
-      };
+      );
     case "monitoring":
-      return { kind: "monitoring", label: "Monitoring", detail: null };
+      return headerStatus("monitoring", { label: "Monitoring", detail: null });
     case "failed":
-      return { kind: "failed", label: "Failed", detail: null };
+      return headerStatus("failed", { label: "Failed", detail: null });
     case "ready":
       return thread.latestTurn?.state === "completed"
-        ? { kind: "done", label: "Done", detail: null }
+        ? headerStatus("done", { label: "Done", detail: null })
         : null;
   }
 }
 
-// Each state takes the semantic tone its sidebar row status uses (resolveSidebarRowStatus), on a
-// matching wash: paused, approval and answer read as warning, failed as destructive, done as success. A
-// working agent reads as the live accent with a dot; every other state shows a glyph, and the
-// label always names the state.
-const THREAD_HEADER_STATUS_STYLE: Record<
-  ThreadHeaderStatusKind,
-  { icon: LucideIcon | null; className: string }
-> = {
-  approval: { icon: ShieldQuestionIcon, className: "bg-warning-surface text-warning-foreground" },
-  input: {
-    icon: MessageCircleQuestionIcon,
-    className: "bg-warning-surface text-warning-foreground",
-  },
-  paused: { icon: CirclePauseIcon, className: "bg-warning-surface text-warning-foreground" },
-  working: { icon: null, className: "bg-primary-surface text-primary-text" },
-  monitoring: { icon: EyeIcon, className: "bg-muted text-foreground" },
-  failed: { icon: CircleAlertIcon, className: "bg-error-surface text-destructive-foreground" },
-  done: { icon: CircleCheckIcon, className: "bg-success/10 text-success-foreground" },
+// The mark and tone come from the sidebar's status table (THREAD_STATUS_MARKS), so the two
+// cannot drift; the pill adds the tone's wash.
+const THREAD_HEADER_STATUS_WASH: Record<ThreadStatusMark["tone"], string> = {
+  live: "bg-primary-surface",
+  warning: "bg-warning-surface",
+  muted: "bg-muted",
+  success: "bg-success/10",
+  failed: "bg-error-surface",
 };
 
 function ThreadHeaderStatusPill({
@@ -245,16 +234,10 @@ function ThreadHeaderStatusPill({
   /** The focus bar draws the glyph and word without the wash. */
   plain?: boolean;
 }) {
-  const { icon: Icon, className: styleClassName } = THREAD_HEADER_STATUS_STYLE[status.kind];
-  const className = plain
-    ? cn(
-        "px-0",
-        styleClassName
-          .split(" ")
-          .filter((name) => !name.startsWith("bg-"))
-          .join(" "),
-      )
-    : styleClassName;
+  const className = cn(
+    THREAD_STATUS_TONE_TEXT[status.tone],
+    plain ? "px-0" : THREAD_HEADER_STATUS_WASH[status.tone],
+  );
   const fullText = joinThreadRowStatus(status);
   // Not a live region itself: it mounts and unmounts with the status, which screen readers
   // skip. ChatHeader keeps an always-mounted region with the short label instead.
@@ -265,11 +248,7 @@ function ThreadHeaderStatusPill({
         className,
       )}
     >
-      {Icon ? (
-        <Icon aria-hidden className="size-3 shrink-0" />
-      ) : (
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
-      )}
+      <ThreadStatusMarker kind={status.kind} marker={status.marker} />
       <span className="shrink-0">{status.label}</span>
       {status.detail ? (
         <span className="max-w-32 truncate font-normal text-muted-foreground">
@@ -336,7 +315,8 @@ function FocusDoneCue({ workedFor, finishedAt }: { workedFor: string | null; fin
   return (
     <>
       <span className="inline-flex shrink-0 items-center gap-1.5 text-xs leading-4 font-medium text-muted-foreground">
-        <ListChecksIcon aria-hidden className="size-3.5" />
+        {/* Done, named as its next step: the success tick, as everywhere a turn finished. */}
+        <CheckIcon aria-hidden className="size-3.5 text-success-foreground" />
         Ready to review
       </span>
       <span className="shrink-0 font-mono text-[11px] leading-[14px] whitespace-nowrap text-muted-foreground tabular-nums">

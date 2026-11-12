@@ -27,6 +27,8 @@ import {
   resolveThreadRowClassName,
   resolveSidebarEnvironmentReach,
   resolveSidebarRowStatus,
+  runningThreadMarkKind,
+  THREAD_STATUS_MARKS,
   resolveSidebarThreadStatus,
   resolveSidebarThreadTitleTone,
   resolveThreadStatusPill,
@@ -806,6 +808,19 @@ describe("resolveSidebarThreadStatus", () => {
   };
 
   const idle = { hasPendingApprovals: false, hasPendingUserInput: false };
+
+  it("marks retrying and usage-limit waits apart from live work", () => {
+    expect(runningThreadMarkKind({ ...idle, session })).toBe("working");
+    expect(runningThreadMarkKind({ ...idle, session, agentState: { kind: "retrying" } })).toBe(
+      "retrying",
+    );
+    expect(runningThreadMarkKind({ ...idle, session, agentState: { kind: "rate-limited" } })).toBe(
+      "paused",
+    );
+    // Neither is drawn in the live accent or in amber.
+    expect(THREAD_STATUS_MARKS.retrying.tone).toBe("muted");
+    expect(THREAD_STATUS_MARKS.paused.tone).toBe("muted");
+  });
 
   it("prioritizes approval over a running session", () => {
     expect(resolveSidebarThreadStatus({ ...idle, hasPendingApprovals: true, session })).toBe(
@@ -2093,7 +2108,7 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({
-      label: "Plan Ready",
+      label: "Plan ready",
       colorClass: "text-muted-foreground",
       dotClass: "rounded-full bg-muted-foreground",
     });
@@ -2207,12 +2222,12 @@ describe("resolveProjectStatusIndicator", () => {
           dotClass: "bg-success",
         },
         {
-          label: "Plan Ready",
+          label: "Plan ready",
           colorClass: "text-muted-foreground",
           dotClass: "bg-muted-foreground",
         },
       ]),
-    ).toMatchObject({ label: "Plan Ready" });
+    ).toMatchObject({ label: "Plan ready" });
   });
 });
 

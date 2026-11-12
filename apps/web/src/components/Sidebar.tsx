@@ -53,11 +53,8 @@ import {
   CircleCheckIcon,
   ClockIcon,
   EllipsisIcon,
-  EyeIcon,
   FolderIcon,
   GitBranchIcon,
-  MessageCircleQuestionIcon,
-  PauseIcon,
   PinIcon,
   PinOffIcon,
   PlusIcon,
@@ -139,6 +136,7 @@ import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useThreadAttention } from "../hooks/useThreadAttention";
 import { BlockedDiamond, SidebarElapsedTime, SidebarNeedsYou } from "./SidebarNeedsYou";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "./ThreadStatusMarker";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
   readThreadShell,
@@ -317,53 +315,21 @@ function sidebarRowStatusText(status: SidebarRowStatus): string {
   return status.fullLabel ?? joinThreadRowStatus(status);
 }
 
-/** Words take the tone's semantic role; the marker takes its matching fill. */
+/** The sidebar's muted words sit on its own muted role; the rest follow the status table. */
 const rowStatusToneClassName: Record<SidebarRowStatus["tone"], string> = {
-  live: "text-primary-text",
-  warning: "text-warning-foreground",
+  ...THREAD_STATUS_TONE_TEXT,
   muted: "text-sidebar-muted-foreground",
-  success: "text-success-foreground",
-  failed: "text-destructive-foreground",
 };
 
-/** The status line's leading mark. Always paired with words, never alone.
-    Glyphs take the tone's `*-foreground` role through `currentColor`. */
+/** The status line's leading mark, from the shared status table. */
 function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
-  switch (status.marker) {
-    case "live":
-      return (
-        <span
-          aria-hidden
-          className="size-1.5 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
-        />
-      );
-    case "diamond":
-      return <BlockedDiamond />;
-    case "dot":
-      return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current" />;
-    case "ring":
-      return (
-        <span
-          aria-hidden
-          className="size-1.5 shrink-0 rounded-full border-[1.5px] border-current"
-        />
-      );
-    case "check":
-      return <CheckIcon aria-hidden className="size-[11px] shrink-0 stroke-[2.5]" />;
-    case "icon": {
-      const Icon =
-        status.kind === "input"
-          ? MessageCircleQuestionIcon
-          : status.kind === "failed"
-            ? CircleAlertIcon
-            : status.kind === "woke"
-              ? AlarmClockIcon
-              : status.kind === "paused"
-                ? PauseIcon
-                : EyeIcon;
-      return <Icon aria-hidden className="size-3 shrink-0" />;
-    }
-  }
+  return (
+    <ThreadStatusMarker
+      kind={status.kind}
+      marker={status.marker}
+      className={status.marker === "check" ? "size-[11px]" : undefined}
+    />
+  );
 }
 
 // On the shared minute clock: only the now bar ticks in seconds (F5).

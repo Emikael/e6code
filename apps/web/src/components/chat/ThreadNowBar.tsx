@@ -6,7 +6,7 @@
  * worked and offers the diff.
  */
 import { formatAttentionAge } from "@e6tools/client-runtime/state/thread-attention";
-import { BellIcon, CircleAlertIcon, ListChecksIcon, MessageCircleQuestionIcon } from "lucide-react";
+import { BellIcon, CheckIcon, CircleAlertIcon, MessageCircleQuestionIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -138,7 +138,8 @@ export const ThreadNowBar = memo(function ThreadNowBar({
         ) : (
           <>
             <span className={cn(STATUS_CLASS, "text-muted-foreground")}>
-              <ListChecksIcon aria-hidden className="size-3.5 shrink-0" />
+              {/* Done, named as its next step: the success tick, as everywhere a turn finished. */}
+              <CheckIcon aria-hidden className="size-3.5 shrink-0 text-success-foreground" />
               Ready to review
             </span>
             <DoneText workedFor={state.workedFor} finishedAt={state.finishedAt} />
