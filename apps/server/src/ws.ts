@@ -97,6 +97,7 @@ import {
 } from "./orchestration/ActivityPayloadProjection.ts";
 import { makeThreadLiveEventCoalescer } from "./orchestration/ThreadLiveEventCoalescer.ts";
 import { parkedStreamItemsForEvent } from "./orchestration/parked.ts";
+import { OrchestrationRequestAlreadyAnsweredError } from "./orchestration/Errors.ts";
 import { makeLiveStreamBudget, type RetainedLiveItem } from "./orchestration/LiveStreamBudget.ts";
 import {
   cleanupFailedUploadedAttachments,
@@ -180,6 +181,9 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@e6tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isOrchestrationRequestAlreadyAnsweredError = Schema.is(
+  OrchestrationRequestAlreadyAnsweredError,
+);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -729,6 +733,9 @@ const makeWsRpcLayer = (
           : new OrchestrationDispatchCommandError({
               message: cause instanceof Error ? cause.message : fallbackMessage,
               cause,
+              ...(isOrchestrationRequestAlreadyAnsweredError(cause)
+                ? { requestAlreadyAnswered: true as const }
+                : {}),
             });
       const randomUUID = crypto.randomUUIDv4.pipe(
         Effect.mapError((cause) =>

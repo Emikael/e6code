@@ -7,6 +7,7 @@ import { HostProcessEnvironment, HostProcessPlatform } from "@e6tools/shared/hos
 import { projectScriptHash } from "@e6tools/shared/projectScripts";
 
 import {
+  ApprovalRequestId,
   type DeviceServiceState,
   AuthAccessTokenType,
   AuthStandardClientScopes,
@@ -126,7 +127,10 @@ import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
-import { OrchestrationThreadSettleBlockedError } from "./orchestration/Errors.ts";
+import {
+  OrchestrationRequestAlreadyAnsweredError,
+  OrchestrationThreadSettleBlockedError,
+} from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
@@ -1013,6 +1017,7 @@ const buildAppUnderTest = (options?: {
         Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
           getUserInputActivity: () => Effect.die("unused"),
           getApprovalRequestTurnId: () => Effect.die("unused"),
+          getApprovalRequestStatus: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getShellSnapshot: () =>
@@ -10796,6 +10801,40 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(
         error.message,
         "This thread still needs attention. Resolve or interrupt it first, then try again.",
+      );
+    }).pipe(Effect.provide(serverHttpLayer)),
+  );
+
+  it.effect("marks an already answered request so clients can ignore it", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-already-answered");
+      const requestId = ApprovalRequestId.make("approval-already-answered");
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: () =>
+              Effect.fail(new OrchestrationRequestAlreadyAnsweredError({ threadId, requestId })),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const error = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.approval.respond",
+            commandId: CommandId.make("cmd-already-answered"),
+            threadId,
+            requestId,
+            decision: "accept",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ).pipe(Effect.flip),
+      );
+
+      assert.equal(error._tag, "OrchestrationDispatchCommandError");
+      assert.isTrue(
+        error._tag === "OrchestrationDispatchCommandError" && error.requestAlreadyAnswered,
       );
     }).pipe(Effect.provide(serverHttpLayer)),
   );

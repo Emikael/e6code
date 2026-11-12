@@ -250,11 +250,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           envelope.command.type === "thread.user-input.dismiss"
             ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
             : Option.none();
+        // The command model does not track whether an approval was answered.
+        const approvalRequestStatus =
+          envelope.command.type === "thread.approval.respond"
+            ? yield* projectionSnapshotQuery.getApprovalRequestStatus(envelope.command)
+            : Option.none();
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
+            : {}),
+          ...(Option.isSome(approvalRequestStatus)
+            ? { approvalRequestStatus: approvalRequestStatus.value }
             : {}),
         }).pipe(
           Effect.provideService(Crypto.Crypto, crypto),

@@ -15,6 +15,7 @@ import {
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadDetailSnapshot,
+  ProjectionPendingApprovalStatus,
   ProjectScript,
   ProjectIconOverride,
   TurnId,
@@ -1607,11 +1608,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const getApprovalRequestTurnIdRow = SqlSchema.findOneOption({
+  const getApprovalRequestRow = SqlSchema.findOneOption({
     Request: Schema.Struct({ threadId: ThreadId, requestId: ApprovalRequestId }),
-    Result: Schema.Struct({ turnId: Schema.NullOr(TurnId) }),
+    Result: Schema.Struct({
+      turnId: Schema.NullOr(TurnId),
+      status: ProjectionPendingApprovalStatus,
+    }),
     execute: ({ threadId, requestId }) => sql`
-      SELECT turn_id AS "turnId"
+      SELECT turn_id AS "turnId", status
       FROM projection_pending_approvals
       WHERE thread_id = ${threadId} AND request_id = ${requestId}
     `,
@@ -1620,12 +1624,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const getApprovalRequestTurnId: ProjectionSnapshotQueryShape["getApprovalRequestTurnId"] = (
     input,
   ) =>
-    getApprovalRequestTurnIdRow(input).pipe(
+    getApprovalRequestRow(input).pipe(
       Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.turnId))),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProjectionSnapshotQuery.getApprovalRequestTurnId:query",
           "ProjectionSnapshotQuery.getApprovalRequestTurnId:decodeRow",
+        ),
+      ),
+    );
+
+  const getApprovalRequestStatus: ProjectionSnapshotQueryShape["getApprovalRequestStatus"] = (
+    input,
+  ) =>
+    getApprovalRequestRow(input).pipe(
+      Effect.map(Option.map((row) => row.status)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getApprovalRequestStatus:query",
+          "ProjectionSnapshotQuery.getApprovalRequestStatus:decodeRow",
         ),
       ),
     );
@@ -3966,6 +3983,7 @@ pending_approval_requests AS (
     getCommandReadModel,
     getUserInputActivity,
     getApprovalRequestTurnId,
+    getApprovalRequestStatus,
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,

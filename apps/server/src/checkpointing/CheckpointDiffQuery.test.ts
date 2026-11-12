@@ -78,6 +78,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
+            getApprovalRequestStatus: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
               Effect.die("CheckpointDiffQuery should not request the command read model"),
@@ -197,6 +198,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
+            getApprovalRequestStatus: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
               Effect.die("CheckpointDiffQuery should not request the command read model"),
@@ -291,6 +293,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
+            getApprovalRequestStatus: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
               Effect.die("CheckpointDiffQuery should not request the command read model"),
@@ -370,6 +373,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
+            getApprovalRequestStatus: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
               Effect.die("CheckpointDiffQuery should not request the command read model"),
@@ -434,6 +438,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getParkedState: () => Effect.die("unused"),
             getUserInputActivity: () => Effect.die("unused"),
             getApprovalRequestTurnId: () => Effect.die("unused"),
+            getApprovalRequestStatus: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
               Effect.die("CheckpointDiffQuery should not request the command read model"),

@@ -2033,6 +2033,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           const existingRow = yield* projectionPendingApprovalRepository.getByRequestId({
             requestId: event.payload.requestId,
           });
+          // The first answer stands: a later one never reaches the provider.
+          if (Option.isSome(existingRow) && existingRow.value.status === "resolved") {
+            return;
+          }
           yield* projectionPendingApprovalRepository.upsert({
             requestId: event.payload.requestId,
             threadId: Option.isSome(existingRow)

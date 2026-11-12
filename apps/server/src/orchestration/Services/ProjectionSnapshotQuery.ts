@@ -19,6 +19,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
+  ProjectionPendingApprovalStatus,
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadActivity,
@@ -93,6 +94,15 @@ export interface ProjectionSnapshotQueryShape {
     readonly threadId: ThreadId;
     readonly requestId: ApprovalRequestId;
   }) => Effect.Effect<Option.Option<TurnId>, ProjectionRepositoryError>;
+
+  /**
+   * Whether an approval request is pending or already answered, from its
+   * pending-approval row. None when the request is unknown.
+   */
+  readonly getApprovalRequestStatus: (input: {
+    readonly threadId: ThreadId;
+    readonly requestId: ApprovalRequestId;
+  }) => Effect.Effect<Option.Option<ProjectionPendingApprovalStatus>, ProjectionRepositoryError>;
 
   /**
    * Read every activity of one kind across active (not deleted, not archived)

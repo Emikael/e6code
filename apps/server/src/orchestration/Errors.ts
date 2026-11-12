@@ -1,4 +1,4 @@
-import { ThreadId } from "@e6tools/contracts";
+import { ApprovalRequestId, ThreadId } from "@e6tools/contracts";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Schema from "effect/Schema";
 
@@ -28,9 +28,27 @@ export class OrchestrationThreadSettleBlockedError extends Schema.TaggedError<Or
   }
 }
 
+/**
+ * An answer to a request that already has one: from another surface or device,
+ * or after the provider resolved it. Clients can drop it quietly, since the
+ * request is already settled.
+ */
+export class OrchestrationRequestAlreadyAnsweredError extends Schema.TaggedError<OrchestrationRequestAlreadyAnsweredError>()(
+  "OrchestrationRequestAlreadyAnsweredError",
+  {
+    threadId: ThreadId,
+    requestId: ApprovalRequestId,
+  },
+) {
+  override get message(): string {
+    return "This request has already been answered.";
+  }
+}
+
 export const OrchestrationCommandRejection = Schema.Union([
   OrchestrationCommandInvariantError,
   OrchestrationThreadSettleBlockedError,
+  OrchestrationRequestAlreadyAnsweredError,
 ]);
 export type OrchestrationCommandRejection = typeof OrchestrationCommandRejection.Type;
 export const isOrchestrationCommandRejection = Schema.is(OrchestrationCommandRejection);

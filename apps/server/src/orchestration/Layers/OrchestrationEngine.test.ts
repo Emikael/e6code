@@ -424,6 +424,7 @@ describe("OrchestrationEngine", () => {
           getParkedState: () => Effect.die("unused"),
           getUserInputActivity: () => Effect.die("unused"),
           getApprovalRequestTurnId: () => Effect.die("unused"),
+          getApprovalRequestStatus: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),
           getSnapshot: () =>

@@ -31,6 +31,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getParkedState: () => Effect.die("unused"),
     getUserInputActivity: () => Effect.die("unused"),
     getApprovalRequestTurnId: () => Effect.die("unused"),
+    getApprovalRequestStatus: () => Effect.die("unused"),
     listActivitiesByKind: () => Effect.die("unused"),
     getCommandReadModel: () => Effect.die("unused"),
     getSnapshot: () => Effect.die("unused"),
