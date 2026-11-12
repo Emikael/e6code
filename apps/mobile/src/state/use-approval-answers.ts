@@ -23,9 +23,7 @@ export function useApprovalAnswers(input: {
 }) {
   const { environmentId, threadId, pendingRequestIds, pendingKnown } = input;
   const key = environmentId && threadId ? approvalAnswersKey(environmentId, threadId) : NO_THREAD;
-  const answers = useSyncExternalStore(approvalAnswers.subscribe, () =>
-    approvalAnswers.forThread(key),
-  );
+  const answers = useSyncExternalStore(...approvalAnswers.threadSource(key));
   useEffect(() => {
     if (key !== NO_THREAD && pendingKnown) approvalAnswers.prune(key, pendingRequestIds);
   }, [key, pendingKnown, pendingRequestIds]);

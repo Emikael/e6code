@@ -162,4 +162,12 @@ describe("approval answer store", () => {
     expect([...store.forThread("env:t1").keys()]).toEqual([b]);
     expect(notified).toBe(count + 1);
   });
+
+  it("reads empty on a server render, whatever the client has answered", () => {
+    const store = createApprovalAnswerStore();
+    store.begin("env:t1", a);
+    const [, getSnapshot, getServerSnapshot] = store.threadSource("env:t1");
+    expect([...getSnapshot().keys()]).toEqual([a]);
+    expect(getServerSnapshot().size).toBe(0);
+  });
 });
