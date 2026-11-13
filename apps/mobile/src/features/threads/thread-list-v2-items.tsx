@@ -72,6 +72,7 @@ import {
   type ThreadAttentionItem,
 } from "@e6tools/client-runtime/state/thread-attention";
 import { useMinuteClock } from "../../lib/useMinuteClock";
+import { useAttentionPreferences } from "./use-attention-preferences";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 
 /**
@@ -300,7 +301,10 @@ function NeedsYouGlyph(props: {
  * re-renders; no seconds anywhere in the list. Past a day it names the day.
  */
 export function WholeMinutesSince(props: { readonly since: string; readonly prefix?: string }) {
-  const nowMs = useMinuteClock(true);
+  // Settings → Thread behavior → Elapsed time turns every list minute off (F5).
+  const { elapsedTimeEnabled } = useAttentionPreferences();
+  const nowMs = useMinuteClock(elapsedTimeEnabled);
+  if (!elapsedTimeEnabled) return null;
   const now = new Date(nowMs).toISOString();
   // Elapsed time reads "<1m" at first (board 8); a request's age reads "just now".
   const age =

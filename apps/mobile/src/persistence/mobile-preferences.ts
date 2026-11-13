@@ -63,6 +63,8 @@ export interface Preferences {
   readonly needsYouSectionEnabled?: boolean;
   /** Device-local counterpart of web's `recapTrigger`; "after-break" when unset. */
   readonly recapTrigger?: RecapTrigger;
+  /** Device-local counterpart of web's `sidebarElapsedTimeEnabled`; on when unset. */
+  readonly sidebarElapsedTimeEnabled?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -128,6 +130,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSnoozedShelfExpanded?: boolean;
     needsYouSectionEnabled?: boolean;
     recapTrigger?: RecapTrigger;
+    sidebarElapsedTimeEnabled?: boolean;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -224,6 +227,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.needsYouSectionEnabled = parsed.needsYouSectionEnabled;
   }
   if (isRecapTrigger(parsed.recapTrigger)) preferences.recapTrigger = parsed.recapTrigger;
+  if (typeof parsed.sidebarElapsedTimeEnabled === "boolean") {
+    preferences.sidebarElapsedTimeEnabled = parsed.sidebarElapsedTimeEnabled;
+  }
   return preferences;
 }
 

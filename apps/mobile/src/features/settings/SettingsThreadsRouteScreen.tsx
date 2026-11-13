@@ -265,9 +265,17 @@ function AttentionSettingsSection() {
           disabled={!attention.loaded}
           onValueChange={(value) => savePreferences({ needsYouSectionEnabled: value })}
         />
+        <SettingsSwitchRow
+          icon="clock"
+          label="Elapsed time"
+          value={attention.elapsedTimeEnabled}
+          disabled={!attention.loaded}
+          onValueChange={(value) => savePreferences({ sidebarElapsedTimeEnabled: value })}
+        />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
-        Blocked agents lead the Home list. The list below keeps its order.
+        Blocked agents and work to review lead the Home list, each thread listed once. Elapsed time
+        shows whole minutes only, so nothing ticks at the edge of your eye.
       </Text>
       <SettingsSection title="Show where you left off">
         {RECAP_TRIGGER_OPTIONS.map((option, index) => {
