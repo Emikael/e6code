@@ -88,7 +88,6 @@ export function ThreadRecapHost({
   onOpenChanges,
   attachedNotSent,
   hidden = false,
-  onShowingChange,
 }: {
   threadKey: string;
   /**
@@ -96,8 +95,6 @@ export function ThreadRecapHost({
    * the recap waits, undismissed, until it is free.
    */
   hidden?: boolean;
-  /** Whether a recap applies now (shown or waiting), so the Next card can give way to it. */
-  onShowingChange?: (showing: boolean) => void;
   /** "1 comment not sent": attached items waiting in this thread's composer, kept live. */
   attachedNotSent: string | null;
   /** False while thread detail loads; the recap waits so it sees the whole log. */
@@ -200,12 +197,6 @@ export function ThreadRecapHost({
       record();
     };
   }, [noteSeen, threadKey]);
-
-  const showing = Boolean(current.recap);
-  useEffect(() => {
-    onShowingChange?.(showing);
-  }, [onShowingChange, showing]);
-  useEffect(() => () => onShowingChange?.(false), [onShowingChange]);
 
   const noteDialog = <ThreadNoteDialog threadKey={threadKey} />;
   if (!current.recap || hidden) return noteDialog;

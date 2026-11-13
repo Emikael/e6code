@@ -263,8 +263,7 @@ import { deriveNextCard } from "./chat/ThreadNextCard.logic";
 import {
   rightPanelHoldsFill,
   screenFillHolder,
-  nowBarOffersReviewDiff,
-  selectComposerSlotCard,
+  reviewDiffPlacement,
 } from "./chat/composerNeighbors.logic";
 import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
@@ -623,12 +622,24 @@ const EMPTY_HANDOFF_MODEL_OPTIONS: ReturnType<typeof getCustomModelOptionsByInst
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
-/** The timeline frontier: a thread error above whatever prompt is waiting. */
-function FrontierStack({ error, children }: { error: ReactNode; children: ReactNode }) {
+/**
+ * The timeline frontier: a thread error above whatever prompt is waiting, and
+ * the Next card that ends a turn finished with changes (boards 2 and 3).
+ */
+function FrontierStack({
+  error,
+  next,
+  children,
+}: {
+  error: ReactNode;
+  next: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-2">
       {error}
       {children}
+      {next}
     </div>
   );
 }
@@ -7092,15 +7103,15 @@ export default function ChatView(props: ChatViewProps) {
         ] ?? null)
       : null,
   });
-  // One card above the composer (permission prompt, then recap, then Next card), and one fill:
-  // the Next card gives its fill to Send while you type, and to a Diff or pull request panel
-  // that holds its own.
-  const [recapShowing, setRecapShowing] = useState(false);
-  const composerSlotCard = selectComposerSlotCard({
-    permissionPrompt: notificationPermissionBannerItem !== null,
-    recap: recapShowing,
-    nextCard: nextCard !== null,
-  });
+  // One fill: the Next card at the end of the timeline gives its fill to Send while you type,
+  // and to a Diff or pull request panel that holds its own.
+  // Review diff in one place: the Next card once the timeline renders its end, else the now bar.
+  const nextCardInTimeline =
+    reviewDiffPlacement({
+      nextCard: nextCard !== null,
+      timelineReady:
+        !paintOnlyDisplayedTimeline && !threadDetailLoading && timelineEntries.length > 0,
+    }) === "next-card";
   const nextCardHoldsFill =
     screenFillHolder({
       composerHasText: composerHasUnsentContent,
@@ -10742,11 +10753,11 @@ export default function ChatView(props: ChatViewProps) {
                   retryUnavailableReason={retryUnavailableReason}
                   earlierTurns={earlierTurnsCue}
                   onReviewDiff={
-                    nowBarOffersReviewDiff(composerSlotCard)
-                      ? () => {
+                    nextCardInTimeline
+                      ? null
+                      : () => {
                           if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
                         }
-                      : null
                   }
                 />
               ) : null}
@@ -10885,11 +10896,24 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 frontierResolution={
                   showThreadErrorInline ||
+                  nextCardInTimeline ||
                   (!paintOnlyDisplayedTimeline &&
                     (activePendingApproval ||
                       pendingUserInputs.length > 0 ||
                       (showPlanFollowUpPrompt && activeProposedPlan))) ? (
                     <FrontierStack
+                      next={
+                        nextCardInTimeline && nextCard ? (
+                          <ThreadNextCard
+                            state={nextCard}
+                            reviewShortcut={shortcutLabelForCommand(keybindings, "diff.toggle")}
+                            primary={nextCardHoldsFill}
+                            onReviewDiff={() => onOpenTurnDiff(nextCard.turnId)}
+                            onSettle={supportsSettlement ? settleFromNextCard : null}
+                            onAskForChanges={focusComposer}
+                          />
+                        ) : null
+                      }
                       error={
                         showThreadErrorInline ? (
                           <ThreadErrorBanner
@@ -11153,21 +11177,10 @@ export default function ChatView(props: ChatViewProps) {
                       </div>
                     </div>
                   ) : null}
-                  {nextCard && composerSlotCard === "next" ? (
-                    <ThreadNextCard
-                      state={nextCard}
-                      reviewShortcut={shortcutLabelForCommand(keybindings, "diff.toggle")}
-                      primary={nextCardHoldsFill}
-                      onReviewDiff={() => onOpenTurnDiff(nextCard.turnId)}
-                      onSettle={supportsSettlement ? settleFromNextCard : null}
-                      onAskForChanges={focusComposer}
-                    />
-                  ) : null}
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
                       threadKey={activeThreadKey}
-                      hidden={composerSlotCard === "permission"}
-                      onShowingChange={setRecapShowing}
+                      hidden={notificationPermissionBannerItem !== null}
                       attachedNotSent={recapAttachedNotSent}
                       ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
                       source={recapSource}
