@@ -6,7 +6,13 @@
  * worked and offers the diff.
  */
 import { formatAttentionAge } from "@e6tools/client-runtime/state/thread-attention";
-import { BellIcon, CheckIcon, CircleAlertIcon, MessageCircleQuestionIcon } from "lucide-react";
+import {
+  BellIcon,
+  CheckIcon,
+  CircleAlertIcon,
+  MessageCircleQuestionIcon,
+  PauseIcon,
+} from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -66,14 +72,16 @@ export const ThreadNowBar = memo(function ThreadNowBar({
             <span
               className={cn(
                 STATUS_CLASS,
-                state.live ? "text-primary-text" : "text-muted-foreground",
+                state.mark === "live" ? "text-primary-text" : "text-muted-foreground",
               )}
             >
-              {state.live ? (
+              {state.mark === "live" ? (
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
                 />
+              ) : state.mark === "usage-limit" ? (
+                <PauseIcon aria-hidden className="size-3.5 shrink-0" />
               ) : (
                 <span
                   aria-hidden

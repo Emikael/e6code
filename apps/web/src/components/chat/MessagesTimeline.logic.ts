@@ -106,6 +106,8 @@ export function liveWorkEntryLabel(
   entry: WorkLogEntry,
   workspaceRoot: string | undefined,
   active: boolean,
+  /** "base" names a file by its name alone, as the now bar does ("Editing themePalettes.ts"). */
+  fileName: "relative" | "base" = "relative",
 ) {
   const status = liveActivityToolStatus(entry.toolLifecycleStatus, active);
   const toolPresentation = resolveWorkEntryToolPresentation({
@@ -131,7 +133,11 @@ export function liveWorkEntryLabel(
   const filePath = status === "inProgress" ? fileToolPath(entry) : null;
   if (filePath) {
     const verb = entry.itemType === "file_change" ? "Editing" : "Reading";
-    return `${verb} ${formatWorkspaceRelativePath(filePath, workspaceRoot)}`;
+    const shown =
+      fileName === "base"
+        ? (filePath.split(/[\\/]/).at(-1) ?? filePath)
+        : formatWorkspaceRelativePath(filePath, workspaceRoot);
+    return `${verb} ${shown}`;
   }
   return workEntryDisplayLabel(entry, workspaceRoot);
 }

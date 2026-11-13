@@ -27,8 +27,11 @@ export type NowBarState =
       readonly kind: "working";
       /** "Working", or the agent state that explains a stall ("Retrying", "Compacting"). */
       readonly status: string;
-      /** A live agent gets the halo; retrying and usage-limit waits are neutral. */
-      readonly live: boolean;
+      /**
+       * The status mark: a live agent gets the halo; the waits it cannot act on
+       * are neutral, a hollow ring while retrying and a pause for a usage limit.
+       */
+      readonly mark: "live" | "retrying" | "usage-limit";
       /** The plan step meter, only while the agent reports a plan. */
       readonly progress: { readonly completedSteps: number; readonly totalSteps: number } | null;
       /** "Step 3 of 5 · Updating the token map", the current action, or the stall detail. */
@@ -74,6 +77,8 @@ export interface NowBarInput {
   readonly provider: string;
   /** The failure sentence ("Codex stopped: …") when the thread failed, else null. */
   readonly failure: string | null;
+  /** "14:20" for "resets 14:20"; without it a usage-limit wait names no time. */
+  readonly formatResetTime?: (resetsAt: string) => string;
   readonly latestTurn: {
     readonly state: "running" | "interrupted" | "completed" | "error";
     readonly startedAt: string | null;
@@ -133,12 +138,17 @@ export function deriveNowBarState(input: NowBarInput): NowBarState {
       const status = formatRunningThreadStatus({
         agentState,
         planProgress: null,
-        formatResetTime: () => "",
+        formatResetTime: input.formatResetTime ?? (() => ""),
       });
       return {
         kind: "working",
         status: status.label,
-        live: agentState.kind === "compacting",
+        mark:
+          agentState.kind === "rate-limited"
+            ? "usage-limit"
+            : agentState.kind === "retrying"
+              ? "retrying"
+              : "live",
         progress: null,
         text: status.detail ?? input.currentAction,
         startedAt: input.workStartedAt,
@@ -149,7 +159,7 @@ export function deriveNowBarState(input: NowBarInput): NowBarState {
       return {
         kind: "working",
         status: "Working",
-        live: true,
+        mark: "live",
         progress: {
           completedSteps: planProgress.completedSteps,
           totalSteps: planProgress.totalSteps,
@@ -163,7 +173,7 @@ export function deriveNowBarState(input: NowBarInput): NowBarState {
     return {
       kind: "working",
       status: "Working",
-      live: true,
+      mark: "live",
       progress: null,
       text: input.currentAction,
       startedAt: input.workStartedAt,
@@ -260,12 +270,14 @@ export function doneSummary(workedFor: string | null, finishedClock: string): st
 
 /**
  * The running turn's latest tool action in the timeline's own words
- * ("Running vp", "apps/web/src/index.css"), or null while it only thinks.
+ * ("Running vp", "Editing apps/web/src/index.css"), or null while it only
+ * thinks. The now bar names a file by its name alone ("Editing index.css").
  */
 export function selectCurrentAction(
   entries: ReadonlyArray<WorkLogEntry>,
   runningTurnId: TurnId | null | undefined,
   workspaceRoot: string | undefined,
+  fileName: "relative" | "base" = "relative",
 ): string | null {
   if (!runningTurnId) return null;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -275,6 +287,7 @@ export function selectCurrentAction(
       entry,
       workspaceRoot,
       entry.toolLifecycleStatus === "inProgress",
+      fileName,
     ).trim();
     return label === "" ? null : label;
   }
