@@ -52,7 +52,8 @@ function SelectTrigger({
     >
       {children}
       <SelectPrimitive.Icon data-slot="select-icon">
-        {icon ?? <ChevronDownIcon className="-me-1 size-3 opacity-50" />}
+        {/* Board 6: the 14px chevron in the label's own color, as on every chip. */}
+        {icon ?? <ChevronDownIcon className="-me-0.5 size-3.5" />}
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
