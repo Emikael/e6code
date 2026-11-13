@@ -142,5 +142,4 @@ with **See them** to move to the sidebar. It never stops you from sending.
 ## What changed
 
 If you used E6 Code before these features, the start screen shows a one-time **What changed** card.
-**Review settings** opens **Settings → Attention**, and **Try the new look** switches the stock
-theme to the Graphite accent; see [Appearance](./appearance.md).
+**Review settings** opens **Settings → Attention**, where notifications can be turned off.

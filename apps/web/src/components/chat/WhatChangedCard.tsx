@@ -1,8 +1,9 @@
 /**
  * "What changed, shown once" (board 7, F13): the start-screen notice for people
  * who used E6 Code before the attention redesign. It is the only place they
- * learn that notifications for blocked agents are now on, so it says so and
- * how to turn them off. Review settings and Got it both retire it for good.
+ * learn that notifications for blocked agents are now on, so it says so, and
+ * Review settings opens where to turn them off. Review settings and Got it
+ * both retire it for good. The new look stays in Settings, Appearance.
  */
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -15,12 +16,7 @@ import {
 } from "~/hooks/useSettings";
 import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "~/state/entities";
 import { Button } from "../ui/button";
-import { toastManager } from "../ui/toast";
-import {
-  decideAttentionIntro,
-  offersNewLook,
-  shouldShowWhatChanged,
-} from "./WhatChangedCard.logic";
+import { decideAttentionIntro, shouldShowWhatChanged } from "./WhatChangedCard.logic";
 
 export function useWhatChangedVisible(): boolean {
   const dismissed = useClientSettings((settings) => settings.attentionIntroDismissed);
@@ -57,19 +53,7 @@ function PendingAttentionIntroDecision() {
 export function WhatChangedCard() {
   const router = useRouter();
   const updateSettings = useUpdateClientSettings();
-  const stockAccent = useClientSettings((settings) => settings.stockAccent);
-  const appearanceContrast = useClientSettings((settings) => settings.appearanceContrast);
   const dismiss = () => updateSettings({ attentionIntroDismissed: true });
-  const tryNewLook = () => {
-    const previous = { stockAccent, appearanceContrast };
-    updateSettings({ stockAccent: "graphite", appearanceContrast: 120 });
-    toastManager.add({
-      type: "success",
-      title: "New look on",
-      description: "Change it any time in Settings, Appearance.",
-      actionProps: { children: "Undo", onClick: () => updateSettings(previous) },
-    });
-  };
   return (
     <section
       aria-label="What changed"
@@ -82,7 +66,7 @@ export function WhatChangedCard() {
         <li>Blocked agents sit at the top of the sidebar.</li>
         <li>
           You get a notification when an agent is blocked, or when a thread you are waiting on
-          finishes. You can turn this off in Settings, Attention.
+          finishes.
         </li>
         <li>Opening a thread that changed shows where you left off.</li>
       </ul>
@@ -98,11 +82,6 @@ export function WhatChangedCard() {
         >
           Review settings
         </Button>
-        {offersNewLook({ stockAccent, appearanceContrast }) ? (
-          <Button size="sm" variant="ghost" className="sm:text-xs" onClick={tryNewLook}>
-            Try the new look
-          </Button>
-        ) : null}
         <Button size="sm" variant="ghost" className="sm:text-xs" onClick={dismiss}>
           Got it
         </Button>

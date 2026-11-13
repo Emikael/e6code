@@ -1,5 +1,3 @@
-import { DEFAULT_CLIENT_SETTINGS } from "@e6tools/contracts/settings";
-
 /**
  * Who sees the one-time "What changed" card (F13): people who used E6 Code
  * before the attention redesign, so new defaults (notifications for blocked
@@ -28,18 +26,4 @@ export function decideAttentionIntro(input: {
   if (input.storedSettingsExisted) return { attentionIntroDismissed: false };
   if (!input.threadsLoaded) return null;
   return { attentionIntroDismissed: input.threadCount === 0 };
-}
-
-/**
- * "Try the new look" (phase 21) is offered only to a profile still stored with
- * an accent or contrast other than the new Graphite at 120.
- */
-export function offersNewLook(input: {
-  readonly stockAccent: string;
-  readonly appearanceContrast: number;
-}): boolean {
-  return (
-    input.stockAccent !== DEFAULT_CLIENT_SETTINGS.stockAccent ||
-    input.appearanceContrast !== DEFAULT_CLIENT_SETTINGS.appearanceContrast
-  );
 }
