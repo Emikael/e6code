@@ -450,8 +450,10 @@ export const ChatHeader = memo(function ChatHeader({
   });
   const showProjectScripts = activeProjectScripts;
   const showGitActions = Boolean(activeProjectName && gitCwd);
-  // Git keeps its own reserved slot in the header (F8); phones fold it into More.
-  const gitInMenu = showGitActions && isMobile;
+  // The boards draw no Git control in the header, so Git sits in More at every width. It stays
+  // mounted there (the menu keeps its popup mounted), so its status refresh and the draft's branch
+  // sync keep running. Commit and Push are also in Run details and the Diff's commit rail.
+  const gitInMenu = showGitActions;
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -880,19 +882,8 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
-        {/* Board 2: Changes so far first, then Git. */}
         {changedFileCount !== null ? (
           <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
-        ) : null}
-        {showGitActions && !gitInMenu && gitCwd ? (
-          <div className="me-1 flex shrink-0 items-center">
-            <GitActionsControl
-              gitCwd={gitCwd}
-              activeThreadRef={activeThreadRef}
-              onOpenPullRequest={onOpenPullRequest}
-              {...(draftId ? { draftId } : {})}
-            />
-          </div>
         ) : null}
         {isServerThread ? (
           <Tooltip>
