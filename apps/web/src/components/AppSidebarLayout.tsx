@@ -43,7 +43,6 @@ import { showsAppNavRail } from "./appNavRail.logic";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
-import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { useProjects } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
@@ -383,10 +382,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             }}
           >
             {isOnSettings ? (
-              <>
-                <SidebarChromeHeader isElectron={isElectron} />
-                <SettingsSidebarNav pathname={pathname} />
-              </>
+              // Board 6: the settings nav opens on "Back to threads", without the app title strip.
+              <SettingsSidebarNav pathname={pathname} />
             ) : legacySidebarEnabled ? (
               <LegacyThreadSidebar />
             ) : (

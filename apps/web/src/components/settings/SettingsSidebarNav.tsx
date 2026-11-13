@@ -1,59 +1,20 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type KeyboardEvent,
-} from "react";
-import {
-  ArchiveIcon,
-  ArrowLeftIcon,
-  BlocksIcon,
-  BotIcon,
-  createLucideIcon,
-  GitBranchIcon,
-  HardDriveIcon,
-  PanelsTopLeftIcon,
-  KeyboardIcon,
-  Link2Icon,
-  PaletteIcon,
-  BellDotIcon,
-  SearchIcon,
-  Settings2Icon,
-  XIcon,
-} from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
+import { ArrowLeftIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
+import { openCommandPalette } from "../../commandPaletteBus";
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
 import { primaryServerProvidersAtom } from "../../state/server";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { Kbd } from "../ui/kbd";
+import { SidebarContent, SidebarFooter, SidebarMenu, useSidebar } from "../ui/sidebar";
+import { SidebarUpdatePill } from "../sidebar/SidebarUpdatePill";
 import {
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from "../ui/sidebar";
-import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
-import { scrollToSettingsTarget } from "./settingsLayout";
-import {
-  searchSettings,
   isSettingsOverviewVisible,
   SETTINGS_SECTION_LABELS,
   type SettingsPath,
-  type SettingsSearchItem,
 } from "./settingsSearch";
-import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
 import {
   groupSettingsNavItems,
@@ -63,18 +24,6 @@ import {
   settingsProvidersBadge,
 } from "./settingsNavGroups";
 import { useSettingsBackLabel, useSettingsBackNavigation } from "./useSettingsBackNavigation";
-
-const SnapShotIcon = createLucideIcon("snap-shot", [
-  [
-    "path",
-    {
-      d: "M8 3H6a3 3 0 0 0-3 3v2M16 3h2a3 3 0 0 1 3 3v2M21 16v2a3 3 0 0 1-3 3h-2M8 21H6a3 3 0 0 1-3-3v-2",
-      key: "capture-frame",
-    },
-  ],
-  ["rect", { width: "10", height: "8", x: "7", y: "8", rx: "2", key: "window" }],
-  ["circle", { cx: "12", cy: "12", r: "1.5", key: "lens" }],
-]);
 
 const E6ConnectSidebarSignIn = lazy(() =>
   import("../clerk/E6ConnectSidebarSignIn").then((module) => ({
@@ -87,23 +36,6 @@ const E6ConnectSidebarAvatar = lazy(() =>
   })),
 );
 
-const SETTINGS_SECTION_ICONS: Readonly<
-  Record<SettingsPath, ComponentType<{ className?: string }>>
-> = {
-  "/settings/general": Settings2Icon,
-  "/settings/appearance": PaletteIcon,
-  "/settings/attention": BellDotIcon,
-  "/settings/projects": PanelsTopLeftIcon,
-  "/settings/keybindings": KeyboardIcon,
-  "/settings/snap-shot": SnapShotIcon,
-  "/settings/providers": BotIcon,
-  "/settings/integrations": BlocksIcon,
-  "/settings/source-control": GitBranchIcon,
-  "/settings/storage": HardDriveIcon,
-  "/settings/connections": Link2Icon,
-  "/settings/archived": ArchiveIcon,
-};
-
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsPath;
@@ -112,14 +44,12 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: SETTINGS_SECTION_LABELS[to],
 }));
 
-function SettingsSectionIcon({ to }: { to: SettingsPath }) {
-  const Icon = SETTINGS_SECTION_ICONS[to];
-  return <Icon className="mt-0.5 size-3.5 shrink-0 text-sidebar-muted-foreground/60" />;
-}
+/** Board 6's nav row: 32px, 13px medium, the selected page on the raised row with a hairline. */
+const NAV_ROW_CLASS =
+  "flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] leading-[18px] font-medium text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring";
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
-  const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
   const showProjectPage = isSettingsOverviewVisible(scopeSearch);
@@ -134,60 +64,32 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const { environments } = useEnvironments();
   const providersBadge = useMemo(() => settingsProvidersBadge(providers), [providers]);
   const connectionsBadge = useMemo(() => settingsConnectionsBadge(environments), [environments]);
-  const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
   const navigateBack = useSettingsBackNavigation();
   const backLabel = useSettingsBackLabel();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState("");
-  const [activeResultIndex, setActiveResultIndex] = useState(0);
-  const searchableItems = useAvailableSettingsSearchItems();
-  const results = useMemo(() => searchSettings(query, searchableItems), [query, searchableItems]);
-  const isSearching = query.trim().length > 0;
-  const hasResults = results.length > 0;
 
-  useEffect(() => {
-    setActiveResultIndex((index) => Math.min(index, Math.max(results.length - 1, 0)));
-  }, [results.length]);
-
-  useEffect(() => {
-    const result = results[activeResultIndex];
-    if (!result) return;
-    document
-      .getElementById(`settings-search-result-${result.id}`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeResultIndex, results]);
-
+  // Board 6 has no search field: "/" opens the command palette, which searches the same
+  // settings index and jumps to the row.
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
-
       const target = event.target;
       if (
         target instanceof HTMLElement &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
           target.isContentEditable ||
-          // Keep focus inside open dialogs and popups instead of escaping
-          // their focus trap into the sidebar search.
+          // Keep focus inside open dialogs and popups.
           target.closest(SETTINGS_OVERLAY_SELECTOR) !== null)
       ) {
         return;
       }
-
       event.preventDefault();
-      if (isMobile) {
-        setOpenMobile(true);
-      } else if (!open) {
-        setOpen(true);
-      }
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
+      openCommandPalette();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isMobile, open, setOpen, setOpenMobile]);
+  }, []);
 
   const handleSectionClick = useCallback(
     (to: SettingsPath) => {
@@ -203,62 +105,14 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     },
     [isMobile, navigate, setOpenMobile],
   );
-  const clearSearch = useCallback(() => {
-    setQuery("");
-    setActiveResultIndex(0);
-  }, []);
-  const handleSearchResultClick = useCallback(
-    (item: SettingsSearchItem) => {
-      clearSearch();
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-      const targetId = item.targetId ?? item.id;
-      if (pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
-        scrollToSettingsTarget(targetId);
-        return;
-      }
-      void navigate({
-        to: item.to,
-        hash: targetId,
-        replace: true,
-        hashScrollIntoView: false,
-        state: { settingsTargetHighlight: true },
-      });
-    },
-    [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
-  );
-  const handleSearchKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Escape" && isSearching) {
-        event.preventDefault();
-        event.stopPropagation();
-        clearSearch();
-        return;
-      }
-      if (results.length === 0) return;
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setActiveResultIndex((index) => (index + 1) % results.length);
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setActiveResultIndex((index) => (index - 1 + results.length) % results.length);
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const result = results[activeResultIndex];
-        if (result) handleSearchResultClick(result);
-      }
-    },
-    [activeResultIndex, clearSearch, handleSearchResultClick, isSearching, results],
-  );
   return (
     <>
+      {/* The desktop window keeps its drag strip and traffic-light room above the nav. */}
+      {isElectron ? (
+        <div aria-hidden className="drag-region h-[var(--workspace-topbar-height)] shrink-0" />
+      ) : null}
       <SidebarContent className="overflow-x-hidden">
-        <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
+        <nav aria-label="Settings sections" className="flex flex-col gap-0.5 p-2">
           <button
             type="button"
             onClick={() => {
@@ -266,171 +120,80 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               navigateBack();
             }}
             aria-keyshortcuts="Escape"
-            className="flex h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 text-left text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(NAV_ROW_CLASS, "mb-1")}
           >
             <ArrowLeftIcon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{backLabel}</span>
-            <Kbd className="h-[18px] rounded-sm border border-sidebar-border bg-transparent px-1.5 font-mono text-[11px] font-normal text-sidebar-muted-foreground">
-              esc
-            </Kbd>
+            <span className="min-w-0 flex-1 truncate">
+              {backLabel === "Back" ? backLabel : `Back to ${backLabel.toLowerCase()}`}
+            </span>
           </button>
-          <div className="flex h-[34px] items-center gap-2 rounded-[10px] border border-input bg-surface-raised px-2.5 text-sm text-sidebar-muted-foreground focus-within:ring-2 focus-within:ring-ring">
-            <SearchIcon
-              aria-hidden
-              className="size-[15px] shrink-0 text-sidebar-muted-foreground"
-            />
-            <Input
-              ref={searchInputRef}
-              nativeInput
-              unstyled
-              type="search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.currentTarget.value);
-                setActiveResultIndex(0);
-              }}
-              onKeyDown={handleSearchKeyDown}
-              placeholder={`Search ${searchableItems.length} settings`}
-              aria-label="Search settings"
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={isSearching && hasResults}
-              aria-controls={isSearching && hasResults ? "settings-search-results" : undefined}
-              aria-activedescendant={
-                isSearching && results[activeResultIndex]
-                  ? `settings-search-result-${results[activeResultIndex].id}`
-                  : undefined
-              }
-              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
-            />
-            {isSearching ? (
-              <Button
-                type="button"
-                size="icon-micro"
-                variant="ghost"
-                className="shrink-0 text-sidebar-muted-foreground hover:bg-sidebar-control-surface hover:text-sidebar-foreground"
-                aria-label="Clear settings search"
-                onClick={() => {
-                  clearSearch();
-                  searchInputRef.current?.focus();
-                }}
+          {navGroups.map((group) => {
+            const headingId = `settings-nav-group-${group.label.toLowerCase()}`;
+            return (
+              <section
+                key={group.label}
+                aria-labelledby={headingId}
+                className="flex flex-col gap-0.5"
               >
-                <XIcon className="size-3" />
-              </Button>
-            ) : (
-              <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">/</Kbd>
-            )}
-          </div>
-          {isSearching && results.length === 0 ? (
-            <p
-              role="status"
-              className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
-            >
-              No settings found
-            </p>
-          ) : null}
-          {isSearching ? (
-            <SidebarMenu
-              className="ps-px"
-              id={hasResults ? "settings-search-results" : undefined}
-              role={hasResults ? "listbox" : undefined}
-              aria-label={hasResults ? "Settings search results" : undefined}
-            >
-              {results.map((item, index) => (
-                <SidebarMenuItem key={item.id} role="presentation">
-                  <SidebarMenuButton
-                    id={`settings-search-result-${item.id}`}
-                    role="option"
-                    aria-selected={index === activeResultIndex}
-                    tabIndex={-1}
-                    size="sm"
-                    isActive={index === activeResultIndex}
-                    // The highlighted result takes an inset primary-edge bar on top of
-                    // its fill, so keyboard and pointer position read at 3:1 or better.
-                    className="relative h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0.5 data-[active=true]:before:w-0.5 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary-edge"
-                    onMouseMove={() => setActiveResultIndex(index)}
-                    onClick={() => handleSearchResultClick(item)}
-                  >
-                    <SettingsSectionIcon to={item.to} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-sidebar-foreground">
-                        {item.title}
-                      </span>
-                      <span className="block truncate text-[11px] text-sidebar-muted-foreground">
-                        {SETTINGS_SECTION_LABELS[item.to]}
-                      </span>
-                    </span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          ) : (
-            <nav aria-label="Settings sections" className="flex flex-col gap-3.5 pt-1">
-              {navGroups.map((group) => {
-                const headingId = `settings-nav-group-${group.label.toLowerCase()}`;
-                return (
-                  <section key={group.label} aria-labelledby={headingId}>
-                    <h2
-                      id={headingId}
-                      className="px-2 pb-1 text-xs font-semibold text-sidebar-muted-foreground"
+                <h2
+                  id={headingId}
+                  className="px-2.5 pt-2 pb-1 text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground"
+                >
+                  {group.label}
+                </h2>
+                {group.items.map((item) => {
+                  const isDetailPage = SETTINGS_DETAIL_PAGES[pathname]?.parent === item.to;
+                  const isActive =
+                    isDetailPage || pathname === item.to || pathname.startsWith(`${item.to}/`);
+                  const badge =
+                    item.to === "/settings/providers"
+                      ? providersBadge
+                      : item.to === "/settings/connections"
+                        ? connectionsBadge
+                        : null;
+                  return (
+                    <button
+                      key={item.to}
+                      type="button"
+                      aria-current={isActive ? "page" : undefined}
+                      onClick={() => handleSectionClick(item.to)}
+                      className={cn(
+                        NAV_ROW_CLASS,
+                        isActive &&
+                          "bg-sidebar-row-selected shadow-xs ring-1 ring-input hover:bg-sidebar-row-selected",
+                      )}
                     >
-                      {group.label}
-                    </h2>
-                    <SidebarMenu className="gap-px">
-                      {group.items.map((item) => {
-                        const isDetailPage = SETTINGS_DETAIL_PAGES[pathname]?.parent === item.to;
-                        const isActive =
-                          isDetailPage ||
-                          pathname === item.to ||
-                          pathname.startsWith(`${item.to}/`);
-                        const badge =
-                          item.to === "/settings/providers"
-                            ? providersBadge
-                            : item.to === "/settings/connections"
-                              ? connectionsBadge
-                              : null;
-                        return (
-                          <SidebarMenuItem key={item.to}>
-                            <SidebarMenuButton
-                              isActive={isActive}
-                              aria-current={isActive ? "page" : undefined}
-                              onClick={() => handleSectionClick(item.to)}
-                              className="px-2 font-normal text-sidebar-foreground data-[active=true]:bg-sidebar-row-selected data-[active=true]:shadow-xs/5 data-[active=true]:ring-1 data-[active=true]:ring-primary-edge"
-                            >
-                              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                              {badge ? (
-                                <span
-                                  className={cn(
-                                    "shrink-0 font-mono text-[11px] tabular-nums",
-                                    badge.tone === "warning"
-                                      ? "flex h-5 items-center rounded-sm bg-warning-surface px-1.5 font-medium text-warning-foreground"
-                                      : "text-sidebar-muted-foreground",
-                                  )}
-                                >
-                                  <span aria-hidden="true">{badge.text}</span>
-                                  <span className="sr-only">{badge.label}</span>
-                                </span>
-                              ) : null}
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        );
-                      })}
-                    </SidebarMenu>
-                  </section>
-                );
-              })}
-            </nav>
-          )}
-        </SidebarGroup>
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {badge ? (
+                        <span
+                          className={cn(
+                            "shrink-0 font-mono text-[11px] font-normal tabular-nums",
+                            badge.tone === "warning"
+                              ? "flex h-5 items-center rounded-sm bg-warning-surface px-1.5 font-medium text-warning-foreground"
+                              : "text-sidebar-muted-foreground",
+                          )}
+                        >
+                          <span aria-hidden="true">{badge.text}</span>
+                          <span className="sr-only">{badge.label}</span>
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </section>
+            );
+          })}
+        </nav>
       </SidebarContent>
+      {/* Account and update notices stay reachable here; each renders nothing when idle. */}
       <SidebarFooter className="px-[var(--sidebar-content-inset)] py-1">
         <Suspense fallback={null}>
           <E6ConnectSidebarSignIn />
         </Suspense>
         <div className="flex items-center gap-1">
-          <div className="min-w-0 flex-1">
-            <SidebarUtilityMenu />
-          </div>
+          <SidebarMenu className="min-w-0 flex-1 flex-row items-center">
+            <SidebarUpdatePill />
+          </SidebarMenu>
           <Suspense fallback={null}>
             <E6ConnectSidebarAvatar />
           </Suspense>

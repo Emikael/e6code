@@ -564,7 +564,7 @@ export function SettingsPageContainer({
         className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
         data-settings-page-scroll
       >
-        <WorkspacePageContainer width={width} className={cn("gap-8 sm:pt-10", className)}>
+        <WorkspacePageContainer width={width} className={cn("gap-6 sm:pt-2", className)}>
           {heading ? <SettingsPageHeader {...heading} /> : null}
           {children}
         </WorkspacePageContainer>
@@ -585,12 +585,11 @@ export function SettingsPageNotice({ children }: { children: ReactNode }) {
   );
 }
 
-/** `Settings / <group>`, the page title, and one line on what the page is for. */
-function SettingsPageHeader({ group, title, description }: SettingsPageHeading) {
+/** Board 6: the page title and one line on what the page is for. The nav names the group. */
+function SettingsPageHeader({ title, description }: SettingsPageHeading) {
   return (
     <header className="flex flex-col gap-1.5">
-      <span className="font-mono text-[11px] text-muted-foreground">Settings / {group}</span>
-      <h1 className="text-[28px] leading-8 font-semibold tracking-[-0.03em] text-foreground">
+      <h1 className="text-[32px] leading-9 font-semibold tracking-[-0.03em] text-foreground">
         {title}
       </h1>
       <p className="text-sm leading-[22px] text-muted-foreground">{description}</p>

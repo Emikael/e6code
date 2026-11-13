@@ -134,7 +134,7 @@ export function AttentionSettingsPanel() {
 
   return (
     // Board 6: an 880px page with 32px above the header.
-    <SettingsPageContainer className="max-w-[880px] gap-6 sm:pt-8">
+    <SettingsPageContainer className="max-w-[880px] gap-6">
       <AttentionStartingPoints selected={startingPoint} onSelect={choosePreset} />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] gap-4">
         <NotificationSettingsSection />
