@@ -11,7 +11,7 @@ import type { ThreadRecap } from "@e6tools/client-runtime/work-log/thread-recap"
 import { parkedNoteId, type EnvironmentId, type ThreadId } from "@e6tools/contracts";
 import * as Option from "effect/Option";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AppState, Pressable, View } from "react-native";
+import { Alert, AppState, Pressable, View } from "react-native";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -28,7 +28,7 @@ import { useSelectedThreadDetailState } from "../../state/use-thread-detail";
 import { THREAD_LIST_V2_MONO_FONT as MONO_FONT } from "./thread-list-v2-row-appearance";
 import {
   decideThreadRecap,
-  formatRecapFiles,
+  describeRecapChanges,
   formatRecapSince,
   latestRecapActivityAt,
   type RecapThreadDetail,
@@ -41,6 +41,22 @@ interface RecapHostState {
   readonly previous: ThreadVisit | null | undefined;
   /** Undefined until the thread's log has loaded and the recap was decided. */
   readonly recap: ThreadRecap | null | undefined;
+  /** Dismissed until the next qualifying visit, or until "Where was I?" asks for it. */
+  readonly dismissed: boolean;
+}
+
+// "Where was I?" requests per thread key, counted so each press is seen once.
+const recapRequests = new Map<string, number>();
+const recapRequestListeners = new Set<() => void>();
+const subscribeRecapRequests = (listener: () => void) => {
+  recapRequestListeners.add(listener);
+  return () => recapRequestListeners.delete(listener);
+};
+
+/** "Where was I?" (F4): shows the recap again, or builds one on demand. */
+export function requestThreadRecap(threadKey: string): void {
+  recapRequests.set(threadKey, (recapRequests.get(threadKey) ?? 0) + 1);
+  for (const listener of recapRequestListeners) listener();
 }
 
 /** The note to self parked for this thread, if any environment holds one. */
@@ -79,11 +95,12 @@ export function ThreadRecapHost(props: {
     threadKey,
     previous: readPrevious(),
     recap: undefined,
+    dismissed: false,
   }));
   // A new thread starts over, reading its previous visit before this one is recorded.
   let current = state;
   if (current.threadKey !== threadKey) {
-    current = { threadKey, previous: readPrevious(), recap: undefined };
+    current = { threadKey, previous: readPrevious(), recap: undefined, dismissed: false };
     setState(current);
   }
   if (current.previous === undefined && visitsLoaded) {
@@ -105,6 +122,35 @@ export function ThreadRecapHost(props: {
     };
     setState(current);
   }
+
+  // "Where was I?": the dismissed recap comes back; with none decided on
+  // open, one is built now from the same previous visit, whatever the setting.
+  const requestCount = useSyncExternalStore(
+    subscribeRecapRequests,
+    () => recapRequests.get(threadKey) ?? 0,
+  );
+  const handledRequests = useRef(requestCount);
+  useEffect(() => {
+    if (requestCount === handledRequests.current) return;
+    handledRequests.current = requestCount;
+    if (current.recap) {
+      setState({ ...current, dismissed: false });
+      return;
+    }
+    const recap =
+      ready && current.previous !== undefined
+        ? decideThreadRecap({
+            detail,
+            previous: current.previous,
+            nowMs: Date.now(),
+            trigger: "always",
+            provider: props.provider,
+            note,
+          })
+        : null;
+    if (recap) setState({ ...current, recap, dismissed: false });
+    else Alert.alert("Nothing new since your last visit");
+  }, [requestCount]);
 
   // The log on screen, read only when the visit is recorded.
   const detailRef = useRef<{
@@ -135,7 +181,7 @@ export function ThreadRecapHost(props: {
     };
   }, [environmentId, threadId, visitsLoaded]);
 
-  if (!current.recap || !props.visible) return null;
+  if (!current.recap || current.dismissed || !props.visible) return null;
   return (
     <Animated.View
       className="shrink-0 px-4 pb-3"
@@ -144,7 +190,7 @@ export function ThreadRecapHost(props: {
     >
       <ThreadRecapCard
         recap={current.recap}
-        onDismiss={() => setState({ ...current, recap: null })}
+        onDismiss={() => setState({ ...current, dismissed: true })}
         onOpenChanges={props.onOpenChanges}
         onRevealAsk={props.onRevealAsk}
       />
@@ -155,7 +201,7 @@ export function ThreadRecapHost(props: {
 function RecapRow(props: { readonly label: string; readonly children: React.ReactNode }) {
   return (
     <View className="gap-0.5">
-      <Text className="text-xs leading-4 font-e6-medium text-foreground-muted">{props.label}</Text>
+      <Text className="text-2xs font-e6-medium text-foreground-muted">{props.label}</Text>
       {props.children}
     </View>
   );
@@ -169,14 +215,11 @@ export function ThreadRecapCard(props: {
   readonly onRevealAsk: (messageId: string) => void;
 }) {
   const { recap } = props;
-  const changedFiles = recap.sinceThen?.files.length ?? 0;
-  const files = recap.sinceThen
-    ? formatRecapFiles(recap.sinceThen.files, recap.sinceThen.moreFiles)
-    : null;
+  const { fileCount: changedFiles, line: files } = describeRecapChanges(recap.sinceThen);
   return (
     <View
       accessibilityLabel="Where you left off"
-      className="gap-2.5 rounded-xl border border-border bg-card p-3.5"
+      className="gap-2.5 rounded-xl border border-border bg-card-alt p-3.5"
     >
       <View className="flex-row items-center">
         <Text
