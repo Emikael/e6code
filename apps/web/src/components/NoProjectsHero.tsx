@@ -16,7 +16,7 @@ export function NoProjectsHero() {
         <Empty className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">
-              <E6Monogram assemble className="mx-auto mb-5 size-10" />
+              <E6Monogram assemble meter className="mx-auto mb-5 size-10" />
               <EmptyTitle className="text-foreground text-2xl sm:text-3xl">
                 What should we work on?
               </EmptyTitle>

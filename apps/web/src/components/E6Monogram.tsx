@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 
 import {
   canAnimate,
@@ -9,44 +9,42 @@ import {
   staggerDelay,
 } from "~/lib/motion";
 import { cn } from "~/lib/utils";
-import { E6Wordmark } from "./E6Wordmark";
+import { E6_GLYPH_PATHS } from "@e6tools/shared/brandMark";
 
-/** The brand's two-band motif: cyan then orange, hard-stopped. */
-export function BrandStripe({ className }: { className?: string }) {
-  return (
-    <span aria-hidden data-slot="brand-stripe" className={cn("flex", className)}>
-      <span className="flex-1 origin-left bg-(--brand-cyan)" />
-      <span className="flex-1 origin-left bg-(--brand-orange)" />
-    </span>
-  );
-}
+// The step meter under the glyph: five 8x4 pills, 12 apart, the first three filled.
+const METER_STEPS = [36, 48, 60, 72, 84] as const;
+const METER_FILLED_STEPS = 3;
 
 // The assembly greets the first empty surface of a session; repeats are noise.
 let assembledThisSession = false;
 
-function playMonogramAssembly(tile: HTMLElement) {
-  const mark = tile.querySelector("svg");
-  const stripe = tile.querySelector("[data-slot=brand-stripe]");
-  if (!canAnimate(mark) || !stripe) return null;
+function playMonogramAssembly(tile: SVGSVGElement) {
+  const glyph = tile.querySelector("[data-slot=brand-glyph]");
+  const steps = Array.from(tile.querySelectorAll("[data-slot=brand-step]")).filter(canAnimate);
+  if (!canAnimate(glyph)) return null;
   const motions = [
     playTransient(tile, {
       opacity: [0, 1],
       transform: ["scale(0.86)", "none"],
       ease: SPRING_GENTLE,
     }),
-    playTransient(mark, {
+    playTransient(glyph, {
       opacity: [0, 1],
       transform: ["translateY(35%)", "none"],
       duration: 420,
       delay: 90,
       ease: EASE_OUT,
     }),
-    playTransient(Array.from(stripe.children).filter(canAnimate), {
-      transform: ["scaleX(0)", "scaleX(1)"],
-      duration: 360,
-      delay: staggerDelay(110, 220),
-      ease: EASE_OUT,
-    }),
+    ...(steps.length > 0
+      ? [
+          playTransient(steps, {
+            transform: ["scaleX(0)", "none"],
+            duration: 260,
+            delay: staggerDelay(90, 260),
+            ease: EASE_OUT,
+          }),
+        ]
+      : []),
   ];
   // Marked on completion, not start: StrictMode's mount replay cancels the first run.
   void Promise.all(motions.map((motion) => motion.finished)).then(() => {
@@ -57,17 +55,22 @@ function playMonogramAssembly(tile: HTMLElement) {
   };
 }
 
-/** The E6 tile: off-white mark on charcoal with a cyan/orange edge. Size it
-    with `size-*`; the mark and edge scale with the tile. `assemble` builds the
-    tile once per session on empty surfaces. */
+/** The E6 tile: the app icon's graphite ground and glyph. Size it with
+    `size-*`; everything scales with the tile. Pass `meter` only on tiles of
+    40px or more: below that the step meter falls under a pixel and smudges,
+    the same cut the icon exports make. `assemble` builds the tile once per
+    session on empty surfaces. */
 export function E6Monogram({
   className,
   assemble = false,
+  meter = false,
 }: {
   className?: string;
   assemble?: boolean;
+  meter?: boolean;
 }) {
-  const tileRef = useRef<HTMLSpanElement>(null);
+  const tileRef = useRef<SVGSVGElement>(null);
+  const groundId = `${useId().replaceAll(":", "")}-e6-ground`;
 
   // Layout effect: the WAAPI start must land before the first paint of the tile.
   useLayoutEffect(() => {
@@ -77,16 +80,69 @@ export function E6Monogram({
   }, [assemble]);
 
   return (
-    <span
+    <svg
       ref={tileRef}
       aria-hidden
-      className={cn(
-        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[27%] bg-(--brand-charcoal) text-(--brand-off-white) shadow-[0_1px_2px_rgb(0_0_0/0.25)] ring-1 ring-white/10 ring-inset",
-        className,
-      )}
+      viewBox="0 0 128 128"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("shrink-0 rounded-[22.6%] shadow-[0_1px_2px_rgb(0_0_0/0.25)]", className)}
     >
-      <E6Wordmark className="h-[36%] w-auto -translate-y-[7%]" />
-      <BrandStripe className="absolute inset-x-0 bottom-0 h-[15%]" />
-    </span>
+      <defs>
+        <linearGradient
+          id={groundId}
+          x1="64"
+          y1="0"
+          x2="64"
+          y2="128"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop className="[stop-color:var(--brand-tile-top)]" />
+          <stop offset="1" className="[stop-color:var(--brand-tile-bottom)]" />
+        </linearGradient>
+      </defs>
+      <rect width="128" height="128" rx="29" fill={`url(#${groundId})`} />
+      <rect
+        x="0.75"
+        y="0.75"
+        width="126.5"
+        height="126.5"
+        rx="28.25"
+        fill="none"
+        className="stroke-white/10"
+        strokeWidth="1.5"
+      />
+      <g data-slot="brand-glyph" className="fill-(--brand-ink) [transform-box:fill-box]">
+        {E6_GLYPH_PATHS.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </g>
+      {meter &&
+        METER_STEPS.map((x, index) =>
+          index < METER_FILLED_STEPS ? (
+            <rect
+              key={x}
+              data-slot="brand-step"
+              x={x}
+              y="106"
+              width="8"
+              height="4"
+              rx="2"
+              className="origin-left fill-(--brand-meter-on) [transform-box:fill-box]"
+            />
+          ) : (
+            <rect
+              key={x}
+              x={x}
+              y="106"
+              width="8"
+              height="4"
+              rx="2"
+              fill="none"
+              className="stroke-(--brand-meter-off)"
+              strokeWidth="1.2"
+            />
+          ),
+        )}
+    </svg>
   );
 }
