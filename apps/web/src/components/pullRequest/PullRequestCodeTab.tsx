@@ -13,16 +13,9 @@ import type {
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
-  Columns2Icon,
-  FolderTreeIcon,
   InfoIcon,
   MessageSquareIcon,
   MessageSquareOffIcon,
-  PilcrowIcon,
-  Rows3Icon,
-  TextWrapIcon,
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
@@ -77,6 +70,8 @@ import {
 import { changeCaption, pagingPositionLabel, pagingStepLabel } from "../diffs/diffPaging.logic";
 import { DiffRailKeyHint, DiffReviewFooter } from "../diffs/DiffReviewFooter";
 import { DiffReviewToggle } from "../diffs/DiffReviewTick";
+import { DiffViewMenu } from "../diffs/DiffViewMenu";
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 import { useCodeViewFileReveal } from "../diffs/useCodeViewFileReveal";
 import { useDiffPaging } from "../diffs/useDiffPaging";
 import { panelFillHolder } from "../panel/panelFill";
@@ -88,6 +83,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  MenuCheckboxItem,
+  MenuSeparator,
 } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -834,11 +831,11 @@ function PullRequestCodeTab({
     [revealFile, selectPagingFile],
   );
 
-  const toggleAllFiles = () => {
-    // Held as an override of the default rather than as the file keys on screen: a diff that is
-    // still paging would otherwise bring its next slice in folded, moments after the reader
-    // asked for everything to be open.
-    setFoldOverride(areAllDiffFilesCollapsed(fileKeys, collapsedFileKeys) ? "expanded" : "folded");
+  // Held as an override of the default rather than as the file keys on screen: a diff that is
+  // still paging would otherwise bring its next slice in folded, moments after the reader asked
+  // for everything to be open.
+  const foldAllFiles = (fold: "expanded" | "folded") => {
+    setFoldOverride(fold);
     setToggledFiles(new Set());
   };
 
@@ -1276,7 +1273,7 @@ function PullRequestCodeTab({
   }, [commit, onSelectedCommitChange, selectedCommit]);
   const scopeLabel = selectedCommit ? selectedCommit.messageHeadline : "All commits";
   const toolbar = (
-    <div className="flex h-10 min-h-10 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-background px-4 text-xs text-muted-foreground">
+    <PanelSurfaceHeader className="justify-between text-xs text-muted-foreground">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {/* A host that reports no commits has nothing to scope by, and a dropdown whose only
             entry is the scope already showing is a control that does nothing. */}
@@ -1422,55 +1419,7 @@ function PullRequestCodeTab({
           ) : null}
         </PullRequestMetaLine>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={
-                  ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"
-                }
-                variant="ghost"
-                size="sm"
-                pressed={ignoreWhitespace}
-                onPressedChange={(pressed) => {
-                  updateClientSettings({ diffIgnoreWhitespace: Boolean(pressed) });
-                  setDraft(null);
-                  setSelectedLines(null);
-                }}
-              />
-            }
-          >
-            <PilcrowIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
-          </TooltipPopup>
-        </Tooltip>
-        {fileKeys.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={allFilesCollapsed ? "Expand all files" : "Collapse all files"}
-                  onClick={toggleAllFiles}
-                />
-              }
-            >
-              {allFilesCollapsed ? (
-                <ChevronsUpDownIcon className="size-3.5" />
-              ) : (
-                <ChevronsDownUpIcon className="size-3.5" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allFilesCollapsed ? "Expand all files" : "Collapse all files"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+      <div className="flex shrink-0 items-center gap-2">
         <ToggleGroup
           aria-label="Diff layout"
           className="shrink-0"
@@ -1483,55 +1432,39 @@ function PullRequestCodeTab({
             }
           }}
         >
-          <Toggle aria-label="Stacked diff view" value="stacked">
-            <Rows3Icon className="size-3.5" />
-          </Toggle>
-          <Toggle aria-label="Split diff view" value="split">
-            <Columns2Icon className="size-3.5" />
-          </Toggle>
+          <Toggle value="stacked">Stacked</Toggle>
+          <Toggle value="split">Split</Toggle>
         </ToggleGroup>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
-                variant="ghost"
-                size="sm"
-                pressed={wordWrap}
-                onPressedChange={(pressed) => {
-                  updateClientSettings({ wordWrap: Boolean(pressed) });
-                }}
-              />
-            }
-          >
-            <TextWrapIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-          </TooltipPopup>
-        </Tooltip>
-        {fileKeys.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={fileTreeOpen ? "Hide file list" : "Show file list"}
-                  variant="ghost"
-                  size="sm"
-                  pressed={fileTreeOpen}
-                  onPressedChange={(pressed) => setFileTreeOpen(Boolean(pressed))}
-                />
-              }
-            >
-              <FolderTreeIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {fileTreeOpen ? "Hide file list" : "Show file list"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+        {/* The same View menu as the Diff tab (phase 28): one Wrap and one whitespace choice. */}
+        <DiffViewMenu
+          wordWrap={wordWrap}
+          onWordWrapChange={(next) => updateClientSettings({ wordWrap: next })}
+          ignoreWhitespace={ignoreWhitespace}
+          onIgnoreWhitespaceChange={(next) => {
+            updateClientSettings({ diffIgnoreWhitespace: next });
+            setDraft(null);
+            setSelectedLines(null);
+          }}
+          fileCount={fileKeys.length}
+          allCollapsed={allFilesCollapsed}
+          noneCollapsed={!fileKeys.some((fileKey) => collapsedFileKeys.has(fileKey))}
+          onExpandAll={() => foldAllFiles("expanded")}
+          onCollapseAll={() => foldAllFiles("folded")}
+        >
+          {fileKeys.length > 0 ? (
+            <>
+              <MenuSeparator />
+              <MenuCheckboxItem
+                checked={fileTreeOpen}
+                onCheckedChange={(checked) => setFileTreeOpen(Boolean(checked))}
+              >
+                File list
+              </MenuCheckboxItem>
+            </>
+          ) : null}
+        </DiffViewMenu>
       </div>
-    </div>
+    </PanelSurfaceHeader>
   );
   // The toolbar rides above every branch below, not just the one with a patch in it: a commit
   // whose diff is empty or unreadable still needs the scope dropdown that got the reader there.
