@@ -564,7 +564,11 @@ export function SettingsPageContainer({
         className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
         data-settings-page-scroll
       >
-        <WorkspacePageContainer width={width} className={cn("gap-6 sm:pt-2", className)}>
+        {/* Without a top bar above it (the web hides an empty one), the page keeps board 6's 32px. */}
+        <WorkspacePageContainer
+          width={width}
+          className={cn("gap-6 sm:pt-2 sm:[[data-top-bar-hidden]_&]:pt-8", className)}
+        >
           {heading ? <SettingsPageHeader {...heading} /> : null}
           {children}
         </WorkspacePageContainer>
