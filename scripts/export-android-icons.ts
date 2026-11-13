@@ -28,8 +28,8 @@ type IconVariant = "dev" | "nightly" | "prod";
 const ADAPTIVE_CANVAS = 432;
 // 288dp at xxxhdpi: the full Android 12+ splash canvas, so the icon needs no upscaling.
 const SPLASH_CANVAS = 1152;
-// Icon Composer's layer sources use a 128pt viewBox; the wordmark path spans this box.
-const TEXT = { x: 16, y: 36, width: 95, height: 59 };
+// Icon Composer's layer sources use a 128pt viewBox; the wordmark paths span this box.
+const TEXT = { x: 18, y: 36, width: 92, height: 58 };
 // Wordmark width as a fraction of the 108dp canvas. The visible area is 72dp (66dp
 // guaranteed), so 0.48 leaves the letters at ~72% of the mask with room for the
 // launcher's own zoom effects.
@@ -90,29 +90,55 @@ const readLayerSource = Effect.fn("androidIcons.readLayerSource")(function* (
   );
 });
 
-const renderForeground = Effect.fn("androidIcons.renderForeground")(function* (
+// Places a layer's paths in the wordmark's frame, so layers keep their 128pt relation to it.
+const renderMarkLayer = Effect.fn("androidIcons.renderMarkLayer")(function* (
   repositoryRoot: string,
+  variant: IconVariant,
+  file: string,
   size: number,
   fraction = WORDMARK_FRACTION,
 ) {
-  const text = yield* readLayerSource(repositoryRoot, "prod", "text.svg");
-  const paths = text.match(/<path[^>]*\/>/g) ?? [];
+  const source = yield* readLayerSource(repositoryRoot, variant, file);
+  const paths = source.match(/<path[^>]*\/>/g) ?? [];
   return yield* rasterize(
-    "foreground",
+    `${variant}-${file}`,
     canvasSvg(size, `<g transform="${wordmarkTransform(size, fraction)}">${paths.join("")}</g>`),
     size,
   );
 });
 
-// Every channel's ground (and its brand band) lives in background.svg, which
-// Icon Composer scales past the canvas edge; rasterize it full-bleed here.
-const renderBackground = Effect.fn("androidIcons.renderBackground")(function* (
+const renderForeground = (repositoryRoot: string, size: number, fraction = WORDMARK_FRACTION) =>
+  renderMarkLayer(repositoryRoot, "prod", "text.svg", size, fraction);
+
+// The release step meter or the channel label under the wordmark.
+const CHANNEL_LAYER: Record<IconVariant, string> = {
+  dev: "channel-label.svg",
+  nightly: "channel-label.svg",
+  prod: "step-meter.svg",
+};
+const renderChannelLayer = (repositoryRoot: string, variant: IconVariant, size: number) =>
+  renderMarkLayer(repositoryRoot, variant, CHANNEL_LAYER[variant], size);
+
+// Every channel's ground lives in background.svg, which Icon Composer scales past the
+// canvas edge; rasterize it full-bleed here.
+const renderGround = Effect.fn("androidIcons.renderGround")(function* (
   repositoryRoot: string,
   variant: IconVariant,
   size: number,
 ) {
   const ground = yield* readLayerSource(repositoryRoot, variant, "background.svg");
   return yield* rasterize(`${variant}-background`, fullBleed(ground), size);
+});
+
+// The launcher foreground is shared, so the channel layer rides on the variant background.
+const renderBackground = Effect.fn("androidIcons.renderBackground")(function* (
+  repositoryRoot: string,
+  variant: IconVariant,
+  size: number,
+) {
+  const ground = yield* renderGround(repositoryRoot, variant, size);
+  const channel = yield* renderChannelLayer(repositoryRoot, variant, size);
+  return yield* composite(`${variant}-background`, ground, [{ input: channel }]);
 });
 
 const renderSplashIcon = Effect.fn("androidIcons.renderSplashIcon")(function* (

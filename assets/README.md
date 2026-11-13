@@ -58,8 +58,8 @@ is instead rendered from the same Icon Composer SVG sources by `vp run icons:exp
 
 - `apps/mobile/assets/android-icon-foreground.png` and `android-icon-mark.png`: the shared transparent
   wordmark, sized for the adaptive and monochrome masks respectively
-- `apps/mobile/assets/android-icon-background-dev.png` and `-nightly.png`: full-bleed variant
-  artwork (blueprint grid and annotations; night sky and clouds). Production uses a solid color.
+- `apps/mobile/assets/android-icon-background-dev.png` and `-nightly.png`: the full-bleed variant
+  ground with its channel label below the wordmark. Production uses a solid color.
 - `apps/mobile/assets/android-splash-icon-*.png`: the two layers composed into one 288dp image, so
   the splash mask reproduces the launcher icon's framing.
 
