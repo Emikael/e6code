@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  nowBarOffersReviewDiff,
   rightPanelHoldsFill,
   screenFillHolder,
   selectComposerSlotCard,
@@ -43,5 +44,19 @@ describe("selectComposerSlotCard", () => {
     expect(
       selectComposerSlotCard({ permissionPrompt: false, recap: false, nextCard: false }),
     ).toBeNull();
+  });
+});
+
+describe("nowBarOffersReviewDiff", () => {
+  it("keeps Review diff reachable whichever card holds the slot", () => {
+    const slotFor = (permissionPrompt: boolean, recap: boolean) =>
+      selectComposerSlotCard({ permissionPrompt, recap, nextCard: true });
+    // The Next card shows: it offers Review diff, so the bar does not repeat it.
+    expect(nowBarOffersReviewDiff(slotFor(false, false))).toBe(false);
+    // The recap or the permission prompt took the slot: the bar is the only place left.
+    expect(nowBarOffersReviewDiff(slotFor(false, true))).toBe(true);
+    expect(nowBarOffersReviewDiff(slotFor(true, false))).toBe(true);
+    expect(nowBarOffersReviewDiff(slotFor(true, true))).toBe(true);
+    expect(nowBarOffersReviewDiff(null)).toBe(true);
   });
 });

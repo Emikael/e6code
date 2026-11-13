@@ -263,6 +263,7 @@ import { deriveNextCard } from "./chat/ThreadNextCard.logic";
 import {
   rightPanelHoldsFill,
   screenFillHolder,
+  nowBarOffersReviewDiff,
   selectComposerSlotCard,
 } from "./chat/composerNeighbors.logic";
 import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
@@ -10741,11 +10742,11 @@ export default function ChatView(props: ChatViewProps) {
                   retryUnavailableReason={retryUnavailableReason}
                   earlierTurns={earlierTurnsCue}
                   onReviewDiff={
-                    nextCard
-                      ? null
-                      : () => {
+                    nowBarOffersReviewDiff(composerSlotCard)
+                      ? () => {
                           if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
                         }
+                      : null
                   }
                 />
               ) : null}

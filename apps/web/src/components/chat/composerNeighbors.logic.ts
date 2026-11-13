@@ -55,3 +55,12 @@ export function selectComposerSlotCard(input: {
   if (input.nextCard) return "next";
   return null;
 }
+
+/**
+ * The now bar's Review diff steps aside only for a Next card that is on
+ * screen. A Next card that applies but lost the slot to the permission prompt
+ * or the recap offers nothing, so the bar keeps the button.
+ */
+export function nowBarOffersReviewDiff(slotCard: ComposerSlotCard | null): boolean {
+  return slotCard !== "next";
+}

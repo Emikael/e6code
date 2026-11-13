@@ -44,7 +44,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   retryUnavailableReason?: string | null;
   /** "Earlier turns: 4m, 12m, 2m", the elapsed time's tooltip; null before a turn finished. */
   earlierTurns?: string | null;
-  /** Absent while the Next card under the timeline already offers Review diff. */
+  /** Absent while the Next card above the composer is on screen and offers Review diff. */
   onReviewDiff: (() => void) | null;
 }) {
   if (state.kind === "hidden") return null;
