@@ -1,5 +1,5 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -15,6 +15,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
 import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
+import { addressFieldLabel } from "./previewEmptyStateLogic";
 
 interface Props {
   url: string;
@@ -111,7 +112,7 @@ export function PreviewChromeRow({
                   />
                 }
               >
-                <ArrowLeft />
+                <ChevronLeft />
               </TooltipTrigger>
               <TooltipPopup>Back</TooltipPopup>
             </Tooltip>
@@ -129,7 +130,7 @@ export function PreviewChromeRow({
                   />
                 }
               >
-                <ArrowRight />
+                <ChevronRight />
               </TooltipTrigger>
               <TooltipPopup>Forward</TooltipPopup>
             </Tooltip>
@@ -162,7 +163,7 @@ export function PreviewChromeRow({
                 render={
                   <InputGroupInput
                     ref={inputRef}
-                    value={inputFocused ? draft : url}
+                    value={inputFocused ? draft : addressFieldLabel(url)}
                     className="font-mono text-xs sm:text-xs"
                     onChange={(event) => setDraft(event.target.value)}
                     onFocus={() => {
