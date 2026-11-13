@@ -1634,8 +1634,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     >
       <div
         className={cn(
-          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-2 border-b border-border bg-sidebar surface-grain pl-3",
-          props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
+          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-2 border-b bg-sidebar surface-grain pl-3",
+          // The Diff's header sits on its own ground right under the bar, so no rule between them
+          // (board PanelDiff); the other surfaces keep it.
+          focusedSurface?.kind === "diff" ? "border-transparent" : "border-border",
+          // Inline, the page's fixed Maximize and panel toggle (two 28px controls, 4px apart, one
+          // pixel in from the controls' inset) sit over the bar's end: reserve exactly that plus
+          // the bar's 8px gap, so every other pixel goes to the tabs.
+          props.mode === "inline" && !props.layoutControls
+            ? "pr-[calc(var(--workspace-controls-right)_+_69px)]"
+            : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
           props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
