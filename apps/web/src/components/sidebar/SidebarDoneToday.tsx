@@ -7,15 +7,13 @@ import { memo } from "react";
 
 import { openDoneToday } from "../DoneTodayDialog";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import { SIDEBAR_NAV_ROW_CLASS } from "./sidebarNavRow";
 
 export const SidebarDoneToday = memo(function SidebarDoneToday() {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton
-          onClick={openDoneToday}
-          className="text-[13px] leading-[18px] text-sidebar-foreground"
-        >
+        <SidebarMenuButton onClick={openDoneToday} className={SIDEBAR_NAV_ROW_CLASS}>
           <CheckIcon />
           <span className="min-w-0 flex-1 truncate">Done today</span>
         </SidebarMenuButton>

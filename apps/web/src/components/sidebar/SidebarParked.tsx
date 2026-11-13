@@ -36,6 +36,7 @@ import { Button } from "../ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import { SIDEBAR_NAV_ROW_CLASS } from "./sidebarNavRow";
 import { toastManager } from "../ui/toast";
 
 /** Parked thoughts in list order, on the minute clock so a day change re-sorts them. */
@@ -54,11 +55,7 @@ export const SidebarParked = memo(function SidebarParked() {
     <SidebarMenu>
       <SidebarMenuItem>
         <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger
-            render={
-              <SidebarMenuButton className="text-[13px] leading-[18px] text-sidebar-foreground" />
-            }
-          >
+          <PopoverTrigger render={<SidebarMenuButton className={SIDEBAR_NAV_ROW_CLASS} />}>
             <InboxIcon />
             <span className="min-w-0 flex-1 truncate">Parked</span>
             {thoughts.length > 0 ? (

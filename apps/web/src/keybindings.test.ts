@@ -28,6 +28,7 @@ import {
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
   shortcutLabelForCommand,
+  firstDeclaredShortcutLabelForCommand,
   shortcutLabelKeys,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
@@ -462,6 +463,36 @@ describe("shortcutLabelKeys", () => {
     assert.deepEqual(shortcutLabelKeys("Ctrl++"), ["Ctrl", "+"]);
     assert.deepEqual(shortcutLabelKeys("+"), ["+"]);
     assert.deepEqual(shortcutLabelKeys("Esc"), ["Esc"]);
+  });
+});
+
+describe("firstDeclaredShortcutLabelForCommand", () => {
+  it("names the desktop New thread binding, not the browser alternative", () => {
+    const bindings = compile([
+      { shortcut: modShortcut("n"), command: "chat.new" },
+      { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
+    ]);
+    assert.strictEqual(
+      firstDeclaredShortcutLabelForCommand(bindings, "chat.new", "MacIntel"),
+      "⌘N",
+    );
+    assert.strictEqual(
+      firstDeclaredShortcutLabelForCommand(bindings, "chat.new", "Linux"),
+      "Ctrl+N",
+    );
+    assert.strictEqual(shortcutLabelForCommand(bindings, "chat.new", "MacIntel"), "⇧⌘O");
+  });
+
+  it("skips a declared shortcut that a later binding took over", () => {
+    const bindings = compile([
+      { shortcut: modShortcut("n"), command: "chat.new" },
+      { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
+      { shortcut: modShortcut("n"), command: "chat.newLocal" },
+    ]);
+    assert.strictEqual(
+      firstDeclaredShortcutLabelForCommand(bindings, "chat.new", "MacIntel"),
+      "⇧⌘O",
+    );
   });
 });
 

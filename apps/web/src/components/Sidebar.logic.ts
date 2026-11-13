@@ -1,5 +1,4 @@
 import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
-import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import {
@@ -11,8 +10,7 @@ import {
   isPausedForUsageLimit,
 } from "@e6tools/client-runtime/state/agent-state";
 import { isLoopbackHost } from "@e6tools/shared/preview";
-import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
-import type { ContextMenuItem, EnvironmentId, ThreadId } from "@e6tools/contracts";
+import type { ContextMenuItem } from "@e6tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@e6tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
 import { planPinnedReorder } from "@e6tools/client-runtime/state/thread-sort";
@@ -838,42 +836,22 @@ export type SidebarThreadStatus =
   | "failed"
   | "ready";
 
-export function shouldRecedeSidebarThread(input: {
-  status: SidebarThreadStatus;
-  isUnread: boolean;
-  isWoke: boolean;
-  isActive: boolean;
-  isSelected: boolean;
-}): boolean {
-  if (input.isActive || input.isSelected) return false;
-  // A usage-limit pause waits on the clock, not the user, so it recedes. A row that needs you
-  // (approval, question, failure) and a working agent keep full strength, as board 1 draws them.
-  if (input.status === "paused") return true;
-  if (input.status === "ready") return !input.isUnread && !input.isWoke;
-  return false;
-}
-
 /**
- * How strongly a sidebar row draws its title. Unread is carried by weight
- * (plus the row's accessible name), never by fading read titles: read titles
- * sit on the plain muted role so they keep 4.5:1 contrast.
+ * How strongly a sidebar row draws its title. Cards in the thread list draw
+ * every title at full strength (board 1): status and age carry the state, not
+ * a fading title. Slim history rows in the shelves sit on the plain muted role
+ * (no alpha, so they keep 4.5:1) unless they need you or are open.
  */
-export type SidebarThreadTitleTone = "unread" | "emphasis" | "read";
+export type SidebarThreadTitleTone = "emphasis" | "read";
 
 export function resolveSidebarThreadTitleTone(input: {
   variant: "card" | "slim";
-  recedes: boolean;
   status: SidebarThreadStatus;
-  isUnread: boolean;
   isWoke: boolean;
   isActive: boolean;
 }): SidebarThreadTitleTone {
-  // Receded background work stays quiet even with an unseen earlier completion.
-  if (input.recedes) return "read";
-  if (input.isUnread) return "unread";
-  if (input.isActive || input.isWoke || input.status === "input") return "emphasis";
-  // Remaining cards (failed, or selected) keep a strong title; slim rows are history.
-  return input.variant === "card" ? "emphasis" : "read";
+  if (input.variant === "card") return "emphasis";
+  return input.isActive || input.isWoke || input.status === "input" ? "emphasis" : "read";
 }
 
 type SidebarThreadStatusInput = Pick<
@@ -911,6 +889,25 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
 }
 
 /**
+ * A proposed plan waits for the user: the same rule as the Needs you "plan"
+ * kind, so a thread's own row and its To review row agree.
+ */
+export function isSidebarThreadPlanReady(
+  thread: Pick<
+    SidebarThreadSummary,
+    "hasActionableProposedPlan" | "interactionMode" | "session"
+  > & {
+    readonly latestTurn?: SidebarThreadSummary["latestTurn"];
+  },
+): boolean {
+  return (
+    thread.hasActionableProposedPlan === true &&
+    thread.interactionMode === "plan" &&
+    isLatestTurnSettled(thread.latestTurn ?? null, thread.session ?? null)
+  );
+}
+
+/**
  * The status line under a sidebar thread title. `label` is the leading word
  * the row keeps whole, `detail` may truncate, and `fullLabel` replaces both
  * for screen readers and the hover card when the row abbreviates. The marker
@@ -925,6 +922,7 @@ export type ThreadStatusMarkKind =
   | "input"
   | "failed"
   | "woke"
+  | "plan"
   | "done";
 
 export interface ThreadStatusMark {
@@ -950,7 +948,9 @@ export const THREAD_STATUS_MARKS = {
   approval: { marker: "diamond", tone: "warning" },
   input: { marker: "icon", tone: "warning" },
   failed: { marker: "icon", tone: "failed" },
-  woke: { marker: "icon", tone: "warning" },
+  // A woken snooze does not block the agent, so it stays neutral: amber is blocked on you only.
+  woke: { marker: "icon", tone: "muted" },
+  plan: { marker: "icon", tone: "muted" },
   done: { marker: "check", tone: "success" },
 } as const satisfies Record<ThreadStatusMarkKind, ThreadStatusMark>;
 
@@ -990,10 +990,11 @@ function markedStatus(
 
 /**
  * Row status in the thread list's wording: "Working · step 4 of 6",
- * "Needs approval", "Retrying · attempt 2 of 10", "Done · 3h",
- * "Waiting for usage limit · resets 14:20". A resting thread reads Done after
- * a completed turn (or an unseen completion); otherwise it has no status and
- * the row shows its age instead.
+ * "Needs approval", "Retrying · attempt 2 of 10", "Plan ready", "Done",
+ * "Waiting for usage limit · resets 14:20". A resting thread reads Plan ready
+ * while a proposed plan waits for a decision, Done after a completed turn (or
+ * an unseen completion); otherwise it has no status and the row shows its age
+ * instead. The row draws the time beside the words itself.
  */
 export function resolveSidebarRowStatus(input: {
   readonly status: SidebarThreadStatus;
@@ -1003,8 +1004,8 @@ export function resolveSidebarRowStatus(input: {
   readonly isWoke: boolean;
   readonly isUnread: boolean;
   readonly latestTurnCompleted: boolean;
-  /** Compact age for the Done detail, such as "3h". */
-  readonly timeLabel: string;
+  /** A proposed plan waits for the user's decision (the Needs you "plan" kind). */
+  readonly isPlanReady: boolean;
 }): SidebarRowStatus | null {
   switch (input.status) {
     case "working":
@@ -1030,9 +1031,8 @@ export function resolveSidebarRowStatus(input: {
       break;
   }
   if (input.isWoke) return markedStatus("woke", "Woke");
-  if (input.isUnread || input.latestTurnCompleted) {
-    return markedStatus("done", "Done", input.timeLabel === "" ? null : input.timeLabel);
-  }
+  if (input.isPlanReady) return markedStatus("plan", "Plan ready");
+  if (input.isUnread || input.latestTurnCompleted) return markedStatus("done", "Done");
   return null;
 }
 
@@ -1089,81 +1089,6 @@ export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@e6tools/c
 // (state/thread-sort) so web and mobile compute identical pinned orders.
 export { pinOrderKeyBetween, planPinnedReorder } from "@e6tools/client-runtime/state/thread-sort";
 export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebar } from "@e6tools/client-runtime/state/thread-sort";
-
-const EMPTY_CONTENT_MATCH_KEYS: ReadonlySet<string> = new Set<string>();
-
-/**
- * Search the already-ordered sidebar thread collection by title or linked PR,
- * plus any thread whose messages the server matched (`contentMatchKeys`, keyed
- * by `threadSearchMatchKey`). Keeping the input order means lifecycle ordering
- * (active, snoozed, settled) remains stable while the user narrows the list.
- */
-export function searchSidebarThreads<
-  T extends {
-    readonly environmentId: EnvironmentId;
-    readonly id: ThreadId;
-    readonly title: string;
-  } & Parameters<typeof threadPullRequestSearchTerms>[0],
->(
-  threads: readonly T[],
-  query: string,
-  contentMatchKeys: ReadonlySet<string> = EMPTY_CONTENT_MATCH_KEYS,
-): T[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (normalizedQuery.length === 0) return [];
-  const titleMatches: T[] = [];
-  const contentMatches: T[] = [];
-  for (const thread of threads) {
-    const matchesTitle = [thread.title, ...threadPullRequestSearchTerms(thread)].some((term) =>
-      term.toLowerCase().includes(normalizedQuery),
-    );
-    if (matchesTitle) {
-      titleMatches.push(thread);
-    } else if (
-      contentMatchKeys.size > 0 &&
-      contentMatchKeys.has(
-        threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
-      )
-    ) {
-      contentMatches.push(thread);
-    }
-  }
-  return [...titleMatches, ...contentMatches];
-}
-
-export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {
-  items: readonly TItem[];
-  query: string;
-  matches: (item: TItem, query: string) => boolean;
-}): readonly TItem[] {
-  const query = input.query.trim();
-  if (query.length === 0) return input.items;
-  return input.items.filter((item) => item.value !== "all" && input.matches(item, query));
-}
-
-export interface SidebarProjectScopeMenuState {
-  readonly open: boolean;
-  readonly query: string;
-}
-
-export type SidebarProjectScopeMenuAction =
-  | { readonly type: "query-changed"; readonly query: string }
-  | { readonly type: "open-changed"; readonly open: boolean }
-  | { readonly type: "project-settings-opened" };
-
-export function reduceSidebarProjectScopeMenuState(
-  state: SidebarProjectScopeMenuState,
-  action: SidebarProjectScopeMenuAction,
-): SidebarProjectScopeMenuState {
-  switch (action.type) {
-    case "query-changed":
-      return { ...state, query: action.query };
-    case "open-changed":
-      return { open: action.open, query: "" };
-    case "project-settings-opened":
-      return { open: false, query: "" };
-  }
-}
 
 // Settled rows are history, so they order by when the work ENDED, not when
 // the thread was created or last touched.

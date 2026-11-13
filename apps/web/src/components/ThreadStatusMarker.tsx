@@ -3,6 +3,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
+  ListChecksIcon,
   MessageCircleQuestionIcon,
   PauseIcon,
 } from "lucide-react";
@@ -22,8 +23,9 @@ export const THREAD_STATUS_TONE_TEXT: Record<ThreadStatusMark["tone"], string> =
 
 /**
  * A thread status's leading mark, drawn from `THREAD_STATUS_MARKS`. Always
- * paired with words, never alone. `size` sets the glyph size; dots stay 6px
- * and the diamond 8px wherever they appear.
+ * paired with words, never alone. Glyphs are 14px; dots and the diamond stay
+ * 8px wherever they appear, and the live dot carries a 3px halo, as the now
+ * bar draws it (board Components, "Thread status").
  */
 export function ThreadStatusMarker({
   kind,
@@ -32,7 +34,7 @@ export function ThreadStatusMarker({
 }: {
   kind: ThreadStatusMarkKind;
   marker: ThreadStatusMark["marker"];
-  /** Glyph sizing, such as `size-3.5`; defaults to `size-3`. */
+  /** Glyph sizing, such as `size-3`; defaults to `size-3.5`. */
   className?: string | undefined;
 }) {
   switch (marker) {
@@ -40,22 +42,19 @@ export function ThreadStatusMarker({
       return (
         <span
           aria-hidden
-          className="size-1.5 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
+          className="size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
         />
       );
     case "diamond":
       return <BlockedDiamond />;
     case "dot":
-      return <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current" />;
+      return <span aria-hidden className="size-2 shrink-0 rounded-full bg-current" />;
     case "ring":
       return (
-        <span
-          aria-hidden
-          className="size-1.5 shrink-0 rounded-full border-[1.5px] border-current"
-        />
+        <span aria-hidden className="size-2 shrink-0 rounded-full border-[1.5px] border-current" />
       );
     case "check":
-      return <CheckIcon aria-hidden className={cn("size-3 shrink-0 stroke-[2.5]", className)} />;
+      return <CheckIcon aria-hidden className={cn("size-3.5 shrink-0", className)} />;
     case "icon": {
       const Icon =
         kind === "input"
@@ -66,8 +65,10 @@ export function ThreadStatusMarker({
               ? AlarmClockIcon
               : kind === "paused"
                 ? PauseIcon
-                : EyeIcon;
-      return <Icon aria-hidden className={cn("size-3 shrink-0", className)} />;
+                : kind === "plan"
+                  ? ListChecksIcon
+                  : EyeIcon;
+      return <Icon aria-hidden className={cn("size-3.5 shrink-0", className)} />;
     }
   }
 }

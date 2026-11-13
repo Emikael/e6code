@@ -37,11 +37,10 @@ export const OpenThreadReminder = memo(function OpenThreadReminder() {
       if (sidebar.isMobile) sidebar.setOpenMobile(true);
       else sidebar.setOpen(true);
     }
-    // After the sidebar opens, focus its first thread row.
+    // After the sidebar opens, focus its first thread row: the row itself, not
+    // a hover action inside it, which is hidden until hover.
     requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>("[data-thread-item] :is(a[href], button, [tabindex='0'])")
-        ?.focus();
+      document.querySelector<HTMLElement>("[data-thread-item] [role='treeitem']")?.focus();
     });
   };
   return (
