@@ -124,8 +124,9 @@ instead; see [Messages and context](./composer.md#park-a-draft).
 ## End the day
 
 On web and desktop, choose **Done today** in the sidebar or the command palette to see the threads
-you finished since midnight. Its **Wrap up** part lists what is still open, can snooze those
-threads until tomorrow morning, and takes one **First thing tomorrow** line. That line appears
+you finished since midnight. A thread that is waiting on you or working again is listed under
+**Wrap up** as still open instead. Wrap up can snooze the open threads until tomorrow morning,
+except those waiting for your approval or answer, and takes one **First thing tomorrow** line. That line appears
 above the composer the next day as **First thing today**.
 
 ## Keep track of time

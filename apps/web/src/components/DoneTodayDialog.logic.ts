@@ -24,22 +24,47 @@ export function doneTodayMeta(
   return parts.join(" · ");
 }
 
+export interface WrapUpRow {
+  readonly title: string;
+  /** The snooze command accepts it now. */
+  readonly snoozable: boolean;
+  /** Blocked on an approval or a question, which the snooze command refuses. */
+  readonly waitingOnYou: boolean;
+}
+
 /**
- * The Wrap up button: "Snooze both until tomorrow 09:00". It names how many
- * still-open threads it will snooze without a running total. When the list
- * also shows rows it cannot snooze (approvals and questions), "it" and "both"
- * would be ambiguous, so it names the one thread or counts the snoozable ones.
+ * Wrap up's snooze offer. Board 5 says "Snooze both until tomorrow 09:00", but
+ * the snooze command refuses a thread waiting on an approval or a question
+ * (hiding it would defeat the request). So the button names exactly what it
+ * snoozes, and a note says which rows stay and why: `label` is null when
+ * nothing listed can be snoozed, `note` is null when everything can.
  */
-export function wrapUpSnoozeLabel(input: {
-  readonly snoozable: ReadonlyArray<string>;
-  readonly listedCount: number;
+export function wrapUpSnoozePlan(input: {
+  readonly rows: ReadonlyArray<WrapUpRow>;
   readonly whenLabel: string;
-}): string {
-  const count = input.snoozable.length;
+}): { readonly label: string | null; readonly note: string | null } {
+  const snoozable = input.rows.filter((row) => row.snoozable);
+  const kept = input.rows.filter((row) => !row.snoozable);
   const until = `until tomorrow ${input.whenLabel}`;
-  if (count < input.listedCount) {
-    return count === 1 ? `Snooze ${input.snoozable[0]} ${until}` : `Snooze these ${count} ${until}`;
+  const count = snoozable.length;
+  let label: string | null = null;
+  if (count > 0 && kept.length === 0) {
+    label = `Snooze ${count === 1 ? "it" : count === 2 ? "both" : String(count)} ${until}`;
+  } else if (count === 1) {
+    label = `Snooze ${snoozable[0]!.title} ${until}`;
+  } else if (count > 1) {
+    label = `Snooze the other ${count} ${until}`;
   }
-  const which = count === 1 ? "it" : count === 2 ? "both" : String(count);
-  return `Snooze ${which} ${until}`;
+  let note: string | null = null;
+  if (kept.length > 0) {
+    note = kept.every((row) => row.waitingOnYou)
+      ? "Approvals and questions cannot be snoozed, so they stay open."
+      : `${joinTitles(kept.map((row) => row.title))} cannot be snoozed right now.`;
+  }
+  return { label, note };
+}
+
+function joinTitles(titles: ReadonlyArray<string>): string {
+  if (titles.length <= 1) return titles[0] ?? "";
+  return `${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`;
 }

@@ -70,12 +70,17 @@ function mergedPullRequest(
  * Turns that failed or were stopped are left out, and so are threads archived
  * before today; a thread returned to the active list keeps a turn it finished
  * today.
+ *
+ * A thread that is still open (blocked on the user or working again) is not
+ * done, whatever it finished earlier: Wrap up lists it under Still open, and
+ * `stillOpenKeys` (scoped thread keys) keeps it out of this list so the two
+ * never show the same thread.
  */
 export function selectDoneToday<T extends DoneTodayShell>(
   threads: ReadonlyArray<T>,
-  options: { readonly startOfDayMs: number },
+  options: { readonly startOfDayMs: number; readonly stillOpenKeys?: ReadonlySet<string> },
 ): ReadonlyArray<DoneTodayRow<T>> {
-  const { startOfDayMs } = options;
+  const { startOfDayMs, stillOpenKeys } = options;
   const today = (ms: number | null): number | null =>
     ms !== null && ms >= startOfDayMs ? ms : null;
   const rows: Array<DoneTodayRow<T> & { readonly doneMs: number }> = [];
@@ -102,8 +107,10 @@ export function selectDoneToday<T extends DoneTodayShell>(
       }
     }
     if (!done) continue;
+    const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    if (stillOpenKeys?.has(key)) continue;
     rows.push({
-      key: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      key,
       thread,
       doneAt: new Date(done.ms).toISOString(),
       how: done.how,

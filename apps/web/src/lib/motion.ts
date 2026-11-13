@@ -91,6 +91,59 @@ export function prefersReducedMotion(): boolean {
   return resolveReducedMotion(reducedMotionMedia()?.matches ?? false, interfaceMotion);
 }
 
+/**
+ * Root attribute present while the user types and for a short pause after the
+ * last keystroke. Board 10: nothing moves while you type. `index.css` makes CSS
+ * motion instant under it; scripted motion asks `motionQuiet`.
+ */
+export const TYPING_ATTRIBUTE = "data-typing";
+const TYPING_PAUSE_MS = 1_200;
+let typing = false;
+
+/**
+ * Marks the root while text is being entered anywhere (composer, palette,
+ * terminal). One listener; a keystroke only restarts a timer, and the attribute
+ * flips once when typing starts and once when it pauses, never per keystroke.
+ */
+export function installTypingQuiet(
+  target: Pick<EventTarget, "addEventListener" | "removeEventListener"> = document,
+  root: Pick<Element, "toggleAttribute"> = document.documentElement,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const pause = () => {
+    timer = undefined;
+    typing = false;
+    root.toggleAttribute(TYPING_ATTRIBUTE, false);
+  };
+  const onInput = () => {
+    if (timer === undefined) {
+      typing = true;
+      root.toggleAttribute(TYPING_ATTRIBUTE, true);
+    } else {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(pause, TYPING_PAUSE_MS);
+  };
+  target.addEventListener("beforeinput", onInput, { capture: true, passive: true });
+  return () => {
+    target.removeEventListener("beforeinput", onInput, { capture: true });
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      pause();
+    }
+  };
+}
+
+/** Whether the user is typing, as `installTypingQuiet` tracks it. */
+export function isUserTyping(): boolean {
+  return typing;
+}
+
+/** Motion the user did not cause stays still under reduced motion and while they type. */
+export function motionQuiet(): boolean {
+  return prefersReducedMotion() || typing;
+}
+
 /** Calls `listener` when the system preference or the Motion setting changes. */
 export function subscribeReducedMotion(listener: () => void): () => void {
   const media = reducedMotionMedia();
@@ -210,9 +263,9 @@ const MOMENTS = {
 
 export type Moment = keyof typeof MOMENTS;
 
-/** Plays a moment, or nothing under reduced motion or where elements cannot animate. */
+/** Plays a moment, or nothing under reduced motion, while typing, or where elements cannot animate. */
 export function playMoment(element: Element | null, moment: Moment): TransientMotion | null {
-  if (!canAnimate(element) || prefersReducedMotion()) return null;
+  if (!canAnimate(element) || motionQuiet()) return null;
   return playTransient(element, MOMENTS[moment]);
 }
 

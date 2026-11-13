@@ -25,6 +25,35 @@
 :root[data-reduced-motion] {
   --reduced-motion-transition: none;
 }
+/* One switch for CSS motion (board 10). Reduced motion, from the system or the Motion setting,
+   turns every transition and keyframe animation into an instant change, the dialog, popover,
+   toast and button primitives included; data-typing (lib/motion.ts installTypingQuiet) does the
+   same while the user types. Durations go near zero rather than to none, so code waiting on
+   transitionend or animationend still hears it, and a loop stops after one cycle. */
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  :root:is([data-reduced-motion], [data-typing]) *,
+  :root:is([data-reduced-motion], [data-typing]) ::before,
+  :root:is([data-reduced-motion], [data-typing]) ::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* On mobile, morph the expanded hero composer into the compact docked
    composer while it moves; the rest of the app remains visually stationary. */

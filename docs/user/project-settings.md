@@ -2,7 +2,8 @@
 
 On web and desktop, the Settings breadcrumb ends with the environment and project a change applies to. They start
 at **All environments** and **All projects** and stay selected as you move between categories or
-search for a setting.
+search for a setting. To find a setting, press `/` in Settings, or open the command palette, and type
+its name.
 
 Preferences saved on this device, such as appearance, confirmations and browser profiles, always
 show and ignore the selection. Everything else is stored on a server. Choose one environment to

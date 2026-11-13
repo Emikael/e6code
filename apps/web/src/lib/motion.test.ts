@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   applyInterfaceMotion,
+  installTypingQuiet,
+  isUserTyping,
+  motionQuiet,
   newlyCompletedSegments,
   nextMomentWatch,
   prefersReducedMotion,
   REDUCED_MOTION_ATTRIBUTE,
+  TYPING_ATTRIBUTE,
   resolveReducedMotion,
   subscribeReducedMotion,
 } from "./motion";
@@ -110,5 +114,46 @@ describe("newlyCompletedSegments", () => {
     expect(newlyCompletedSegments(watch(2), watch(3, 7))).toBeNull();
     expect(newlyCompletedSegments(watch(3), watch(3))).toBeNull();
     expect(newlyCompletedSegments(watch(3), watch(2))).toBeNull();
+  });
+});
+
+describe("installTypingQuiet", () => {
+  it("marks the root from the first keystroke until typing pauses", () => {
+    vi.useFakeTimers();
+    const target = new EventTarget();
+    const root = fakeRoot();
+    const uninstall = installTypingQuiet(target, root);
+    try {
+      expect(isUserTyping()).toBe(false);
+      target.dispatchEvent(new Event("beforeinput"));
+      expect(root.attributes.has(TYPING_ATTRIBUTE)).toBe(true);
+      expect(motionQuiet()).toBe(true);
+      // Each keystroke restarts the pause, so a steady typist stays marked.
+      vi.advanceTimersByTime(1_000);
+      target.dispatchEvent(new Event("beforeinput"));
+      vi.advanceTimersByTime(1_000);
+      expect(isUserTyping()).toBe(true);
+      vi.advanceTimersByTime(200);
+      expect(isUserTyping()).toBe(false);
+      expect(root.attributes.has(TYPING_ATTRIBUTE)).toBe(false);
+      expect(motionQuiet()).toBe(false);
+    } finally {
+      uninstall();
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the mark when uninstalled mid-burst", () => {
+    vi.useFakeTimers();
+    const target = new EventTarget();
+    const root = fakeRoot();
+    const uninstall = installTypingQuiet(target, root);
+    target.dispatchEvent(new Event("beforeinput"));
+    uninstall();
+    expect(isUserTyping()).toBe(false);
+    expect(root.attributes.has(TYPING_ATTRIBUTE)).toBe(false);
+    target.dispatchEvent(new Event("beforeinput"));
+    expect(isUserTyping()).toBe(false);
+    vi.useRealTimers();
   });
 });

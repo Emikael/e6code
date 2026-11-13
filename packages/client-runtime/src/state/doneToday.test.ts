@@ -2,6 +2,7 @@
 import { EnvironmentId, ProjectId, ThreadId, TurnId } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import { scopedThreadKey, scopeThreadRef } from "../environment/scoped.ts";
 import {
   localStartOfDayMs,
   selectDoneToday,
@@ -123,6 +124,25 @@ describe("selectDoneToday", () => {
         { startOfDayMs: START },
       ),
     ).toEqual([]);
+  });
+
+  it("leaves a thread that is open again to Still open", () => {
+    const blocked = shell("blocked-after-finishing", {
+      turn: { state: "completed", at: at(16, 9) },
+    });
+    const working = shell("working-after-settle", { settledAt: at(10) });
+    const rows = selectDoneToday(
+      [blocked, working, shell("done", { turn: { state: "completed", at: at(11) } })],
+      {
+        startOfDayMs: START,
+        stillOpenKeys: new Set(
+          [blocked, working].map((thread) =>
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+        ),
+      },
+    );
+    expect(rows.map((row) => row.thread.id)).toEqual(["done"]);
   });
 
   it("names a merged pull request, and keys rows across environments", () => {

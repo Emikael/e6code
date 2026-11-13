@@ -5,19 +5,17 @@
  * draft" (decision 8).
  */
 import { useAtomValue } from "@effect/atom-react";
-import { parseScopedProjectKey } from "@e6tools/client-runtime/environment";
 import { CheckIcon, ChevronDownIcon, InboxIcon } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { useCaptureProjectOptions } from "../hooks/useCaptureProjectOptions";
 import { useParkedActions } from "../hooks/useParkedActions";
-import { useClientSettings } from "../hooks/useSettings";
 import { isMacPlatform } from "@e6tools/shared/keybindings";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { selectProjectGroupingSettings } from "../logicalProject";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import {
   PARKED_INPUT_MAX_CHARS,
@@ -26,11 +24,7 @@ import {
   useCaptureBarStore,
 } from "../parkedThoughts";
 import { usePromptStashStore } from "../promptStashStore";
-import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
-import { useProjects } from "../state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { captureProjectOptions } from "./CaptureBar.logic";
 import { ShortcutKeyCaps } from "./ShortcutKeyCaps";
 import { ParkedListDialogHost } from "./sidebar/SidebarParked";
 import { Button } from "./ui/button";
@@ -85,10 +79,6 @@ export function CaptureBarHost() {
 function CaptureBar({ onClose }: { onClose: () => void }) {
   const { startThreadWith, currentProjectKey } = useParkedActions();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const projects = useProjects();
-  const { environments } = useEnvironments();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const inputId = useId();
   const [text, setText] = useState("");
   const [starting, setStarting] = useState(false);
@@ -96,21 +86,7 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
   const [projectKey, setProjectKey] = useState<string | null>(() => currentProjectKey());
   // One row per project as the app's other pickers group them, each parking into the
   // member on this machine when there is one.
-  const projectOptions = useMemo(() => {
-    const labelById = new Map(
-      environments.map((environment) => [environment.environmentId, environment.label] as const),
-    );
-    return captureProjectOptions({
-      groups: buildSidebarProjectSnapshots({
-        projects,
-        settings: projectGroupingSettings,
-        primaryEnvironmentId,
-        resolveEnvironmentLabel: (environmentId) => labelById.get(environmentId) ?? null,
-      }),
-      primaryEnvironmentId,
-      preferredProjectRef: projectKey ? parseScopedProjectKey(projectKey) : null,
-    });
-  }, [environments, primaryEnvironmentId, projectGroupingSettings, projectKey, projects]);
+  const projectOptions = useCaptureProjectOptions(projectKey);
   const selectedOption = projectOptions.find((option) =>
     option.memberKeys.includes(projectKey ?? ""),
   );
@@ -145,6 +121,7 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
         : { description: "Browser storage is unavailable, so it is kept for this session only." }),
       // Board 4: the tick, "Parked" and a ghost Undo; the fill stays with the next action.
       data: {
+        floating: true,
         hideCopyButton: true,
         leadingIcon: <CheckIcon aria-hidden className="size-4 text-success-foreground" />,
         actionVariant: "ghost",
@@ -178,18 +155,19 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    // Board 10: the bar opens from scale 0.98 in 120ms; closing is instant.
+    // Board 10: the bar opens from scale 0.98 in 120ms; closing is instant. Board 4: the popup
+    // only carries the floating bar and, below it, the caption.
     <DialogPopup
       showCloseButton={false}
       bottomStickOnMobile={false}
       viewportClassName="grid-rows-[0.6fr_auto_1fr]"
       backdropClassName="duration-120 motion-reduce:transition-none"
-      className="max-w-110 overflow-hidden rounded-xl duration-120 ease-(--ease-motion-out) data-ending-style:duration-0 motion-reduce:transition-none"
+      className="max-w-110 gap-4 rounded-none border-0 bg-transparent! shadow-none! backdrop-blur-none! duration-120 ease-(--ease-motion-out) data-ending-style:duration-0 motion-reduce:transition-none"
     >
       <DialogTitle className="sr-only">Park a thought</DialogTitle>
       <form
         aria-label="Park a thought"
-        className="flex flex-col"
+        className="flex flex-col overflow-hidden rounded-xl border bg-surface-floating shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)]"
         onSubmit={(event) => {
           event.preventDefault();
           park();
@@ -282,7 +260,7 @@ function CaptureBar({ onClose }: { onClose: () => void }) {
         </div>
       </form>
       {/* Says how to come back without the bar, and that nothing behind it stopped. */}
-      <p className="px-5 pb-3 text-xs text-muted-foreground">
+      <p className="px-1 text-xs text-muted-foreground">
         {openShortcut ? `Opens from anywhere with ${openShortcut}. ` : null}
         The thread you are in keeps going and you stay where you are.
       </p>
