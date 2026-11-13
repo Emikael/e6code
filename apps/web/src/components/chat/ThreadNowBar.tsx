@@ -6,13 +6,7 @@
  * worked and offers the diff.
  */
 import { formatAttentionAge } from "@e6tools/client-runtime/state/thread-attention";
-import {
-  BellIcon,
-  CheckIcon,
-  CircleAlertIcon,
-  MessageCircleQuestionIcon,
-  PauseIcon,
-} from "lucide-react";
+import { BellIcon, CircleAlertIcon, MessageCircleQuestionIcon, PauseIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -26,6 +20,7 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatAttentionCue } from "./DraftHeroFooter.logic";
 import { PlanStepMeter } from "./PlanStepMeter";
+import { ReadyToReviewStatus } from "./ReadyToReviewStatus";
 import { doneSummary, formatNowBarElapsed, type NowBarState } from "./ThreadNowBar.logic";
 
 const STATUS_CLASS = "inline-flex shrink-0 items-center gap-1.5 text-xs leading-4 font-medium";
@@ -149,11 +144,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
           </>
         ) : (
           <>
-            <span className={cn(STATUS_CLASS, "text-muted-foreground")}>
-              {/* Done, named as its next step: the success tick, as everywhere a turn finished. */}
-              <CheckIcon aria-hidden className="size-3.5 shrink-0 text-success-foreground" />
-              Ready to review
-            </span>
+            <ReadyToReviewStatus />
             <DoneText workedFor={state.workedFor} finishedAt={state.finishedAt} />
             {state.hasChanges && onReviewDiff ? (
               <Button size="sm" variant="outline" className="sm:text-xs" onClick={onReviewDiff}>
