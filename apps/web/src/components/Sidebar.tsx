@@ -136,7 +136,13 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useThreadAttention } from "../hooks/useThreadAttention";
-import { BlockedDiamond, SidebarElapsedTime, SidebarNeedsYou } from "./SidebarNeedsYou";
+import {
+  BlockedDiamond,
+  SIDEBAR_SELECTED_ROW_CLASS,
+  SidebarElapsedTime,
+  SidebarMetaTime,
+  SidebarNeedsYou,
+} from "./SidebarNeedsYou";
 import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "./ThreadStatusMarker";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
@@ -194,7 +200,7 @@ import {
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   resolveSidebarThreadTitleTone,
-  shouldRecedeSidebarThread,
+  isSidebarThreadPlanReady,
   resolveWorkingStartedAt,
   sidebarListItemId,
   sidebarMarkerId,
@@ -287,6 +293,12 @@ function threadTimeLabel(thread: SidebarThreadSummary): string {
   return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
 }
 
+// Done and Plan ready read how long ago the turn finished, not when it started.
+function finishedTimeLabel(thread: SidebarThreadSummary): string {
+  const timestamp = thread.latestTurn?.completedAt ?? thread.updatedAt;
+  return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+}
+
 // Settled rows read "how long ago did this wrap up", matching their sort
 // key: both go through resolveSettledThreadTimestamp so label and order can't
 // disagree.
@@ -324,13 +336,7 @@ const rowStatusToneClassName: Record<SidebarRowStatus["tone"], string> = {
 
 /** The status line's leading mark, from the shared status table. */
 function SidebarRowStatusMarker({ status }: { status: SidebarRowStatus }) {
-  return (
-    <ThreadStatusMarker
-      kind={status.kind}
-      marker={status.marker}
-      className={status.marker === "check" ? "size-[11px]" : undefined}
-    />
-  );
+  return <ThreadStatusMarker kind={status.kind} marker={status.marker} />;
 }
 
 // On the shared minute clock: only the now bar ticks in seconds (F5).
@@ -604,8 +610,9 @@ function SortableThreadRow(props: {
 
 // Unsent work shares one look: the new-thread draft rows and thread rows
 // with unsent composer text both use this tint and pen so they read alike.
-const draftSurfaceClassName = "bg-warning/[0.04] hover:bg-warning/[0.08]";
-const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
+// Neutral: a draft does not block anything, and amber means blocked on you.
+const draftSurfaceClassName = "bg-sidebar-row-hover/60 hover:bg-sidebar-row-hover";
+const draftPenClassName = "size-3 shrink-0 text-sidebar-muted-foreground";
 
 // Structural list items — the section headers and the
 // empty-section placeholders — take part in the sortable list so they shift
@@ -713,7 +720,6 @@ function SidebarSectionHeader(props: {
   marker: "snoozed-header" | "settled-header";
   label: string;
   count: number;
-  className?: string;
   // While dragging, the settled header reads at full strength and takes the
   // accent while the lifted row is over it.
   dragging?: boolean;
@@ -727,7 +733,7 @@ function SidebarSectionHeader(props: {
   // A shelf is a section row like a collapsed project (board 1): chevron, name, count. Neither
   // shelf is a status, so both stay neutral.
   const className = cn(
-    "flex h-full w-full items-center gap-2 px-2 text-left text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground hover:text-sidebar-foreground",
+    "flex h-full w-full items-center gap-2 px-2.5 pt-2 pb-1 text-left text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground hover:text-sidebar-foreground",
     props.dragging && "text-sidebar-foreground/80",
     props.isDropTarget && "text-primary-text",
   );
@@ -751,7 +757,7 @@ function SidebarSectionHeader(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("group/shelf mx-0.5 flex h-8 items-center", props.className)}
+      className="group/shelf mx-0.5 flex h-[26px] items-center"
     >
       <button
         type="button"
@@ -784,7 +790,7 @@ function SidebarSectionHeader(props: {
             const rect = event.currentTarget.getBoundingClientRect();
             onMenu({ x: rect.left, y: rect.bottom + 4 });
           }}
-          className="mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground/70 opacity-0 outline-hidden ring-ring group-focus-within/shelf:opacity-100 group-hover/shelf:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+          className="mr-1 inline-flex size-6 shrink-0 self-end cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground/70 opacity-0 outline-hidden ring-ring group-focus-within/shelf:opacity-100 group-hover/shelf:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
         >
           <EllipsisIcon aria-hidden className="size-3.5" />
         </button>
@@ -806,7 +812,7 @@ function SidebarProjectGroupHeader(props: {
     <li
       data-thread-selection-safe
       data-testid="sidebar-project-group"
-      className="group/project relative mx-0.5 mt-3.5 flex h-6 list-none items-center first:mt-1"
+      className="group/project relative mx-0.5 flex h-[26px] list-none items-center"
     >
       {/* A section row (board 1): chevron, the project name and its count, small and muted
           so the threads under it carry the weight. */}
@@ -817,7 +823,7 @@ function SidebarProjectGroupHeader(props: {
         role="treeitem"
         tabIndex={-1}
         data-sidebar-row={`project:${group.projectKey}`}
-        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
+        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 pt-2 pb-1 text-left text-[11px] leading-[14px] font-medium tracking-[0.01em] text-sidebar-muted-foreground outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
       >
         <ChevronDownIcon
           aria-hidden
@@ -857,7 +863,7 @@ function SidebarProjectGroupHeader(props: {
                 aria-label={`New thread in ${group.displayName}`}
                 data-sidebar-action-for={`project:${group.projectKey}`}
                 onClick={props.onNewThread}
-                className="absolute right-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
+                className="absolute right-1 bottom-0 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-0 outline-hidden ring-ring group-focus-within/project:opacity-100 group-hover/project:opacity-100 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 pointer-coarse:opacity-100"
               />
             }
           >
@@ -1135,7 +1141,6 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 };
 
 const titleToneClassName: Record<SidebarThreadTitleTone, string> = {
-  unread: "font-semibold text-foreground",
   emphasis: "font-medium text-foreground",
   read: "font-normal text-secondary-label",
 };
@@ -1304,15 +1309,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
-  // Only a read finished row and a usage-limit pause recede: a row that needs
-  // you, or an agent at work, keeps a full-strength title.
-  const shouldRecede = shouldRecedeSidebarThread({
-    status,
-    isUnread,
-    isWoke,
-    isActive: props.isActive,
-    isSelected,
-  });
   // The status line under the title, in the thread list's wording. Working
   // and paused rows carry the agent state or plan step as detail ("Working ·
   // step 4 of 6", "Waiting for usage limit · resets 14:20"); the detail
@@ -1327,16 +1323,26 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     isWoke,
     isUnread,
     latestTurnCompleted: thread.latestTurn?.state === "completed",
-    timeLabel: threadTimeLabel(thread),
+    isPlanReady: isSidebarThreadPlanReady(thread),
   });
   const isWokeStatus = topStatus?.kind === "woke";
   // Whole minutes beside the status: how long it has worked, or how long a
-  // request has waited. Drawn by a leaf on the minute clock.
+  // request or a failure has waited (the same age its Needs you row shows).
+  // Drawn by a leaf on the minute clock.
   const elapsedSince =
     topStatus?.kind === "working"
       ? resolveWorkingStartedAt(thread)
       : topStatus?.kind === "approval" || topStatus?.kind === "input"
         ? (thread.pendingRequestSince ?? thread.updatedAt)
+        : topStatus?.kind === "failed"
+          ? (thread.latestTurn?.completedAt ?? thread.updatedAt)
+          : null;
+  // Resting rows carry a compact age after the words ("Done · 2h") or alone ("2h").
+  const restingTimeLabel =
+    topStatus === null
+      ? threadTimeLabel(thread)
+      : topStatus.kind === "done" || topStatus.kind === "plan"
+        ? finishedTimeLabel(thread)
         : null;
   const statusCellRef = useRef<HTMLSpanElement>(null);
   const previousStatusIconRef = useRef(topStatus?.kind);
@@ -1585,18 +1591,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left outline-none select-none",
-    // The open thread lifts into a raised card: the raised surface, a
-    // primary-edge hairline ring and a small shadow on Porcelain, ring only on
-    // Slate. The row also carries aria-current, so the state is not colour-only.
+    // The open thread lifts into a card (board 2): the selected surface, a 1px
+    // input hairline and the card shadow, the same look as its Needs you row.
+    // The row also carries aria-current, so the state is not colour-only.
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground shadow-xs ring-1 ring-primary-edge dark:shadow-none"
+      ? cn(SIDEBAR_SELECTED_ROW_CLASS, "text-sidebar-foreground")
       : isSelected
         ? "bg-sidebar-row-selected text-sidebar-foreground"
         : hasUnsentDraft
           ? cn(draftSurfaceClassName, "text-sidebar-foreground")
-          : shouldRecede
-            ? "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-            : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+          : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
     // Multi-selected rows carry a leading primary-edge bar (and aria-selected),
     // a different shape from the open thread's ring, so both can show at once.
     isSelected &&
@@ -1640,14 +1644,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       </span>
     ) : null;
 
-  // Read titles take the plain muted role at full strength; unread is carried
-  // by weight, and settled/receded rows by their shelf, slim layout, and
-  // grayscale favicon rather than by fading the text.
+  // Card titles keep full strength; status and age carry the state. Settled
+  // history reads on the plain muted role in its slim rows.
   const titleTone = resolveSidebarThreadTitleTone({
     variant,
-    recedes: shouldRecede,
     status,
-    isUnread,
     isWoke,
     isActive: props.isActive,
   });
@@ -1679,7 +1680,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         <RefreshCwIcon aria-hidden className="mr-1 inline size-3 align-[-1px]" />
       ) : null}
       {thread.title}
-      {titleTone === "unread" ? <span className="sr-only">, unread</span> : null}
+      {isUnread ? <span className="sr-only">, unread</span> : null}
     </span>
   );
 
@@ -1846,7 +1847,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             type="button"
                             aria-label="Dismiss Woke notification"
                             onClick={handleAcknowledgeWokeClick}
-                            className="inline-flex cursor-pointer items-center gap-1 rounded-sm text-xs font-medium text-warning-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                            className="inline-flex cursor-pointer items-center gap-1 rounded-sm text-xs font-medium text-sidebar-muted-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <AlarmClockIcon aria-hidden className="size-3" />
                             <span role="status">Woke</span>
@@ -1936,9 +1937,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Title line + status line: py-2 (16px) + 18px + 2px + 16px = 52px,
-        // plus py-0.5 (4px) between rows.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_56px]",
+        // Title line + status line: 7px + 18px + 2px + 16px + 7px = 50px; the
+        // list's 2px gap makes the 52px pitch board 1 draws.
+        "list-none [content-visibility:auto] [contain-intrinsic-size:auto_50px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -1964,7 +1965,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             />
           }
         >
-          <div className="relative z-10 flex flex-col gap-0.5 px-[var(--sidebar-row-content-inset)] py-2">
+          <div className="relative z-10 flex flex-col gap-0.5 px-[var(--sidebar-row-content-inset)] py-[7px]">
             {/* Line 1: the title, with the pin and hover actions at its end. */}
             <div className="flex h-[18px] min-w-0 items-center gap-1.5">
               {draftIndicator}
@@ -2055,7 +2056,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             aria-label="Dismiss Woke notification"
                             onClick={handleAcknowledgeWokeClick}
                             className={cn(
-                              "inline-flex cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
+                              "inline-flex cursor-pointer items-center gap-1.5 rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
                               rowStatusToneClassName[topStatus.tone],
                             )}
                           >
@@ -2069,7 +2070,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   ) : (
                     <span
                       className={cn(
-                        "inline-flex min-w-0 items-center gap-1.5",
+                        "inline-flex min-w-0 items-center gap-1.5 font-medium",
                         rowStatusToneClassName[topStatus.tone],
                       )}
                     >
@@ -2097,16 +2098,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     </span>
                   )
                 ) : (
-                  <span className="truncate text-sidebar-muted-foreground tabular-nums">
-                    {formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt)}
+                  <span className="truncate font-mono text-[11px] text-sidebar-muted-foreground tabular-nums">
+                    {restingTimeLabel}
                   </span>
                 )}
                 {elapsedSince !== null ? (
-                  <SidebarElapsedTime
-                    since={elapsedSince}
-                    prefix="· "
-                    className="ml-1.5 text-sidebar-muted-foreground"
-                  />
+                  <SidebarElapsedTime since={elapsedSince} className="ml-1.5" />
+                ) : topStatus !== null && restingTimeLabel ? (
+                  <SidebarMetaTime label={restingTimeLabel} className="ml-1.5" />
                 ) : null}
                 {attachedNotSent !== null ? (
                   <span className="ml-1.5 min-w-0 shrink-[10] truncate text-sidebar-muted-foreground">
@@ -5090,7 +5089,8 @@ export default function Sidebar() {
                     {...SIDEBAR_TREE_PROPS}
                     ref={attachTreeRef}
                     className={cn(
-                      "relative flex flex-col gap-px",
+                      // Board 1: rows and section headers 2px apart.
+                      "relative flex flex-col gap-0.5",
                       sidebarListItems.length > 0 && "flex-1",
                     )}
                   >
@@ -5329,7 +5329,6 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className="mt-2"
                                 label="Snoozed"
                                 count={snoozedThreads.length}
                                 toggle={{
@@ -5344,7 +5343,6 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="settled-shelf-header"
                                 marker="settled-header"
-                                className={cn(snoozedThreads.length === 0 && "mt-2")}
                                 label="Settled"
                                 count={settledThreads.length}
                                 dragging={from !== null}
