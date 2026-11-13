@@ -1220,8 +1220,8 @@ export function writePullRequestDetailSnapshot(
 
 /**
  * How one merge requirement stands: met, failed (the only one drawn in red), needed but not yet
- * asked for, waiting on something already under way, or not reported by this host. Unknown rows
- * are shown but not counted, so "3/3" is never padded out with a requirement nobody could check.
+ * asked for, waiting on something already under way, or not answered yet. Unknown rows are shown
+ * but not counted, so "3/3" is never padded out with a requirement nobody could check.
  */
 export type MergeReadinessStatus = "ok" | "failed" | "needed" | "waiting" | "unknown";
 
@@ -1229,7 +1229,10 @@ export interface MergeReadinessRow {
   readonly key: "checks" | "review" | "conflicts" | "base";
   readonly status: MergeReadinessStatus;
   readonly label: string;
-  /** The row's status in a word, so it never rests on its icon: "Met", "Failing", "Checking". */
+  /**
+   * The row's status in a word, so it never rests on its icon. Only the plan's words: "Met",
+   * "Failing", "Not requested", "Waiting on …" and "Checking".
+   */
   readonly word: string;
   readonly detail: string | null;
   /**
@@ -1251,7 +1254,7 @@ function checksReadinessRow(input: {
   readonly checks: ReadonlyArray<PullRequestCheck>;
   readonly checksState: PullRequestChecksState | null;
   readonly checksStale: boolean;
-}): MergeReadinessRow {
+}): MergeReadinessRow | null {
   const row = (status: MergeReadinessStatus, label: string, word: string): MergeReadinessRow => ({
     key: "checks",
     status,
@@ -1268,9 +1271,10 @@ function checksReadinessRow(input: {
       case "failing":
         return row("failed", "Checks failing", "Failing");
       case "pending":
-        return row("waiting", "Checks running", "Running");
+        return row("waiting", "Checks running", "Checking");
       default:
-        return row("unknown", "No checks reported", "None");
+        // A repository that runs no checks has no requirement here to show.
+        return null;
     }
   }
   const total = input.checks.length;
@@ -1281,7 +1285,7 @@ function checksReadinessRow(input: {
   const passed = count("success");
   const skipped = count("skipped", "neutral");
   if (failed > 0) return row("failed", `Checks: ${failed} of ${total} failing`, "Failing");
-  if (pending > 0) return row("waiting", `Checks: ${total - pending} of ${total} done`, "Running");
+  if (pending > 0) return row("waiting", `Checks: ${total - pending} of ${total} done`, "Checking");
   return row(
     "ok",
     skipped > 0 ? `Checks: ${passed} passed, ${skipped} skipped` : `Checks: ${passed} passed`,
@@ -1320,7 +1324,7 @@ export function resolveMergeReadiness(input: {
   ): MergeReadinessRow => ({ key: "review", status, label: "Review", word, detail: null, action });
   const review =
     input.reviewDecision === "changes-requested"
-      ? reviewRow("failed", "Changes requested")
+      ? { ...reviewRow("failed", "Failing"), label: "Review: changes requested" }
       : input.reviewDecision === "approved" || input.approvalCount > 0
         ? reviewRow("ok", "Met")
         : pending.length > 0
@@ -1344,7 +1348,7 @@ export function resolveMergeReadiness(input: {
             key: "conflicts",
             status: "failed",
             label: `Conflicts with ${base}`,
-            word: "Conflicts",
+            word: "Failing",
             detail: null,
             action: "resolve-conflicts",
           }
@@ -1356,7 +1360,9 @@ export function resolveMergeReadiness(input: {
             detail: null,
             action: null,
           };
-  const baseRow: MergeReadinessRow =
+  // A host that does not compare the branch with its base has no answer coming, so the row is
+  // left out rather than reading "Checking" for good.
+  const baseRow: MergeReadinessRow | null =
     input.baseComparison === "up-to-date"
       ? {
           key: "base",
@@ -1371,22 +1377,17 @@ export function resolveMergeReadiness(input: {
             key: "base",
             status: "waiting",
             label: `Behind ${base}`,
-            word: "Behind",
+            word: "Waiting on update",
             detail:
               input.behindBy === undefined
                 ? null
                 : `${input.behindBy.toLocaleString()} ${plural(input.behindBy, "commit", "commits")}`,
             action: "update-branch",
           }
-        : {
-            key: "base",
-            status: "unknown",
-            label: `Up to date with ${base}`,
-            word: "Not reported",
-            detail: null,
-            action: null,
-          };
-  const rows = [checksReadinessRow(input), review, conflicts, baseRow];
+        : null;
+  const rows = [checksReadinessRow(input), review, conflicts, baseRow].filter(
+    (row): row is MergeReadinessRow => row !== null,
+  );
   const counted = rows.filter((row) => row.status !== "unknown");
   return {
     rows,
@@ -1525,11 +1526,7 @@ export interface PullRequestNextStepInput {
   readonly state: PullRequestState;
   readonly isDraft: boolean;
   readonly baseBranch: string;
-  /**
-   * The host offers merging and this account may merge. Without it the table still runs, so a
-   * reader who cannot merge still sees conflicts or failing checks they could act on; only the
-   * steps that end in a merge become "You cannot merge this pull request".
-   */
+  /** The host offers merging and this account may merge; without it the card says so first. */
   readonly canMerge: boolean;
   readonly mergeability: PullRequestMergeability;
   readonly checks: ReadonlyArray<PullRequestCheck>;
@@ -1570,7 +1567,7 @@ const TEST_CHECK = /\b(tests?|specs?|e2e|unit|integration)\b/i;
 
 /**
  * The one thing to do next on a pull request, for the card on Summary: the first row of the
- * F17 table that applies. Null for a merged or closed one. Readiness rows that the host could not
+ * F17 table that applies, in the table's order. Null for a merged or closed one. Readiness rows that the host could not
  * report are not a reason to wait, except a merge verdict it has not reached yet ("Checking").
  */
 export function resolvePullRequestNextStep(
@@ -1636,6 +1633,16 @@ export function resolvePullRequestNextStep(
   };
   const withLater = (first: string, from: PullRequestNextStepKind) =>
     [first, later(from)].filter(Boolean).join(" ");
+
+  // Second in the F17 table: whoever cannot merge is told so before anything else. The footer
+  // says once why this account cannot; the card only says that someone else has to.
+  if (!input.canMerge) {
+    return step(
+      "no-permission",
+      "You cannot merge this pull request",
+      "Someone with write access can merge it.",
+    );
+  }
 
   if (input.mergeability === "conflicting") {
     return step(
@@ -1765,16 +1772,6 @@ export function resolvePullRequestNextStep(
       "checking",
       "Checking",
       `${pullRequestHostName(input.provider)} has not said yet whether this can merge.`,
-    );
-  }
-
-  // Past this point the only step left is the merge itself. The footer says once why this account
-  // cannot take it; the card only says that someone else has to.
-  if (!input.canMerge) {
-    return step(
-      "no-permission",
-      "You cannot merge this pull request",
-      "Someone with write access can merge it.",
     );
   }
 
