@@ -298,6 +298,22 @@ export function buildFileDiffContentVersion(fileDiff: FileDiffMetadata): number 
   return hash;
 }
 
+const plainFileDiffs = new WeakMap<FileDiffMetadata, FileDiffMetadata>();
+
+/**
+ * The same file diff marked as plain text, so the viewer draws +/− lines without token colors
+ * (board 12) and skips highlighting work. Cached per diff, so the viewer keeps seeing one object
+ * for an unchanged file.
+ */
+export function plainFileDiff(fileDiff: FileDiffMetadata): FileDiffMetadata {
+  if (fileDiff.lang === "text") return fileDiff;
+  const cached = plainFileDiffs.get(fileDiff);
+  if (cached) return cached;
+  const plain = { ...fileDiff, lang: "text" as const };
+  plainFileDiffs.set(fileDiff, plain);
+  return plain;
+}
+
 /**
  * Maps every diff/file surface the @pierre/diffs renderer paints onto the
  * app's code tokens, so themed palettes reach the code body, gutter, and
