@@ -119,6 +119,7 @@ import {
 } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
 import { ThreadRecapHost } from "./ThreadRecapCard";
+import { BriefNotice } from "../../components/BriefNotice";
 import { threadAgentName } from "./threadListV2";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -1066,6 +1067,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     {props.handoffCard}
                   </Animated.View>
                 ) : null}
+                {/* "Parked", after a thought is parked from the Thread options menu. */}
+                <BriefNotice />
                 <ThreadRecapHost
                   environmentId={props.environmentId}
                   threadId={props.selectedThread.id}
@@ -1079,6 +1082,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   }
                   onOpenChanges={openChanges}
                   onRevealAsk={revealRecapAsk}
+                  onEditNote={() =>
+                    navigation.navigate("ThreadNote", {
+                      environmentId: props.environmentId,
+                      threadId: props.selectedThread.id,
+                    })
+                  }
                 />
                 {props.creationState?.kind === "failed" ? (
                   <Animated.View

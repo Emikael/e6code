@@ -1,15 +1,15 @@
 /**
- * "Approved: vp test run", shown for a few seconds after an approval is
- * answered on Home, where the card simply goes (web shows the same words as
- * a toast). Screen readers hear it from the announcement the card makes, so
- * this one is hidden from them.
+ * A few seconds of confirmation where web shows a toast: "Approved: vp test
+ * run" after an approval is answered on Home, where the card simply goes, or
+ * "Parked" after a thought is parked. Screen readers hear it from the
+ * announcement the caller makes, so this one is hidden from them.
  */
 import { useSyncExternalStore } from "react";
 import { View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
-import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "./AppSymbol";
+import { AppText as Text } from "./AppText";
 
 const NOTICE_MS = 4_000;
 
@@ -24,7 +24,7 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-export function showApprovalAnswerNotice(text: string): void {
+export function showBriefNotice(text: string): void {
   if (timer) clearTimeout(timer);
   current = text;
   emit();
@@ -35,8 +35,11 @@ export function showApprovalAnswerNotice(text: string): void {
   }, NOTICE_MS);
 }
 
-/** Pinned above the bottom of Home; `bottom` clears the toolbar or FAB. */
-export function ApprovalAnswerNotice(props: { readonly bottom: number }) {
+/**
+ * Pinned above the bottom of a screen when `bottom` clears its toolbar or
+ * FAB; without it, a row in place (above a thread's composer).
+ */
+export function BriefNotice(props: { readonly bottom?: number }) {
   const text = useSyncExternalStore(subscribe, () => current);
   if (text === null) return null;
   return (
@@ -44,8 +47,10 @@ export function ApprovalAnswerNotice(props: { readonly bottom: number }) {
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      className="absolute inset-x-4 items-center"
-      style={{ bottom: props.bottom }}
+      className={
+        props.bottom === undefined ? "items-center px-4 pb-3" : "absolute inset-x-4 items-center"
+      }
+      style={props.bottom === undefined ? undefined : { bottom: props.bottom }}
     >
       <Animated.View
         key={text}

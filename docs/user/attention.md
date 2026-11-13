@@ -96,7 +96,9 @@ what it is waiting for, or how long the last turn took.
 
 On mobile, a thread you come back to after a break shows the same **Where you left off** card
 above the composer, with your note when it is saved to an environment; **Where was I?** in the
-thread's **…** menu shows it again. While an agent works, the status above the composer shows
+thread's **…** menu shows it again. Write or change the note with **Add note to self** (or **Edit
+note**) in the same menu, or **Edit** beside it in the card; notes are saved with Parked, so the
+phone asks once before saving to that environment. While an agent works, the status above the composer shows
 which step of its plan it is on, such as "Step 3 of 5"; tap it to see the plan.
 
 ## Set a thought aside
@@ -115,9 +117,11 @@ notes saved there. Dismiss the question to keep everything in this browser; it i
 and **Save to …** at the foot of the list asks again when you want. **Stop saving** keeps a copy in
 this browser and sends nothing more. The foot of the list says where your list is kept.
 
-On mobile, open **Settings → Parked**. It asks the same question, and nothing is saved from the
-phone until you accept. Then you can park a thought, start a task from one, or delete one. A
-thought parked while the environment is unreachable shows as waiting and is saved when it is back.
+On mobile, tap **Park a thought** at the top of the thread list, or in a thread's **…** menu, where
+the thread's project is already chosen. **Parked** sits beside it, and in **Settings**. Both ask the
+same question, and nothing is saved from the phone until you accept. Then you can park a thought,
+start a task from one, or delete one. A thought parked while the environment is unreachable shows
+as waiting and is saved when it is back.
 
 A thought or note holds up to 1,000 characters. Parked holds up to 200 thoughts, and up to 200
 notes. When it is full, E6 Code asks you to remove one rather than dropping an old one. If two

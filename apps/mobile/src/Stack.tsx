@@ -26,6 +26,8 @@ import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
 import { ParkedQueueWorker } from "./features/parked/ParkedQueueWorker";
 import { ParkedRouteScreen } from "./features/parked/ParkedRouteScreen";
+import { ParkThoughtSheet } from "./features/parked/ParkThoughtSheet";
+import { ThreadNoteSheet } from "./features/parked/ThreadNoteSheet";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
@@ -464,11 +466,13 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitConfirm",
   "GitOverview",
   "NewTaskSheet",
+  "ParkThought",
   "SettingsLegal",
   "SettingsSheet",
   "ThreadReviewComment",
   "ThreadDevicePreview",
   "ThreadInspector",
+  "ThreadNote",
   "ThreadSettingsSheet",
 ]);
 
@@ -684,6 +688,15 @@ const RootStackConfig = createNativeStackNavigator({
         sheetGrabberVisible: true,
       },
     }),
+    ThreadNote: createNativeStackScreen({
+      screen: ThreadNoteSheet,
+      linking: `${THREAD_LINKING_PREFIX}/note`,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.55, 0.92],
+        sheetGrabberVisible: true,
+      },
+    }),
     GitOverview: createNativeStackScreen({
       screen: GitOverviewSheet,
       linking: `${THREAD_LINKING_PREFIX}/git`,
@@ -714,6 +727,15 @@ const RootStackConfig = createNativeStackNavigator({
     GitConfirm: createNativeStackScreen({
       screen: GitConfirmSheet,
       linking: `${THREAD_LINKING_PREFIX}/git-confirm`,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.45, 0.7],
+        sheetGrabberVisible: true,
+      },
+    }),
+    ParkThought: createNativeStackScreen({
+      screen: ParkThoughtSheet,
+      linking: "park",
       options: {
         ...FORM_SHEET_PRESENTATION_OPTIONS,
         sheetAllowedDetents: [0.45, 0.7],

@@ -49,6 +49,22 @@ export function HomeHeader(props: HomeHeaderProps) {
           headerTintColor: iconColor,
           unstable_headerRightItems: () => [
             withNativeGlassHeaderItem({
+              accessibilityLabel: "Park a thought",
+              icon: { name: "lightbulb", type: "sfSymbol" } as const,
+              identifier: "home-park-thought",
+              label: "",
+              onPress: props.onParkThought,
+              type: "button",
+            }),
+            withNativeGlassHeaderItem({
+              accessibilityLabel: "Parked",
+              icon: { name: "tray", type: "sfSymbol" } as const,
+              identifier: "home-parked",
+              label: "",
+              onPress: props.onOpenParked,
+              type: "button",
+            }),
+            withNativeGlassHeaderItem({
               accessibilityLabel: "Settings",
               icon: { name: "slider.horizontal.3", type: "sfSymbol" } as const,
               identifier: "home-settings",

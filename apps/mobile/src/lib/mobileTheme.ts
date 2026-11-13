@@ -1,3 +1,4 @@
+import { DEFAULT_STOCK_ACCENT, type StockAccent } from "@e6tools/contracts/settings";
 import {
   BUILT_IN_THEMES,
   E6_CHAT_THEME,
@@ -415,6 +416,45 @@ export function getMobileThemeColors(
   return getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
 }
 
+// Iris's inline-skill wash is the accent at about this strength over the
+// canvas (#f2f1fd on Porcelain, #2a2a3d on Slate).
+const SKILL_WASH_ALPHA = { light: 0.08, dark: 0.12 } as const;
+// The merged wash matches web's --merged-surface: 8% on Porcelain, 16% on Slate.
+const MERGED_WASH_ALPHA = { light: 0.08, dark: 0.16 } as const;
+
+/**
+ * The primary-family variables one stock accent paints on the stock E6 Code
+ * palette, plus the merged pull request family that pairs with it.
+ */
+export function stockAccentVariables(
+  accent: StockAccent,
+  appearance: MobileThemeAppearance,
+): Partial<MobileThemeVariables> {
+  const colors = STOCK_ACCENT_PALETTES[accent][appearance];
+  const canvas = getMobileThemeColors(DEFAULT_MOBILE_THEME_ID, appearance).canvas;
+  return {
+    "--color-primary": colors.primary,
+    "--color-primary-foreground": colors.primaryForeground,
+    "--color-primary-text": colors.primaryText,
+    "--color-primary-edge": colors.primaryEdge,
+    "--color-focus": colors.primary,
+    "--color-switch-active-track": colors.primary,
+    "--color-switch-active-thumb": colors.primaryForeground,
+    "--color-md-link": colors.primaryText,
+    "--color-user-bubble-skill-foreground": colors.primaryText,
+    "--color-inline-skill-border": themeColorWithAlpha(colors.primary, 0.42),
+    "--color-inline-skill-background": flattenThemeColor(
+      themeColorWithAlpha(colors.primary, SKILL_WASH_ALPHA[appearance]),
+      canvas,
+    ),
+    "--color-merged": flattenThemeColor(
+      themeColorWithAlpha(colors.merged, MERGED_WASH_ALPHA[appearance]),
+      canvas,
+    ),
+    "--color-merged-foreground": colors.mergedForeground,
+  };
+}
+
 export function getMobileThemeVariables(
   themeId: SharedMobileThemeId,
   appearance: MobileThemeAppearance,
@@ -443,18 +483,12 @@ export function getMobileThemeVariables(
         }
       : colors;
   const generated = createMobileThemeVariables(mobileColors, appearance, groupedCard);
-  // The stock palette wears Iris, so its accent text and edges take the shared
-  // palette's tuned values, as on web; other accents then shift only the hue.
-  const iris = STOCK_ACCENT_PALETTES.iris[appearance];
+  // The stock palette's colors carry Iris; the generated base wears the
+  // default accent (Graphite), as web does for a new profile, so nothing
+  // shows another accent before the stored preference loads.
   const baseVariables: MobileThemeVariables =
     themeId === DEFAULT_MOBILE_THEME_ID
-      ? {
-          ...generated,
-          "--color-primary-text": iris.primaryText,
-          "--color-primary-edge": iris.primaryEdge,
-          "--color-md-link": iris.primaryText,
-          "--color-user-bubble-skill-foreground": iris.primaryText,
-        }
+      ? { ...generated, ...stockAccentVariables(DEFAULT_STOCK_ACCENT, appearance) }
       : generated;
 
   // The complete base record guarantees that optional overrides cannot leave a token undefined.

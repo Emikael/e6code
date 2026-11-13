@@ -87,7 +87,7 @@ import {
 const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 
 /** The spawn card's status colors, keyed by the shared status words. Working
-    takes Iris (primary), as on web; each colour pairs a dot with its word. */
+    takes the accent (primary), as on web; each colour pairs a dot with its word. */
 const STATUS_TEXT_CLASS = {
   approval: "text-warning-foreground",
   question: "text-warning-foreground",

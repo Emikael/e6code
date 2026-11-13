@@ -24,6 +24,7 @@ import { cn } from "../../lib/cn";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { E6KeyboardCommands } from "../../native/E6KeyboardCommands";
 import { useProjects, useThreadShell, useThreadShells } from "../../state/entities";
+import { useThreadNote } from "../parked/useThreadNote";
 import { useThreadSearch } from "../../state/queries";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -144,6 +145,8 @@ export function CommandPalette(props: {
   const threads = useThreadShells();
   const activeThreadRef = useMemo(() => parseActiveThreadPath(props.pathname), [props.pathname]);
   const activeThread = useThreadShell(activeThreadRef);
+  const activeThreadHasNote =
+    useThreadNote(activeThread?.environmentId ?? null, activeThread?.id ?? null) !== null;
   const { environments } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const [query, setQuery] = useState("");
@@ -237,6 +240,30 @@ export function CommandPalette(props: {
           }),
       },
       {
+        key: "parkThought",
+        kind: "action",
+        title: "Park a thought",
+        searchTerms: ["capture", "idea", "note", "later"],
+        run: () =>
+          navigation.navigate(
+            "ParkThought",
+            activeThread
+              ? { environmentId: activeThread.environmentId, projectId: activeThread.projectId }
+              : {},
+          ),
+      },
+      {
+        key: "parked",
+        kind: "action",
+        title: "Parked",
+        searchTerms: ["thoughts", "ideas", "later"],
+        run: () =>
+          navigation.navigate("SettingsSheet", {
+            screen: "SettingsContent",
+            params: { screen: "SettingsParked" },
+          }),
+      },
+      {
         key: "archive",
         kind: "action",
         title: "Archived threads",
@@ -254,6 +281,19 @@ export function CommandPalette(props: {
     const activeProject = activeThread
       ? projectByKey.get(scopedProjectKey(activeThread.environmentId, activeThread.projectId))
       : null;
+    if (activeThread) {
+      actions.unshift({
+        key: "threadNote",
+        kind: "action",
+        title: activeThreadHasNote ? "Edit note" : "Add note to self",
+        searchTerms: ["note to self", "reminder", "recap"],
+        run: () =>
+          navigation.navigate("ThreadNote", {
+            environmentId: activeThread.environmentId,
+            threadId: activeThread.id,
+          }),
+      });
+    }
     if (activeProject) {
       actions.unshift({
         key: "newThread",
@@ -332,6 +372,7 @@ export function CommandPalette(props: {
     return [...actions, ...projectItems, ...threadItems];
   }, [
     activeThread,
+    activeThreadHasNote,
     activeThreadRef,
     navigation,
     projects,

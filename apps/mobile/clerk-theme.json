@@ -1,6 +1,6 @@
 {
   "colors": {
-    "primary": "#5b4ae0",
+    "primary": "#2a2d35",
     "background": "#ffffff",
     "input": "#ffffff",
     "danger": "#b42318",
@@ -12,12 +12,12 @@
     "inputForeground": "#14161b",
     "neutral": "#eceef2",
     "border": "#e3e5ea",
-    "ring": "#5b4ae0",
+    "ring": "#2a2d35",
     "muted": "#f1f3f6",
     "shadow": "#000000"
   },
   "darkColors": {
-    "primary": "#9b8cff",
+    "primary": "#d4d7de",
     "background": "#1a1d23",
     "input": "#22252c",
     "danger": "#fca5a5",
@@ -25,11 +25,11 @@
     "warning": "#fcd34d",
     "foreground": "#eceef3",
     "mutedForeground": "#9da3b0",
-    "primaryForeground": "#14102e",
+    "primaryForeground": "#14161b",
     "inputForeground": "#eceef3",
     "neutral": "#1f2228",
     "border": "#2a2d33",
-    "ring": "#9b8cff",
+    "ring": "#d4d7de",
     "muted": "#1f2228",
     "shadow": "#000000"
   },

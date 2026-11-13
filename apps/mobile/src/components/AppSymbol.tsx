@@ -26,6 +26,7 @@ import IconBellRinging from "@tabler/icons-react-native/IconBellRinging";
 import IconBolt from "@tabler/icons-react-native/IconBolt";
 import IconBox from "@tabler/icons-react-native/IconBox";
 import IconBrain from "@tabler/icons-react-native/IconBrain";
+import IconBulb from "@tabler/icons-react-native/IconBulb";
 import IconCamera from "@tabler/icons-react-native/IconCamera";
 import IconChartBar from "@tabler/icons-react-native/IconChartBar";
 import IconCheck from "@tabler/icons-react-native/IconCheck";
@@ -173,6 +174,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   internaldrive: IconDatabase,
   keyboard: IconKeyboard,
   laptopcomputer: IconDeviceLaptop,
+  lightbulb: IconBulb,
   link: IconLink,
   "line.3.horizontal": IconMenu2,
   "line.3.horizontal.decrease": IconFilter,

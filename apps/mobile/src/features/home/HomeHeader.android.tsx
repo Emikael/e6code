@@ -154,6 +154,8 @@ export function HomeHeader(props: HomeHeaderProps) {
         filterCustomized={hasCustomListOptions}
         onFilterAction={handleMenuAction}
         onOpenSettings={props.onOpenSettings}
+        onParkThought={props.onParkThought}
+        onOpenParked={props.onOpenParked}
         onOpenEnvironments={props.onOpenEnvironments}
       />
     </>

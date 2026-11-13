@@ -1,7 +1,7 @@
 <!-- Dark phase tints, matching the iOS banner on its dark material. Written by apps/mobile/scripts/generate-uniwind-themes.mts from the stock palette. -->
 <resources>
     <!-- <generated android-colors> -->
-    <color name="agent_activity_working">#b9afff</color>
+    <color name="agent_activity_working">#e6e8ec</color>
     <color name="agent_activity_attention">#fcd34d</color>
     <color name="agent_activity_input">#93c5fd</color>
     <color name="agent_activity_waiting">#9da3b0</color>

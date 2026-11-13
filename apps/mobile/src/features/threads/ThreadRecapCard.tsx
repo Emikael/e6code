@@ -6,9 +6,8 @@
  * recorded once visits are loaded, and again when you leave the thread or the
  * app goes to the background.
  */
-import { useAtomValue } from "@effect/atom-react";
 import type { ThreadRecap } from "@e6tools/client-runtime/work-log/thread-recap";
-import { parkedNoteId, type EnvironmentId, type ThreadId } from "@e6tools/contracts";
+import type { EnvironmentId, ThreadId } from "@e6tools/contracts";
 import * as Option from "effect/Option";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, AppState, Pressable, View } from "react-native";
@@ -23,8 +22,8 @@ import {
   threadVisitsLoaded,
   type ThreadVisit,
 } from "../../persistence/thread-visits";
-import { parkedListsAtom } from "../../state/parked";
 import { useSelectedThreadDetailState } from "../../state/use-thread-detail";
+import { useThreadNote } from "../parked/useThreadNote";
 import { THREAD_LIST_V2_MONO_FONT as MONO_FONT } from "./thread-list-v2-row-appearance";
 import {
   decideThreadRecap,
@@ -59,17 +58,6 @@ export function requestThreadRecap(threadKey: string): void {
   for (const listener of recapRequestListeners) listener();
 }
 
-/** The note to self parked for this thread, if any environment holds one. */
-function useThreadNote(threadId: ThreadId): string | null {
-  const lists = useAtomValue(parkedListsAtom);
-  const noteId = parkedNoteId(threadId);
-  for (const list of lists.values()) {
-    const note = list.entries.find((entry) => entry.id === noteId);
-    if (note) return note.text;
-  }
-  return null;
-}
-
 export function ThreadRecapHost(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -80,6 +68,8 @@ export function ThreadRecapHost(props: {
   readonly onOpenChanges: () => void;
   /** Scrolls the feed to the message "You asked" quotes. */
   readonly onRevealAsk: (messageId: string) => void;
+  /** Opens the note-to-self editor. */
+  readonly onEditNote: () => void;
 }) {
   const { environmentId, threadId } = props;
   const visitsLoaded = useSyncExternalStore(subscribeThreadVisitsLoaded, threadVisitsLoaded);
@@ -88,7 +78,7 @@ export function ThreadRecapHost(props: {
   const detailState = useSelectedThreadDetailState();
   const detail = Option.getOrNull(detailState.data);
   const ready = detailState.status === "live" && detail !== null && detail.id === threadId;
-  const note = useThreadNote(threadId);
+  const note = useThreadNote(environmentId, threadId);
 
   const readPrevious = () => (visitsLoaded ? readThreadVisit(environmentId, threadId) : undefined);
   const [state, setState] = useState<RecapHostState>(() => ({
@@ -190,6 +180,9 @@ export function ThreadRecapHost(props: {
     >
       <ThreadRecapCard
         recap={current.recap}
+        // The note as it is now: edited since the recap was decided, it shows the edit.
+        note={note}
+        onEditNote={props.onEditNote}
         onDismiss={() => setState({ ...current, dismissed: true })}
         onOpenChanges={props.onOpenChanges}
         onRevealAsk={props.onRevealAsk}
@@ -210,6 +203,8 @@ function RecapRow(props: { readonly label: string; readonly children: React.Reac
 /** Board 9: what you asked, what changed since you left, your note, and the way to the changes. */
 export function ThreadRecapCard(props: {
   readonly recap: ThreadRecap;
+  readonly note: string | null;
+  readonly onEditNote: () => void;
   readonly onDismiss: () => void;
   readonly onOpenChanges: () => void;
   readonly onRevealAsk: (messageId: string) => void;
@@ -277,12 +272,25 @@ export function ThreadRecapCard(props: {
           ) : null}
         </RecapRow>
       ) : null}
-      {recap.note ? (
-        <RecapRow label="Your note">
-          <Text className="text-[15px] leading-[22px] text-foreground" numberOfLines={3}>
-            {recap.note}
-          </Text>
-        </RecapRow>
+      {props.note ? (
+        <View className="flex-row items-start gap-2">
+          <View className="min-w-0 flex-1">
+            <RecapRow label="Your note">
+              <Text className="text-[15px] leading-[22px] text-foreground" numberOfLines={3}>
+                {props.note}
+              </Text>
+            </RecapRow>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit note"
+            onPress={props.onEditNote}
+            className="-my-1 -mr-2 min-h-11 min-w-11 items-center justify-center px-2"
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          >
+            <Text className="text-sm font-e6-medium text-foreground">Edit</Text>
+          </Pressable>
+        </View>
       ) : null}
       {/* Board 9 always draws this button. With no files changed it stays,
           disabled, in the header slot's words for none (F5). */}

@@ -1089,7 +1089,7 @@ function isWaitingTone(tone: AgentSpawnCardTone): boolean {
   return tone === "approval" || tone === "question";
 }
 
-// Working takes Iris (primary), as on web; each dot sits beside its word.
+// Working takes the accent (primary), as on web; each dot sits beside its word.
 const AGENT_SPAWN_TONE_DOT_CLASS = {
   approval: "bg-warning-foreground",
   question: "bg-warning-foreground",

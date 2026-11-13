@@ -22,6 +22,8 @@ export function MaterialThreadListToolbar(props: {
   readonly filterCustomized: boolean;
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
+  readonly onParkThought: () => void;
+  readonly onOpenParked: () => void;
   readonly onOpenEnvironments: () => void;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
@@ -105,6 +107,16 @@ export function MaterialThreadListToolbar(props: {
                   />
                 ) : null}
               </View>
+              <AndroidHeaderIconButton
+                accessibilityLabel="Park a thought"
+                icon="lightbulb"
+                onPress={props.onParkThought}
+              />
+              <AndroidHeaderIconButton
+                accessibilityLabel="Parked"
+                icon="tray"
+                onPress={props.onOpenParked}
+              />
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
                 icon="magnifyingglass"
