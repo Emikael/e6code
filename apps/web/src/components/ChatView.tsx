@@ -439,7 +439,6 @@ import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { DraftHeroFooter } from "./chat/DraftHeroFooter";
-import { selectUnpushedCommits } from "./chat/DraftHeroFooter.logic";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { FirstThingTodayCard } from "./chat/FirstThingTodayCard";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
@@ -2297,17 +2296,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectScripts = useMemo(
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
-  );
-  const draftHeroSetupProject = useMemo(
-    () =>
-      activeProject
-        ? {
-            environmentId: activeProject.environmentId,
-            id: activeProject.id,
-            scripts: activeProjectScripts,
-          }
-        : null,
-    [activeProject, activeProjectScripts],
   );
   // A project added by cloning exists before its files do. The draft stays
   // editable throughout; only sending waits for the clone, and a failed
@@ -11407,9 +11395,6 @@ export default function ChatView(props: ChatViewProps) {
                     <div className="hidden pt-1 sm:block">
                       <DraftHeroFooter
                         keybindings={keybindings}
-                        unpushed={selectUnpushedCommits(gitStatusQuery.data)}
-                        setupProject={draftHeroSetupProject}
-                        onOpenSourceControl={showRunDetails}
                         composerHasText={composerHasUnsentContent}
                       />
                     </div>
