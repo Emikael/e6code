@@ -10,7 +10,7 @@ import { useEnvironments, usePrimaryEnvironment } from "../../state/environments
 import { connectionPhaseDotClassName } from "../ConnectionStatusDot";
 import { connectionPhaseWord } from "../EnvironmentConnectionChip";
 import { resolveSidebarEnvironmentReach } from "../Sidebar.logic";
-import { BrandStripe, E6Monogram } from "../E6Monogram";
+import { E6Monogram } from "../E6Monogram";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
@@ -35,8 +35,7 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
 /**
  * The sidebar's title strip: the E6 tile, the name on one line, and a channel
- * chip for Dev (cyan) and Nightly (orange) builds. The cyan/orange brand
- * stripe runs along the bottom edge on every channel.
+ * chip for Dev and Nightly builds.
  */
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -63,17 +62,11 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
       {channel && channelLabel ? (
         <span
           data-environment-identification={channel}
-          className={cn(
-            "relative z-10 ml-2 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide @[13rem]/sidebar-header:inline-flex",
-            channel === "nightly"
-              ? "bg-(--brand-orange)/14 text-(--brand-orange-ink)"
-              : "bg-(--brand-cyan)/14 text-(--brand-cyan-ink)",
-          )}
+          className="relative z-10 ml-2 hidden h-[18px] shrink-0 items-center rounded-full px-1.5 text-[10px] leading-none font-semibold tracking-wide text-sidebar-muted-foreground ring-1 ring-sidebar-border ring-inset @[13rem]/sidebar-header:inline-flex"
         >
           {channelLabel}
         </span>
       ) : null}
-      <BrandStripe className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 opacity-90" />
     </SidebarHeader>
   );
 });

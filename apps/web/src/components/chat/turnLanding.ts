@@ -76,9 +76,9 @@ export function turnLandingMotion(reducedMotion: boolean): TurnLandingMotion {
 }
 
 /**
- * The landing moment: the brand stripe draws along the fold row's rule, cyan
- * then orange, holds, and fades back into the plain border while the summary
- * label settles into focus. Returns a cleanup that cancels mid-flight.
+ * The landing moment: a stripe draws along the fold row's rule in two steps,
+ * holds, and fades back into the plain border while the summary label settles
+ * into focus. Returns a cleanup that cancels mid-flight.
  */
 export function playTurnLanding(
   stripe: HTMLElement,
