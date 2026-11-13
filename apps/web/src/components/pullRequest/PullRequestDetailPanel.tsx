@@ -1851,7 +1851,8 @@ export function PullRequestDetailPanel({
   const mergeRefusalReason =
     mergeRefusal?.pullRequestKey === pullRequestKey ? mergeRefusal.reason : null;
   // Why the footer's merge cannot go, or why the host refused it, in the host's own words where it
-  // gave them. Nothing is predicted from the readiness rows: the host decides.
+  // gave them. Nothing is predicted from the readiness rows: the host decides, and its branch
+  // rules are its decision made before anyone asks.
   const footerReason =
     detail?.state !== "open"
       ? null
@@ -2586,6 +2587,26 @@ export function PullRequestDetailPanel({
                 </Button>
               </div>
             ) : null}
+            {/* At the end of the tab row rather than floating over the content it would cover. */}
+            {detail.capabilities.comment && detail.viewerPermissions.comment ? (
+              <span className={cn("shrink-0", tab !== "timeline" && "ml-auto")}>
+                <PullRequestCommentComposer
+                  key={JSON.stringify([
+                    environmentId,
+                    reference.projectId,
+                    reference.host,
+                    reference.repository,
+                    reference.number,
+                  ])}
+                  environmentId={environmentId}
+                  reference={reference}
+                  detail={detail}
+                  actionPending={actionPending}
+                  onCommentAction={performCommentAction}
+                  onCommented={refreshDetail}
+                />
+              </span>
+            ) : null}
           </nav>
         ) : null}
       </div>
@@ -2761,27 +2782,6 @@ export function PullRequestDetailPanel({
               </div>
             ) : null}
           </PullRequestMarkdownContext>
-        ) : null}
-
-        {/* Floats over the content, above the merge footer. */}
-        {detail?.capabilities.comment && detail.viewerPermissions.comment ? (
-          <div className="absolute right-4 bottom-3 z-20">
-            <PullRequestCommentComposer
-              key={JSON.stringify([
-                environmentId,
-                reference.projectId,
-                reference.host,
-                reference.repository,
-                reference.number,
-              ])}
-              environmentId={environmentId}
-              reference={reference}
-              detail={detail}
-              actionPending={actionPending}
-              onCommentAction={performCommentAction}
-              onCommented={refreshDetail}
-            />
-          </div>
         ) : null}
       </div>
 
