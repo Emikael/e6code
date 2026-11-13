@@ -106,6 +106,8 @@ export function liveWorkEntryLabel(
   entry: WorkLogEntry,
   workspaceRoot: string | undefined,
   active: boolean,
+  /** "base" names a file by its name alone, as the now bar does ("Editing themePalettes.ts"). */
+  fileName: "relative" | "base" = "relative",
 ) {
   const status = liveActivityToolStatus(entry.toolLifecycleStatus, active);
   const toolPresentation = resolveWorkEntryToolPresentation({
@@ -131,7 +133,11 @@ export function liveWorkEntryLabel(
   const filePath = status === "inProgress" ? fileToolPath(entry) : null;
   if (filePath) {
     const verb = entry.itemType === "file_change" ? "Editing" : "Reading";
-    return `${verb} ${formatWorkspaceRelativePath(filePath, workspaceRoot)}`;
+    const shown =
+      fileName === "base"
+        ? (filePath.split(/[\\/]/).at(-1) ?? filePath)
+        : formatWorkspaceRelativePath(filePath, workspaceRoot);
+    return `${verb} ${shown}`;
   }
   return workEntryDisplayLabel(entry, workspaceRoot);
 }
@@ -540,7 +546,6 @@ export type MessagesTimelineRow =
       showAssistantMeta: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
-      assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
       /** Turn usage for a settled turn with no "Worked for ..." row to carry it. */
       assistantUsageLabel?: string | undefined;
@@ -1659,10 +1664,6 @@ export function deriveMessagesTimelineRows(input: {
       showAssistantMeta,
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
-      assistantTurnDiffSummary:
-        timelineEntry.message.role === "assistant"
-          ? turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id)
-          : undefined,
       revertTurnCount:
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
@@ -1990,7 +1991,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantMeta === bm.showAssistantMeta &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
-        a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
         a.revertTurnCount === bm.revertTurnCount &&
         a.assistantUsageLabel === bm.assistantUsageLabel
       );
@@ -2109,45 +2109,15 @@ export function findSubagentSpawnRow(
   return null;
 }
 
-/** Where a reveal request scrolls: a message, or a logged step (the recap's "Since then"). */
-export type TimelineRevealTarget =
-  | { readonly kind: "message"; readonly messageId: string }
-  | { readonly kind: "step"; readonly entryId: string; readonly turnId: string | null };
+/** Where a reveal request scrolls: a message (the recap's "You asked"). */
+export type TimelineRevealTarget = { readonly kind: "message"; readonly messageId: string };
 
-/**
- * The row to scroll to for a reveal target, or -1 when it is not loaded. A
- * step folded out of view lands on the row that holds its turn instead.
- */
+/** The row to scroll to for a reveal target, or -1 when it is not loaded. */
 export function findRevealRowIndex(
   rows: ReadonlyArray<MessagesTimelineRow>,
   target: TimelineRevealTarget,
 ): number {
-  if (target.kind === "message") {
-    return rows.findIndex((row) => row.kind === "message" && row.message.id === target.messageId);
-  }
-  const holdsEntry = rows.findIndex((row) => {
-    switch (row.kind) {
-      case "work":
-        return row.groupedEntries.some((entry) => entry.id === target.entryId);
-      case "work-live":
-        return (
-          row.entry.id === target.entryId ||
-          row.groupedEntries.some((entry) => entry.id === target.entryId)
-        );
-      case "activity-group":
-        return row.entries.some(
-          (entry) => entry.kind === "work" && entry.entry.id === target.entryId,
-        );
-      default:
-        return false;
-    }
-  });
-  if (holdsEntry >= 0 || target.turnId === null) return holdsEntry;
-  return rows.findIndex(
-    (row) =>
-      (row.kind === "turn-fold" || row.kind === "activity-group" || row.kind === "work-toggle") &&
-      row.turnId === target.turnId,
-  );
+  return rows.findIndex((row) => row.kind === "message" && row.message.id === target.messageId);
 }
 
 /** What the working row says while a turn runs. */

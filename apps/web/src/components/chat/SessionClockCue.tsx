@@ -63,7 +63,8 @@ function SessionClockLine({
     return (
       <div
         className={cn(
-          "flex h-8 shrink-0 items-center gap-2.5 rounded-lg border border-border bg-surface-raised ps-3 pe-1",
+          // Components board: padding 8/12, 28px buttons.
+          "flex shrink-0 items-center gap-2.5 rounded-lg border border-border bg-surface-raised px-3 py-2",
           className,
         )}
       >
@@ -74,13 +75,13 @@ function SessionClockLine({
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 sm:h-6 sm:text-xs"
+          className="sm:text-xs"
           onClick={() => quietSessionReminder(BREAK_SNOOZE_MINUTES)}
         >
           Remind me in {BREAK_SNOOZE_MINUTES}m
         </Button>
         <Button
-          size="icon-xs"
+          size="icon-sm"
           variant="ghost"
           aria-label="Dismiss break reminder"
           onClick={() =>

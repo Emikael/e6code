@@ -293,22 +293,80 @@ function ThreadHeaderBranch(props: { branch: string }) {
 /**
  * The header's fixed "Changes so far" slot (F5): something bounded to look at
  * while the agent works. It stays in place, disabled as "No changes yet", so
- * the header never shifts when the first file changes.
+ * the header never shifts when the first file changes. A narrow header keeps
+ * the slot as the file glyph and the count.
  */
 function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => void }) {
+  const label =
+    count === 0 ? "No changes yet" : `Changes so far · ${count} ${count === 1 ? "file" : "files"}`;
   return (
     <Button
       size="sm"
       variant="outline"
       disabled={count === 0}
       onClick={onOpen}
-      className="me-1 hidden sm:text-xs @lg/header-actions:inline-flex"
+      aria-label={label}
+      className="me-1 shrink-0 sm:text-xs"
     >
       <FileIcon aria-hidden className="size-3.5" />
-      {count === 0
-        ? "No changes yet"
-        : `Changes so far · ${count} ${count === 1 ? "file" : "files"}`}
+      <span aria-hidden className="hidden @lg/header-actions:inline">
+        {label}
+      </span>
+      {count > 0 ? (
+        <span aria-hidden className="tabular-nums @lg/header-actions:hidden">
+          {count}
+        </span>
+      ) : null}
     </Button>
+  );
+}
+
+/**
+ * Focus (boards 1 and 2). On the start screen it shows with its key caps but
+ * stays disabled: focus mode needs an open thread. A narrow header keeps the
+ * glyph alone.
+ */
+function FocusButton({
+  available,
+  shortcut,
+  onToggle,
+}: {
+  available: boolean;
+  shortcut: string | null;
+  onToggle: () => void;
+}) {
+  const button = (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!available}
+      aria-label="Focus"
+      className="me-1 shrink-0 sm:text-xs"
+      onClick={onToggle}
+    >
+      <FocusIcon aria-hidden className="size-3.5" />
+      <span aria-hidden className="hidden @lg/header-actions:inline">
+        Focus
+      </span>
+      {available ? null : (
+        <ShortcutKeyCaps label={shortcut} className="hidden @lg/header-actions:inline-flex" />
+      )}
+    </Button>
+  );
+  return (
+    <Tooltip>
+      {available ? (
+        <TooltipTrigger render={button} />
+      ) : (
+        // A disabled button gets no pointer events, so the tooltip hangs on its wrapper.
+        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>{button}</TooltipTrigger>
+      )}
+      <TooltipPopup side="bottom">
+        {available
+          ? `One thread, nothing around it${shortcut ? ` (${shortcut})` : ""}`
+          : "Focus mode needs an open thread. Send a message first."}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -446,8 +504,10 @@ export const ChatHeader = memo(function ChatHeader({
   });
   const showProjectScripts = activeProjectScripts;
   const showGitActions = Boolean(activeProjectName && gitCwd);
-  // Git keeps its own reserved slot in the header (F8); phones fold it into More.
-  const gitInMenu = showGitActions && isMobile;
+  // The boards draw no Git control in the header, so Git sits in More at every width. It stays
+  // mounted there (the menu keeps its popup mounted), so its status refresh and the draft's branch
+  // sync keep running. Commit and Push are also in Run details and the Diff's commit rail.
+  const gitInMenu = showGitActions;
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -876,40 +936,10 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
-        {/* Board 2: Changes so far first, then Git. */}
         {changedFileCount !== null ? (
           <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
         ) : null}
-        {showGitActions && !gitInMenu && gitCwd ? (
-          <div className="me-1 flex shrink-0 items-center">
-            <GitActionsControl
-              gitCwd={gitCwd}
-              activeThreadRef={activeThreadRef}
-              onOpenPullRequest={onOpenPullRequest}
-              {...(draftId ? { draftId } : {})}
-            />
-          </div>
-        ) : null}
-        {isServerThread ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="me-1 hidden sm:text-xs @lg/header-actions:inline-flex"
-                  onClick={onToggleFocus}
-                />
-              }
-            >
-              <FocusIcon aria-hidden className="size-3.5" />
-              Focus
-            </TooltipTrigger>
-            <TooltipPopup side="bottom">
-              One thread, nothing around it{focusShortcut ? ` (${focusShortcut})` : ""}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+        <FocusButton available={isServerThread} shortcut={focusShortcut} onToggle={onToggleFocus} />
         {/* Scripts, Open in and the terminal sit in one quiet menu. It stays mounted while closed, so
             their keybindings, command palette entries and open dialogs keep working. */}
         <Menu open={actionsOpen} onOpenChange={setActionsOpen}>

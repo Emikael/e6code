@@ -11,8 +11,8 @@ own accent. On mobile, choose it under **Settings → Appearance**, separately o
 
 New profiles start with Graphite at contrast 120. Graphite has no hue, so color in the app is left
 to status, such as an agent blocked on you or a failure. A profile that already had an accent or
-contrast keeps it. To switch, choose **Try the new look** on the start screen's one-time **What
-changed** card, or pick **Graphite** under **Accent** and set **Contrast** under **Advanced** to 120.
+contrast keeps it. To switch, pick **Graphite** under **Accent** and set **Contrast** under
+**Advanced** to 120.
 
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.

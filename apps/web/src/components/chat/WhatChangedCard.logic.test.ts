@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  decideAttentionIntro,
-  offersNewLook,
-  shouldShowWhatChanged,
-} from "./WhatChangedCard.logic";
+import { decideAttentionIntro, shouldShowWhatChanged } from "./WhatChangedCard.logic";
 
 describe("shouldShowWhatChanged", () => {
   it("shows only once the profile was decided as existing, until dismissed", () => {
@@ -40,13 +36,5 @@ describe("decideAttentionIntro", () => {
     expect(decideAttentionIntro({ ...base, decided: false, threadCount: 0 })).toBeNull();
     expect(decideAttentionIntro({ ...base, decided: true, threadCount: 4 })).toBeNull();
     expect(decideAttentionIntro({ ...base, storedSettingsExisted: null })).toBeNull();
-  });
-});
-
-describe("offersNewLook", () => {
-  it("offers Graphite at 120 only to a profile without it", () => {
-    expect(offersNewLook({ stockAccent: "iris", appearanceContrast: 100 })).toBe(true);
-    expect(offersNewLook({ stockAccent: "graphite", appearanceContrast: 100 })).toBe(true);
-    expect(offersNewLook({ stockAccent: "graphite", appearanceContrast: 120 })).toBe(false);
   });
 });

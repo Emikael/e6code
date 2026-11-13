@@ -22,7 +22,7 @@ the next one: blocked threads first, then those to review. The number of blocked
 shows in the browser tab's title and on the desktop app's dock icon.
 
 The start screen lists the same threads under the composer, under **Needs you**, **To review**,
-and **Working**. You can answer the first approval there without opening its thread. Enter never
+and **Working**; failed threads stay in the sidebar. You can answer the first approval there without opening its thread. Enter never
 approves on the start screen, and a command that is hard to undo still needs
 [Hold to allow](./permission-modes.md).
 
@@ -143,5 +143,4 @@ with **See them** to move to the sidebar. It never stops you from sending.
 ## What changed
 
 If you used E6 Code before these features, the start screen shows a one-time **What changed** card.
-**Review settings** opens **Settings → Attention**, and **Try the new look** switches the stock
-theme to the Graphite accent; see [Appearance](./appearance.md).
+**Review settings** opens **Settings → Attention**, where notifications can be turned off.

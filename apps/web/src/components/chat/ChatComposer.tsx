@@ -5129,7 +5129,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         triggerClassName={
           composerControlsInStrip
             ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-            : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
+            : composerControlsCompact
+              ? "h-7 min-h-7 min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-7"
+              : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
         }
         terminalOpen={terminalOpen}
         open={isComposerModelPickerOpen}
@@ -7004,14 +7006,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             type="button"
                             variant={composerControlsCompact ? "ghost" : "outline"}
                             size="icon-sm"
-                            className="size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            // Board 1: a 28px ghost icon button with a 16px plus, like the
+                            // compact footer's chips.
+                            className={
+                              composerControlsCompact
+                                ? "size-7 rounded-lg shadow-none sm:size-7"
+                                : "size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            }
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={() => attachmentInputRef.current?.click()}
                             aria-label="Attach files"
                           />
                         }
                       >
-                        <PlusIcon className="size-3.5" />
+                        <PlusIcon className={composerControlsCompact ? "size-4" : "size-3.5"} />
                       </TooltipTrigger>
                       <TooltipPopup>Attach files</TooltipPopup>
                     </Tooltip>
@@ -7040,8 +7048,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {/* Hidden while an approval holds the composer, where it does nothing. The
-                      button only parks; Mod+S on an empty draft still opens what was parked. */}
+                  {/* Hidden while an approval holds the composer, where it does nothing. With an
+                      empty draft it does what Mod+S does there: brings back what was parked. It is
+                      disabled only when there is nothing to park and nothing to bring back. */}
                   {pendingUserInputs.length === 0 &&
                   !projectSelectionRequired &&
                   !isComposerApprovalState ? (
@@ -7052,8 +7061,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="hidden px-2 text-xs leading-[18px] sm:inline-flex sm:text-xs"
-                            disabled={!composerSendState.hasSendableContent}
+                            className="px-2 text-xs leading-[18px] sm:text-xs"
+                            disabled={
+                              !composerSendState.hasSendableContent && stashQueue.length === 0
+                            }
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={parkDraft}
                             {...(footerSurrender.parkLabel ? {} : { "aria-label": "Park it" })}
@@ -7072,7 +7083,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         ) : null}
                       </TooltipTrigger>
                       <TooltipPopup>
-                        Keep this draft for later
+                        {composerSendState.hasSendableContent || stashQueue.length === 0
+                          ? "Keep this draft for later"
+                          : "Bring back a parked draft"}
                         {parkShortcutLabel ? ` (${parkShortcutLabel})` : ""}
                       </TooltipPopup>
                     </Tooltip>

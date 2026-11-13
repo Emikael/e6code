@@ -1,5 +1,7 @@
 import { formatRunningThreadStatus } from "@e6tools/client-runtime/state/agent-state";
 import { approvalPhrase, approvalWordingKind } from "@e6tools/client-runtime/pending-requests";
+import { toolGroupAction } from "@e6tools/client-runtime/work-log/presentation";
+import { editedFilePaths } from "@e6tools/client-runtime/work-log/thread-recap";
 import type {
   OrchestrationCheckpointSummary,
   ProviderRequestKind,
@@ -26,8 +28,11 @@ export type NowBarState =
       readonly kind: "working";
       /** "Working", or the agent state that explains a stall ("Retrying", "Compacting"). */
       readonly status: string;
-      /** A live agent gets the halo; retrying and usage-limit waits are neutral. */
-      readonly live: boolean;
+      /**
+       * The status mark: a live agent gets the halo; the waits it cannot act on
+       * are neutral, a hollow ring while retrying and a pause for a usage limit.
+       */
+      readonly mark: "live" | "retrying" | "usage-limit";
       /** The plan step meter, only while the agent reports a plan. */
       readonly progress: { readonly completedSteps: number; readonly totalSteps: number } | null;
       /** "Step 3 of 5 · Updating the token map", the current action, or the stall detail. */
@@ -73,6 +78,8 @@ export interface NowBarInput {
   readonly provider: string;
   /** The failure sentence ("Codex stopped: …") when the thread failed, else null. */
   readonly failure: string | null;
+  /** "14:20" for "resets 14:20"; without it a usage-limit wait names no time. */
+  readonly formatResetTime?: (resetsAt: string) => string;
   readonly latestTurn: {
     readonly state: "running" | "interrupted" | "completed" | "error";
     readonly startedAt: string | null;
@@ -132,12 +139,17 @@ export function deriveNowBarState(input: NowBarInput): NowBarState {
       const status = formatRunningThreadStatus({
         agentState,
         planProgress: null,
-        formatResetTime: () => "",
+        formatResetTime: input.formatResetTime ?? (() => ""),
       });
       return {
         kind: "working",
         status: status.label,
-        live: agentState.kind === "compacting",
+        mark:
+          agentState.kind === "rate-limited"
+            ? "usage-limit"
+            : agentState.kind === "retrying"
+              ? "retrying"
+              : "live",
         progress: null,
         text: status.detail ?? input.currentAction,
         startedAt: input.workStartedAt,
@@ -148,7 +160,7 @@ export function deriveNowBarState(input: NowBarInput): NowBarState {
       return {
         kind: "working",
         status: "Working",
-        live: true,
+        mark: "live",
         progress: {
           completedSteps: planProgress.completedSteps,
           totalSteps: planProgress.totalSteps,
@@ -162,7 +174,7 @@ export function deriveNowBarState(input: NowBarInput): NowBarState {
     return {
       kind: "working",
       status: "Working",
-      live: true,
+      mark: "live",
       progress: null,
       text: input.currentAction,
       startedAt: input.workStartedAt,
@@ -259,12 +271,14 @@ export function doneSummary(workedFor: string | null, finishedClock: string): st
 
 /**
  * The running turn's latest tool action in the timeline's own words
- * ("Running vp", "apps/web/src/index.css"), or null while it only thinks.
+ * ("Running vp", "Editing apps/web/src/index.css"), or null while it only
+ * thinks. The now bar names a file by its name alone ("Editing index.css").
  */
 export function selectCurrentAction(
   entries: ReadonlyArray<WorkLogEntry>,
   runningTurnId: TurnId | null | undefined,
   workspaceRoot: string | undefined,
+  fileName: "relative" | "base" = "relative",
 ): string | null {
   if (!runningTurnId) return null;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -274,6 +288,7 @@ export function selectCurrentAction(
       entry,
       workspaceRoot,
       entry.toolLifecycleStatus === "inProgress",
+      fileName,
     ).trim();
     return label === "" ? null : label;
   }
@@ -282,12 +297,14 @@ export function selectCurrentAction(
 
 /**
  * Distinct files the agent has changed in this thread, for "Changes so far ·
- * N files": every finished turn's checkpoint, plus the edits the running turn
- * has logged before its checkpoint lands.
+ * N files": every finished turn's checkpoint, plus the files the running
+ * turn's edits logged before its checkpoint lands. Counted as the timeline's
+ * "changed N files" counts them, so the two agree: only edits count, and an
+ * edit that names no file counts as one.
  */
 export function countChangedFiles(
   checkpoints: ReadonlyArray<Pick<OrchestrationCheckpointSummary, "files">>,
-  runningEntries: ReadonlyArray<Pick<WorkLogEntry, "changedFiles">>,
+  runningEntries: ReadonlyArray<WorkLogEntry>,
   workspaceRoot: string | undefined,
 ): number {
   const paths = new Set<string>();
@@ -295,12 +312,14 @@ export function countChangedFiles(
     for (const file of checkpoint.files)
       paths.add(formatWorkspaceRelativePath(file.path, workspaceRoot));
   }
+  let unnamedEdits = 0;
   for (const entry of runningEntries) {
-    for (const path of entry.changedFiles ?? []) {
-      paths.add(formatWorkspaceRelativePath(path, workspaceRoot));
-    }
+    if (entry.tone === "thinking" || toolGroupAction(entry) !== "edit") continue;
+    const named = editedFilePaths(entry);
+    if (named.length === 0) unnamedEdits += 1;
+    for (const path of named) paths.add(formatWorkspaceRelativePath(path, workspaceRoot));
   }
-  return paths.size;
+  return paths.size + unnamedEdits;
 }
 
 const MAX_EARLIER_TURNS = 5;

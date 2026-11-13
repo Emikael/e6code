@@ -10,7 +10,10 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
-import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
+import {
+  NotificationPermissionCard,
+  useNotificationPermissionOffer,
+} from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { useApprovalResponder, useApprovalSwapGuard } from "./chat/useApprovalResponder";
 import { approvalAnsweredLabel } from "./chat/approvalActions";
@@ -263,7 +266,7 @@ import { deriveNextCard } from "./chat/ThreadNextCard.logic";
 import {
   rightPanelHoldsFill,
   screenFillHolder,
-  selectComposerSlotCard,
+  reviewDiffPlacement,
 } from "./chat/composerNeighbors.logic";
 import type { TimelineRevealTarget } from "./chat/MessagesTimeline.logic";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
@@ -439,7 +442,6 @@ import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { DraftHeroFooter } from "./chat/DraftHeroFooter";
-import { selectUnpushedCommits } from "./chat/DraftHeroFooter.logic";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { FirstThingTodayCard } from "./chat/FirstThingTodayCard";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
@@ -623,12 +625,24 @@ const EMPTY_HANDOFF_MODEL_OPTIONS: ReturnType<typeof getCustomModelOptionsByInst
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
-/** The timeline frontier: a thread error above whatever prompt is waiting. */
-function FrontierStack({ error, children }: { error: ReactNode; children: ReactNode }) {
+/**
+ * The timeline frontier: a thread error above whatever prompt is waiting, and
+ * the Next card that ends a turn finished with changes (boards 2 and 3).
+ */
+function FrontierStack({
+  error,
+  next,
+  children,
+}: {
+  error: ReactNode;
+  next: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-2">
       {error}
       {children}
+      {next}
     </div>
   );
 }
@@ -2286,17 +2300,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectScripts = useMemo(
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
-  );
-  const draftHeroSetupProject = useMemo(
-    () =>
-      activeProject
-        ? {
-            environmentId: activeProject.environmentId,
-            id: activeProject.id,
-            scripts: activeProjectScripts,
-          }
-        : null,
-    [activeProject, activeProjectScripts],
   );
   // A project added by cloning exists before its files do. The draft stays
   // editable throughout; only sending waits for the clone, and a failed
@@ -7090,7 +7093,7 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     providerStatuses,
   ]);
-  const notificationPermissionBannerItem = useNotificationPermissionBannerItem({
+  const notificationPermissionOffer = useNotificationPermissionOffer({
     working: phase === "running",
     providerLabel: activeThread?.session?.providerName
       ? ((PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[
@@ -7098,15 +7101,15 @@ export default function ChatView(props: ChatViewProps) {
         ] ?? null)
       : null,
   });
-  // One card above the composer (permission prompt, then recap, then Next card), and one fill:
-  // the Next card gives its fill to Send while you type, and to a Diff or pull request panel
-  // that holds its own.
-  const [recapShowing, setRecapShowing] = useState(false);
-  const composerSlotCard = selectComposerSlotCard({
-    permissionPrompt: notificationPermissionBannerItem !== null,
-    recap: recapShowing,
-    nextCard: nextCard !== null,
-  });
+  // One fill: the Next card at the end of the timeline gives its fill to Send while you type,
+  // and to a Diff or pull request panel that holds its own.
+  // Review diff in one place: the Next card once the timeline renders its end, else the now bar.
+  const nextCardInTimeline =
+    reviewDiffPlacement({
+      nextCard: nextCard !== null,
+      timelineReady:
+        !paintOnlyDisplayedTimeline && !threadDetailLoading && timelineEntries.length > 0,
+    }) === "next-card";
   const nextCardHoldsFill =
     screenFillHolder({
       composerHasText: composerHasUnsentContent,
@@ -7116,8 +7119,6 @@ export default function ChatView(props: ChatViewProps) {
       }),
     }) === "card";
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const notificationPermissionItems =
-      notificationPermissionBannerItem === null ? [] : [notificationPermissionBannerItem];
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -7136,7 +7137,6 @@ export default function ChatView(props: ChatViewProps) {
         ...resumeCompactionItems,
         ...wokeThreadItems,
         ...parkedThreadItems,
-        ...notificationPermissionItems,
       ];
     }
     return [
@@ -7186,11 +7186,9 @@ export default function ChatView(props: ChatViewProps) {
         },
       },
       ...parkedThreadItems,
-      ...notificationPermissionItems,
     ];
   }, [
     activeBranchMismatchKey,
-    notificationPermissionBannerItem,
     feedbackBannerItems,
     handoffBanner,
     handleRestoreThreadBranch,
@@ -10748,7 +10746,7 @@ export default function ChatView(props: ChatViewProps) {
                   retryUnavailableReason={retryUnavailableReason}
                   earlierTurns={earlierTurnsCue}
                   onReviewDiff={
-                    nextCard
+                    nextCardInTimeline
                       ? null
                       : () => {
                           if (activeLatestTurn) onOpenTurnDiff(activeLatestTurn.turnId);
@@ -10891,11 +10889,24 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 frontierResolution={
                   showThreadErrorInline ||
+                  nextCardInTimeline ||
                   (!paintOnlyDisplayedTimeline &&
                     (activePendingApproval ||
                       pendingUserInputs.length > 0 ||
                       (showPlanFollowUpPrompt && activeProposedPlan))) ? (
                     <FrontierStack
+                      next={
+                        nextCardInTimeline && nextCard ? (
+                          <ThreadNextCard
+                            state={nextCard}
+                            reviewShortcut={shortcutLabelForCommand(keybindings, "diff.toggle")}
+                            primary={nextCardHoldsFill}
+                            onReviewDiff={() => onOpenTurnDiff(nextCard.turnId)}
+                            onSettle={supportsSettlement ? settleFromNextCard : null}
+                            onAskForChanges={focusComposer}
+                          />
+                        ) : null
+                      }
                       error={
                         showThreadErrorInline ? (
                           <ThreadErrorBanner
@@ -10903,6 +10914,7 @@ export default function ChatView(props: ChatViewProps) {
                             error={visibleThreadError}
                             failure={nowBar.state.kind === "failed" ? nowBar.state.text : null}
                             checkpointed={(activeThread?.checkpoints.length ?? 0) > 0}
+                            providerMessage={conversationProviderStatus?.message ?? null}
                             onRetry={onRetryFailedTurn}
                             onOpenTerminal={() => setTerminalOpen(true)}
                             onContinue={() => focusComposer()}
@@ -11158,33 +11170,20 @@ export default function ChatView(props: ChatViewProps) {
                       </div>
                     </div>
                   ) : null}
-                  {nextCard && composerSlotCard === "next" ? (
-                    <ThreadNextCard
-                      state={nextCard}
-                      reviewShortcut={shortcutLabelForCommand(keybindings, "diff.toggle")}
-                      primary={nextCardHoldsFill}
-                      onReviewDiff={() => onOpenTurnDiff(nextCard.turnId)}
-                      onSettle={supportsSettlement ? settleFromNextCard : null}
-                      onAskForChanges={focusComposer}
-                    />
+                  {/* One card above the composer: the permission prompt, else the recap. */}
+                  {!isDraftHeroState && notificationPermissionOffer ? (
+                    <NotificationPermissionCard offer={notificationPermissionOffer} />
                   ) : null}
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
                       threadKey={activeThreadKey}
-                      hidden={composerSlotCard === "permission"}
-                      onShowingChange={setRecapShowing}
+                      hidden={notificationPermissionOffer !== null}
                       attachedNotSent={recapAttachedNotSent}
                       ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
                       source={recapSource}
                       onOpenMessage={(messageId) =>
                         setRevealMessageRequest((previous) => ({
                           target: { kind: "message", messageId },
-                          nonce: (previous?.nonce ?? 0) + 1,
-                        }))
-                      }
-                      onOpenStep={(step) =>
-                        setRevealMessageRequest((previous) => ({
-                          target: { kind: "step", ...step },
                           nonce: (previous?.nonce ?? 0) + 1,
                         }))
                       }
@@ -11405,9 +11404,6 @@ export default function ChatView(props: ChatViewProps) {
                     <div className="hidden pt-1 sm:block">
                       <DraftHeroFooter
                         keybindings={keybindings}
-                        unpushed={selectUnpushedCommits(gitStatusQuery.data)}
-                        setupProject={draftHeroSetupProject}
-                        onOpenSourceControl={showRunDetails}
                         composerHasText={composerHasUnsentContent}
                       />
                     </div>

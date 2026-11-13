@@ -26,6 +26,7 @@ import { ArrowRightIcon, EllipsisIcon, TriangleAlertIcon } from "lucide-react";
 import * as Option from "effect/Option";
 import { memo, useCallback, useId, useMemo, useState, type ReactNode } from "react";
 
+import { useProjectGroupDisplayName } from "~/hooks/useProjectGroupDisplayName";
 import { useProject } from "~/state/entities";
 import { useEnvironment } from "~/state/environments";
 import { useEnvironmentThread } from "~/state/threads";
@@ -82,6 +83,8 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
     [approvals],
   );
   const project = useProject(scopeProjectRef(thread.environmentId, thread.projectId));
+  // The project as the headline above and the sidebar name it, so one screen has one name.
+  const projectName = useProjectGroupDisplayName(project ?? null) ?? project?.title ?? null;
   const providers = useEnvironment(thread.environmentId)?.serverConfig?.providers;
   const feedbackAgent = approvalFeedbackAgentName(
     providers?.find((provider) => provider.instanceId === thread.session?.providerInstanceId),
@@ -147,9 +150,9 @@ export const StartScreenApprovalCard = memo(function StartScreenApprovalCard({
         <h4 className="min-w-0 flex-1 truncate text-sm leading-5 font-semibold text-foreground">
           {thread.title}
         </h4>
-        {project ? (
+        {projectName ? (
           <span className="inline-flex h-5 max-w-40 shrink-0 items-center truncate rounded-sm border border-input px-1.5 text-[11px] leading-[14px] font-medium tracking-[0.01em] text-muted-foreground">
-            {project.title}
+            {projectName}
           </span>
         ) : null}
         {renderCue(approval?.createdAt ?? since)}
@@ -316,7 +319,7 @@ function DeclineWithMessage({
         // Opened from the menu on purpose, so the field takes focus.
         autoFocus
         onChange={(event) => setText(event.target.value)}
-        className="w-full resize-none rounded-lg border border-input bg-card px-2.5 py-2 text-sm leading-[22px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full resize-none rounded-lg border border-muted-foreground bg-card px-2.5 py-2 text-sm leading-[22px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       {draft.status === "too-long" ? (
         <p className="text-xs leading-4 text-destructive-foreground">

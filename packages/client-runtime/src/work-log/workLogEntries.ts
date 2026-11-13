@@ -30,7 +30,9 @@ import {
 import { extractToolActivityPresentation } from "@e6tools/client-runtime/work-log/tool-presentation";
 import {
   mainAgentDiffStat,
+  mainAgentFileDiffStats,
   type WorkLogDiffStat,
+  type WorkLogFileDiffStat,
 } from "@e6tools/client-runtime/work-log/diff-stat";
 import { mergeWorkStepStartedAt } from "@e6tools/client-runtime/work-log/step-meta";
 import {
@@ -60,6 +62,8 @@ export interface WorkLogEntry {
   startedAt?: string;
   /** Lines a main-agent file change added and removed, when the provider counted its files. */
   diffStat?: WorkLogDiffStat;
+  /** The same counts per file, for listing a running turn's files before its checkpoint. */
+  fileDiffStats?: ReadonlyArray<WorkLogFileDiffStat>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolSurface?: import("@e6tools/contracts").ToolActivitySurface;
@@ -391,6 +395,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (diffStat) {
     entry.diffStat = diffStat;
   }
+  const fileDiffStats = mainAgentFileDiffStats(payload);
+  if (fileDiffStats.length > 0) {
+    entry.fileDiffStats = fileDiffStats;
+  }
   if (title) {
     entry.toolTitle = title;
   }
@@ -635,6 +643,7 @@ function mergeDerivedWorkLogEntries(
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolData = next.toolData ?? previous.toolData;
   const diffStat = next.diffStat ?? previous.diffStat;
+  const fileDiffStats = next.fileDiffStats ?? previous.fileDiffStats;
   const startedAt = mergeWorkStepStartedAt(previous, next);
   return {
     ...previous,
@@ -655,6 +664,7 @@ function mergeDerivedWorkLogEntries(
     ...(toolLifecycleStatus !== undefined ? { toolLifecycleStatus } : {}),
     ...(toolData !== undefined ? { toolData } : {}),
     ...(diffStat ? { diffStat } : {}),
+    ...(fileDiffStats ? { fileDiffStats } : {}),
     ...(startedAt ? { startedAt } : {}),
   };
 }

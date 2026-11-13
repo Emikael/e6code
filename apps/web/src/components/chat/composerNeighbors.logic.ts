@@ -9,10 +9,10 @@
  * card's primary (the Next card's Review diff, the start screen's Approve)
  * does. Every other primary renders as outline.
  *
- * One slot above the composer: the notification permission prompt, the
- * recap and the Next card would stack there, putting the fill farthest from
- * the composer. Only the first that applies shows; when the recap is
- * dismissed the Next card may show.
+ * One slot above the composer: the notification permission prompt and the
+ * recap would stack there, so the recap waits while the prompt shows. The
+ * Next card is not in that slot: it ends the finished turn in the timeline
+ * (boards 2 and 3).
  */
 
 export type ScreenFillHolder = "send" | "panel" | "card";
@@ -42,16 +42,14 @@ export function screenFillHolder(input: {
   return "card";
 }
 
-export type ComposerSlotCard = "permission" | "recap" | "next";
-
-/** The one card above the composer, by precedence: permission prompt, recap, Next card. */
-export function selectComposerSlotCard(input: {
-  readonly permissionPrompt: boolean;
-  readonly recap: boolean;
+/**
+ * Where a finished turn with changes offers Review diff. The Next card at the
+ * end of the timeline offers it once the timeline renders its frontier; until
+ * then (thread detail still loading) the now bar does, so it is never missing.
+ */
+export function reviewDiffPlacement(input: {
   readonly nextCard: boolean;
-}): ComposerSlotCard | null {
-  if (input.permissionPrompt) return "permission";
-  if (input.recap) return "recap";
-  if (input.nextCard) return "next";
-  return null;
+  readonly timelineReady: boolean;
+}): "next-card" | "now-bar" {
+  return input.nextCard && input.timelineReady ? "next-card" : "now-bar";
 }

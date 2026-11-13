@@ -30,7 +30,6 @@ import {
   activityGroupHasTimelineSteps,
   formatWorkingTimer,
   findSubagentSpawnRow,
-  findRevealRowIndex,
   EARLIER_TURNS_ROW_ID,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
@@ -1719,7 +1718,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRows[1]?.assistantCopyStreaming).toBe(true);
   });
 
-  it("projects assistant diff summaries and user revert counts onto the affected rows", () => {
+  it("projects user revert counts onto the affected rows", () => {
     const assistantTurnDiffSummary = {
       turnId: "turn-1" as never,
       completedAt: "2026-01-01T00:00:30Z",
@@ -1777,7 +1776,7 @@ describe("deriveMessagesTimelineRows", () => {
     );
 
     expect(userRow?.revertTurnCount).toBe(1);
-    expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
+    expect(assistantRow?.revertTurnCount).toBeUndefined();
   });
 
   it("folds the first assistant message and settled work before the terminal response", () => {
@@ -4310,45 +4309,6 @@ describe("activityGroupHasTimelineSteps", () => {
         entries: [{ kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } }],
       }),
     ).toBe(false);
-  });
-});
-
-describe("findRevealRowIndex", () => {
-  const step = (id: string, turnId: string) => ({
-    id,
-    createdAt: "2026-11-11T14:02:00.000Z",
-    label: "Read file",
-    tone: "tool" as const,
-    turnId: TurnId.make(turnId),
-  });
-  const rows: MessagesTimelineRow[] = [
-    {
-      kind: "turn-fold",
-      id: "fold",
-      createdAt: "2026-11-11T14:00:00.000Z",
-      turnId: TurnId.make("turn-1"),
-      label: "Worked for 1m",
-      expanded: false,
-    },
-    {
-      kind: "work",
-      id: "work",
-      createdAt: "2026-11-11T14:02:00.000Z",
-      groupedEntries: [step("s2", "turn-2")],
-      isExpandedToolGroup: false,
-    },
-  ];
-
-  it("finds the row that shows the step", () => {
-    expect(findRevealRowIndex(rows, { kind: "step", entryId: "s2", turnId: "turn-2" })).toBe(1);
-  });
-
-  it("falls back to the row that holds the step's folded turn", () => {
-    expect(findRevealRowIndex(rows, { kind: "step", entryId: "s1", turnId: "turn-1" })).toBe(0);
-  });
-
-  it("reports a step that is not loaded", () => {
-    expect(findRevealRowIndex(rows, { kind: "step", entryId: "s0", turnId: null })).toBe(-1);
   });
 });
 

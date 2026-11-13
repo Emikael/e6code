@@ -96,13 +96,18 @@ export function formatRecapSince(since: string, nowMs: number): string {
 
 /** Board 9's file line: "themePalettes.ts +18 −4 · mobileTheme.ts +6 −2", then "+N more". */
 export function formatRecapFiles(
-  files: ReadonlyArray<Pick<ThreadRecapFile, "path" | "additions" | "deletions">>,
+  files: ReadonlyArray<
+    Pick<ThreadRecapFile, "path" | "additions" | "deletions"> &
+      Partial<Pick<ThreadRecapFile, "counted">>
+  >,
   moreFiles: number,
 ): string | null {
   if (files.length === 0) return null;
-  const parts = files.map(
-    (file) => `${file.path.split("/").at(-1) ?? file.path} +${file.additions} −${file.deletions}`,
-  );
+  // A running turn's edit that did not report its line counts shows its name alone.
+  const parts = files.map((file) => {
+    const name = file.path.split("/").at(-1) ?? file.path;
+    return file.counted === false ? name : `${name} +${file.additions} −${file.deletions}`;
+  });
   if (moreFiles > 0) parts.push(`+${moreFiles} more`);
   return parts.join(" · ");
 }

@@ -66,6 +66,12 @@ const buttonVariants = cva(
           "border-warning/32 bg-warning-surface text-warning-foreground shadow-xs/5 [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:border-warning/40 [:hover,[data-pressed]]:bg-warning/16 dark:[:hover,[data-pressed]]:bg-warning/24",
       },
     },
+    // Plan's focus rule: the ring sits 2px off a control, and 3px off a filled button, whose
+    // fill is the ring's own color, with the background showing in the gap.
+    compoundVariants: [
+      { className: "focus-visible:ring-offset-2" },
+      { variant: ["default", "destructive"], className: "focus-visible:ring-offset-3" },
+    ],
   },
 );
 

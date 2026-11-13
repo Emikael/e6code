@@ -64,7 +64,7 @@ describe("deriveNowBarState", () => {
     ).toEqual({
       kind: "working",
       status: "Working",
-      live: true,
+      mark: "live",
       progress: { completedSteps: 2, totalSteps: 5 },
       text: "Step 3 of 5 · Updating the token map",
       startedAt: "2026-11-11T14:02:00.000Z",
@@ -91,9 +91,24 @@ describe("deriveNowBarState", () => {
     expect(state).toMatchObject({
       kind: "working",
       status: "Retrying",
-      live: false,
+      mark: "retrying",
       progress: null,
       text: "attempt 2 of 10",
+    });
+  });
+
+  it("marks a usage-limit wait with the pause and names when it resets", () => {
+    const state = deriveNowBarState(
+      working({
+        agentState: { kind: "rate-limited", resetsAt: "2026-11-11T14:20:00.000Z" },
+        formatResetTime: () => "14:20",
+      }),
+    );
+    expect(state).toMatchObject({
+      kind: "working",
+      status: "Waiting for usage limit",
+      mark: "usage-limit",
+      text: "resets 14:20",
     });
   });
 
@@ -206,6 +221,22 @@ describe("selectCurrentAction", () => {
     expect(selectCurrentAction(entries, turn, undefined)).toBe("Running vp");
   });
 
+  it("names the edited file by its name alone for the now bar", () => {
+    const entries = [
+      entry({
+        id: "e",
+        turnId: turn,
+        itemType: "file_change",
+        toolLifecycleStatus: "inProgress",
+        changedFiles: ["/repo/packages/shared/src/themePalettes.ts"],
+      }),
+    ];
+    expect(selectCurrentAction(entries, turn, "/repo")).toBe(
+      "Editing repo/packages/shared/src/themePalettes.ts",
+    );
+    expect(selectCurrentAction(entries, turn, "/repo", "base")).toBe("Editing themePalettes.ts");
+  });
+
   it("is null without a running turn or before any tool step", () => {
     expect(selectCurrentAction([entry({ turnId: turn })], null, undefined)).toBeNull();
     expect(
@@ -215,15 +246,36 @@ describe("selectCurrentAction", () => {
 });
 
 describe("countChangedFiles", () => {
+  const file = (path: string) => ({ path, kind: "modified", additions: 1, deletions: 0 });
+  const entry = (id: string, overrides: Partial<WorkLogEntry>): WorkLogEntry => ({
+    id,
+    createdAt: "2026-11-11T14:03:00.000Z",
+    label: "Edit",
+    tone: "tool",
+    requestKind: "file-change",
+    ...overrides,
+  });
+
   it("counts each file once across turns and the running turn", () => {
-    const file = (path: string) => ({ path, kind: "modified", additions: 1, deletions: 0 });
     expect(
       countChangedFiles(
         [{ files: [file("a.ts"), file("b.ts")] }, { files: [file("a.ts")] }],
-        [{ changedFiles: ["/repo/b.ts", "/repo/c.ts"] }, {}],
+        [entry("e1", { changedFiles: ["/repo/b.ts", "/repo/c.ts"] })],
         "/repo",
       ),
     ).toBe(3);
+  });
+
+  it("counts the running turn's edits as the timeline summary does", () => {
+    const running = [
+      // A read that names its file is not a change.
+      entry("r1", { label: "Read file", requestKind: "file-read", changedFiles: ["/repo/d.ts"] }),
+      // An edit that names its files only through its line counts.
+      entry("e1", { fileDiffStats: [{ path: "/repo/e.ts", additions: 2, deletions: 0 }] }),
+      // An edit that names no file still changed one.
+      entry("e2", {}),
+    ];
+    expect(countChangedFiles([{ files: [file("a.ts")] }], running, "/repo")).toBe(3);
   });
 });
 

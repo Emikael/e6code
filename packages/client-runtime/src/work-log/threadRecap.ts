@@ -6,8 +6,10 @@
  */
 import type { RecapTrigger } from "@e6tools/contracts/settings";
 
+import { samePath, type WorkLogDiffStat } from "@e6tools/client-runtime/work-log/diff-stat";
 import {
   summarizeToolGroup,
+  toolGroupAction,
   workLogEntryIsToolLike,
 } from "@e6tools/client-runtime/work-log/presentation";
 import type { WorkLogEntry } from "@e6tools/client-runtime/work-log/entries";
@@ -46,6 +48,13 @@ export interface ThreadRecapFile {
   readonly deletions: number;
   /** The latest turn that changed it, for opening its diff. */
   readonly turnId: string;
+  /**
+   * A turn with no checkpoint yet (still running) changed it, so its diff is
+   * the working tree's rather than a turn's.
+   */
+  readonly running: boolean;
+  /** False when an edit did not report its line counts: show the file without them. */
+  readonly counted: boolean;
 }
 
 export interface ThreadRecap {
@@ -55,8 +64,6 @@ export interface ThreadRecap {
   readonly sinceThen: {
     /** "Claude read 3 files and changed 2 files." */
     readonly summary: string | null;
-    /** The first step after the visit, which the summary links to. */
-    readonly firstStep: { readonly entryId: string; readonly turnId: string | null } | null;
     readonly files: ReadonlyArray<ThreadRecapFile>;
     readonly moreFiles: number;
   } | null;
@@ -134,29 +141,75 @@ export function selectRecapAsk(
   return chosen ? { messageId: chosen.id, text: chosen.text.trim() } : null;
 }
 
-/** Files changed by turns that finished after `since`, summed per path, most lines first. */
+/**
+ * The files an edit step names: its changed files, else the files its line
+ * counts name, else, while a file edit runs, the single path its detail
+ * carries ("packages/shared/src/themePalettes.ts"). Empty when it names none.
+ */
+export function editedFilePaths(entry: WorkLogEntry): ReadonlyArray<string> {
+  if (entry.changedFiles?.length) return entry.changedFiles;
+  if (entry.fileDiffStats?.length) return entry.fileDiffStats.map((file) => file.path);
+  const detail = entry.detail?.trim();
+  return entry.itemType === "file_change" && detail && !/\s/.test(detail) ? [detail] : [];
+}
+
+type MutableRecapFile = { -readonly [Key in keyof ThreadRecapFile]: ThreadRecapFile[Key] };
+
+/** An edit's counts for one of its files, when the provider reported them. */
+function editCounts(entry: WorkLogEntry, path: string): WorkLogDiffStat | null {
+  const counted = entry.fileDiffStats?.find((file) => samePath(file.path, path));
+  if (counted) return counted;
+  return entry.changedFiles?.length === 1 && entry.diffStat ? entry.diffStat : null;
+}
+
+/**
+ * Files changed after `since`, summed per path, most lines first: the turns
+ * that finished after it, by their checkpoints, then the edits a turn still
+ * running logged after it, before its checkpoint lands. `steps` are the
+ * recap's steps, so the list agrees with the summary above it.
+ */
 function changedFilesSince(
   checkpoints: ReadonlyArray<RecapCheckpoint>,
+  steps: ReadonlyArray<WorkLogEntry>,
   sinceMs: number,
 ): ThreadRecapFile[] {
-  const byPath = new Map<string, ThreadRecapFile>();
+  const files: MutableRecapFile[] = [];
+  const add = (path: string, counts: WorkLogDiffStat | null, turnId: string, running: boolean) => {
+    // Checkpoints name files relative to the workspace; edits may name them absolutely.
+    const existing = files.find((file) => samePath(file.path, path));
+    if (!existing) {
+      files.push({
+        path,
+        additions: counts?.additions ?? 0,
+        deletions: counts?.deletions ?? 0,
+        turnId,
+        running,
+        counted: counts !== null,
+      });
+      return;
+    }
+    existing.additions += counts?.additions ?? 0;
+    existing.deletions += counts?.deletions ?? 0;
+    existing.counted &&= counts !== null;
+    existing.turnId = turnId;
+    existing.running ||= running;
+  };
   const ordered = checkpoints
     .filter((checkpoint) => isAfter(checkpoint.completedAt, sinceMs))
     .sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
   for (const checkpoint of ordered) {
-    for (const file of checkpoint.files) {
-      const previous = byPath.get(file.path);
-      byPath.set(file.path, {
-        path: file.path,
-        additions: (previous?.additions ?? 0) + file.additions,
-        deletions: (previous?.deletions ?? 0) + file.deletions,
-        turnId: checkpoint.turnId,
-      });
+    for (const file of checkpoint.files) add(file.path, file, checkpoint.turnId, false);
+  }
+  const checkpointedTurns = new Set(checkpoints.map((checkpoint) => checkpoint.turnId));
+  for (const step of steps) {
+    if (!step.turnId || checkpointedTurns.has(step.turnId) || toolGroupAction(step) !== "edit") {
+      continue;
+    }
+    for (const path of editedFilePaths(step)) {
+      add(path, editCounts(step, path), step.turnId, true);
     }
   }
-  return [...byPath.values()].sort(
-    (a, b) => b.additions + b.deletions - (a.additions + a.deletions),
-  );
+  return files.sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions));
 }
 
 /**
@@ -191,13 +244,12 @@ export function deriveThreadRecap(input: {
     toolSummary === ""
       ? null
       : `${input.activityCount >= THREAD_DETAIL_ACTIVITY_CAP ? "At least: " : ""}${input.provider} ${toolSummary.charAt(0).toLowerCase()}${toolSummary.slice(1)}.`;
-  const files = changedFilesSince(input.checkpoints, sinceMs);
+  const files = changedFilesSince(input.checkpoints, steps, sinceMs);
   const sinceThen =
     summary === null && files.length === 0
       ? null
       : {
           summary,
-          firstStep: steps[0] ? { entryId: steps[0].id, turnId: steps[0].turnId ?? null } : null,
           files: files.slice(0, MAX_RECAP_FILES),
           moreFiles: Math.max(0, files.length - MAX_RECAP_FILES),
         };

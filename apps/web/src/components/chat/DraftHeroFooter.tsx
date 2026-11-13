@@ -1,6 +1,6 @@
 /**
  * Below the new-thread composer (board 1): what needs you, what is ready to
- * review and what is working, then commits still to push. The composer stays
+ * review and what is working. The composer stays
  * first, so an idea you arrive with is not displaced by a list of
  * obligations. With nothing waiting and nothing working, only the shortcut
  * hints show.
@@ -20,14 +20,7 @@ import {
   type ThreadId,
 } from "@e6tools/contracts";
 import { useRouter } from "@tanstack/react-router";
-import {
-  CheckIcon,
-  CircleAlertIcon,
-  ListChecksIcon,
-  MessageCircleQuestionIcon,
-  RefreshCwIcon,
-  XIcon,
-} from "lucide-react";
+import { CheckIcon, ListChecksIcon, MessageCircleQuestionIcon } from "lucide-react";
 import { memo, useCallback, useMemo } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -44,13 +37,10 @@ import { useThreadAttention } from "~/hooks/useThreadAttention";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
-import { useAtomCommand } from "~/state/use-atom-command";
 import { useThreadShells } from "~/state/entities";
-import { threadEnvironment } from "~/state/threads";
 import { threadNotificationFact } from "~/threadNotificationPolicy";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatShortTimestamp, formatUpcomingTimestamp } from "~/timestampFormat";
-import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import {
   resolveWorkingStartedAt,
   runningThreadMarkKind,
@@ -68,10 +58,9 @@ import {
   formatAttentionCue,
   needsYouHeading,
   reviewCaption,
-  selectStaleSetupThread,
+  selectStartScreenBlocked,
   selectWorkingThreads,
   workingCaption,
-  type UnpushedCommits,
   type WorkingThread,
 } from "./DraftHeroFooter.logic";
 import { PlanStepMeter } from "./PlanStepMeter";
@@ -105,39 +94,24 @@ const TIME_CUE_CLASS =
 
 export function DraftHeroFooter({
   keybindings,
-  unpushed,
-  setupProject,
-  onOpenSourceControl,
   composerHasText,
 }: {
   keybindings: ResolvedKeybindingsConfig;
-  /** Commits on the project's branch that its remote lacks. */
-  unpushed: UnpushedCommits | null;
-  /** The draft's project and its resolved scripts, to flag worktrees set up with an older setup script. */
-  setupProject: Parameters<typeof selectStaleSetupThread>[1];
-  /** Opens Run details, where Commit pushes or opens a pull request. */
-  onOpenSourceControl: () => void;
   /** The composer holds a draft: Send has the screen's one fill, so Approve gives it up. */
   composerHasText: boolean;
 }) {
   const router = useRouter();
   const threads = useThreadShells();
   const attention = useThreadAttention();
+  // Board 1 lists what asks you something; failed threads stay in the sidebar's Needs you.
   const blocked = useMemo(
-    () => [...attention.blocked, ...attention.earlier],
+    () => selectStartScreenBlocked([...attention.blocked, ...attention.earlier]),
     [attention.blocked, attention.earlier],
   );
   const working = useMemo(
     () => selectWorkingThreads(threads, attention, resolveWorkingStartedAt),
     [attention, threads],
   );
-  const staleSetup = useMemo(
-    () => selectStaleSetupThread(threads, setupProject),
-    [threads, setupProject],
-  );
-  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
-    reportFailure: false,
-  });
   const hints = HINTS.flatMap(([command, label]) => {
     const shortcut = shortcutLabelForCommand(keybindings, command);
     return shortcut ? [{ shortcut, label }] : [];
@@ -159,19 +133,12 @@ export function DraftHeroFooter({
   const expandedApprovalKey =
     blocked.slice(0, LIST_LIMIT).find((item) => item.kind === "approval")?.key ?? null;
   const hasLists = blocked.length > 0 || attention.review.length > 0 || working.length > 0;
-  const hasProjectRows = unpushed !== null || staleSetup !== null;
   const parkedEntries = usePromptStashStore((store) => store.entries);
   const nowMinute = useNowMinute();
   const today = localDateKey(Date.parse(minuteToIso(nowMinute)));
   const parked = useMemo(() => selectParkedChips(parkedEntries, today), [parkedEntries, today]);
   const showWhatChanged = useWhatChangedVisible();
-  if (
-    !hasLists &&
-    !hasProjectRows &&
-    hints.length === 0 &&
-    parked.chips.length === 0 &&
-    !showWhatChanged
-  ) {
+  if (!hasLists && hints.length === 0 && parked.chips.length === 0 && !showWhatChanged) {
     return null;
   }
   return (
@@ -181,7 +148,7 @@ export function DraftHeroFooter({
       {showWhatChanged ? <WhatChangedCard /> : null}
       {blocked.length > 0 ? (
         <section aria-label="Needs you" className="flex flex-col gap-2">
-          <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(attention.blockedCount)}</h3>
+          <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(blocked.length)}</h3>
           {blocked
             .slice(0, LIST_LIMIT)
             .map((item) =>
@@ -231,66 +198,6 @@ export function DraftHeroFooter({
             ))}
           </ul>
           <MoreLine count={working.length - LIST_LIMIT} where="in the sidebar" />
-        </section>
-      ) : null}
-
-      {hasProjectRows ? (
-        <section aria-label="This project" className="flex flex-col">
-          <h3 className={cn(LIST_HEADING_CLASS, "pb-1")}>This project</h3>
-          <ul className="flex flex-col">
-            {staleSetup ? (
-              // Opens the thread; its Run details re-runs the setup script there.
-              // Dismissing marks the worktree as matching the current script.
-              <li className={cn(LIST_ROW_CLASS, "border-border not-last:border-b")}>
-                <RefreshCwIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 basis-[200px] truncate text-[13px] leading-[18px] font-medium text-foreground">
-                  Setup script changed
-                </span>
-                <span className="min-w-0 truncate text-xs leading-4 text-muted-foreground">
-                  Re-run it in <span className="font-mono">{staleSetup.branch}</span>
-                </span>
-                <Button size="xs" variant="ghost" onClick={() => openThread(staleSetup.thread)}>
-                  Open thread
-                </Button>
-                <Button
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  aria-label="Dismiss: keep this worktree as it is"
-                  onClick={() =>
-                    void updateThreadMetadata({
-                      environmentId: staleSetup.thread.environmentId,
-                      input: {
-                        threadId: staleSetup.thread.id,
-                        setupScriptHash: staleSetup.currentHash,
-                      },
-                    })
-                  }
-                >
-                  <XIcon aria-hidden />
-                </Button>
-              </li>
-            ) : null}
-            {unpushed ? (
-              <li className={cn(LIST_ROW_CLASS, "border-border not-last:border-b")}>
-                <PullRequestGlyph.pullRequest
-                  aria-hidden
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-                <span className="min-w-0 flex-1 basis-[200px] truncate text-[13px] leading-[18px] font-medium text-foreground">
-                  {unpushed.count} unpushed {unpushed.count === 1 ? "commit" : "commits"} on{" "}
-                  <span className="font-mono text-xs">{unpushed.refName}</span>
-                </span>
-                <span className="min-w-0 truncate text-xs leading-4 text-muted-foreground">
-                  {unpushed.hasOpenPullRequest
-                    ? "Push them to update the pull request"
-                    : "Push them or open a pull request"}
-                </span>
-                <Button size="xs" variant="ghost" onClick={onOpenSourceControl}>
-                  Run details
-                </Button>
-              </li>
-            ) : null}
-          </ul>
         </section>
       ) : null}
 
@@ -402,7 +309,6 @@ function WorkingCue({ startedAt }: { startedAt: string }) {
 const BLOCKED_ACTION = {
   approval: "Open thread",
   input: "Answer",
-  failed: "Open thread",
 } as const;
 
 /**
@@ -410,8 +316,13 @@ const BLOCKED_ACTION = {
  * thread waits on, from its shell, so no row subscribes to thread detail.
  */
 function blockedFact(item: AttentionItem): string {
-  const kind = item.kind === "approval" ? "approval" : item.kind === "input" ? "input" : "failed";
-  return threadNotificationFact(item.thread, kind, providerLabel) ?? "";
+  return (
+    threadNotificationFact(
+      item.thread,
+      item.kind === "approval" ? "approval" : "input",
+      providerLabel,
+    ) ?? ""
+  );
 }
 
 /**
@@ -428,19 +339,12 @@ const BlockedCard = memo(function BlockedCard({
   const kind = item.kind as keyof typeof BLOCKED_ACTION;
   const fact = blockedFact(item);
   return (
-    <article
-      className={cn(
-        "flex flex-wrap items-center gap-2.5 rounded-xl border bg-card px-4 py-3",
-        kind === "failed" ? "border-destructive-foreground" : "border-warning-foreground",
-      )}
-    >
+    <article className="flex flex-wrap items-center gap-2.5 rounded-xl border border-warning-foreground bg-card px-4 py-3">
       <span className="inline-flex w-4 shrink-0 justify-center">
         {kind === "approval" ? (
           <BlockedDiamond />
-        ) : kind === "input" ? (
-          <MessageCircleQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
         ) : (
-          <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+          <MessageCircleQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
         )}
       </span>
       <div className="flex min-w-0 flex-1 basis-[260px] flex-col gap-0.5">

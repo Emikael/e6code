@@ -59,6 +59,14 @@ const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
   event.preventDefault();
 };
 
+/**
+ * Send and Stop's keyboard focus (plan's focus rule, board "round two"): a
+ * solid 2px ring 3px off the button, so it clears the primary fill, which is
+ * the ring's own color.
+ */
+const SEND_FOCUS_CLASS =
+  "outline-none focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ring";
+
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
   pendingAction,
@@ -95,7 +103,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <button
             type="button"
             className={cn(
-              "flex shrink-0 cursor-pointer items-center justify-center rounded-full border border-input bg-card text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "flex shrink-0 cursor-pointer items-center justify-center rounded-full border border-input bg-card text-foreground transition-colors hover:bg-accent",
+              SEND_FOCUS_CLASS,
               insidePendingAction ? "size-8 sm:size-7" : "size-8",
             )}
             {...pointerFocusProps}
@@ -228,17 +237,19 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   const sendButtonDisabled =
     isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable || !hasSendableContent;
-  // A disabled Send sits on the card ground with an input edge and a muted arrow (boards 1
-  // to 3), so neither a light theme accent nor the stage art reads as "almost clickable".
+  // A disabled Send sits on the card ground with an input edge and a muted arrow, dimmed
+  // (boards 1 to 3), so neither a light theme accent nor the stage art reads as "almost
+  // clickable". An enabled Send is the primary fill with its primary-edge line.
   const sendStageArt = sendButtonDisabled ? null : stageBackdropVariant;
   const sendButton = (
     <button
       type="submit"
       className={cn(
         "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+        SEND_FOCUS_CLASS,
         sendStageArt
           ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
-          : "border border-transparent bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover disabled:border-input disabled:bg-card disabled:text-muted-foreground",
+          : "border border-primary-edge bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover disabled:border-input disabled:bg-card disabled:text-muted-foreground disabled:opacity-55",
       )}
       {...pointerFocusProps}
       disabled={sendButtonDisabled}

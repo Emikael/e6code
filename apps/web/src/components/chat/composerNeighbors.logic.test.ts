@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  reviewDiffPlacement,
   rightPanelHoldsFill,
   screenFillHolder,
-  selectComposerSlotCard,
 } from "./composerNeighbors.logic";
 
 describe("screenFillHolder", () => {
@@ -28,20 +28,13 @@ describe("rightPanelHoldsFill", () => {
   });
 });
 
-describe("selectComposerSlotCard", () => {
-  it("shows one card, by precedence: permission prompt, recap, Next card", () => {
-    expect(selectComposerSlotCard({ permissionPrompt: true, recap: true, nextCard: true })).toBe(
-      "permission",
-    );
-    expect(selectComposerSlotCard({ permissionPrompt: false, recap: true, nextCard: true })).toBe(
-      "recap",
-    );
-    // A dismissed recap no longer applies, so the Next card shows.
-    expect(selectComposerSlotCard({ permissionPrompt: false, recap: false, nextCard: true })).toBe(
-      "next",
-    );
-    expect(
-      selectComposerSlotCard({ permissionPrompt: false, recap: false, nextCard: false }),
-    ).toBeNull();
+describe("reviewDiffPlacement", () => {
+  it("offers Review diff in exactly one place for a finished turn with changes", () => {
+    // The Next card ends the timeline: the now bar does not repeat it.
+    expect(reviewDiffPlacement({ nextCard: true, timelineReady: true })).toBe("next-card");
+    // The timeline has not rendered its end yet: the now bar keeps it reachable.
+    expect(reviewDiffPlacement({ nextCard: true, timelineReady: false })).toBe("now-bar");
+    // No Next card (settled, or no changes): the now bar decides on its own.
+    expect(reviewDiffPlacement({ nextCard: false, timelineReady: true })).toBe("now-bar");
   });
 });

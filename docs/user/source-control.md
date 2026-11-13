@@ -133,8 +133,10 @@ still working on the thread.
 
 ## Create a pull request
 
-Use a thread's Git actions to commit, push, and create a pull request. E6 Code can generate commit
-messages, review titles, and descriptions from your changes.
+Use the Git actions in a thread's **More** menu (the **…** in the thread header) to commit, push,
+and create a pull request. **Run details** also offers Commit and Push, and an empty **Pull
+requests** tab offers Create. E6 Code can generate commit messages, review titles, and descriptions
+from your changes.
 
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
 uses the project's instructions and recent commit subjects.

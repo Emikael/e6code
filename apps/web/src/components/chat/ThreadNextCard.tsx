@@ -1,5 +1,5 @@
 /**
- * "Next: review the changes" (board 3, F6): a turn that finished with changes
+ * "Next: review the changes" (boards 2 and 3, F6): a turn that finished with changes
  * ends in one clear next step. Review diff carries the screen's one fill until
  * you start typing, when Send takes it.
  */
@@ -31,7 +31,7 @@ export const ThreadNextCard = memo(function ThreadNextCard({
   return (
     <section
       aria-label="Next step"
-      className="mb-2.5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3.5"
+      className="mt-2 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3.5"
     >
       <div className="flex items-center gap-2">
         <h2 className="min-w-0 flex-1 text-sm leading-5 font-semibold text-foreground">

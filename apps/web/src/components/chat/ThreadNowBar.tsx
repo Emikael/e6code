@@ -6,7 +6,7 @@
  * worked and offers the diff.
  */
 import { formatAttentionAge } from "@e6tools/client-runtime/state/thread-attention";
-import { BellIcon, CheckIcon, CircleAlertIcon, MessageCircleQuestionIcon } from "lucide-react";
+import { BellIcon, CircleAlertIcon, MessageCircleQuestionIcon, PauseIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -20,6 +20,7 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatAttentionCue } from "./DraftHeroFooter.logic";
 import { PlanStepMeter } from "./PlanStepMeter";
+import { ReadyToReviewStatus } from "./ReadyToReviewStatus";
 import { doneSummary, formatNowBarElapsed, type NowBarState } from "./ThreadNowBar.logic";
 
 const STATUS_CLASS = "inline-flex shrink-0 items-center gap-1.5 text-xs leading-4 font-medium";
@@ -44,7 +45,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
   retryUnavailableReason?: string | null;
   /** "Earlier turns: 4m, 12m, 2m", the elapsed time's tooltip; null before a turn finished. */
   earlierTurns?: string | null;
-  /** Absent while the Next card under the timeline already offers Review diff. */
+  /** Absent while the Next card above the composer is on screen and offers Review diff. */
   onReviewDiff: (() => void) | null;
 }) {
   if (state.kind === "hidden") return null;
@@ -66,14 +67,16 @@ export const ThreadNowBar = memo(function ThreadNowBar({
             <span
               className={cn(
                 STATUS_CLASS,
-                state.live ? "text-primary-text" : "text-muted-foreground",
+                state.mark === "live" ? "text-primary-text" : "text-muted-foreground",
               )}
             >
-              {state.live ? (
+              {state.mark === "live" ? (
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full bg-primary ring-3 ring-primary-surface"
                 />
+              ) : state.mark === "usage-limit" ? (
+                <PauseIcon aria-hidden className="size-3.5 shrink-0" />
               ) : (
                 <span
                   aria-hidden
@@ -87,7 +90,9 @@ export const ThreadNowBar = memo(function ThreadNowBar({
             {state.startedAt ? (
               <ElapsedCue startedAt={state.startedAt} earlierTurns={earlierTurns} />
             ) : null}
-            <WatchToggle watchKey={watchKey} />
+            {/* F5 and the Components board: the watch toggle rides with a known plan; without
+                one the bar keeps to the action and the time. */}
+            {state.progress ? <WatchToggle watchKey={watchKey} /> : null}
           </>
         ) : state.kind === "blocked" ? (
           <>
@@ -141,11 +146,7 @@ export const ThreadNowBar = memo(function ThreadNowBar({
           </>
         ) : (
           <>
-            <span className={cn(STATUS_CLASS, "text-muted-foreground")}>
-              {/* Done, named as its next step: the success tick, as everywhere a turn finished. */}
-              <CheckIcon aria-hidden className="size-3.5 shrink-0 text-success-foreground" />
-              Ready to review
-            </span>
+            <ReadyToReviewStatus />
             <DoneText workedFor={state.workedFor} finishedAt={state.finishedAt} />
             {state.hasChanges && onReviewDiff ? (
               <Button size="sm" variant="outline" className="sm:text-xs" onClick={onReviewDiff}>

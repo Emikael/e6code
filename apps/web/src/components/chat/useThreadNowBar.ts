@@ -3,6 +3,9 @@ import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/model
 import { PROVIDER_DISPLAY_NAMES, type OrchestrationCheckpointSummary } from "@e6tools/contracts";
 import { useMemo } from "react";
 
+import { useClientSettings } from "~/hooks/useSettings";
+import { formatUpcomingTimestamp } from "~/timestampFormat";
+
 import type { PendingApproval, PendingUserInput, WorkLogEntry } from "../../session-logic";
 import { threadNotificationFact } from "../../threadNotificationPolicy";
 import {
@@ -49,6 +52,10 @@ export function useThreadNowBar(input: {
     () => selectCurrentAction(workLogEntries, runningTurnId, workspaceRoot),
     [runningTurnId, workLogEntries, workspaceRoot],
   );
+  const barAction = useMemo(
+    () => selectCurrentAction(workLogEntries, runningTurnId, workspaceRoot, "base"),
+    [runningTurnId, workLogEntries, workspaceRoot],
+  );
   const changedFileCount = useMemo(
     () =>
       countChangedFiles(
@@ -60,6 +67,7 @@ export function useThreadNowBar(input: {
       ),
     [checkpoints, runningTurnId, workLogEntries, workspaceRoot],
   );
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const state = useMemo(() => {
     if (!shell) return { kind: "hidden" } as const;
     const providerName = shell.session?.providerName;
@@ -68,15 +76,24 @@ export function useThreadNowBar(input: {
       workStartedAt,
       planProgress: shell.planProgress,
       agentState: shell.agentState,
-      currentAction,
+      currentAction: barAction,
       pendingApprovals,
       pendingUserInputs,
       provider: (providerName && providerLabel(providerName)) || "The agent",
+      formatResetTime: (resetsAt) => formatUpcomingTimestamp(resetsAt, timestampFormat),
       failure: isThreadFailed(shell)
         ? threadNotificationFact(shell, "failed", providerLabel)
         : null,
       latestTurn: shell.latestTurn,
     });
-  }, [currentAction, isWorking, pendingApprovals, pendingUserInputs, shell, workStartedAt]);
+  }, [
+    barAction,
+    isWorking,
+    pendingApprovals,
+    pendingUserInputs,
+    shell,
+    timestampFormat,
+    workStartedAt,
+  ]);
   return { state, currentAction, changedFileCount };
 }

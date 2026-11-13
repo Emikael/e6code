@@ -11,7 +11,7 @@ import {
   type EditorId,
   type EnvironmentId,
 } from "@e6tools/contracts";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 import { resolveDiffPathForWorkspace } from "./diffFileActions";
 import {
@@ -191,16 +191,4 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
       show,
     };
   }, [environmentId, openInEditor, serverConfig]);
-}
-
-/** Convenience callback for onContextMenu handlers. */
-/** Returns an onContextMenu callback that shows the menu at the pointer. */
-export function useFileContextMenuHandler(environmentId: EnvironmentId | null) {
-  const contextMenu = useFileContextMenu(environmentId);
-  return useCallback(
-    (target: FileContextMenuTarget, event?: { clientX: number; clientY: number }) => {
-      void contextMenu.show(target, event ? { x: event.clientX, y: event.clientY } : undefined);
-    },
-    [contextMenu],
-  );
 }
