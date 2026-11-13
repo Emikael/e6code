@@ -450,6 +450,7 @@ import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/Messag
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
+import { useComposerTyping } from "./composerTyping";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
@@ -5061,6 +5062,9 @@ export default function ChatView(props: ChatViewProps) {
   const proactivePanelObservationRef = useRef<ReturnType<
     typeof observeProactivePanelUserChoice
   > | null>(null);
+  // Proactive panels never open a tab while the user is writing; they wait until the composer
+  // lets go (plan F14).
+  const composerTyping = useComposerTyping(isServerThread ? composerDraftTarget : null);
 
   useEffect(() => {
     if (!isServerThread || activeThreadKey === null || activeThreadRef === null) {
@@ -5108,12 +5112,12 @@ export default function ChatView(props: ChatViewProps) {
     const eligibleLink =
       proactivePanelsEnabled &&
       shouldOpenProactivePullRequest(previousTargetKey, proactivePullRequestsKey);
-    const shouldDeferLink = eligibleLink && !pullRequestsCapabilityKnown;
+    const shouldDeferLink = eligibleLink && (!pullRequestsCapabilityKnown || composerTyping);
     proactivePanelObservationRef.current = {
       ...observation,
       targetKey: shouldDeferLink ? (previousTargetKey ?? null) : proactivePullRequestsKey,
     };
-    if (eligibleLink && pullRequestsCapabilityKnown) {
+    if (eligibleLink && pullRequestsCapabilityKnown && !composerTyping) {
       if (
         pullRequestsSurfaceAvailable &&
         (visiblePullRequestCount > 1 || !hasLinkedPullRequestDetail || !supportsPullRequests)
@@ -5156,12 +5160,14 @@ export default function ChatView(props: ChatViewProps) {
     const completedCheckpoint = eligibleCompletion
       ? activeThread?.checkpoints.find((checkpoint) => checkpoint.turnId === newlyCompletedTurnId)
       : undefined;
-    const diffAction = eligibleCompletion
-      ? resolveProactiveTurnDiffAction({
-          checkpoint: completedCheckpoint,
-          isGitRepo: gitStatusQuery.data?.isRepo,
-        })
-      : "ignore";
+    const diffAction = !eligibleCompletion
+      ? "ignore"
+      : composerTyping
+        ? "defer"
+        : resolveProactiveTurnDiffAction({
+            checkpoint: completedCheckpoint,
+            isGitRepo: gitStatusQuery.data?.isRepo,
+          });
     proactivePanelObservationRef.current = {
       ...proactivePanelObservationRef.current,
       // Preserve first-entry eligibility while capabilities, checkpoint or repository load.
@@ -5182,6 +5188,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadKey,
     activeThreadRef,
     clientSettingsHydrated,
+    composerTyping,
     gitStatusQuery.data?.isRepo,
     isServerThread,
     latestTurnSettled,
