@@ -19,8 +19,10 @@ const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
 // Android layers are rendered by scripts/export-android-icons.ts from the Icon Composer sources.
-// The wordmark sits inside the adaptive safe zone; the variant artwork is a full-bleed background.
-const androidAdaptiveForeground = "./assets/android-icon-foreground.png";
+// The wordmark and its meter or label sit inside the adaptive safe zone over a shared ground.
+const androidAdaptiveBackgroundImage = "./assets/android-icon-background.png";
+// The middle of the tile's graphite gradient, for surfaces that take only a color.
+const androidAdaptiveBackgroundColor = "#1E2127";
 
 if (
   isIosPersonalTeamBuild &&
@@ -36,9 +38,9 @@ const DEVELOPMENT_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIconComposerProject),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
-  androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#06B6D4",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-dev.png",
+  androidAdaptiveForeground: "./assets/android-icon-foreground-dev.png",
+  androidAdaptiveBackgroundColor,
+  androidAdaptiveBackgroundImage,
   androidSplashIcon: "./assets/android-splash-icon-dev.png",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
@@ -49,9 +51,9 @@ const PREVIEW_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#F97316",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-nightly.png",
+  androidAdaptiveForeground: "./assets/android-icon-foreground-nightly.png",
+  androidAdaptiveBackgroundColor,
+  androidAdaptiveBackgroundImage,
   androidSplashIcon: "./assets/android-splash-icon-nightly.png",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
@@ -62,9 +64,9 @@ const RELEASE_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIconComposerProject),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#18181B",
-  androidAdaptiveBackgroundImage: undefined,
+  androidAdaptiveForeground: "./assets/android-icon-foreground-prod.png",
+  androidAdaptiveBackgroundColor,
+  androidAdaptiveBackgroundImage,
   androidSplashIcon: "./assets/android-splash-icon-prod.png",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
@@ -287,9 +289,7 @@ const config: ExpoConfig = {
       : {}),
     adaptiveIcon: {
       backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
-      ...(variant.assets.androidAdaptiveBackgroundImage
-        ? { backgroundImage: variant.assets.androidAdaptiveBackgroundImage }
-        : {}),
+      backgroundImage: variant.assets.androidAdaptiveBackgroundImage,
       foregroundImage: variant.assets.androidAdaptiveForeground,
       monochromeImage: variant.assets.androidMonochromeIcon,
     },
@@ -372,9 +372,7 @@ const config: ExpoConfig = {
           shortcut_icon: {
             foregroundImage: variant.assets.androidAdaptiveForeground,
             backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
-            ...(variant.assets.androidAdaptiveBackgroundImage
-              ? { backgroundImage: variant.assets.androidAdaptiveBackgroundImage }
-              : {}),
+            backgroundImage: variant.assets.androidAdaptiveBackgroundImage,
           },
         },
       },
