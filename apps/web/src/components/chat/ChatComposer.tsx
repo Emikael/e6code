@@ -7040,8 +7040,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {/* Hidden while an approval holds the composer, where it does nothing. The
-                      button only parks; Mod+S on an empty draft still opens what was parked. */}
+                  {/* Hidden while an approval holds the composer, where it does nothing. With an
+                      empty draft it does what Mod+S does there: brings back what was parked. It is
+                      disabled only when there is nothing to park and nothing to bring back. */}
                   {pendingUserInputs.length === 0 &&
                   !projectSelectionRequired &&
                   !isComposerApprovalState ? (
@@ -7052,8 +7053,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="hidden px-2 text-xs leading-[18px] sm:inline-flex sm:text-xs"
-                            disabled={!composerSendState.hasSendableContent}
+                            className="px-2 text-xs leading-[18px] sm:text-xs"
+                            disabled={
+                              !composerSendState.hasSendableContent && stashQueue.length === 0
+                            }
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={parkDraft}
                             {...(footerSurrender.parkLabel ? {} : { "aria-label": "Park it" })}
@@ -7072,7 +7075,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         ) : null}
                       </TooltipTrigger>
                       <TooltipPopup>
-                        Keep this draft for later
+                        {composerSendState.hasSendableContent || stashQueue.length === 0
+                          ? "Keep this draft for later"
+                          : "Bring back a parked draft"}
                         {parkShortcutLabel ? ` (${parkShortcutLabel})` : ""}
                       </TooltipPopup>
                     </Tooltip>
