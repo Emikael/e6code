@@ -5129,7 +5129,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         triggerClassName={
           composerControlsInStrip
             ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-            : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
+            : composerControlsCompact
+              ? "h-7 min-h-7 min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-7"
+              : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
         }
         terminalOpen={terminalOpen}
         open={isComposerModelPickerOpen}
@@ -7004,14 +7006,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             type="button"
                             variant={composerControlsCompact ? "ghost" : "outline"}
                             size="icon-sm"
-                            className="size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            // Board 1: a 28px ghost icon button with a 16px plus, like the
+                            // compact footer's chips.
+                            className={
+                              composerControlsCompact
+                                ? "size-7 rounded-lg shadow-none sm:size-7"
+                                : "size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            }
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={() => attachmentInputRef.current?.click()}
                             aria-label="Attach files"
                           />
                         }
                       >
-                        <PlusIcon className="size-3.5" />
+                        <PlusIcon className={composerControlsCompact ? "size-4" : "size-3.5"} />
                       </TooltipTrigger>
                       <TooltipPopup>Attach files</TooltipPopup>
                     </Tooltip>
