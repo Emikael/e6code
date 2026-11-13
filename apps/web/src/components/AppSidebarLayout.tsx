@@ -80,9 +80,15 @@ function readInitialThreadSidebarWidth(): number {
   }
 }
 
+/**
+ * The sidebar toggle's shortcut, and the window-edge control that reopens a
+ * collapsed sidebar. While the sidebar shows, its header carries the toggle
+ * (board 1), so the window-edge control leaves. Narrow windows keep it: the
+ * sidebar there is a sheet that this control opens.
+ */
 function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar } = useSidebar();
+  const { isMobile, state, toggleSidebar } = useSidebar();
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
 
   useEffect(() => {
@@ -115,6 +121,8 @@ function SidebarControl() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [keybindings, toggleSidebar]);
 
+  if (!isMobile && state === "expanded") return null;
+
   return (
     // The right-side layout controls carry mr-px (border compensation inside
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
@@ -126,11 +134,15 @@ function SidebarControl() {
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarTrigger className="pointer-events-auto" aria-label="Toggle main sidebar" />
+            <SidebarTrigger
+              className="pointer-events-auto"
+              aria-label={isMobile ? "Toggle main sidebar" : "Show sidebar"}
+            />
           }
         />
         <TooltipPopup side="bottom">
-          Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
+          {isMobile ? "Toggle main sidebar" : "Show sidebar"}
+          {shortcutLabel ? ` (${shortcutLabel})` : ""}
         </TooltipPopup>
       </Tooltip>
     </div>
@@ -289,13 +301,19 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // Window-fixed controls follow the floating sidebar's header in by a panel
   // gap. On macOS the desktop shell moves the traffic lights by the same inset
   // (apps/desktop/src/window/DesktopWindow.ts), so the controls stay beside them.
+  // The sidebar header's content starts 16px into the panel (board 1), or past the
+  // traffic lights where they sit over it.
   const controlsPlacement: Record<string, string> =
     isMacosDesktop && !isWindowFullscreen
       ? {
           "--workspace-controls-left": `calc(${MACOS_TRAFFIC_LIGHTS_LEFT_INSET} + var(--floating-controls-left))`,
           "--workspace-controls-top": "var(--floating-controls-top)",
+          "--sidebar-header-inset": MACOS_TRAFFIC_LIGHTS_LEFT_INSET,
         }
-      : { "--workspace-controls-top": "var(--floating-controls-top)" };
+      : {
+          "--workspace-controls-top": "var(--floating-controls-top)",
+          "--sidebar-header-inset": "1rem",
+        };
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
