@@ -26,7 +26,7 @@ export function AndroidHomeFabLayout(props: ComponentProps<typeof SharedAndroidH
   return (
     <View className="flex-1">
       <MaterialFabScrollContext value={onScroll}>{props.children}</MaterialFabScrollContext>
-      {state.hasConnections ? (
+      {state.hasConnections && props.showButton !== false ? (
         <MaterialNewThreadButton
           extended
           expanded={expanded}

@@ -67,6 +67,7 @@ import {
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
 import { ApprovalAnswerNotice } from "./ApprovalAnswerNotice";
+import { HomeComposerBar, HomeTitle } from "./HomePageChrome";
 import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
   buildThreadListV2Items,
@@ -128,6 +129,7 @@ interface HomeScreenProps {
   readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   readonly onAddConnection: () => void;
   readonly onOpenSettings: () => void;
+  readonly onOpenEnvironments: () => void;
   readonly onStartNewTask: () => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
@@ -158,6 +160,8 @@ interface HomeScreenProps {
 
 const ESTIMATED_THREAD_ROW_HEIGHT = 72;
 const PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT = 44;
+// The iOS 26 search toolbar, which floats over the bottom of the list.
+const LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT = 52;
 /**
  * Top spacing between the list and the Android custom header. The Android
  * header is rendered in-flow above this screen and
@@ -1216,13 +1220,25 @@ export function HomeScreen(props: HomeScreenProps) {
       ? null
       : (props.savedConnectionsById[props.selectedEnvironmentId]?.environmentLabel ??
         "this environment");
-  // Connection state surfaces in the header title slot
-  // (WorkspaceConnectionTitle) — nothing renders inside the list, so
-  // reconnects never shift the rows.
+  // Connection state reads in the title's connection line, which swaps its
+  // words in place, so reconnects never shift the rows.
   const emptyState = deriveEmptyState({
     catalogState: props.catalogState,
     projectCount: props.projects.length,
   });
+
+  // The bottom composer clears the iOS toolbar (pre-glass) or the glass search bar.
+  const composerBottom =
+    Math.max(insets.bottom, 16) +
+    8 +
+    (Platform.OS === "ios"
+      ? NATIVE_LIQUID_GLASS_SUPPORTED
+        ? LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT
+        : iosBottomToolbarClearance
+      : 0);
+  const composerBar = props.catalogState.hasConnections ? (
+    <HomeComposerBar bottom={composerBottom} onStartNewTask={props.onStartNewTask} />
+  ) : null;
 
   if (!hasAnyThreads) {
     return (
@@ -1263,15 +1279,16 @@ export function HomeScreen(props: HomeScreenProps) {
             ) : null}
           </View>
         </View>
+        {threadListV2Enabled ? composerBar : null}
       </View>
     );
   }
 
   const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
 
-  // Project scoping lives in the header filter menu (no inline chip row on
-  // mobile — the menu is the one filter surface).
-  const v2ListHeader = listHeader;
+  // Board 8's title and connection line lead the list. Project scoping lives
+  // in the header filter menu (the menu is the one filter surface).
+  const v2ListHeader = <HomeTitle onOpenEnvironments={props.onOpenEnvironments} />;
 
   const listEmpty = !hasResults ? (
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
@@ -1331,6 +1348,7 @@ export function HomeScreen(props: HomeScreenProps) {
         >
           {threadListV2Enabled ? v2ListEmpty : listEmpty}
         </View>
+        {threadListV2Enabled ? composerBar : null}
       </View>
     );
   }
@@ -1370,20 +1388,13 @@ export function HomeScreen(props: HomeScreenProps) {
               {...scrollGateHandlers}
               scrollEventThrottle={16}
               contentContainerStyle={{
-                paddingBottom:
-                  Platform.OS === "ios"
-                    ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
-                    : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
+                // Room to scroll the last row clear of the bottom composer.
+                paddingBottom: composerBottom + 72,
               }}
             />
           </SwipeableScrollGateProvider>
-          <ApprovalAnswerNotice
-            bottom={
-              Platform.OS === "ios"
-                ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
-                : Math.max(insets.bottom, 16) + 88
-            }
-          />
+          <ApprovalAnswerNotice bottom={composerBottom + 56} />
+          {composerBar}
         </View>
       </View>
     );

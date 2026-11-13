@@ -95,12 +95,15 @@ export function MaterialThreadListToolbar(props: {
           ) : (
             <>
               {/* Match the visible inset of the trailing 48dp icon button. */}
+              {/* Home sets "Threads" and its connection line atop the list (board 8). */}
               <View className="min-w-0 flex-1 pl-4">
-                <WorkspaceConnectionTitle
-                  grow
-                  onPress={props.onOpenEnvironments}
-                  brand={<CompactBrandTitle allowFontScaling={false} />}
-                />
+                {props.sidebar ? (
+                  <WorkspaceConnectionTitle
+                    grow
+                    onPress={props.onOpenEnvironments}
+                    brand={<CompactBrandTitle allowFontScaling={false} />}
+                  />
+                ) : null}
               </View>
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
@@ -108,8 +111,8 @@ export function MaterialThreadListToolbar(props: {
                 onPress={openSearch}
               />
               <AndroidHeaderIconButton
-                accessibilityLabel="Open settings"
-                icon="gearshape"
+                accessibilityLabel="Settings"
+                icon="slider.horizontal.3"
                 onPress={props.onOpenSettings}
               />
             </>
