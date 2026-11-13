@@ -10,7 +10,10 @@ import {
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { handoffBannerItem } from "./chat/ComposerHandoff";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
-import { useNotificationPermissionBannerItem } from "./chat/NotificationPermissionPrompt";
+import {
+  NotificationPermissionCard,
+  useNotificationPermissionOffer,
+} from "./chat/NotificationPermissionPrompt";
 import { HoldToAllowButton } from "./chat/HoldToAllowButton";
 import { useApprovalResponder, useApprovalSwapGuard } from "./chat/useApprovalResponder";
 import { approvalAnsweredLabel } from "./chat/approvalActions";
@@ -7083,7 +7086,7 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     providerStatuses,
   ]);
-  const notificationPermissionBannerItem = useNotificationPermissionBannerItem({
+  const notificationPermissionOffer = useNotificationPermissionOffer({
     working: phase === "running",
     providerLabel: activeThread?.session?.providerName
       ? ((PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[
@@ -7109,8 +7112,6 @@ export default function ChatView(props: ChatViewProps) {
       }),
     }) === "card";
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const notificationPermissionItems =
-      notificationPermissionBannerItem === null ? [] : [notificationPermissionBannerItem];
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -7129,7 +7130,6 @@ export default function ChatView(props: ChatViewProps) {
         ...resumeCompactionItems,
         ...wokeThreadItems,
         ...parkedThreadItems,
-        ...notificationPermissionItems,
       ];
     }
     return [
@@ -7179,11 +7179,9 @@ export default function ChatView(props: ChatViewProps) {
         },
       },
       ...parkedThreadItems,
-      ...notificationPermissionItems,
     ];
   }, [
     activeBranchMismatchKey,
-    notificationPermissionBannerItem,
     feedbackBannerItems,
     handoffBanner,
     handleRestoreThreadBranch,
@@ -11165,10 +11163,14 @@ export default function ChatView(props: ChatViewProps) {
                       </div>
                     </div>
                   ) : null}
+                  {/* One card above the composer: the permission prompt, else the recap. */}
+                  {!isDraftHeroState && notificationPermissionOffer ? (
+                    <NotificationPermissionCard offer={notificationPermissionOffer} />
+                  ) : null}
                   {!isDraftHeroState && isServerThread && activeThreadKey ? (
                     <ThreadRecapHost
                       threadKey={activeThreadKey}
-                      hidden={notificationPermissionBannerItem !== null}
+                      hidden={notificationPermissionOffer !== null}
                       attachedNotSent={recapAttachedNotSent}
                       ready={!threadDetailLoading && !paintOnlyDisplayedTimeline}
                       source={recapSource}
