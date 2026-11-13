@@ -22,7 +22,7 @@ the next one: blocked threads first, then those to review. The number of blocked
 shows in the browser tab's title and on the desktop app's dock icon.
 
 The start screen lists the same threads under the composer, under **Needs you**, **To review**,
-and **Working**. You can answer the first approval there without opening its thread. Enter never
+and **Working**; failed threads stay in the sidebar. You can answer the first approval there without opening its thread. Enter never
 approves on the start screen, and a command that is hard to undo still needs
 [Hold to allow](./permission-modes.md).
 
