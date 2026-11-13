@@ -4,12 +4,11 @@ import {
   type CodeViewHandle,
   type CodeViewProps,
   type ControlledCodeViewProps,
-  type UncontrolledCodeViewProps,
 } from "@pierre/diffs/react";
 /* oxlint-enable eslint/no-restricted-imports */
-import type { Ref } from "react";
+import { type Ref, useMemo } from "react";
 
-import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
+import { DIFF_SURFACE_THEME_UNSAFE_CSS, plainFileDiff } from "~/lib/diffRendering";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 
 // Pierre draws selected lines and the comment button in its "modified" blue. They take the
@@ -271,10 +270,11 @@ export type StyledDiffCodeViewOptions<LAnnotation> = Omit<
   "unsafeCSS" | "itemMetrics" | "layout"
 >;
 
-type StyledDiffCodeViewProps<LAnnotation> = (
-  | Omit<ControlledCodeViewProps<LAnnotation>, "options">
-  | Omit<UncontrolledCodeViewProps<LAnnotation>, "options">
-) & {
+// Controlled only: the surface hands the viewer plain copies of the items it is given.
+type StyledDiffCodeViewProps<LAnnotation> = Omit<
+  ControlledCodeViewProps<LAnnotation>,
+  "options"
+> & {
   readonly options?: StyledDiffCodeViewOptions<LAnnotation>;
   readonly viewerRef?: Ref<CodeViewHandle<LAnnotation>>;
   /**
@@ -286,19 +286,32 @@ type StyledDiffCodeViewProps<LAnnotation> = (
   readonly headerHeight?: number;
 };
 
-/** The shared web CodeView surface: app styling and virtualized geometry stay paired here. */
+/**
+ * The shared web CodeView surface: app styling and virtualized geometry stay paired here. Diffs
+ * are drawn as board 12 draws them, plain +/− lines with no token colors, in the Diff tab and the
+ * pull request's Code tab alike.
+ */
 export function StyledDiffCodeView<LAnnotation = undefined>({
   options,
   viewerRef,
   className,
   unsafeCSSExtra,
   headerHeight = 32,
+  items,
   ...props
 }: StyledDiffCodeViewProps<LAnnotation>) {
+  const plainItems = useMemo(
+    () =>
+      items.map((item) =>
+        item.type === "diff" ? { ...item, fileDiff: plainFileDiff(item.fileDiff) } : item,
+      ),
+    [items],
+  );
   return (
     <DiffWorkerPoolProvider>
       <CodeView<LAnnotation>
         {...props}
+        items={plainItems}
         {...(viewerRef ? { ref: viewerRef } : {})}
         // The custom element itself is focusable for keyboard scrolling. Its native outline sits
         // outside the panel clipping boundary; actual controls inside retain their own indicators.
@@ -308,6 +321,7 @@ export function StyledDiffCodeView<LAnnotation = undefined>({
             : "diff-render-surface [--code-background:var(--background)] outline-none"
         }
         options={{
+          diffIndicators: "classic",
           ...options,
           unsafeCSS: unsafeCSSExtra
             ? `${DIFF_VIEW_UNSAFE_CSS}\n${unsafeCSSExtra}`

@@ -18,6 +18,7 @@ import { useFileContextMenu, type FileContextMenuAction } from "../fileContextMe
 import { readLocalApi } from "../localApi";
 import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { attachedCount } from "~/lib/attachedForAgent";
+import { AttachedCountButton } from "./attached/AttachedCountButton";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
@@ -1508,16 +1509,22 @@ export default function DiffPanel({
   return (
     <DiffPanelShell mode={mode} header={headerRow} rootRef={diffAreaRef}>
       {!activeThread ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground">
-          Select a thread to inspect turn diffs.
+        <div className="p-3">
+          <PanelEmptyCard title="No thread selected">
+            Select a thread to inspect turn diffs.
+          </PanelEmptyCard>
         </div>
       ) : !isGitRepo ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground">
-          Turn diffs are unavailable because this project is not a git repository.
+        <div className="p-3">
+          <PanelEmptyCard title="Not a git repository">
+            Turn diffs are unavailable because this project is not a git repository.
+          </PanelEmptyCard>
         </div>
       ) : selectedTurnId !== null && orderedTurnDiffSummaries.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground">
-          No completed turns yet.
+        <div className="p-3">
+          <PanelEmptyCard title="No completed turns yet">
+            Each turn's changes show here once it finishes.
+          </PanelEmptyCard>
         </div>
       ) : (
         <>
@@ -1617,10 +1624,10 @@ export default function DiffPanel({
                     <DiffPanelLoadingState
                       label={
                         selectedTurn
-                          ? "Loading checkpoint diff..."
+                          ? "Loading checkpoint diff…"
                           : selectedGitScope === "branch"
-                            ? "Loading branch diff..."
-                            : `Loading ${GIT_SCOPE_LABELS[selectedGitScope].toLowerCase()} diff...`
+                            ? "Loading branch diff…"
+                            : `Loading ${GIT_SCOPE_LABELS[selectedGitScope].toLowerCase()} diff…`
                       }
                     />
                   ) : (
@@ -1748,6 +1755,12 @@ export default function DiffPanel({
                   }) !== "review-step"
                 }
               />
+            ) : commentCount > 0 ? (
+              // With nothing to page through there is no Reply, so the count still leads to the
+              // composer, as every other panel surface's does.
+              <div className="flex min-h-12 shrink-0 items-center justify-end border-t border-border bg-surface-raised px-3 py-2">
+                <AttachedCountButton count={commentCount} kind="comment" />
+              </div>
             ) : null}
           </div>
         </>

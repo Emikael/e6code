@@ -98,6 +98,7 @@ import { type RunDetailsSectionId, useUiStateStore } from "~/uiStateStore";
 import type { ActivePlanState } from "~/session-logic";
 import { DiffStat } from "./DiffStat";
 import { DiffReviewTick } from "./diffs/DiffReviewTick";
+import { generatedFoldLabel } from "./diffs/diffFileRail.logic";
 import {
   isRunDetailsSectionOpen,
   planLimitReading,
@@ -105,7 +106,10 @@ import {
   planPositionLabel,
   planStepWords,
   pushCommitsLabel,
+  rememberedTurnDuration,
   RUN_DETAILS_CHANGES_PREVIEW_LIMIT,
+  inlineCodeSegments,
+  runDetailsChangedFiles,
 } from "./runDetails.logic";
 import {
   SUBAGENT_TONE_TEXT_CLASS,
@@ -114,7 +118,8 @@ import {
 } from "./subagents/SubagentParts";
 import { GitDefaultBranchDialog, useGitActionRunner } from "./useGitActionRunner";
 import { Button } from "./ui/button";
-import { Kbd } from "./ui/kbd";
+import { ShortcutKeyCaps } from "./ShortcutKeyCaps";
+import { PanelEmptyCard } from "./panel/PanelEmptyCard";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { ScrollArea } from "./ui/scroll-area";
 import { toastManager } from "./ui/toast";
@@ -357,6 +362,7 @@ function ChangesSection({
 }) {
   const [open, toggle] = useRunDetailsSection("changes");
   const [showAll, setShowAll] = useState(false);
+  const [showGenerated, setShowGenerated] = useState(false);
   const { data: status } = useEnvironmentQuery(
     vcsEnvironment.status({ environmentId: workspace.environmentId, input: { cwd: gitCwd } }),
   );
@@ -369,7 +375,12 @@ function ChangesSection({
     activeThreadRef: threadRef,
     gitStatus: status ?? null,
   });
-  const files = status?.workingTree.files ?? EMPTY_WORKING_TREE_FILES;
+  const allFiles = status?.workingTree.files ?? EMPTY_WORKING_TREE_FILES;
+  const changed = useMemo(
+    () => runDetailsChangedFiles(allFiles, showGenerated),
+    [allFiles, showGenerated],
+  );
+  const files = changed.files;
   // Marks made in any Diff scope, matched by each file's counts.
   const reviewFiles = useMemo(
     () =>
@@ -409,11 +420,7 @@ function ChangesSection({
       meta={
         status && files.length > 0 ? (
           <>
-            <DiffStat
-              tone="neutral"
-              additions={status.workingTree.insertions}
-              deletions={status.workingTree.deletions}
-            />
+            <DiffStat tone="neutral" additions={changed.insertions} deletions={changed.deletions} />
             {` · ${reviewedCountLabel(review.viewedCount, files.length)}`}
           </>
         ) : null
@@ -423,7 +430,7 @@ function ChangesSection({
         <div aria-busy className={cn(CARD_CLASS_NAME, "h-[76px]")}>
           <span className="sr-only">Loading changes</span>
         </div>
-      ) : files.length > 0 ? (
+      ) : allFiles.length > 0 ? (
         <div className={cn(CARD_CLASS_NAME, "flex flex-col p-1")}>
           <ul className="flex flex-col">
             {visibleFiles.map((file) => {
@@ -478,6 +485,23 @@ function ChangesSection({
               {showAll ? "Show fewer" : `Show all ${files.length}`}
             </button>
           ) : null}
+          {changed.generatedCount > 0 ? (
+            <button
+              type="button"
+              aria-expanded={showGenerated}
+              onClick={() => setShowGenerated((value) => !value)}
+              className={cn(
+                "flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                MUTED,
+              )}
+            >
+              <ChevronRightIcon
+                aria-hidden
+                className={cn("size-3.5 shrink-0", showGenerated && "rotate-90")}
+              />
+              {generatedFoldLabel(changed.generatedCount, showGenerated)}
+            </button>
+          ) : null}
         </div>
       ) : (
         <p className={cn("text-xs", MUTED)}>No uncommitted changes</p>
@@ -491,15 +515,15 @@ function ChangesSection({
           {`${attachedCountNoun(unsentComments, "comment")} not sent`}
         </button>
       ) : null}
-      {status && (files.length > 0 || ahead > 0 || behind > 0) ? (
+      {status && (allFiles.length > 0 || ahead > 0 || behind > 0) ? (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {onOpenDiff && files.length > 0 ? (
+          {onOpenDiff && allFiles.length > 0 ? (
             <Button size="compact" variant="outline" onClick={onOpenDiff}>
               Review changes
-              {reviewShortcutLabel ? <Kbd className="ms-0.5">{reviewShortcutLabel}</Kbd> : null}
+              <ShortcutKeyCaps label={reviewShortcutLabel} className="ms-0.5" />
             </Button>
           ) : null}
-          {onFocusDiff && files.length > 0 ? (
+          {onFocusDiff && allFiles.length > 0 ? (
             <Button size="compact" variant="ghost" onClick={() => onFocusDiff({ kind: "commit" })}>
               Commit
             </Button>
@@ -1094,7 +1118,16 @@ function SubagentDetail({
               <span className={cn("block text-xs", MUTED)}>{activity}</span>
             </>
           ) : (
-            activity
+            inlineCodeSegments(activity).map((segment, index) =>
+              segment.code ? (
+                // oxlint-disable-next-line react/no-array-index-key -- segments never reorder
+                <code key={index} className="break-all font-mono text-xs">
+                  {segment.text}
+                </code>
+              ) : (
+                segment.text
+              ),
+            )
           )}
         </p>
       ) : null}
@@ -1396,6 +1429,9 @@ function SubagentsSection({
   );
 }
 
+/** The last finished turn's duration per thread, so Run details can show it again after a remount. */
+const FINISHED_TURN_DURATIONS = new Map<string, number>();
+
 interface InspectorOverviewProps {
   model: AgentPanelModel;
   threadKey: string | null;
@@ -1428,12 +1464,17 @@ function InspectorOverviewView({
   contextWindow,
   usageTotal,
   planLimits,
-  latestTurnDurationMs,
+  latestTurnDurationMs: reportedTurnDurationMs,
   modelLabel,
   latestTurnId,
   reviewShortcutLabel,
 }: InspectorOverviewProps) {
   const gitCwd = workspace?.gitCwd ?? null;
+  // While a turn runs, Usage keeps the turn before it ("Latest turn ran 3m 40s", board 11).
+  const latestTurnDurationMs =
+    threadKey === null
+      ? reportedTurnDurationMs
+      : rememberedTurnDuration(FINISHED_TURN_DURATIONS, threadKey, reportedTurnDurationMs);
   const hasUsage = describeThreadUsage(usageTotal ?? undefined) !== null;
   const showUsage =
     contextWindow !== null ||
@@ -1484,9 +1525,9 @@ function InspectorOverviewView({
             />
           ) : null}
           {empty ? (
-            <p className={cn("text-xs", MUTED)}>
+            <PanelEmptyCard title="Nothing reported yet">
               The plan, context, cost and subagents appear here once the agent reports them.
-            </p>
+            </PanelEmptyCard>
           ) : null}
         </div>
       </ScrollArea>

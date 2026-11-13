@@ -8,6 +8,7 @@ import {
   buildPatchCacheKey,
   getDiffLineStat,
   getRenderablePatch,
+  plainFileDiff,
   resolveFileDiffPath,
   resolveFileDiffPreviousPath,
 } from "./diffRendering";
@@ -424,5 +425,34 @@ describe("a file whose name a patch header cannot carry plainly", () => {
 
     expect(resolveFileDiffPath(file)).toBe("new\tname.ts");
     expect(resolveFileDiffPreviousPath(file)).toBe("old\tname.ts");
+  });
+});
+
+describe("plainFileDiff", () => {
+  const patch = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1 +1 @@",
+    "-export const a = 1;",
+    "+export const a = 2;",
+    "",
+  ].join("\n");
+  const preview = getRenderablePatch(patch, "plain-test");
+  const fileDiff = preview?.kind === "files" ? preview.files[0] : undefined;
+
+  it("marks the file as plain text and keeps everything else", () => {
+    expect(fileDiff).toBeDefined();
+    if (!fileDiff) return;
+    const plain = plainFileDiff(fileDiff);
+    expect(plain.lang).toBe("text");
+    expect(plain.hunks).toBe(fileDiff.hunks);
+    expect(resolveFileDiffPath(plain)).toBe("src/a.ts");
+  });
+
+  it("hands the viewer one object per file", () => {
+    if (!fileDiff) return;
+    expect(plainFileDiff(fileDiff)).toBe(plainFileDiff(fileDiff));
+    expect(plainFileDiff(plainFileDiff(fileDiff))).toBe(plainFileDiff(fileDiff));
   });
 });
