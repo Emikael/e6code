@@ -464,6 +464,27 @@ describe("shortcutLabelKeys", () => {
     assert.deepEqual(shortcutLabelKeys("+"), ["+"]);
     assert.deepEqual(shortcutLabelKeys("Esc"), ["Esc"]);
   });
+
+  it("draws Shift as its symbol when asked for compact modifiers", () => {
+    const compact = { compactModifiers: true };
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Shift+O", compact), ["Ctrl", "\u21e7", "O"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Alt+Shift+N", compact), [
+      "Ctrl",
+      "Alt",
+      "\u21e7",
+      "N",
+    ]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+N", compact), ["Ctrl", "N"]);
+    assert.deepEqual(shortcutLabelKeys("\u21e7\u2318O", compact), ["\u21e7", "\u2318", "O"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Shift+O"), ["Ctrl", "Shift", "O"]);
+  });
+
+  it("keeps a key named Shift as the key, not a modifier", () => {
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Shift", { compactModifiers: true }), [
+      "Ctrl",
+      "Shift",
+    ]);
+  });
 });
 
 describe("firstDeclaredShortcutLabelForCommand", () => {

@@ -52,6 +52,7 @@ import {
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
+import { sidebarReopenControlShows } from "../workspaceTitlebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 function ignoreSidebarOpenChange() {}
@@ -120,7 +121,7 @@ function SidebarControl() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [keybindings, toggleSidebar]);
 
-  if (!isMobile && state === "expanded") return null;
+  if (!sidebarReopenControlShows({ isMobile, state })) return null;
 
   return (
     // The right-side layout controls carry mr-px (border compensation inside

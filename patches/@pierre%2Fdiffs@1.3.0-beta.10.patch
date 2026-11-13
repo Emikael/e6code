@@ -173,6 +173,19 @@ index e9f62f5..af82a46 100644
  	};
  	return merged;
  }
+diff --git a/dist/renderers/DiffHunksRenderer.js b/dist/renderers/DiffHunksRenderer.js
+--- a/dist/renderers/DiffHunksRenderer.js
++++ b/dist/renderers/DiffHunksRenderer.js
+@@ -1001,7 +1001,8 @@
+ 	const slotName = getHunkSeparatorSlotName(type, hunkIndex);
+ 	const chunked = rangeSize > context.expansionLineCount;
+ 	const expandIndex = isExpandable ? hunkIndex : void 0;
+-	const content = typeof collapsedLines === "number" ? getModifiedLinesString(collapsedLines) : "More unchanged context may be available";
++	// A hunk's header, when given, names the hidden lines it follows instead of counting them.
++	const content = hunkSpecs ?? (typeof collapsedLines === "number" ? getModifiedLinesString(collapsedLines) : "More unchanged context may be available");
+ 	context.pushToGutter(type, createSeparator({
+ 		type: context.hunkSeparators,
+ 		content,
 diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
 --- a/dist/renderers/FileRenderer.js
 +++ b/dist/renderers/FileRenderer.js

@@ -8,6 +8,7 @@ import {
   buildPatchCacheKey,
   getDiffLineStat,
   getRenderablePatch,
+  hunkHeaderLabel,
   plainFileDiff,
   resolveFileDiffPath,
   resolveFileDiffPreviousPath,
@@ -436,23 +437,62 @@ describe("plainFileDiff", () => {
     "@@ -1 +1 @@",
     "-export const a = 1;",
     "+export const a = 2;",
+    "@@ -40,3 +40,4 @@ export function render() {",
+    "   const b = 1;",
+    "+  const c = 2;",
+    "   return b;",
+    " }",
     "",
   ].join("\n");
   const preview = getRenderablePatch(patch, "plain-test");
   const fileDiff = preview?.kind === "files" ? preview.files[0] : undefined;
 
-  it("marks the file as plain text and keeps everything else", () => {
+  it("marks the file as plain text and keeps its lines", () => {
     expect(fileDiff).toBeDefined();
     if (!fileDiff) return;
     const plain = plainFileDiff(fileDiff);
     expect(plain.lang).toBe("text");
-    expect(plain.hunks).toBe(fileDiff.hunks);
+    expect(plain.additionLines).toBe(fileDiff.additionLines);
+    expect(plain.hunks.map((hunk) => hunk.hunkContent)).toEqual(
+      fileDiff.hunks.map((hunk) => hunk.hunkContent),
+    );
     expect(resolveFileDiffPath(plain)).toBe("src/a.ts");
+  });
+
+  it("opens each hunk with its header in place of the unmodified-lines count", () => {
+    if (!fileDiff) return;
+    expect(plainFileDiff(fileDiff).hunks.map((hunk) => hunk.hunkSpecs)).toEqual([
+      "@@ line 1 @@",
+      "@@ export function render() { @@",
+    ]);
+    expect(fileDiff.hunks[1]?.hunkSpecs).toMatch(/^@@ -40,3 \+40,4 @@/);
   });
 
   it("hands the viewer one object per file", () => {
     if (!fileDiff) return;
     expect(plainFileDiff(fileDiff)).toBe(plainFileDiff(fileDiff));
     expect(plainFileDiff(plainFileDiff(fileDiff))).toBe(plainFileDiff(fileDiff));
+  });
+});
+
+describe("hunkHeaderLabel", () => {
+  const hunk = { additionStart: 132, additionCount: 22, deletionStart: 132, deletionCount: 16 };
+
+  it("names the function or section git put after the line counts", () => {
+    expect(hunkHeaderLabel({ ...hunk, hunkContext: "graphite, light" })).toBe(
+      "@@ graphite, light @@",
+    );
+  });
+
+  it("falls back to the lines the hunk covers now", () => {
+    expect(hunkHeaderLabel(hunk)).toBe("@@ lines 132\u2013153 @@");
+    expect(hunkHeaderLabel({ ...hunk, hunkContext: "  " })).toBe("@@ lines 132\u2013153 @@");
+    expect(hunkHeaderLabel({ ...hunk, additionCount: 1 })).toBe("@@ line 132 @@");
+  });
+
+  it("uses the old lines for a hunk that only removes", () => {
+    expect(hunkHeaderLabel({ ...hunk, additionStart: 131, additionCount: 0 })).toBe(
+      "@@ lines 132\u2013147 @@",
+    );
   });
 });

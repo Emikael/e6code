@@ -68,7 +68,7 @@ export function SidebarThreadHeader({
             // past the zero-width spacer onto a clipped second line and disappear whole.
             <span className="flex h-5 min-w-0 flex-1 flex-wrap justify-end overflow-hidden pointer-coarse:hidden">
               <span aria-hidden className="h-5 w-0" />
-              <ShortcutKeyCaps label={newThreadShortcutLabel} />
+              <ShortcutKeyCaps label={newThreadShortcutLabel} compact />
             </span>
           ) : null}
         </TooltipTrigger>

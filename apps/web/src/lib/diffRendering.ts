@@ -298,19 +298,50 @@ export function buildFileDiffContentVersion(fileDiff: FileDiffMetadata): number 
   return hash;
 }
 
+type DiffHunk = FileDiffMetadata["hunks"][number];
+
+function hunkLineRange(start: number, count: number): string {
+  return count <= 1 ? `line ${start}` : `lines ${start}\u2013${start + count - 1}`;
+}
+
+/**
+ * The header a hunk opens with in the Diff, as board 12 draws it: the function or section git
+ * named after `@@ … @@`, or, when it named none, the quiet range of lines the hunk covers in the
+ * file as it is now (as it was, for a hunk that only removes lines).
+ */
+export function hunkHeaderLabel(
+  hunk: Pick<
+    DiffHunk,
+    "hunkContext" | "additionStart" | "additionCount" | "deletionStart" | "deletionCount"
+  >,
+): string {
+  const context = hunk.hunkContext?.trim();
+  if (context) return `@@ ${context} @@`;
+  const range =
+    hunk.additionCount > 0
+      ? hunkLineRange(hunk.additionStart, hunk.additionCount)
+      : hunkLineRange(hunk.deletionStart, hunk.deletionCount);
+  return `@@ ${range} @@`;
+}
+
 const plainFileDiffs = new WeakMap<FileDiffMetadata, FileDiffMetadata>();
 
 /**
- * The same file diff marked as plain text, so the viewer draws +/− lines without token colors
- * (board 12) and skips highlighting work. Cached per diff, so the viewer keeps seeing one object
- * for an unchanged file.
+ * The same file diff as board 12 draws it: plain text, so the viewer draws +/− lines without token
+ * colors and skips highlighting work, and each hunk's header in place of the viewer's "N unmodified
+ * lines" separator (the patched viewer shows `hunkSpecs` there, and clicking it still expands the
+ * hidden lines). Cached per diff, so the viewer keeps seeing one object for an unchanged file.
  */
 export function plainFileDiff(fileDiff: FileDiffMetadata): FileDiffMetadata {
-  if (fileDiff.lang === "text") return fileDiff;
   const cached = plainFileDiffs.get(fileDiff);
   if (cached) return cached;
-  const plain = { ...fileDiff, lang: "text" as const };
+  const plain: FileDiffMetadata = {
+    ...fileDiff,
+    lang: "text",
+    hunks: fileDiff.hunks.map((hunk) => ({ ...hunk, hunkSpecs: hunkHeaderLabel(hunk) })),
+  };
   plainFileDiffs.set(fileDiff, plain);
+  plainFileDiffs.set(plain, plain);
   return plain;
 }
 
