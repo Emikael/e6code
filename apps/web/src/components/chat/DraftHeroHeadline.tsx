@@ -252,7 +252,7 @@ export function DraftHeroHeadline({
   return (
     // Phones centre the hero; wider windows align it to the column's start (board 1).
     <div className="relative flex flex-col items-center gap-3 sm:items-start">
-      <E6Monogram assemble className="mb-1 size-10 shadow-xs sm:hidden" />
+      <E6Monogram assemble meter className="mb-1 size-10 shadow-xs sm:hidden" />
       <h1
         aria-label={headingLabel}
         className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-left sm:text-[2rem] sm:leading-9 sm:tracking-[-0.03em]"

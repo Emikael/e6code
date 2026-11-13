@@ -35,12 +35,16 @@ function playMonogramAssembly(tile: SVGSVGElement) {
       delay: 90,
       ease: EASE_OUT,
     }),
-    playTransient(steps, {
-      transform: ["scaleX(0)", "none"],
-      duration: 260,
-      delay: staggerDelay(90, 260),
-      ease: EASE_OUT,
-    }),
+    ...(steps.length > 0
+      ? [
+          playTransient(steps, {
+            transform: ["scaleX(0)", "none"],
+            duration: 260,
+            delay: staggerDelay(90, 260),
+            ease: EASE_OUT,
+          }),
+        ]
+      : []),
   ];
   // Marked on completion, not start: StrictMode's mount replay cancels the first run.
   void Promise.all(motions.map((motion) => motion.finished)).then(() => {
@@ -51,15 +55,19 @@ function playMonogramAssembly(tile: SVGSVGElement) {
   };
 }
 
-/** The E6 tile: the app icon's graphite ground, glyph and step meter. Size it
-    with `size-*`; everything scales with the tile. `assemble` builds the tile
-    once per session on empty surfaces. */
+/** The E6 tile: the app icon's graphite ground and glyph. Size it with
+    `size-*`; everything scales with the tile. Pass `meter` only on tiles of
+    40px or more: below that the step meter falls under a pixel and smudges,
+    the same cut the icon exports make. `assemble` builds the tile once per
+    session on empty surfaces. */
 export function E6Monogram({
   className,
   assemble = false,
+  meter = false,
 }: {
   className?: string;
   assemble?: boolean;
+  meter?: boolean;
 }) {
   const tileRef = useRef<SVGSVGElement>(null);
   const groundId = `${useId().replaceAll(":", "")}-e6-ground`;
@@ -108,32 +116,33 @@ export function E6Monogram({
           <path key={d} d={d} />
         ))}
       </g>
-      {METER_STEPS.map((x, index) =>
-        index < METER_FILLED_STEPS ? (
-          <rect
-            key={x}
-            data-slot="brand-step"
-            x={x}
-            y="106"
-            width="8"
-            height="4"
-            rx="2"
-            className="origin-left fill-(--brand-meter-on) [transform-box:fill-box]"
-          />
-        ) : (
-          <rect
-            key={x}
-            x={x}
-            y="106"
-            width="8"
-            height="4"
-            rx="2"
-            fill="none"
-            className="stroke-(--brand-meter-off)"
-            strokeWidth="1.2"
-          />
-        ),
-      )}
+      {meter &&
+        METER_STEPS.map((x, index) =>
+          index < METER_FILLED_STEPS ? (
+            <rect
+              key={x}
+              data-slot="brand-step"
+              x={x}
+              y="106"
+              width="8"
+              height="4"
+              rx="2"
+              className="origin-left fill-(--brand-meter-on) [transform-box:fill-box]"
+            />
+          ) : (
+            <rect
+              key={x}
+              x={x}
+              y="106"
+              width="8"
+              height="4"
+              rx="2"
+              fill="none"
+              className="stroke-(--brand-meter-off)"
+              strokeWidth="1.2"
+            />
+          ),
+        )}
     </svg>
   );
 }
