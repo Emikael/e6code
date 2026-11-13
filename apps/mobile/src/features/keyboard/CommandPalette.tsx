@@ -237,6 +237,30 @@ export function CommandPalette(props: {
           }),
       },
       {
+        key: "parkThought",
+        kind: "action",
+        title: "Park a thought",
+        searchTerms: ["capture", "idea", "note", "later"],
+        run: () =>
+          navigation.navigate(
+            "ParkThought",
+            activeThread
+              ? { environmentId: activeThread.environmentId, projectId: activeThread.projectId }
+              : {},
+          ),
+      },
+      {
+        key: "parked",
+        kind: "action",
+        title: "Parked",
+        searchTerms: ["thoughts", "ideas", "later"],
+        run: () =>
+          navigation.navigate("SettingsSheet", {
+            screen: "SettingsContent",
+            params: { screen: "SettingsParked" },
+          }),
+      },
+      {
         key: "archive",
         kind: "action",
         title: "Archived threads",

@@ -5,15 +5,8 @@
  * asked once per environment; nothing is sent to any other. A thought parked
  * while that environment is unreachable waits on this phone and shows here.
  */
-import { useAtomValue } from "@effect/atom-react";
-import {
-  mayParkIn,
-  parkedOfferDetail,
-  parkedOfferQuestion,
-  selectParkedOfferEnvironment,
-} from "@e6tools/client-runtime/parked-sync";
 import { EnvironmentId, PARKED_TEXT_MAX_CHARS, ParkedEntryId, ProjectId } from "@e6tools/contracts";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -21,49 +14,32 @@ import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
 import { uuidv4 } from "../../lib/uuid";
 import { useProjects } from "../../state/entities";
-import { useEnvironments } from "../../state/environments";
-import {
-  enqueueParked,
-  parkedConsentsAtom,
-  parkedEnvironmentIdsAtom,
-  parkedListsAtom,
-  parkedQueueAtom,
-  setParkedConsent,
-} from "../../state/parked";
+import { enqueueParked, setParkedConsent } from "../../state/parked";
 import { writeIncomingShareDraft } from "../sharing/incoming-share-storage";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import {
-  buildParkedRows,
   canParkIn,
   formatParkedTime,
+  PARKED_FULL_MESSAGE,
+  parkedLengthCount,
   parkedTarget,
   type ParkedRow,
 } from "./parkedListModel";
-
-const PARKED_FULL_MESSAGE = "Parked is full. Remove one to add another.";
+import {
+  ParkedEnvironmentPicker,
+  ParkedOfferCard,
+  ParkedSaveToButton,
+  ParkedUnavailable,
+} from "./ParkedSaving";
+import { useParkedEnvironments } from "./useParkedEnvironments";
 
 export function ParkedRouteScreen() {
-  const lists = useAtomValue(parkedListsAtom);
-  const queue = useAtomValue(parkedQueueAtom);
-  const consents = useAtomValue(parkedConsentsAtom);
-  const available = useAtomValue(parkedEnvironmentIdsAtom);
+  const { lists, accepted, rows, offer, declinedAvailable, available, hasEnvironments, labelOf } =
+    useParkedEnvironments();
   const projects = useProjects();
-  const { environments } = useEnvironments();
   const { refresh: refreshShares } = useIncomingShare();
-  const labelOf = (environmentId: string) =>
-    environments.find((environment) => environment.environmentId === environmentId)?.label ??
-    "this environment";
-  const accepted = Object.keys(consents)
-    .filter((environmentId) => mayParkIn(consents, environmentId))
-    .map((environmentId) => ({ environmentId, label: labelOf(environmentId) }));
-  const acceptedIds = accepted.map((environment) => environment.environmentId);
-  const acceptedKey = acceptedIds.join("\n");
-  const rows = useMemo(
-    () => buildParkedRows(lists, queue, acceptedKey === "" ? [] : acceptedKey.split("\n")),
-    [lists, queue, acceptedKey],
-  );
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [removed, setRemoved] = useState<ParkedRow | null>(null);
@@ -72,12 +48,7 @@ export function ParkedRouteScreen() {
   const target = parkedTarget(accepted, picked);
   const targetEnvironmentId = target === null ? null : EnvironmentId.make(target);
   const targetOnline = targetEnvironmentId !== null && lists.has(targetEnvironmentId);
-  const offer = selectParkedOfferEnvironment({ consents, available, primaryEnvironmentId: null });
-  const declinedAvailable = available.filter((id) => consents[id] === "declined");
-  const lengthCount =
-    draft.length >= PARKED_TEXT_MAX_CHARS * 0.8
-      ? `${draft.length.toLocaleString("en-US")} / ${PARKED_TEXT_MAX_CHARS.toLocaleString("en-US")}`
-      : null;
+  const lengthCount = parkedLengthCount(draft.length);
 
   const park = () => {
     const text = draft.trim();
@@ -148,80 +119,20 @@ export function ParkedRouteScreen() {
           (project) => project.environmentId === row.environmentId && project.id === projectId,
         )?.title ?? null);
 
-  const offerCard =
-    offer !== null ? (
-      <SettingsSection>
-        <View className="gap-3 p-4">
-          <Text className="text-base text-foreground">
-            {parkedOfferQuestion({ thoughts: 0, notes: 0 }, labelOf(offer))}
-          </Text>
-          <Text className="text-sm text-foreground-muted">{parkedOfferDetail(labelOf(offer))}</Text>
-          <View className="flex-row items-center gap-2">
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setParkedConsent(offer, "accepted")}
-              className="min-h-11 justify-center rounded-full bg-subtle-strong px-4 active:opacity-70"
-            >
-              <Text className="text-sm font-e6-medium text-foreground">Save</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setParkedConsent(offer, "declined")}
-              className="min-h-11 justify-center rounded-full px-4 active:opacity-70"
-            >
-              <Text className="text-sm text-foreground">Not now</Text>
-            </Pressable>
-          </View>
-        </View>
-      </SettingsSection>
-    ) : null;
-
   return (
     <SettingsScreen title="Parked">
-      {offerCard}
+      {offer !== null ? <ParkedOfferCard environmentId={offer} label={labelOf(offer)} /> : null}
       {target === null ? (
-        offer !== null ? null : declinedAvailable.length > 0 ? (
-          <EmptyState
-            variant="plain"
-            title="Parked is not saved anywhere"
-            detail="Save parked thoughts to an environment to park them from this phone."
-          />
-        ) : environments.length > 0 && available.length === 0 ? (
-          <EmptyState
-            title="Parked needs a newer server"
-            detail="Connect to an environment running a version of E6 Code that keeps parked thoughts, and they show here."
-          />
-        ) : (
-          <EmptyState
-            title="Not connected"
-            detail="Connect to an environment to park thoughts from this phone."
+        offer !== null ? null : (
+          <ParkedUnavailable
+            declined={declinedAvailable.length > 0}
+            hasEnvironments={hasEnvironments}
+            supported={available.length > 0}
           />
         )
       ) : (
         <SettingsSection>
-          {accepted.length > 1 ? (
-            <View className="flex-row flex-wrap items-center gap-2 px-3 pt-3">
-              {accepted.map((environment) => (
-                <Pressable
-                  key={environment.environmentId}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: environment.environmentId === target }}
-                  onPress={() => setPicked(environment.environmentId)}
-                  className={
-                    environment.environmentId === target
-                      ? "min-h-11 justify-center rounded-full bg-subtle-strong px-3 active:opacity-70"
-                      : "min-h-11 justify-center rounded-full px-3 active:opacity-70"
-                  }
-                >
-                  <Text className="text-sm text-foreground">
-                    {environment.environmentId === target
-                      ? `Parks on ${environment.label}`
-                      : environment.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
+          <ParkedEnvironmentPicker accepted={accepted} target={target} onPick={setPicked} />
           <View className="flex-row items-center gap-2 p-3">
             <AppTextInput
               accessibilityLabel="Park a thought"
@@ -349,19 +260,11 @@ export function ParkedRouteScreen() {
         </View>
       ) : null}
       {declinedAvailable.map((environmentId) => (
-        <View key={environmentId} className="gap-1 px-2">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityHint={parkedOfferDetail(labelOf(environmentId))}
-            onPress={() => setParkedConsent(environmentId, "accepted")}
-            className="min-h-11 justify-center active:opacity-70"
-          >
-            <Text className="text-sm text-foreground">{`Save to ${labelOf(environmentId)}`}</Text>
-          </Pressable>
-          <Text className="text-xs text-foreground-muted">
-            {parkedOfferDetail(labelOf(environmentId))}
-          </Text>
-        </View>
+        <ParkedSaveToButton
+          key={environmentId}
+          environmentId={environmentId}
+          label={labelOf(environmentId)}
+        />
       ))}
     </SettingsScreen>
   );

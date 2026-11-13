@@ -20,6 +20,7 @@ import { useThreadShells } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { useThreadListActions } from "../home/useThreadListActions";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
+import { useParkedNavigation } from "../parked/useParkedNavigation";
 import {
   StackActions,
   useFocusEffect,
@@ -115,6 +116,8 @@ function ThreadHeader(
     /** "branch · project · machine · connected": a phone's options menu leads with it. */
     readonly contextLine: string;
     readonly onWhereWasI: () => void;
+    /** F7: park a thought filed under this thread's project. */
+    readonly onParkThought: () => void;
     /** F1's "Snooze everything except this thread", one entry per snooze preset. */
     readonly snoozeOthers: ReadonlyArray<{
       readonly label: string;
@@ -134,7 +137,7 @@ function ThreadHeader(
   const navigation = useNavigation();
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { inspectorControl, onOpenTerminal } = props.gitControls;
-  const { contextLine, onWhereWasI } = props;
+  const { contextLine, onWhereWasI, onParkThought } = props;
   const { snoozeOthers, onWakeAllSnoozed } = props;
   const threadOptions = useMemo(
     () => ({
@@ -143,6 +146,7 @@ function ThreadHeader(
         : [],
       trailing: [
         { label: "Where was I?", icon: "clock.arrow.circlepath", onPress: onWhereWasI },
+        { label: "Park a thought", icon: "lightbulb", onPress: onParkThought },
         {
           label: "Snooze everything except this thread",
           icon: "moon.zzz",
@@ -155,7 +159,7 @@ function ThreadHeader(
         { label: "Wake all snoozed threads", icon: "sun.max", onPress: onWakeAllSnoozed },
       ],
     }),
-    [contextLine, onWakeAllSnoozed, onWhereWasI, snoozeOthers],
+    [contextLine, onParkThought, onWakeAllSnoozed, onWhereWasI, snoozeOthers],
   );
   const native = useThreadHeaderOptions({ ...props, threadOptions });
   // Board 9 on an Android phone: the title and one "Thread options" menu
@@ -188,6 +192,7 @@ function ThreadHeader(
           : []),
         { id: "git", title: "Git", onPress: props.onOpenGitInspector },
         { id: "where-was-i", title: "Where was I?", onPress: onWhereWasI },
+        { id: "park-thought", title: "Park a thought", onPress: onParkThought },
         {
           id: "snooze-others",
           title: "Snooze everything except this thread",
@@ -204,6 +209,7 @@ function ThreadHeader(
     [
       contextLine,
       snoozeOthers,
+      onParkThought,
       onWakeAllSnoozed,
       inspectorControl,
       onOpenTerminal,
@@ -639,6 +645,18 @@ function ThreadRouteContent(
   const showRecapAgain = useCallback(() => {
     if (recapThreadKey !== null) requestThreadRecap(recapThreadKey);
   }, [recapThreadKey]);
+  const { parkThought } = useParkedNavigation();
+  const parkThoughtEnvironmentId = selectedThread?.environmentId ?? null;
+  const parkThoughtProjectId = selectedThread?.projectId ?? null;
+  const parkThoughtHere = useCallback(
+    () =>
+      parkThought(
+        parkThoughtEnvironmentId !== null && parkThoughtProjectId !== null
+          ? { environmentId: parkThoughtEnvironmentId, projectId: parkThoughtProjectId }
+          : undefined,
+      ),
+    [parkThought, parkThoughtEnvironmentId, parkThoughtProjectId],
+  );
   // F1's "Snooze everything except this thread" and its way back, from the
   // shared selectors: threads blocked on you cannot be snoozed and stay put.
   const allThreadShells = useThreadShells();
@@ -1358,6 +1376,7 @@ function ThreadRouteContent(
         subtitle={headerSubtitle}
         contextLine={headerContextLine}
         onWhereWasI={showRecapAgain}
+        onParkThought={parkThoughtHere}
         snoozeOthers={snoozeOthersPresets}
         onWakeAllSnoozed={wakeAllSnoozed}
         headerColor={headerColor}

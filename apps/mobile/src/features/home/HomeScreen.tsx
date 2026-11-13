@@ -66,7 +66,7 @@ import {
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
-import { ApprovalAnswerNotice } from "./ApprovalAnswerNotice";
+import { BriefNotice } from "../../components/BriefNotice";
 import { HomeComposerBar, HomeTitle } from "./HomePageChrome";
 import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
@@ -1393,7 +1393,7 @@ export function HomeScreen(props: HomeScreenProps) {
               }}
             />
           </SwipeableScrollGateProvider>
-          <ApprovalAnswerNotice bottom={composerBottom + 56} />
+          <BriefNotice bottom={composerBottom + 56} />
           {composerBar}
         </View>
       </View>
@@ -1457,6 +1457,14 @@ export function HomeScreen(props: HomeScreenProps) {
             }
           />
         </SwipeableScrollGateProvider>
+        <BriefNotice
+          bottom={
+            Platform.OS === "ios"
+              ? Math.max(insets.bottom, 16) + 24 + iosBottomToolbarClearance
+              : // Above the new-task and filter FABs.
+                Math.max(insets.bottom, 16) + 148
+          }
+        />
       </View>
     </View>
   );

@@ -115,9 +115,11 @@ notes saved there. Dismiss the question to keep everything in this browser; it i
 and **Save to …** at the foot of the list asks again when you want. **Stop saving** keeps a copy in
 this browser and sends nothing more. The foot of the list says where your list is kept.
 
-On mobile, open **Settings → Parked**. It asks the same question, and nothing is saved from the
-phone until you accept. Then you can park a thought, start a task from one, or delete one. A
-thought parked while the environment is unreachable shows as waiting and is saved when it is back.
+On mobile, tap **Park a thought** at the top of the thread list, or in a thread's **…** menu, where
+the thread's project is already chosen. **Parked** sits beside it, and in **Settings**. Both ask the
+same question, and nothing is saved from the phone until you accept. Then you can park a thought,
+start a task from one, or delete one. A thought parked while the environment is unreachable shows
+as waiting and is saved when it is back.
 
 A thought or note holds up to 1,000 characters. Parked holds up to 200 thoughts, and up to 200
 notes. When it is full, E6 Code asks you to remove one rather than dropping an old one. If two

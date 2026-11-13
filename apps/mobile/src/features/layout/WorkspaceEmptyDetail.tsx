@@ -5,6 +5,7 @@ import { AppText as Text } from "../../components/AppText";
 import { MaterialNewThreadButton } from "../../components/MaterialNewThreadButton";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { EmptyState } from "../../components/EmptyState";
+import { BriefNotice } from "../../components/BriefNotice";
 
 export function WorkspaceEmptyDetail(props: {
   readonly onStartNewTask?: () => void;
@@ -64,6 +65,8 @@ export function WorkspaceEmptyDetail(props: {
           ) : null}
         </View>
       )}
+      {/* "Parked", after a thought is parked from the sidebar. */}
+      <BriefNotice bottom={24} />
     </View>
   );
 }

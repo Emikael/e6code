@@ -7,7 +7,7 @@ import {
 } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildParkedRows, canParkIn, parkedTarget } from "./parkedListModel";
+import { buildParkedRows, canParkIn, parkedProjectFor, parkedTarget } from "./parkedListModel";
 
 const STUDIO = EnvironmentId.make("studio");
 const LAPTOP = EnvironmentId.make("laptop");
@@ -108,5 +108,22 @@ describe("parkedTarget", () => {
     expect(parkedTarget(accepted, null)).toBe("laptop");
     expect(parkedTarget(accepted, "gone")).toBe("laptop");
     expect(parkedTarget([], null)).toBeNull();
+  });
+});
+
+describe("parkedProjectFor", () => {
+  const projects = [
+    { environmentId: "studio", id: "web" },
+    { environmentId: "laptop", id: "api" },
+  ];
+
+  it("keeps the picked project while it lives where the thought goes", () => {
+    expect(parkedProjectFor(projects, "studio", "web")).toBe("web");
+  });
+
+  it("files the thought under no project once it goes to another environment", () => {
+    expect(parkedProjectFor(projects, "laptop", "web")).toBeNull();
+    expect(parkedProjectFor(projects, null, "web")).toBeNull();
+    expect(parkedProjectFor(projects, "studio", null)).toBeNull();
   });
 });

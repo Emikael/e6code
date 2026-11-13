@@ -22,6 +22,7 @@ import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
+import { useParkedNavigation } from "../parked/useParkedNavigation";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -36,6 +37,7 @@ export function HomeRouteScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const handleSelectThread = useHomeThreadSelection();
   const threadListV2Enabled = useThreadListV2Enabled();
+  const { parkThought, openParked } = useParkedNavigation();
 
   useEffect(() => {
     void checkForAppUpdateOnLaunch();
@@ -190,6 +192,8 @@ export function HomeRouteScreen() {
               params: { screen: "Settings" },
             })
           }
+          onParkThought={() => parkThought()}
+          onOpenParked={openParked}
           onProjectSortOrderChange={setProjectSortOrder}
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}

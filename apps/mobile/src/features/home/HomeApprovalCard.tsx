@@ -31,7 +31,7 @@ import {
 } from "../threads/thread-list-v2-items";
 import { THREAD_LIST_V2_MONO_FONT as MONO_FONT } from "../threads/thread-list-v2-row-appearance";
 import { threadAgentName } from "../threads/threadListV2";
-import { showApprovalAnswerNotice } from "./ApprovalAnswerNotice";
+import { showBriefNotice } from "../../components/BriefNotice";
 import { homeApprovalCardModel } from "./home-approval-card";
 
 const NO_ACTIVITIES: never[] = [];
@@ -114,7 +114,7 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
       if (result?._tag !== "Success") return;
       // The card simply goes, so say what happened.
       const announcement = approvalAnswerAnnouncement(decision, model.what);
-      showApprovalAnswerNotice(announcement);
+      showBriefNotice(announcement);
       AccessibilityInfo.announceForAccessibility(announcement);
     });
   };

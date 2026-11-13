@@ -1,6 +1,7 @@
 import { applyParkedOps, type ParkedOp } from "@e6tools/client-runtime/parked-sync";
 import {
   EnvironmentId,
+  PARKED_TEXT_MAX_CHARS,
   PARKED_THOUGHTS_MAX,
   type OrchestrationParkedEntry,
   type OrchestrationParkedState,
@@ -63,9 +64,36 @@ export function parkedTarget(
   );
 }
 
+/**
+ * The project a new thought is filed under: the one picked (from a thread,
+ * that thread's), while it belongs to the environment the thought goes to;
+ * otherwise none, since a project lives in one environment.
+ */
+export function parkedProjectFor(
+  projects: ReadonlyArray<{ readonly environmentId: string; readonly id: string }>,
+  environmentId: string | null,
+  projectId: string | null,
+): string | null {
+  if (environmentId === null || projectId === null) return null;
+  return projects.some(
+    (project) => project.environmentId === environmentId && project.id === projectId,
+  )
+    ? projectId
+    : null;
+}
+
+export const PARKED_FULL_MESSAGE = "Parked is full. Remove one to add another.";
+
 /** Whether `environmentId` can take another thought; past the cap it is refused, never evicted. */
 export function canParkIn(rows: ReadonlyArray<ParkedRow>, environmentId: EnvironmentId): boolean {
   return rows.filter((row) => row.environmentId === environmentId).length < PARKED_THOUGHTS_MAX;
+}
+
+/** "812 / 1,000" once the text nears the cap, else null. */
+export function parkedLengthCount(length: number): string | null {
+  return length >= PARKED_TEXT_MAX_CHARS * 0.8
+    ? `${length.toLocaleString("en-US")} / ${PARKED_TEXT_MAX_CHARS.toLocaleString("en-US")}`
+    : null;
 }
 
 /** "14:09" today, else the short date: when it was parked. */
