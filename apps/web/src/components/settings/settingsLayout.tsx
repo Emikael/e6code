@@ -448,7 +448,7 @@ export function SettingsRow({
             : "@min-[32rem]/settings-row:grid @min-[32rem]/settings-row:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[32rem]/settings-row:items-center @min-[32rem]/settings-row:gap-8",
         )}
       >
-        <div className="min-w-0 flex-1 space-y-1">
+        <div data-slot="settings-row-text" className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 items-center gap-1.5">
             <h3 className="text-sm font-medium tracking-[-0.005em] text-foreground">{title}</h3>
             {renderedInheritance ? (
