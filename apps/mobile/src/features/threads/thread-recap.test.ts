@@ -179,6 +179,9 @@ describe("recap wording", () => {
     expect(formatRecapFiles([{ path: "a.ts", additions: 1, deletions: 0 }], 2)).toBe(
       "a.ts +1 −0 · +2 more",
     );
+    expect(
+      formatRecapFiles([{ path: "/repo/notes.md", additions: 0, deletions: 0, counted: false }], 0),
+    ).toBe("notes.md");
     expect(formatRecapFiles([], 0)).toBeNull();
   });
 

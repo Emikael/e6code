@@ -11176,12 +11176,6 @@ export default function ChatView(props: ChatViewProps) {
                           nonce: (previous?.nonce ?? 0) + 1,
                         }))
                       }
-                      onOpenStep={(step) =>
-                        setRevealMessageRequest((previous) => ({
-                          target: { kind: "step", ...step },
-                          nonce: (previous?.nonce ?? 0) + 1,
-                        }))
-                      }
                       onOpenFile={(turnId, path) => onOpenTurnDiff(turnId as TurnId, path)}
                       onOpenChanges={addDiffSurface}
                     />

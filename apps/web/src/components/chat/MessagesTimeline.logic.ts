@@ -2109,45 +2109,15 @@ export function findSubagentSpawnRow(
   return null;
 }
 
-/** Where a reveal request scrolls: a message, or a logged step (the recap's "Since then"). */
-export type TimelineRevealTarget =
-  | { readonly kind: "message"; readonly messageId: string }
-  | { readonly kind: "step"; readonly entryId: string; readonly turnId: string | null };
+/** Where a reveal request scrolls: a message (the recap's "You asked"). */
+export type TimelineRevealTarget = { readonly kind: "message"; readonly messageId: string };
 
-/**
- * The row to scroll to for a reveal target, or -1 when it is not loaded. A
- * step folded out of view lands on the row that holds its turn instead.
- */
+/** The row to scroll to for a reveal target, or -1 when it is not loaded. */
 export function findRevealRowIndex(
   rows: ReadonlyArray<MessagesTimelineRow>,
   target: TimelineRevealTarget,
 ): number {
-  if (target.kind === "message") {
-    return rows.findIndex((row) => row.kind === "message" && row.message.id === target.messageId);
-  }
-  const holdsEntry = rows.findIndex((row) => {
-    switch (row.kind) {
-      case "work":
-        return row.groupedEntries.some((entry) => entry.id === target.entryId);
-      case "work-live":
-        return (
-          row.entry.id === target.entryId ||
-          row.groupedEntries.some((entry) => entry.id === target.entryId)
-        );
-      case "activity-group":
-        return row.entries.some(
-          (entry) => entry.kind === "work" && entry.entry.id === target.entryId,
-        );
-      default:
-        return false;
-    }
-  });
-  if (holdsEntry >= 0 || target.turnId === null) return holdsEntry;
-  return rows.findIndex(
-    (row) =>
-      (row.kind === "turn-fold" || row.kind === "activity-group" || row.kind === "work-toggle") &&
-      row.turnId === target.turnId,
-  );
+  return rows.findIndex((row) => row.kind === "message" && row.message.id === target.messageId);
 }
 
 /** What the working row says while a turn runs. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { mainAgentDiffStat } from "./diffStat.ts";
+import { mainAgentDiffStat, mainAgentFileDiffStats } from "./diffStat.ts";
 
 const payload = (changedFiles: unknown, extra: Record<string, unknown> = {}) => ({
   itemType: "file_change",
@@ -58,5 +58,27 @@ describe("mainAgentDiffStat", () => {
     expect(
       mainAgentDiffStat(payload([{ path: "/repo/xa.ts", additions: 1, deletions: 0 }]), ["a.ts"]),
     ).toBeNull();
+  });
+});
+
+describe("mainAgentFileDiffStats", () => {
+  it("keeps each counted file and leaves out files without counts", () => {
+    expect(
+      mainAgentFileDiffStats(
+        payload([
+          { path: "src/a.ts", additions: 3, deletions: 1 },
+          { path: "src/b.ts" },
+          { additions: 1, deletions: 1 },
+        ]),
+      ),
+    ).toEqual([{ path: "src/a.ts", additions: 3, deletions: 1 }]);
+  });
+
+  it("leaves subagent rows to the subagent file list", () => {
+    expect(
+      mainAgentFileDiffStats(
+        payload([{ path: "a.ts", additions: 1, deletions: 0 }], { agentId: "agent-1" }),
+      ),
+    ).toEqual([]);
   });
 });

@@ -570,6 +570,10 @@ describe("deriveWorkLogEntries", () => {
       createdAt: "2026-02-23T00:00:02.200Z",
       toolLifecycleStatus: "completed",
       diffStat: { additions: 48, deletions: 12 },
+      fileDiffStats: [
+        { path: "src/a.ts", additions: 40, deletions: 2 },
+        { path: "src/b.ts", additions: 8, deletions: 10 },
+      ],
     });
   });
 

@@ -84,7 +84,6 @@ export function ThreadRecapHost({
   ready,
   source,
   onOpenMessage,
-  onOpenStep,
   onOpenFile,
   onOpenChanges,
   attachedNotSent,
@@ -105,7 +104,6 @@ export function ThreadRecapHost({
   ready: boolean;
   source: ThreadRecapSource;
   onOpenMessage: (messageId: string) => void;
-  onOpenStep: (step: { readonly entryId: string; readonly turnId: string | null }) => void;
   onOpenFile: (turnId: string, path: string) => void;
   onOpenChanges: () => void;
 }) {
@@ -221,7 +219,6 @@ export function ThreadRecapHost({
         recap={current.recap}
         onDismiss={() => setState({ ...current, recap: null })}
         onOpenMessage={onOpenMessage}
-        onOpenStep={onOpenStep}
         onOpenFile={onOpenFile}
         onOpenChanges={onOpenChanges}
         attachedNotSent={attachedNotSent}
@@ -354,7 +351,6 @@ function ThreadRecapCard({
   recap,
   onDismiss,
   onOpenMessage,
-  onOpenStep,
   onOpenFile,
   onOpenChanges,
   attachedNotSent,
@@ -364,7 +360,6 @@ function ThreadRecapCard({
   attachedNotSent: string | null;
   onDismiss: () => void;
   onOpenMessage: (messageId: string) => void;
-  onOpenStep: (step: { readonly entryId: string; readonly turnId: string | null }) => void;
   onOpenFile: (turnId: string, path: string) => void;
   onOpenChanges: () => void;
 }) {
@@ -414,15 +409,7 @@ function ThreadRecapCard({
         <div className={ROW_CLASS}>
           <span className={KEY_CLASS}>Since then</span>
           <span className="flex min-w-0 flex-col gap-1">
-            {sinceThen.summary && sinceThen.firstStep ? (
-              <button
-                type="button"
-                className={`${LINK_CLASS} text-sm leading-[22px] text-foreground`}
-                onClick={() => onOpenStep(sinceThen.firstStep!)}
-              >
-                {sinceThen.summary}
-              </button>
-            ) : sinceThen.summary ? (
+            {sinceThen.summary ? (
               <span className="text-sm leading-[22px] text-foreground">{sinceThen.summary}</span>
             ) : null}
             {sinceThen.files.length > 0 ? (
@@ -433,11 +420,14 @@ function ThreadRecapCard({
                     <button
                       type="button"
                       className={LINK_CLASS}
-                      onClick={() => onOpenFile(file.turnId, file.path)}
+                      // A running turn has no checkpoint yet: its edits are in the working tree.
+                      onClick={() =>
+                        file.running ? onOpenChanges() : onOpenFile(file.turnId, file.path)
+                      }
                     >
                       {fileName(file.path)}
-                    </button>{" "}
-                    +{file.additions} −{file.deletions}
+                    </button>
+                    {file.counted ? ` +${file.additions} −${file.deletions}` : null}
                   </span>
                 ))}
                 {sinceThen.moreFiles > 0 ? ` · +${sinceThen.moreFiles} more` : null}

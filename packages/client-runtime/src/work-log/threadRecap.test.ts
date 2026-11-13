@@ -142,7 +142,7 @@ describe("deriveThreadRecap", () => {
     expect(deriveThreadRecap({ ...input, messages: [] })).toBeNull();
   });
 
-  it("heads the card with the visit time and links the summary to the first new step", () => {
+  it("heads the card with the visit time", () => {
     const recap = deriveThreadRecap({
       ...input,
       visitedAt: at(30),
@@ -153,7 +153,7 @@ describe("deriveThreadRecap", () => {
       ],
     });
     expect(recap?.since).toBe(at(30));
-    expect(recap?.sinceThen?.firstStep).toEqual({ entryId: "s2", turnId: "turn-2" });
+    expect(recap?.sinceThen?.summary).toBe("Claude read 2 files.");
   });
 
   it("summarizes only the steps after the visit, with the files they changed", () => {
@@ -180,11 +180,91 @@ describe("deriveThreadRecap", () => {
     });
     expect(recap?.sinceThen?.summary).toBe("Claude read 2 files and changed 1 file.");
     expect(recap?.sinceThen?.files).toEqual([
-      { path: "b.ts", additions: 18, deletions: 4, turnId: "t1" },
-      { path: "a.ts", additions: 3, deletions: 1, turnId: "t2" },
-      { path: "c.ts", additions: 1, deletions: 1, turnId: "t2" },
+      { path: "b.ts", additions: 18, deletions: 4, turnId: "t1", running: false, counted: true },
+      { path: "a.ts", additions: 3, deletions: 1, turnId: "t2", running: false, counted: true },
+      { path: "c.ts", additions: 1, deletions: 1, turnId: "t2", running: false, counted: true },
     ]);
     expect(recap?.sinceThen?.moreFiles).toBe(1);
+  });
+
+  it("lists the files a running turn changed before its checkpoint lands", () => {
+    const running = TurnId.make("t-running");
+    const edit = (id: string, minute: number, overrides: Partial<WorkLogEntry>) =>
+      step(id, minute, {
+        label: "Edit",
+        requestKind: "file-change",
+        turnId: running,
+        ...overrides,
+      });
+    const recap = deriveThreadRecap({
+      ...input,
+      workLogEntries: [
+        // Before the visit: already seen.
+        edit("before", 1, { changedFiles: ["/repo/packages/old.ts"] }),
+        step("r1", 3, { turnId: running }),
+        edit("e1", 4, {
+          changedFiles: ["/repo/packages/shared/src/themePalettes.ts"],
+          diffStat: { additions: 18, deletions: 4 },
+        }),
+        edit("e2", 5, {
+          changedFiles: ["/repo/apps/mobile/src/mobileTheme.ts", "/repo/apps/mobile/src/b.ts"],
+          fileDiffStats: [
+            { path: "/repo/apps/mobile/src/mobileTheme.ts", additions: 6, deletions: 2 },
+            { path: "/repo/apps/mobile/src/b.ts", additions: 1, deletions: 0 },
+          ],
+          diffStat: { additions: 7, deletions: 2 },
+        }),
+        // The provider did not count this edit's lines.
+        edit("e3", 6, { changedFiles: ["/repo/notes.md"] }),
+      ],
+    });
+    expect(recap?.sinceThen?.summary).toBe("Claude read 1 file and changed 4 files.");
+    expect(recap?.sinceThen?.files).toEqual([
+      {
+        path: "/repo/packages/shared/src/themePalettes.ts",
+        additions: 18,
+        deletions: 4,
+        turnId: running,
+        running: true,
+        counted: true,
+      },
+      {
+        path: "/repo/apps/mobile/src/mobileTheme.ts",
+        additions: 6,
+        deletions: 2,
+        turnId: running,
+        running: true,
+        counted: true,
+      },
+      {
+        path: "/repo/apps/mobile/src/b.ts",
+        additions: 1,
+        deletions: 0,
+        turnId: running,
+        running: true,
+        counted: true,
+      },
+    ]);
+    expect(recap?.sinceThen?.moreFiles).toBe(1);
+  });
+
+  it("adds a running turn's edits to the same file an earlier turn changed", () => {
+    const recap = deriveThreadRecap({
+      ...input,
+      workLogEntries: [
+        step("e1", 7, {
+          label: "Edit",
+          requestKind: "file-change",
+          turnId: TurnId.make("t2"),
+          changedFiles: ["/repo/src/a.ts"],
+        }),
+      ],
+      checkpoints: [checkpoint("t1", 4, [{ path: "src/a.ts", additions: 2, deletions: 1 }])],
+    });
+    // One file, named as the checkpoint names it; its counts are partial, so none show.
+    expect(recap?.sinceThen?.files).toEqual([
+      { path: "src/a.ts", additions: 2, deletions: 1, turnId: "t2", running: true, counted: false },
+    ]);
   });
 
   it("says At least when thread detail hit its activity cap", () => {
