@@ -1,6 +1,6 @@
 {
   "name": "@e6tools/contracts",
-  "version": "0.0.46",
+  "version": "0.0.48",
   "private": true,
   "files": [
     "dist"
