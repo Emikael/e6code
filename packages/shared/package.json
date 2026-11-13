@@ -347,6 +347,10 @@
       "types": "./src/hostClassification.ts",
       "import": "./src/hostClassification.ts"
     },
+    "./htmlRender": {
+      "types": "./src/htmlRender.ts",
+      "import": "./src/htmlRender.ts"
+    },
     "./htmlText": {
       "types": "./src/htmlText.ts",
       "import": "./src/htmlText.ts"

@@ -1,3 +1,5 @@
+import { splitMermaidMarkdown } from "@e6tools/client-runtime/mermaid-markdown";
+import type { HtmlRenderReference } from "@e6tools/shared/htmlRender";
 import {
   WorktreeWorkingHeader,
   WorktreeSetupCard,
@@ -158,6 +160,8 @@ import {
   type ThreadFeedEntry,
   type ThreadFeedLatestTurn,
 } from "../../lib/threadActivity";
+import { HtmlRenderArtifact } from "./HtmlRenderArtifact";
+import { MermaidCodeBlock } from "./MermaidCodeBlock";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import {
   resolveThreadFeedLiveFollow,
@@ -248,6 +252,12 @@ function isFreshTimestamp(input: string): boolean {
   return Number.isFinite(timestamp) && Date.now() - timestamp < FRESH_ENTRY_WINDOW_MS;
 }
 
+const EMPTY_HTML_RENDERS: ReadonlyArray<HtmlRenderReference> = [];
+const EMPTY_HTML_RENDERS_BY_TURN: ReadonlyMap<
+  TurnId,
+  ReadonlyArray<HtmlRenderReference>
+> = new Map();
+
 export interface ThreadFeedProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
@@ -259,6 +269,8 @@ export interface ThreadFeedProps {
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   readonly turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
+  /** Pages each turn published with `html_render`, shown above the turn's final reply. */
+  readonly htmlRendersByTurnId?: ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>>;
   readonly contentPresentation: ThreadContentPresentation;
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
@@ -803,29 +815,59 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     }
     if (segment.markdown.trim().length === 0) return null;
 
-    const markdown = renderCodexFileCitationsAsMarkdown(segment.markdown);
-    return hasNativeSelectableMarkdownText() ? (
-      <SelectableMarkdownText
-        key={`markdown:${segment.sourceOffset}`}
-        markdown={markdown}
-        skills={props.skills}
-        textStyle={props.markdownStyles.nativeTextStyle}
-        {...props.linkHandlers}
-        renderImage={props.renderImage}
-      />
-    ) : (
-      <Markdown
-        key={`markdown:${segment.sourceOffset}`}
-        options={{ gfm: true }}
-        renderers={props.markdownStyles.renderers}
-        styles={props.markdownStyles.styles}
-        theme={props.markdownStyles.theme}
-      >
-        {markdown}
-      </Markdown>
-    );
+    return splitMermaidMarkdown(segment.markdown).map((part) => {
+      const key = `${segment.sourceOffset + part.sourceOffset}`;
+      if (part.kind === "mermaid") {
+        return (
+          <MermaidCodeBlock
+            key={`mermaid:${key}`}
+            code={part.code}
+            textStyle={props.markdownStyles.nativeTextStyle}
+          />
+        );
+      }
+      if (part.markdown.trim().length === 0) return null;
+      return (
+        <AssistantMarkdownSegment
+          key={`markdown:${key}`}
+          markdown={part.markdown}
+          markdownStyles={props.markdownStyles}
+          linkHandlers={props.linkHandlers}
+          renderImage={props.renderImage}
+          skills={props.skills}
+        />
+      );
+    });
   });
 });
+
+function AssistantMarkdownSegment(props: {
+  readonly markdown: string;
+  readonly markdownStyles: MarkdownStyleSet;
+  readonly linkHandlers: MarkdownLinkHandlers;
+  readonly renderImage: MarkdownImageRenderer;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
+}) {
+  const markdown = renderCodexFileCitationsAsMarkdown(props.markdown);
+  return hasNativeSelectableMarkdownText() ? (
+    <SelectableMarkdownText
+      markdown={markdown}
+      skills={props.skills}
+      textStyle={props.markdownStyles.nativeTextStyle}
+      {...props.linkHandlers}
+      renderImage={props.renderImage}
+    />
+  ) : (
+    <Markdown
+      options={{ gfm: true }}
+      renderers={props.markdownStyles.renderers}
+      styles={props.markdownStyles.styles}
+      theme={props.markdownStyles.theme}
+    >
+      {markdown}
+    </Markdown>
+  );
+}
 
 function MarkdownCodeBlock(props: {
   readonly backgroundColor: string;
@@ -1365,6 +1407,7 @@ function renderFeedEntry(
     readonly workRowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
+    readonly htmlRendersByTurnId: ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>>;
     /** Usage for turns without a "Worked for ..." row, by final assistant message id. */
     readonly assistantUsageLabels: ReadonlyMap<string, string>;
     readonly unsettledTurnId: TurnId | null;
@@ -1686,9 +1729,16 @@ function renderFeedEntry(
       );
     }
 
+    const htmlRenders =
+      message.role === "assistant" &&
+      message.turnId &&
+      props.terminalAssistantMessageIds.has(message.id)
+        ? (props.htmlRendersByTurnId.get(message.turnId) ?? EMPTY_HTML_RENDERS)
+        : EMPTY_HTML_RENDERS;
+
     // Skip empty assistant messages (no text, no attachments) — they would
     // render as an orphaned timestamp and break adjacent activity-group merging.
-    if (renderedText.trim().length === 0 && attachments.length === 0) {
+    if (renderedText.trim().length === 0 && attachments.length === 0 && htmlRenders.length === 0) {
       return null;
     }
 
@@ -1702,6 +1752,13 @@ function renderFeedEntry(
         className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-1 px-1", hasWideBlock && "w-full")}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
+        {htmlRenders.map((htmlRender) => (
+          <HtmlRenderArtifact
+            key={htmlRender.attachmentId}
+            environmentId={props.environmentId}
+            htmlRender={htmlRender}
+          />
+        ))}
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
@@ -1739,13 +1796,15 @@ function renderFeedEntry(
         })}
         {showAssistantMeta ? (
           <View className="mt-1 flex-row items-center gap-1">
-            <CopyTextButton
-              accessibilityLabel="Copy message"
-              text={renderedText}
-              tintColor={iconSubtleColor}
-              buttonSize={28}
-              iconSize={13}
-            />
+            {renderedText.trim().length > 0 ? (
+              <CopyTextButton
+                accessibilityLabel="Copy message"
+                text={renderedText}
+                tintColor={iconSubtleColor}
+                buttonSize={28}
+                iconSize={13}
+              />
+            ) : null}
             <Text className="font-e6-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
@@ -2498,6 +2557,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       dispatchingMessageId: props.dispatchingMessageId,
       unsettledTurnId,
       assistantUsageLabels,
+      htmlRendersByTurnId: props.htmlRendersByTurnId,
       showThinkingTimeline: appearance.showThinkingTimeline,
       copiedRowId,
       expandedWorkRows,
@@ -2516,6 +2576,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.dispatchingMessageId,
       unsettledTurnId,
       assistantUsageLabels,
+      props.htmlRendersByTurnId,
       appearance.showThinkingTimeline,
       copiedRowId,
       expandedWorkRows,
@@ -2785,6 +2846,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             workRowSizing,
             workGroupScrollPositions,
             terminalAssistantMessageIds,
+            htmlRendersByTurnId: props.htmlRendersByTurnId ?? EMPTY_HTML_RENDERS_BY_TURN,
             assistantUsageLabels,
             unsettledTurnId,
             isWorking: props.activeWorkStartedAt !== null,
@@ -2833,6 +2895,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       workRowSizing,
       workGroupScrollPositions,
       terminalAssistantMessageIds,
+      props.htmlRendersByTurnId,
       assistantUsageLabels,
       unsettledTurnId,
       props.activeWorkStartedAt,

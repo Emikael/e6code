@@ -1,3 +1,5 @@
+import { ThreadArtifactsPanel } from "./chat/ThreadArtifactsPanel";
+import { deriveThreadArtifacts } from "./chat/threadArtifacts";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@e6tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@e6tools/contracts";
@@ -2992,6 +2994,14 @@ export default function ChatView(props: ChatViewProps) {
     [activeLatestTurnId, threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const threadArtifacts = useMemo(
+    () =>
+      deriveThreadArtifacts({
+        workEntries: workLogEntries,
+        turnDiffSummaries: activeThread?.checkpoints ?? [],
+      }),
+    [workLogEntries, activeThread?.checkpoints],
+  );
   const turnUsageByTurnId = useMemo(
     () => deriveTurnUsageByTurnId(threadActivities),
     [threadActivities],
@@ -4810,6 +4820,10 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addArtifactsSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "artifacts");
+  }, [activeThreadRef]);
   const showRunDetails = useCallback(
     (agentId?: unknown) => {
       if (!activeThreadRef) return;
@@ -7312,6 +7326,14 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         onToggleDiff();
+        return;
+      }
+
+      if (command === "artifacts.toggle") {
+        if (!activeThreadRef) return;
+        event.preventDefault();
+        event.stopPropagation();
+        useRightPanelStore.getState().toggle(activeThreadRef, "artifacts");
         return;
       }
 
@@ -10221,6 +10243,8 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : renderedRightPanelSurface?.kind === "artifacts" && activeThreadRef ? (
+      <ThreadArtifactsPanel threadRef={activeThreadRef} artifacts={threadArtifacts} />
     ) : renderedRightPanelSurface === null ? (
       <InspectorOverview
         model={agentPanelModel}
@@ -11114,6 +11138,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
+          {...(activeThreadRef ? { onAddArtifacts: addArtifactsSurface } : {})}
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onShowRunDetails={showRunDetails}
@@ -11181,6 +11206,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
+            {...(activeThreadRef ? { onAddArtifacts: addArtifactsSurface } : {})}
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onShowRunDetails={showRunDetails}

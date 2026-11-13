@@ -52,6 +52,7 @@ import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import { AttachmentFilePreview } from "./AttachmentFilePreview";
 import { AudioPreview } from "./AudioPreview";
+import { MermaidFilePreview } from "./MermaidFilePreview";
 import { BrowserDocumentFrame, isPdfPreviewFile } from "./BrowserDocumentFrame";
 import { DelimitedTablePreview } from "./DelimitedTablePreview";
 import FileBrowserPanel from "./FileBrowserPanel";
@@ -888,8 +889,12 @@ function RenderedMarkdownSurface({
   );
 }
 
-function renderedToggleLabel(mode: "markdown" | "html" | "table", rendered: boolean): string {
+function renderedToggleLabel(
+  mode: "markdown" | "html" | "table" | "diagram",
+  rendered: boolean,
+): string {
   if (mode === "markdown") return rendered ? "Show markdown source" : "Show rendered markdown";
+  if (mode === "diagram") return rendered ? "Show Mermaid source" : "Show diagram";
   if (mode === "table") return rendered ? "Show source" : "Show table";
   return rendered ? "Show HTML source" : "Show rendered page";
 }
@@ -972,6 +977,8 @@ export default function FilePreviewPanel({
     true,
     Schema.Boolean,
   );
+  // Diagrams open rendered; the source toggle lasts for this panel only.
+  const [renderDiagramPreferred, setRenderDiagramPreferred] = useState(true);
   const [renderTablePreferred, setRenderTablePreferred] = useLocalStorage(
     RENDER_TABLE_STORAGE_KEY,
     true,
@@ -985,6 +992,8 @@ export default function FilePreviewPanel({
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = previewPath ? isMarkdownPreviewFile(previewPath) : false;
+  const isMermaid =
+    previewPath !== null && attachment === undefined && /\.(?:mmd|mermaid)$/i.test(previewPath);
   const tableDelimiter =
     previewPath && attachment === undefined ? filePreviewDelimiter({ name: previewPath }) : null;
   // A reveal still wins over the preference: the line only exists in the source.
@@ -994,13 +1003,16 @@ export default function FilePreviewPanel({
   const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
-  const renderedMode = isMarkdown
-    ? ("markdown" as const)
-    : tableDelimiter
-      ? ("table" as const)
-      : isHtml
-        ? ("html" as const)
-        : null;
+  const renderDiagram = isMermaid && renderDiagramPreferred && revealHandled;
+  const renderedMode = isMermaid
+    ? ("diagram" as const)
+    : isMarkdown
+      ? ("markdown" as const)
+      : tableDelimiter
+        ? ("table" as const)
+        : isHtml
+          ? ("html" as const)
+          : null;
   const canToggleRendered =
     previewPath !== null && attachment === undefined && renderedMode !== null;
   const updateClientSettings = useUpdateClientSettings();
@@ -1011,13 +1023,22 @@ export default function FilePreviewPanel({
     file.data !== null &&
     !(isMarkdown && renderMarkdown) &&
     !(tableDelimiter && renderTable) &&
+    !renderDiagram &&
     !renderBrowserFile;
-  const rendered = isMarkdown ? renderMarkdown : tableDelimiter ? renderTable : renderBrowserFile;
-  const setRenderedPreferred = isMarkdown
-    ? setRenderMarkdownPreferred
-    : tableDelimiter
-      ? setRenderTablePreferred
-      : setRenderBrowserFilePreferred;
+  const rendered = isMermaid
+    ? renderDiagram
+    : isMarkdown
+      ? renderMarkdown
+      : tableDelimiter
+        ? renderTable
+        : renderBrowserFile;
+  const setRenderedPreferred = isMermaid
+    ? setRenderDiagramPreferred
+    : isMarkdown
+      ? setRenderMarkdownPreferred
+      : tableDelimiter
+        ? setRenderTablePreferred
+        : setRenderBrowserFilePreferred;
   const canOpenInBrowser =
     previewPath !== null &&
     attachment === undefined &&
@@ -1249,6 +1270,8 @@ export default function FilePreviewPanel({
                 readOnly={isHostFile}
                 onPendingChange={onPendingChange}
               />
+            ) : isMermaid && renderDiagram ? (
+              <MermaidFilePreview key={relativePath} text={file.data.contents} />
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}

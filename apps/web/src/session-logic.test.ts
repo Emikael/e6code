@@ -1026,6 +1026,29 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.toolLifecycleStatus).toBe("completed");
   });
 
+  it("carries a valid html_render reference and ignores a malformed one", () => {
+    const htmlRender = { attachmentId: "thread-1-aaaa-html", title: "Chart", height: 300 };
+    const [valid, malformed] = deriveWorkLogEntries([
+      makeActivity({
+        id: "html-render",
+        kind: "tool.completed",
+        summary: "e6-code · html_render",
+        payload: { itemType: "mcp_tool_call", htmlRender },
+      }),
+      makeActivity({
+        id: "html-render-bad",
+        kind: "tool.completed",
+        summary: "e6-code · html_render",
+        payload: {
+          itemType: "mcp_tool_call",
+          htmlRender: { ...htmlRender, attachmentId: "x.png" },
+        },
+      }),
+    ]);
+    expect(valid?.htmlRender).toEqual(htmlRender);
+    expect(malformed?.htmlRender).toBeUndefined();
+  });
+
   it("preserves MCP server, tool, arguments, and results for expanded display", () => {
     const item = {
       type: "mcpToolCall",

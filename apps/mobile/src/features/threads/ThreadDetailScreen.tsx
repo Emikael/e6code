@@ -1,3 +1,4 @@
+import type { HtmlRenderReference } from "@e6tools/shared/htmlRender";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/E6ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@e6tools/client-runtime/connection";
@@ -136,6 +137,7 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
   /** Settled turns' tokens and cost, shown on their "Worked for ..." row. */
   readonly selectedThreadTurnUsage?: ReadonlyMap<TurnId, TurnUsageActivityPayload>;
+  readonly selectedThreadHtmlRenders?: ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>>;
   readonly activeWorkStartedAt: string | null;
   readonly isCompacting: boolean;
   /**
@@ -932,6 +934,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               feed={props.selectedThreadFeed}
               {...(props.selectedThreadTurnUsage
                 ? { turnUsageByTurnId: props.selectedThreadTurnUsage }
+                : {})}
+              {...(props.selectedThreadHtmlRenders
+                ? { htmlRendersByTurnId: props.selectedThreadHtmlRenders }
                 : {})}
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}

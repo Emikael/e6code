@@ -1116,6 +1116,7 @@ function ThreadRouteContent(
           onDismissFeedback={composer.dismissFeedback}
           selectedThreadFeed={composer.selectedThreadFeed}
           selectedThreadTurnUsage={composer.selectedThreadTurnUsage}
+          selectedThreadHtmlRenders={composer.selectedThreadHtmlRenders}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           isCompacting={composer.isCompacting}
           creationState={creationState}

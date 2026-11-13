@@ -4280,3 +4280,64 @@ describe("activityGroupHasTimelineSteps", () => {
     ).toBe(false);
   });
 });
+
+describe("html_render artifacts", () => {
+  const turnId = TurnId.make("turn-artifacts");
+  const at = (second: number) => `2026-01-01T00:00:${String(second).padStart(2, "0")}Z`;
+  const chart = { attachmentId: "thread-1-aaaa-html", title: "Chart", height: 300 };
+  const table = { attachmentId: "thread-1-bbbb-html", title: "Table", height: 200 };
+  const assistant = (id: string, second: number): ChatMessage => ({
+    id: MessageId.make(id),
+    role: "assistant",
+    text: id,
+    turnId,
+    createdAt: at(second),
+    updatedAt: at(second),
+    streaming: false,
+  });
+  const render = (id: string, second: number, htmlRender: typeof chart): WorkLogEntry => ({
+    id,
+    createdAt: at(second),
+    turnId,
+    label: "Render HTML",
+    tone: "tool",
+    itemType: "mcp_tool_call",
+    htmlRender,
+  });
+
+  it("shows a turn's pages once each, above its latest reply only", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: deriveTimelineEntries(
+        [assistant("interim", 1), assistant("final", 5)],
+        [],
+        [render("call-1", 2, chart), render("call-1-again", 3, chart), render("call-2", 4, table)],
+      ),
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    const messageRows = rows.filter(
+      (row): row is Extract<MessagesTimelineRow, { kind: "message" }> => row.kind === "message",
+    );
+    expect(messageRows.find((row) => row.message.id === "interim")?.htmlRenders).toBeUndefined();
+    expect(messageRows.find((row) => row.message.id === "final")?.htmlRenders).toEqual([
+      chart,
+      table,
+    ]);
+    expect(rows.some((row) => row.kind === "html-render")).toBe(false);
+  });
+
+  it("gives a page its own row when the turn has no reply", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: deriveTimelineEntries([], [], [render("call-1", 2, chart)]),
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(rows.filter((row) => row.kind === "html-render")).toMatchObject([
+      { id: `html-render:${chart.attachmentId}`, htmlRender: chart },
+    ]);
+  });
+});

@@ -1,3 +1,4 @@
+import type { HtmlRenderReference } from "@e6tools/shared/htmlRender";
 import { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
 export { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
 import * as Equal from "effect/Equal";
@@ -510,6 +511,8 @@ export type MessagesTimelineRow =
       revertTurnCount?: number | undefined;
       /** Turn usage for a settled turn with no "Worked for ..." row to carry it. */
       assistantUsageLabel?: string | undefined;
+      /** Pages the turn published with `html_render`, shown above its latest reply. */
+      htmlRenders?: ReadonlyArray<HtmlRenderReference> | undefined;
     }
   | {
       kind: "assistant-meta";
@@ -525,6 +528,13 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      /** A page from a turn without a reply to carry it. */
+      kind: "html-render";
+      id: string;
+      createdAt: string;
+      htmlRender: HtmlRenderReference;
     }
   | {
       kind: "working";
@@ -646,6 +656,33 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
   }
 
   return new Set(lastAssistantMessageIdByResponseKey.values());
+}
+
+/** Each turn's published pages in order, deduplicated across lifecycle updates of one call. */
+function deriveHtmlRendersByTurnId(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+): ReadonlyMap<TurnId, ReadonlyArray<HtmlRenderReference>> {
+  const byTurnId = new Map<TurnId, HtmlRenderReference[]>();
+  for (const timelineEntry of timelineEntries) {
+    if (timelineEntry.kind !== "work") continue;
+    const { htmlRender, turnId } = timelineEntry.entry;
+    if (!htmlRender || !turnId) continue;
+    const renders = byTurnId.get(turnId) ?? [];
+    if (!renders.some((render) => render.attachmentId === htmlRender.attachmentId)) {
+      renders.push(htmlRender);
+    }
+    byTurnId.set(turnId, renders);
+  }
+  return byTurnId;
+}
+
+function htmlRendersEqual(
+  left: ReadonlyArray<HtmlRenderReference> | undefined,
+  right: ReadonlyArray<HtmlRenderReference> | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((render, index) => render.attachmentId === right[index]?.attachmentId);
 }
 
 interface TurnFold {
@@ -1102,6 +1139,19 @@ export function deriveMessagesTimelineRows(input: {
     input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(input.timelineEntries);
+  const htmlRendersByTurnId = deriveHtmlRendersByTurnId(input.timelineEntries);
+  const turnIdsWithReply = new Set<TurnId>();
+  for (const entry of input.timelineEntries) {
+    if (
+      entry.kind === "message" &&
+      entry.message.role === "assistant" &&
+      entry.message.turnId &&
+      terminalAssistantMessageIds.has(entry.message.id)
+    ) {
+      turnIdsWithReply.add(entry.message.turnId);
+    }
+  }
+  const standaloneHtmlRenderIds = new Set<string>();
   const unsettledTurnId = deriveUnsettledTurnId(
     input.latestTurn ?? null,
     input.runningTurnId ?? null,
@@ -1264,6 +1314,25 @@ export function deriveMessagesTimelineRows(input: {
         label: anchoredTurnFold.label,
         expanded: input.expandedTurnIds?.has(anchoredTurnFold.turnId) ?? false,
       });
+    }
+
+    // Without a reply to sit above, a page gets its own row where it was published, even when
+    // the turn's work is folded away.
+    if (timelineEntry.kind === "work") {
+      const { htmlRender, turnId } = timelineEntry.entry;
+      if (
+        htmlRender &&
+        (!turnId || !turnIdsWithReply.has(turnId)) &&
+        !standaloneHtmlRenderIds.has(htmlRender.attachmentId)
+      ) {
+        standaloneHtmlRenderIds.add(htmlRender.attachmentId);
+        nextRows.push({
+          kind: "html-render",
+          id: `html-render:${htmlRender.attachmentId}`,
+          createdAt: timelineEntry.createdAt,
+          htmlRender,
+        });
+      }
     }
 
     if (collapsedEntryIds.has(timelineEntry.id)) {
@@ -1528,6 +1597,12 @@ export function deriveMessagesTimelineRows(input: {
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
       assistantUsageLabel,
+      htmlRenders:
+        timelineEntry.message.role === "assistant" &&
+        timelineEntry.message.turnId &&
+        terminalAssistantMessageIds.has(timelineEntry.message.id)
+          ? htmlRendersByTurnId.get(timelineEntry.message.turnId)
+          : undefined,
     });
   }
 
@@ -1763,6 +1838,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
+    case "html-render":
+      return a.htmlRender.attachmentId === (b as typeof a).htmlRender.attachmentId;
+
     case "queued-message": {
       const bq = b as typeof a;
       return a.queuedMessage === bq.queuedMessage && a.isNext === bq.isNext;
@@ -1815,7 +1893,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
         a.revertTurnCount === bm.revertTurnCount &&
-        a.assistantUsageLabel === bm.assistantUsageLabel
+        a.assistantUsageLabel === bm.assistantUsageLabel &&
+        htmlRendersEqual(a.htmlRenders, bm.htmlRenders)
       );
     }
   }
