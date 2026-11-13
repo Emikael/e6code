@@ -1,5 +1,6 @@
 import { formatRunningThreadStatus } from "@e6tools/client-runtime/state/agent-state";
 import { approvalPhrase, approvalWordingKind } from "@e6tools/client-runtime/pending-requests";
+import { toolGroupAction } from "@e6tools/client-runtime/work-log/presentation";
 import type {
   OrchestrationCheckpointSummary,
   ProviderRequestKind,
@@ -282,12 +283,14 @@ export function selectCurrentAction(
 
 /**
  * Distinct files the agent has changed in this thread, for "Changes so far ·
- * N files": every finished turn's checkpoint, plus the edits the running turn
- * has logged before its checkpoint lands.
+ * N files": every finished turn's checkpoint, plus the files the running
+ * turn's edits logged before its checkpoint lands. Counted as the timeline's
+ * "changed N files" counts them, so the two agree: only edits count, and an
+ * edit that names no file counts as one.
  */
 export function countChangedFiles(
   checkpoints: ReadonlyArray<Pick<OrchestrationCheckpointSummary, "files">>,
-  runningEntries: ReadonlyArray<Pick<WorkLogEntry, "changedFiles">>,
+  runningEntries: ReadonlyArray<WorkLogEntry>,
   workspaceRoot: string | undefined,
 ): number {
   const paths = new Set<string>();
@@ -295,12 +298,16 @@ export function countChangedFiles(
     for (const file of checkpoint.files)
       paths.add(formatWorkspaceRelativePath(file.path, workspaceRoot));
   }
+  let unnamedEdits = 0;
   for (const entry of runningEntries) {
-    for (const path of entry.changedFiles ?? []) {
-      paths.add(formatWorkspaceRelativePath(path, workspaceRoot));
-    }
+    if (entry.tone === "thinking" || toolGroupAction(entry) !== "edit") continue;
+    const named = entry.changedFiles?.length
+      ? entry.changedFiles
+      : (entry.fileDiffStats ?? []).map((file) => file.path);
+    if (named.length === 0) unnamedEdits += 1;
+    for (const path of named) paths.add(formatWorkspaceRelativePath(path, workspaceRoot));
   }
-  return paths.size;
+  return paths.size + unnamedEdits;
 }
 
 const MAX_EARLIER_TURNS = 5;

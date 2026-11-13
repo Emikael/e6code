@@ -215,15 +215,36 @@ describe("selectCurrentAction", () => {
 });
 
 describe("countChangedFiles", () => {
+  const file = (path: string) => ({ path, kind: "modified", additions: 1, deletions: 0 });
+  const entry = (id: string, overrides: Partial<WorkLogEntry>): WorkLogEntry => ({
+    id,
+    createdAt: "2026-11-11T14:03:00.000Z",
+    label: "Edit",
+    tone: "tool",
+    requestKind: "file-change",
+    ...overrides,
+  });
+
   it("counts each file once across turns and the running turn", () => {
-    const file = (path: string) => ({ path, kind: "modified", additions: 1, deletions: 0 });
     expect(
       countChangedFiles(
         [{ files: [file("a.ts"), file("b.ts")] }, { files: [file("a.ts")] }],
-        [{ changedFiles: ["/repo/b.ts", "/repo/c.ts"] }, {}],
+        [entry("e1", { changedFiles: ["/repo/b.ts", "/repo/c.ts"] })],
         "/repo",
       ),
     ).toBe(3);
+  });
+
+  it("counts the running turn's edits as the timeline summary does", () => {
+    const running = [
+      // A read that names its file is not a change.
+      entry("r1", { label: "Read file", requestKind: "file-read", changedFiles: ["/repo/d.ts"] }),
+      // An edit that names its files only through its line counts.
+      entry("e1", { fileDiffStats: [{ path: "/repo/e.ts", additions: 2, deletions: 0 }] }),
+      // An edit that names no file still changed one.
+      entry("e2", {}),
+    ];
+    expect(countChangedFiles([{ files: [file("a.ts")] }], running, "/repo")).toBe(3);
   });
 });
 
