@@ -66,8 +66,13 @@ export type ThreadToastData = {
   /** When set with `expandableContent`, the summary + label act as one text disclosure (no separate chevron row). */
   expandableDescriptionTrigger?: boolean;
   actionLayout?: "inline" | "stacked-end";
-  /** Height of the primary action: `xs` (24px, the default) or `sm` (28px). */
+  /** Height of the primary action: `xs` (24px, the default) or `sm` (28px, 12px text). */
   actionSize?: "xs" | "sm";
+  /**
+   * A short confirmation drawn as the boards' floating row ("Parked · Undo"):
+   * no close button, 12px corners and a tighter row. It still times out and swipes away.
+   */
+  floating?: boolean;
   /** A short mono cue at the end of the title row, such as "now". */
   trailingMeta?: string;
   /**
@@ -420,6 +425,7 @@ function ToastBodyContent({
             <Toast.Action
               className={cn(
                 buttonVariants({ size: toastData?.actionSize ?? "xs", variant: actionVariant }),
+                toastData?.actionSize === "sm" && "text-xs sm:text-xs",
                 "shrink-0",
               )}
               data-slot="toast-action"
@@ -605,8 +611,9 @@ function Toasts({ position }: { position: ToastPosition }) {
           return (
             <Toast.Root
               className={cn(
-                "group/toast dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none rounded-lg text-popover-foreground shadow-xl shadow-black/25 [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                "group/toast dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none text-popover-foreground shadow-xl shadow-black/25 [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
                 // Base positioning using data-position
+                toast.data?.floating ? "rounded-xl" : "rounded-lg",
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
                 "data-[position*=left]:right-auto data-[position*=left]:left-0",
                 "data-[position*=center]:right-0 data-[position*=center]:left-0",
@@ -695,19 +702,21 @@ function Toasts({ position }: { position: ToastPosition }) {
                   type="button"
                 />
               ) : null}
-              <div className={toastCornerDismissClass}>
-                <button
-                  aria-label="Dismiss notification"
-                  className={toastCornerOrbClass}
-                  data-slot="toast-close"
-                  onClick={() =>
-                    handleToastDismissClick(toastManager, toast.id, toast.data?.onClose)
-                  }
-                  type="button"
-                >
-                  <XIcon className="size-3" strokeWidth={2.25} />
-                </button>
-              </div>
+              {toast.data?.floating ? null : (
+                <div className={toastCornerDismissClass}>
+                  <button
+                    aria-label="Dismiss notification"
+                    className={toastCornerOrbClass}
+                    data-slot="toast-close"
+                    onClick={() =>
+                      handleToastDismissClick(toastManager, toast.id, toast.data?.onClose)
+                    }
+                    type="button"
+                  >
+                    <XIcon className="size-3" strokeWidth={2.25} />
+                  </button>
+                </div>
+              )}
               <Toast.Content
                 className={cn(
                   // `overflow-x: clip` avoids the CSS quirk where pairing `hidden` + `y: visible`
@@ -715,7 +724,13 @@ function Toasts({ position }: { position: ToastPosition }) {
                   "pointer-events-auto min-h-0 overflow-y-visible pl-3.5 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
                   stackedActionLayout
                     ? "flex flex-col gap-2 py-2.5 pr-3.5"
-                    : cn("py-3", "flex items-center justify-between gap-1.5", inlineContentEndPad),
+                    : toast.data?.floating
+                      ? "flex items-center justify-between gap-2.5 py-2.5 pr-3"
+                      : cn(
+                          "py-3",
+                          "flex items-center justify-between gap-1.5",
+                          inlineContentEndPad,
+                        ),
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}

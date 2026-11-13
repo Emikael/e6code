@@ -5,13 +5,13 @@
  * the user accepted saving to (`parkedFooterLines`). Saving to an environment
  * is offered once, as one dismissible line above the footer.
  */
-import { scopedProjectKey, scopeProjectRef } from "@e6tools/client-runtime/environment";
 import { parkedOfferDetail, parkedOfferQuestion } from "@e6tools/client-runtime/parked-sync";
 import { InboxIcon, TrashIcon, XIcon } from "lucide-react";
 import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { useCaptureProjectOptions } from "../../hooks/useCaptureProjectOptions";
 import { useParkedActions } from "../../hooks/useParkedActions";
 import { useClientSettings } from "../../hooks/useSettings";
 import {
@@ -31,7 +31,6 @@ import {
   type PromptStashEntry,
 } from "../../promptStashStore";
 import { useEnvironments } from "../../state/environments";
-import { useProjects } from "../../state/entities";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { Button } from "../ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -139,24 +138,23 @@ function ParkedList({
   closeButton: ReactElement;
 }) {
   const { startThreadWith, putInComposer } = useParkedActions();
-  const projects = useProjects();
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const projectTitleByKey = useMemo(
+  // The capture bar's names, so a thought reads the same where it was parked and here.
+  const projectOptions = useCaptureProjectOptions(null);
+  const projectLabelByKey = useMemo(
     () =>
       new Map(
-        projects.map((project) => [
-          scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
-          project.title,
-        ]),
+        projectOptions.flatMap((option) => option.memberKeys.map((key) => [key, option.label])),
       ),
-    [projects],
+    [projectOptions],
   );
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}:00.000Z`);
   const today = localDateKey(nowMs);
   const firstThing = selectFirstThing(thoughts, today);
-  const selected = thoughts.find((entry) => entry.id === selectedId) ?? thoughts[0] ?? null;
+  // Board 4: only the pinned first thing opens by itself; any other row opens when picked.
+  const selected = thoughts.find((entry) => entry.id === selectedId) ?? firstThing;
   // Picking a row replaces the focused button with the open row, so focus moves to its
   // first action instead of falling to the page.
   const focusOpenRowRef = useRef(false);
@@ -206,7 +204,7 @@ function ParkedList({
         <ul className="flex max-h-96 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
           {thoughts.map((entry) => {
             const project = entry.projectKey
-              ? (projectTitleByKey.get(entry.projectKey) ?? null)
+              ? (projectLabelByKey.get(entry.projectKey) ?? null)
               : null;
             const when = formatParkedWhen(entry.createdAt, nowMs, (iso) =>
               formatShortTimestamp(iso, timestampFormat),
@@ -229,6 +227,11 @@ function ParkedList({
                   <p className="text-sm leading-[22px] break-words text-foreground">
                     {entry.prompt}
                   </p>
+                  {entry !== firstThing && meta ? (
+                    <span className="-mt-1.5 font-mono text-[11px] leading-[14px] text-muted-foreground tabular-nums">
+                      {meta}
+                    </span>
+                  ) : null}
                   <div className="flex items-center gap-1.5">
                     <Button
                       ref={startThreadButtonRef}
