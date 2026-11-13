@@ -17,7 +17,6 @@ import {
   joinThreadRowStatus,
 } from "@e6tools/client-runtime/state/agent-state";
 import {
-  CheckIcon,
   ChevronDownIcon,
   EllipsisIcon,
   FileIcon,
@@ -37,6 +36,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import GitActionsControl from "../GitActionsControl";
+import { ReadyToReviewStatus } from "./ReadyToReviewStatus";
 import { SessionClockCue } from "./SessionClockCue";
 import { requestThreadNote, useThreadNoteActionLabel } from "./ThreadRecapCard";
 import {
@@ -318,11 +318,7 @@ function FocusDoneCue({ workedFor, finishedAt }: { workedFor: string | null; fin
   const summary = doneSummary(workedFor, formatDayAwareTimestamp(finishedAt, timestampFormat));
   return (
     <>
-      <span className="inline-flex shrink-0 items-center gap-1.5 text-xs leading-4 font-medium text-muted-foreground">
-        {/* Done, named as its next step: the success tick, as everywhere a turn finished. */}
-        <CheckIcon aria-hidden className="size-3.5 text-success-foreground" />
-        Ready to review
-      </span>
+      <ReadyToReviewStatus />
       <span className="shrink-0 font-mono text-[11px] leading-[14px] whitespace-nowrap text-muted-foreground tabular-nums">
         {summary.charAt(0).toLowerCase() + summary.slice(1)}
       </span>
