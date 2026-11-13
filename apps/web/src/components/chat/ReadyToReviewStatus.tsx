@@ -1,13 +1,12 @@
-/**
- * "Ready to review": a finished turn named as its next step, with the muted
- * list-checks glyph boards 2, 3 and Components draw. The now bar and the
- * focus bar both render it, so the two cannot drift. "Done" in lists keeps
- * the success tick.
- */
 import { ListChecksIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
+/**
+ * "Ready to review": a finished turn named as its next step. Boards 2 and 3
+ * draw it in the muted status colour with the list-checks glyph, not a success
+ * tick. The now bar and the focus bar both render this, so the two cannot drift.
+ */
 export function ReadyToReviewStatus({ className }: { className?: string }) {
   return (
     <span
