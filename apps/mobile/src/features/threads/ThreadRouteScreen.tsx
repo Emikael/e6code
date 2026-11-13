@@ -10,6 +10,15 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
 import type { ScreenHeaderAction, ScreenHeaderMenu } from "../../components/ScreenHeader.types";
 import { requestThreadRecap } from "./ThreadRecapCard";
+import { useAtomValue } from "@effect/atom-react";
+import { resolveSnoozePresets } from "@e6tools/client-runtime/state/thread-settled";
+import {
+  selectSnoozedThreads,
+  selectThreadsToSnoozeExcept,
+} from "@e6tools/client-runtime/state/thread-attention";
+import { useThreadShells } from "../../state/entities";
+import { environmentServerConfigsAtom } from "../../state/server";
+import { useThreadListActions } from "../home/useThreadListActions";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 import {
   StackActions,
@@ -106,6 +115,13 @@ function ThreadHeader(
     /** "branch · project · machine · connected": a phone's options menu leads with it. */
     readonly contextLine: string;
     readonly onWhereWasI: () => void;
+    /** F1's "Snooze everything except this thread", one entry per snooze preset. */
+    readonly snoozeOthers: ReadonlyArray<{
+      readonly label: string;
+      readonly whenLabel: string;
+      readonly onPress: () => void;
+    }>;
+    readonly onWakeAllSnoozed: () => void;
     readonly hasThreadCwd: boolean;
     readonly hasWorkspaceRoot: boolean;
     readonly fileInspectorSupported: boolean;
@@ -119,14 +135,27 @@ function ThreadHeader(
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { inspectorControl, onOpenTerminal } = props.gitControls;
   const { contextLine, onWhereWasI } = props;
+  const { snoozeOthers, onWakeAllSnoozed } = props;
   const threadOptions = useMemo(
     () => ({
       leading: contextLine
         ? [{ label: contextLine, disabled: true, onPress: () => undefined }]
         : [],
-      trailing: [{ label: "Where was I?", icon: "clock.arrow.circlepath", onPress: onWhereWasI }],
+      trailing: [
+        { label: "Where was I?", icon: "clock.arrow.circlepath", onPress: onWhereWasI },
+        {
+          label: "Snooze everything except this thread",
+          icon: "moon.zzz",
+          items: snoozeOthers.map((preset) => ({
+            label: preset.label,
+            description: preset.whenLabel,
+            onPress: preset.onPress,
+          })),
+        },
+        { label: "Wake all snoozed threads", icon: "sun.max", onPress: onWakeAllSnoozed },
+      ],
     }),
-    [contextLine, onWhereWasI],
+    [contextLine, onWakeAllSnoozed, onWhereWasI, snoozeOthers],
   );
   const native = useThreadHeaderOptions({ ...props, threadOptions });
   // Board 9 on an Android phone: the title and one "Thread options" menu
@@ -159,10 +188,23 @@ function ThreadHeader(
           : []),
         { id: "git", title: "Git", onPress: props.onOpenGitInspector },
         { id: "where-was-i", title: "Where was I?", onPress: onWhereWasI },
+        {
+          id: "snooze-others",
+          title: "Snooze everything except this thread",
+          items: snoozeOthers.map((preset) => ({
+            id: `snooze-others:${preset.label}`,
+            title: preset.label,
+            subtitle: preset.whenLabel,
+            onPress: preset.onPress,
+          })),
+        },
+        { id: "wake-all", title: "Wake all snoozed threads", onPress: onWakeAllSnoozed },
       ],
     }),
     [
       contextLine,
+      snoozeOthers,
+      onWakeAllSnoozed,
       inspectorControl,
       onOpenTerminal,
       onWhereWasI,
@@ -597,6 +639,47 @@ function ThreadRouteContent(
   const showRecapAgain = useCallback(() => {
     if (recapThreadKey !== null) requestThreadRecap(recapThreadKey);
   }, [recapThreadKey]);
+  // F1's "Snooze everything except this thread" and its way back, from the
+  // shared selectors: threads blocked on you cannot be snoozed and stay put.
+  const allThreadShells = useThreadShells();
+  const snoozeServerConfigs = useAtomValue(environmentServerConfigsAtom);
+  const { snoozeThread, unsnoozeThread } = useThreadListActions();
+  const snoozableShells = useCallback(
+    () =>
+      allThreadShells.filter(
+        (thread) =>
+          snoozeServerConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze ===
+          true,
+      ),
+    [allThreadShells, snoozeServerConfigs],
+  );
+  const snoozeOthersPresets = useMemo(
+    () =>
+      resolveSnoozePresets(new Date()).map((preset) => ({
+        label: preset.label,
+        whenLabel: preset.whenLabel,
+        // The time is read again on press, so a menu opened long ago snoozes until the preset's time now.
+        onPress: () => {
+          const now = new Date();
+          const current = resolveSnoozePresets(now).find((entry) => entry.id === preset.id);
+          if (!current) return;
+          for (const thread of selectThreadsToSnoozeExcept(snoozableShells(), {
+            exceptKey: recapThreadKey,
+            now: now.toISOString(),
+          })) {
+            void snoozeThread(thread, current.snoozedUntil);
+          }
+        },
+      })),
+    [recapThreadKey, snoozableShells, snoozeThread],
+  );
+  const wakeAllSnoozed = useCallback(() => {
+    for (const thread of selectSnoozedThreads(snoozableShells(), {
+      now: new Date().toISOString(),
+    })) {
+      void unsnoozeThread(thread);
+    }
+  }, [snoozableShells, unsnoozeThread]);
   /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -1275,6 +1358,8 @@ function ThreadRouteContent(
         subtitle={headerSubtitle}
         contextLine={headerContextLine}
         onWhereWasI={showRecapAgain}
+        snoozeOthers={snoozeOthersPresets}
+        onWakeAllSnoozed={wakeAllSnoozed}
         headerColor={headerColor}
         usesNativeHeaderGlass={usesNativeHeaderGlass}
         gitControls={threadGitControlProps}

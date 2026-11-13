@@ -427,13 +427,19 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
 // The first right item sits at the trailing edge, so the Inspector leads both
 // orders and stays visible when iOS collapses items that do not fit.
 /** An entry the thread's options menu adds beside the git, files and terminal ones. */
-export interface ThreadOptionsMenuAction {
-  readonly label: string;
-  readonly description?: string;
-  readonly icon?: string;
-  readonly disabled?: boolean;
-  readonly onPress: () => void;
-}
+export type ThreadOptionsMenuAction =
+  | {
+      readonly label: string;
+      readonly description?: string;
+      readonly icon?: string;
+      readonly disabled?: boolean;
+      readonly onPress: () => void;
+    }
+  | {
+      readonly label: string;
+      readonly icon?: string;
+      readonly items: ReadonlyArray<ThreadOptionsMenuAction>;
+    };
 
 /**
  * Board 9's single "Thread options" button for a phone header: every action
@@ -450,14 +456,22 @@ export function useThreadOptionsHeaderItem(
 ): HeaderItem {
   const actionItems = useThreadGitHeaderActionItems(props);
   return useMemo(() => {
-    const action = (entry: ThreadOptionsMenuAction) => ({
-      type: "action" as const,
-      label: entry.label,
-      ...(entry.description ? { description: entry.description } : {}),
-      ...(entry.icon ? { icon: { name: entry.icon, type: "sfSymbol" as const } } : {}),
-      disabled: entry.disabled === true,
-      onPress: entry.onPress,
-    });
+    const action = (entry: ThreadOptionsMenuAction): Record<string, unknown> =>
+      "items" in entry
+        ? {
+            type: "submenu" as const,
+            label: entry.label,
+            ...(entry.icon ? { icon: { name: entry.icon, type: "sfSymbol" as const } } : {}),
+            items: entry.items.map(action),
+          }
+        : {
+            type: "action" as const,
+            label: entry.label,
+            ...(entry.description ? { description: entry.description } : {}),
+            ...(entry.icon ? { icon: { name: entry.icon, type: "sfSymbol" as const } } : {}),
+            disabled: entry.disabled === true,
+            onPress: entry.onPress,
+          };
     const submenu = (item: HeaderItem, label: string) => ({
       type: "submenu" as const,
       label,
