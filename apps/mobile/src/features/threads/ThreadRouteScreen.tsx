@@ -8,7 +8,8 @@ import { useWorktreeSetup } from "./use-worktree-setup";
 import { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
-import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
+import type { ScreenHeaderAction, ScreenHeaderMenu } from "../../components/ScreenHeader.types";
+import { requestThreadRecap } from "./ThreadRecapCard";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 import {
   StackActions,
@@ -101,7 +102,10 @@ import { useThreadSubagentPanelModel } from "./ThreadInspectorSheet";
 import { inspectorButtonAccessibilityLabel } from "./thread-inspector-lineage";
 
 function ThreadHeader(
-  props: Parameters<typeof useThreadHeaderOptions>[0] & {
+  props: Omit<Parameters<typeof useThreadHeaderOptions>[0], "threadOptions"> & {
+    /** "branch · project · machine · connected": a phone's options menu leads with it. */
+    readonly contextLine: string;
+    readonly onWhereWasI: () => void;
     readonly hasThreadCwd: boolean;
     readonly hasWorkspaceRoot: boolean;
     readonly fileInspectorSupported: boolean;
@@ -114,7 +118,60 @@ function ThreadHeader(
   const navigation = useNavigation();
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { inspectorControl, onOpenTerminal } = props.gitControls;
-  const native = useThreadHeaderOptions(props);
+  const { contextLine, onWhereWasI } = props;
+  const threadOptions = useMemo(
+    () => ({
+      leading: contextLine
+        ? [{ label: contextLine, disabled: true, onPress: () => undefined }]
+        : [],
+      trailing: [{ label: "Where was I?", icon: "clock.arrow.circlepath", onPress: onWhereWasI }],
+    }),
+    [contextLine, onWhereWasI],
+  );
+  const native = useThreadHeaderOptions({ ...props, threadOptions });
+  // Board 9 on an Android phone: the title and one "Thread options" menu
+  // holding every action the header showed as an icon.
+  const androidThreadOptionsMenu = useMemo<ScreenHeaderMenu>(
+    () => ({
+      title: "Thread options",
+      icon: "ellipsis",
+      items: [
+        ...(contextLine
+          ? [{ id: "context", title: contextLine, disabled: true, onPress: () => undefined }]
+          : []),
+        ...(inspectorControl
+          ? [
+              {
+                id: "run-details",
+                title: "Run details",
+                ...(inspectorControl.badgeCount > 0
+                  ? { subtitle: `${inspectorControl.badgeCount} running` }
+                  : {}),
+                onPress: inspectorControl.onPress,
+              },
+            ]
+          : []),
+        ...(props.hasThreadCwd
+          ? [{ id: "files", title: "Files", onPress: props.onOpenFilesInspector }]
+          : []),
+        ...(props.hasWorkspaceRoot
+          ? [{ id: "terminal", title: "Terminal", onPress: () => onOpenTerminal(null) }]
+          : []),
+        { id: "git", title: "Git", onPress: props.onOpenGitInspector },
+        { id: "where-was-i", title: "Where was I?", onPress: onWhereWasI },
+      ],
+    }),
+    [
+      contextLine,
+      inspectorControl,
+      onOpenTerminal,
+      onWhereWasI,
+      props.hasThreadCwd,
+      props.hasWorkspaceRoot,
+      props.onOpenFilesInspector,
+      props.onOpenGitInspector,
+    ],
+  );
   const androidHeaderActions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const actions: ScreenHeaderAction[] = [];
     if (props.onReturnToThread) {
@@ -174,7 +231,7 @@ function ThreadHeader(
     <>
       <ScreenHeader
         title={props.title}
-        subtitle={props.subtitle}
+        subtitle={layout.usesSplitView ? props.subtitle : undefined}
         sidebar={native.sidebar}
         options={native.options}
         // Native header factories are stabilized, so changing item content
@@ -208,7 +265,14 @@ function ThreadHeader(
                 else navigation.dispatch(StackActions.replace("Home"));
               }
         }
-        actions={androidHeaderActions}
+        actions={
+          layout.usesSplitView
+            ? androidHeaderActions
+            : props.onReturnToThread
+              ? androidHeaderActions.slice(0, 1)
+              : undefined
+        }
+        menus={layout.usesSplitView ? undefined : [androidThreadOptionsMenu]}
         hideBottomBorder
       />
       {native.fallback}
@@ -513,8 +577,7 @@ function ThreadRouteContent(
   // The status leads in words, as in web's header pill, then the branch; the
   // native subtitle is one line and truncates from the end.
   const headerEnvironmentLabel = selectedEnvironmentConnection?.environmentLabel ?? null;
-  const headerSubtitle = [
-    selectedThread ? resolveThreadHeaderStatusText(selectedThread) : null,
+  const headerContextLine = [
     selectedThread?.branch ?? null,
     selectedThreadProject?.title ?? null,
     headerEnvironmentLabel,
@@ -522,6 +585,18 @@ function ThreadRouteContent(
   ]
     .filter(Boolean)
     .join(" · ");
+  const headerSubtitle = [
+    selectedThread ? resolveThreadHeaderStatusText(selectedThread) : null,
+    headerContextLine,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const recapThreadKey = selectedThread
+    ? `${selectedThread.environmentId}:${selectedThread.id}`
+    : null;
+  const showRecapAgain = useCallback(() => {
+    if (recapThreadKey !== null) requestThreadRecap(recapThreadKey);
+  }, [recapThreadKey]);
   /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -1198,6 +1273,8 @@ function ThreadRouteContent(
       <ThreadHeader
         title={selectedThread.title}
         subtitle={headerSubtitle}
+        contextLine={headerContextLine}
+        onWhereWasI={showRecapAgain}
         headerColor={headerColor}
         usesNativeHeaderGlass={usesNativeHeaderGlass}
         gitControls={threadGitControlProps}
