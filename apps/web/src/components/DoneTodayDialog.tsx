@@ -42,7 +42,7 @@ import {
 import { resolveSnoozePresets } from "./Sidebar.snooze";
 import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "./ThreadStatusMarker";
 import { selectWorkingThreads } from "./chat/DraftHeroFooter.logic";
-import { doneTodayMeta, wrapUpSnoozeLabel } from "./DoneTodayDialog.logic";
+import { doneTodayMeta, wrapUpSnoozePlan } from "./DoneTodayDialog.logic";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from "./ui/dialog";
@@ -106,12 +106,15 @@ function DoneTodayDialog({ onClose }: { onClose: () => void }) {
   const [nowMs] = useState(() => Date.now());
   const startOfDayMs = localStartOfDayMs(nowMs);
   const archived = useArchivedThreads();
+  const stillOpen = useStillOpen();
+  // A thread blocked or working again belongs to Still open only.
   const rows = useMemo(
     () =>
       selectDoneToday(withThreadsArchivedToday(threads, archived, { startOfDayMs }), {
         startOfDayMs,
+        stillOpenKeys: new Set(stillOpen.map((entry) => entry.key)),
       }),
-    [archived, startOfDayMs, threads],
+    [archived, startOfDayMs, stillOpen, threads],
   );
   const projectNames = useMemo(
     () =>
@@ -196,19 +199,44 @@ function DoneTodayDialog({ onClose }: { onClose: () => void }) {
             ))}
           </ul>
         )}
-        <WrapUp nowMs={nowMs} onClose={onClose} />
+        <WrapUp nowMs={nowMs} stillOpen={stillOpen} onClose={onClose} />
       </div>
     </DialogPopup>
   );
 }
 
-type StillOpen =
+type StillOpen = { readonly key: string; readonly thread: EnvironmentThreadShell } & (
   | { readonly kind: "blocked"; readonly item: ThreadAttentionItem<EnvironmentThreadShell> }
-  | { readonly kind: "working"; readonly key: string; readonly thread: EnvironmentThreadShell };
+  | { readonly kind: "working" }
+);
 
-function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
+/** What is still open (plan F9: blocked and working), blocked first. */
+function useStillOpen(): ReadonlyArray<StillOpen> {
   const threads = useThreadShells();
   const attention = useThreadAttention();
+  return useMemo(() => {
+    const working = selectWorkingThreads(threads, attention, resolveWorkingStartedAt);
+    return [
+      ...[...attention.blocked, ...attention.earlier].map((item) => ({
+        kind: "blocked" as const,
+        key: item.key,
+        thread: item.thread,
+        item,
+      })),
+      ...working.map((row) => ({ kind: "working" as const, key: row.key, thread: row.thread })),
+    ];
+  }, [attention, threads]);
+}
+
+function WrapUp({
+  nowMs,
+  stillOpen,
+  onClose,
+}: {
+  nowMs: number;
+  stillOpen: ReadonlyArray<StillOpen>;
+  onClose: () => void;
+}) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const { snoozeThread, unsnoozeThread } = useThreadActions();
   const { currentProjectKey } = useParkedActions();
@@ -222,30 +250,27 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
   const [note, setNote] = useState(existingNote);
   const [snoozed, setSnoozed] = useState(false);
 
-  const stillOpen = useMemo<ReadonlyArray<StillOpen>>(() => {
-    const working = selectWorkingThreads(threads, attention, resolveWorkingStartedAt);
-    return [
-      ...[...attention.blocked, ...attention.earlier].map((item) => ({
-        kind: "blocked" as const,
-        item,
-      })),
-      ...working.map((row) => ({ kind: "working" as const, key: row.key, thread: row.thread })),
-    ];
-  }, [attention, threads]);
   const tomorrowMorning = useMemo(
     () => resolveSnoozePresets(new Date(nowMs), timestampFormat).find((p) => p.id === "tomorrow"),
     [nowMs, timestampFormat],
   );
-  // Blocked approvals and questions cannot be snoozed; they stay in Needs you.
-  const snoozable = useMemo(() => {
+  // The snooze command refuses approvals and questions; they stay open, and the note says so.
+  const snoozeRows = useMemo(() => {
     const now = new Date(nowMs).toISOString();
-    return stillOpen
-      .map((entry) => (entry.kind === "blocked" ? entry.item.thread : entry.thread))
-      .filter(
-        (thread) =>
-          readEnvironmentSupportsSnooze(thread.environmentId) && canSnooze(thread, { now }),
-      );
+    return stillOpen.map((entry) => ({
+      thread: entry.thread,
+      title: entry.thread.title,
+      snoozable:
+        readEnvironmentSupportsSnooze(entry.thread.environmentId) &&
+        canSnooze(entry.thread, { now }),
+      waitingOnYou:
+        entry.kind === "blocked" && (entry.item.kind === "approval" || entry.item.kind === "input"),
+    }));
   }, [nowMs, stillOpen]);
+  const snoozable = snoozeRows.filter((row) => row.snoozable).map((row) => row.thread);
+  const snoozePlan = tomorrowMorning
+    ? wrapUpSnoozePlan({ rows: snoozeRows, whenLabel: tomorrowMorning.whenLabel })
+    : null;
 
   const snoozeAll = async () => {
     if (!tomorrowMorning || snoozable.length === 0) return;
@@ -310,11 +335,7 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
           <span className="text-xs leading-4 text-muted-foreground">Still open</span>
           {stillOpen.map((entry) =>
             entry.kind === "blocked" ? (
-              <StillOpenRow
-                key={entry.item.key}
-                title={entry.item.thread.title}
-                kind={entry.item.kind}
-              />
+              <StillOpenRow key={entry.key} title={entry.thread.title} kind={entry.item.kind} />
             ) : (
               <StillOpenRow
                 key={entry.key}
@@ -323,7 +344,7 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
               />
             ),
           )}
-          {snoozable.length > 0 && tomorrowMorning && !snoozed ? (
+          {snoozePlan?.label && !snoozed ? (
             <Button
               size="sm"
               variant="outline"
@@ -331,14 +352,11 @@ function WrapUp({ nowMs, onClose }: { nowMs: number; onClose: () => void }) {
               onClick={() => void snoozeAll()}
             >
               <ClockIcon aria-hidden className="size-3.5" />
-              <span className="truncate">
-                {wrapUpSnoozeLabel({
-                  snoozable: snoozable.map((thread) => thread.title),
-                  listedCount: stillOpen.length,
-                  whenLabel: tomorrowMorning.whenLabel,
-                })}
-              </span>
+              <span className="truncate">{snoozePlan.label}</span>
             </Button>
+          ) : null}
+          {snoozePlan?.note && !snoozed ? (
+            <span className="text-xs leading-4 text-muted-foreground">{snoozePlan.note}</span>
           ) : null}
         </div>
       ) : null}
