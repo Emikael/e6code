@@ -49,8 +49,8 @@ export function HomeHeader(props: HomeHeaderProps) {
           headerTintColor: iconColor,
           unstable_headerRightItems: () => [
             withNativeGlassHeaderItem({
-              accessibilityLabel: "Open settings",
-              icon: { name: "ellipsis", type: "sfSymbol" } as const,
+              accessibilityLabel: "Settings",
+              icon: { name: "slider.horizontal.3", type: "sfSymbol" } as const,
               identifier: "home-settings",
               label: "",
               onPress: props.onOpenSettings,

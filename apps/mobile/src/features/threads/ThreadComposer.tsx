@@ -879,9 +879,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 />
                 {showStopAction ? (
                   <ComposerActionButton
-                    accessibilityLabel="Stop agent"
+                    accessibilityLabel="Stop the agent"
                     icon="stop.fill"
-                    variant="danger"
+                    variant="outline"
                     onPress={props.onStopThread}
                   />
                 ) : (
@@ -991,9 +991,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                   {showStopAction ? (
                     <ComposerActionButton
-                      accessibilityLabel="Stop agent"
+                      accessibilityLabel="Stop the agent"
                       icon="stop.fill"
-                      variant="danger"
+                      variant="outline"
                       onPress={props.onStopThread}
                     />
                   ) : voicePresentation.showsSend ? (

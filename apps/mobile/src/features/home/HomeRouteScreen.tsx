@@ -21,7 +21,7 @@ import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
-import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
+import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -35,6 +35,7 @@ export function HomeRouteScreen() {
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState("");
   const handleSelectThread = useHomeThreadSelection();
+  const threadListV2Enabled = useThreadListV2Enabled();
 
   useEffect(() => {
     void checkForAppUpdateOnLaunch();
@@ -149,24 +150,22 @@ export function HomeRouteScreen() {
 
   return (
     <AndroidHomeFabLayout
+      // Board 8's bottom composer starts new work on the v2 list; the FAB
+      // stays for the legacy list.
+      showButton={!threadListV2Enabled}
       onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
     >
       <>
         {/* Restore the header after leaving split view; screen options are
-            shallow-merged. The brand slot also doubles as the connection
-            status surface while an environment reconnects. */}
+            shallow-merged. Board 8 sets "Threads" and the connection line at
+            the top of the list, so the bar keeps only its buttons. */}
         <NativeStackScreenOptions
           optionsVersion={windowWidth}
           options={{
-            ...getConnectionAwareBrandHeaderOptions({
-              headerWidth: windowWidth,
-              onOpenEnvironments: () =>
-                navigation.navigate("SettingsSheet", {
-                  screen: "SettingsContent",
-                  params: { screen: "SettingsEnvironments" },
-                }),
-            }),
+            title: "Threads",
+            headerTitle: "",
             headerShown: true,
+            unstable_headerLeftItems: undefined,
           }}
         />
         <HomeHeader
@@ -223,6 +222,12 @@ export function HomeRouteScreen() {
             navigation.navigate("SettingsSheet", {
               screen: "SettingsContent",
               params: { screen: "Settings" },
+            })
+          }
+          onOpenEnvironments={() =>
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "SettingsEnvironments" },
             })
           }
           onProjectSortOrderChange={setProjectSortOrder}

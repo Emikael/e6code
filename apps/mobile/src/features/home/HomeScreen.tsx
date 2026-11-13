@@ -22,7 +22,7 @@ import {
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, FlatList, Platform, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,6 +36,11 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
+import {
+  readThreadVisitSeenAt,
+  subscribeThreadVisits,
+  threadVisitsVersion,
+} from "../../persistence/thread-visits";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { usePendingThreadOrder } from "../../state/thread-order";
@@ -53,19 +58,24 @@ import {
   ThreadListV2NeedsYouEarlierRow,
   ThreadListV2NeedsYouHeader,
   ThreadListV2NeedsYouRow,
+  ThreadListV2ReviewRow,
   ThreadListV2Row,
+  ThreadListV2SectionHeader,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
 import { ApprovalAnswerNotice } from "./ApprovalAnswerNotice";
+import { HomeComposerBar, HomeTitle } from "./HomePageChrome";
 import { HomeApprovalCard } from "./HomeApprovalCard";
 import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  describeThreadListV2SnoozeEarlier,
   NO_NEEDS_YOU,
+  selectThreadListV2SnoozableEarlier,
   reuseThreadListV2NeedsYou,
   selectThreadListV2NeedsYou,
   type ThreadListV2NeedsYou,
@@ -119,6 +129,7 @@ interface HomeScreenProps {
   readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   readonly onAddConnection: () => void;
   readonly onOpenSettings: () => void;
+  readonly onOpenEnvironments: () => void;
   readonly onStartNewTask: () => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
@@ -149,6 +160,8 @@ interface HomeScreenProps {
 
 const ESTIMATED_THREAD_ROW_HEIGHT = 72;
 const PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT = 44;
+// The iOS 26 search toolbar, which floats over the bottom of the list.
+const LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT = 52;
 /**
  * Top spacing between the list and the Android custom header. The Android
  * header is rendered in-flow above this screen and
@@ -786,6 +799,9 @@ export function HomeScreen(props: HomeScreenProps) {
   // day old moves to Earlier without waiting for new data; a tick that changes
   // nothing keeps the previous lists, so the list items are not rebuilt.
   const { needsYouSectionEnabled } = useAttentionPreferences();
+  // To review needs this device's visits; a visit recorded on leaving a
+  // thread recomputes the section.
+  const threadVisitsVersionValue = useSyncExternalStore(subscribeThreadVisits, threadVisitsVersion);
   const previousNeedsYou = useRef<ThreadListV2NeedsYou>(NO_NEEDS_YOU);
   const threadListV2NeedsYou = useMemo(() => {
     const next =
@@ -796,6 +812,7 @@ export function HomeScreen(props: HomeScreenProps) {
             projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
             searchQuery: props.searchQuery,
             now: new Date().toISOString(),
+            lastVisitedAt: readThreadVisitSeenAt,
           })
         : NO_NEEDS_YOU;
     const kept = reuseThreadListV2NeedsYou(previousNeedsYou.current, next);
@@ -804,6 +821,7 @@ export function HomeScreen(props: HomeScreenProps) {
   }, [
     nowMinute,
     needsYouSectionEnabled,
+    threadVisitsVersionValue,
     props.searchQuery,
     props.selectedEnvironmentId,
     props.threads,
@@ -820,6 +838,9 @@ export function HomeScreen(props: HomeScreenProps) {
       buildThreadListV2ListItems({
         needsYou: threadListV2NeedsYou,
         needsYouEarlierExpanded,
+        // Board 8: each thread once, working ones under "Working". A search
+        // shows plain results.
+        sections: props.searchQuery.trim().length === 0,
         items: threadListV2Layout.items,
         pendingTasks: v2PendingTasks,
         snoozedCount: threadListV2Layout.snoozedCount,
@@ -836,8 +857,26 @@ export function HomeScreen(props: HomeScreenProps) {
       threadListV2Layout,
       threadListV2NeedsYou,
       needsYouEarlierExpanded,
+      props.searchQuery,
       v2PendingTasks,
     ],
+  );
+  // "Snooze 2 failed" on the Earlier row: what in it can be snoozed.
+  const snoozableEarlier = useMemo(
+    () =>
+      selectThreadListV2SnoozableEarlier(threadListV2NeedsYou.earlier, {
+        now: new Date().toISOString(),
+        snoozeEnvironmentIds,
+      }),
+    [nowMinute, snoozeEnvironmentIds, threadListV2NeedsYou.earlier],
+  );
+  const snoozeEarlierLabel = describeThreadListV2SnoozeEarlier(snoozableEarlier);
+  const onSnoozeThread = props.onSnoozeThread;
+  const snoozeEarlier = useCallback(
+    (snoozedUntil: string) => {
+      for (const thread of snoozableEarlier) void onSnoozeThread(thread, snoozedUntil);
+    },
+    [onSnoozeThread, snoozableEarlier],
   );
 
   useThreadJumpShortcuts(
@@ -860,8 +899,17 @@ export function HomeScreen(props: HomeScreenProps) {
             count={item.count}
             expanded={item.expanded}
             onToggle={toggleNeedsYouEarlier}
+            snoozeLabel={snoozeEarlierLabel}
+            onSnooze={snoozeEarlier}
+            snoozePresetMinute={nowMinute}
           />
         );
+      }
+      if (item.type === "v2-section-header") {
+        return <ThreadListV2SectionHeader label={item.label} />;
+      }
+      if (item.type === "v2-review") {
+        return <ThreadListV2ReviewRow item={item.item} onSelectThread={props.onSelectThread} />;
       }
       if (item.type === "v2-needs-you") {
         return item.expanded ? (
@@ -928,6 +976,7 @@ export function HomeScreen(props: HomeScreenProps) {
           snoozePresetMinute={nowMinute}
           snoozeWakeLabelText={item.snoozeWakeLabelText}
           showTrailingDivider={showTrailingDivider}
+          working={item.working}
           project={
             projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null
           }
@@ -979,6 +1028,8 @@ export function HomeScreen(props: HomeScreenProps) {
     [
       handleDeleteThread,
       toggleNeedsYouEarlier,
+      snoozeEarlierLabel,
+      snoozeEarlier,
       activeReorderEnvironmentIds,
       threadMovePlanners,
       pendingOrder,
@@ -1169,13 +1220,25 @@ export function HomeScreen(props: HomeScreenProps) {
       ? null
       : (props.savedConnectionsById[props.selectedEnvironmentId]?.environmentLabel ??
         "this environment");
-  // Connection state surfaces in the header title slot
-  // (WorkspaceConnectionTitle) — nothing renders inside the list, so
-  // reconnects never shift the rows.
+  // Connection state reads in the title's connection line, which swaps its
+  // words in place, so reconnects never shift the rows.
   const emptyState = deriveEmptyState({
     catalogState: props.catalogState,
     projectCount: props.projects.length,
   });
+
+  // The bottom composer clears the iOS toolbar (pre-glass) or the glass search bar.
+  const composerBottom =
+    Math.max(insets.bottom, 16) +
+    8 +
+    (Platform.OS === "ios"
+      ? NATIVE_LIQUID_GLASS_SUPPORTED
+        ? LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT
+        : iosBottomToolbarClearance
+      : 0);
+  const composerBar = props.catalogState.hasConnections ? (
+    <HomeComposerBar bottom={composerBottom} onStartNewTask={props.onStartNewTask} />
+  ) : null;
 
   if (!hasAnyThreads) {
     return (
@@ -1216,15 +1279,16 @@ export function HomeScreen(props: HomeScreenProps) {
             ) : null}
           </View>
         </View>
+        {threadListV2Enabled ? composerBar : null}
       </View>
     );
   }
 
   const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
 
-  // Project scoping lives in the header filter menu (no inline chip row on
-  // mobile — the menu is the one filter surface).
-  const v2ListHeader = listHeader;
+  // Board 8's title and connection line lead the list. Project scoping lives
+  // in the header filter menu (the menu is the one filter surface).
+  const v2ListHeader = <HomeTitle onOpenEnvironments={props.onOpenEnvironments} />;
 
   const listEmpty = !hasResults ? (
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
@@ -1284,6 +1348,7 @@ export function HomeScreen(props: HomeScreenProps) {
         >
           {threadListV2Enabled ? v2ListEmpty : listEmpty}
         </View>
+        {threadListV2Enabled ? composerBar : null}
       </View>
     );
   }
@@ -1323,20 +1388,13 @@ export function HomeScreen(props: HomeScreenProps) {
               {...scrollGateHandlers}
               scrollEventThrottle={16}
               contentContainerStyle={{
-                paddingBottom:
-                  Platform.OS === "ios"
-                    ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
-                    : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
+                // Room to scroll the last row clear of the bottom composer.
+                paddingBottom: composerBottom + 72,
               }}
             />
           </SwipeableScrollGateProvider>
-          <ApprovalAnswerNotice
-            bottom={
-              Platform.OS === "ios"
-                ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
-                : Math.max(insets.bottom, 16) + 88
-            }
-          />
+          <ApprovalAnswerNotice bottom={composerBottom + 56} />
+          {composerBar}
         </View>
       </View>
     );

@@ -1,4 +1,6 @@
-import type { WorkspaceState } from "../../state/workspaceModel";
+import { isLocalLoopbackHost, isPrivateNetworkHost } from "@e6tools/shared/hostClassification";
+
+import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
 
 export interface WorkspaceConnectionStatusPresentation {
   readonly label: string;
@@ -43,4 +45,55 @@ export function workspaceConnectionStatusPresentation(
       state.connectionError === null &&
       (state.connectingEnvironments.length > 0 || state.hasPendingShellSnapshot),
   };
+}
+
+type ConnectionLineEnvironment = Pick<
+  WorkspaceEnvironment,
+  "environmentLabel" | "displayUrl" | "isRelayManaged" | "isEnabled" | "connectionState"
+>;
+
+function hostOf(displayUrl: string): string | null {
+  try {
+    return new URL(displayUrl.includes("://") ? displayUrl : `http://${displayUrl}`).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/** How an environment is reached, in words: "over Tailscale", "on your local network". */
+function connectionRoute(environment: ConnectionLineEnvironment): string | null {
+  if (environment.isRelayManaged) return "over the relay";
+  const host = hostOf(environment.displayUrl);
+  if (host === null) return null;
+  const normalized = host.toLowerCase().replace(/^\[|\]$/g, "");
+  const octets = normalized.split(".").map(Number);
+  const tailnetAddress =
+    octets.length === 4 && octets[0] === 100 && octets[1]! >= 64 && octets[1]! <= 127;
+  if (normalized.endsWith(".ts.net") || tailnetAddress) return "over Tailscale";
+  if (isLocalLoopbackHost(normalized)) return "on this device";
+  if (isPrivateNetworkHost(normalized)) return "on your local network";
+  return "over the internet";
+}
+
+/**
+ * The line under Home's title (board 8): "This Mac · connected over
+ * Tailscale". While anything is offline or reconnecting it says that
+ * instead, in the words the title slot used to show; null with nothing
+ * connected yet.
+ */
+export function describeHomeConnectionLine(input: {
+  readonly state: WorkspaceState;
+  readonly environments: ReadonlyArray<ConnectionLineEnvironment>;
+}): string | null {
+  const status = workspaceConnectionStatusPresentation(input.state);
+  if (status !== null) return status.label;
+  const connected = input.environments.filter(
+    (environment) => environment.isEnabled && environment.connectionState === "connected",
+  );
+  if (connected.length === 0) return null;
+  const routes = new Set(connected.map(connectionRoute));
+  const route = routes.size === 1 ? [...routes][0] : null;
+  const who =
+    connected.length === 1 ? connected[0]!.environmentLabel : `${connected.length} environments`;
+  return route ? `${who} · connected ${route}` : `${who} · connected`;
 }

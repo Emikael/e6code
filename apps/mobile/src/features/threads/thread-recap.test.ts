@@ -17,7 +17,12 @@ import { summarizeToolGroup } from "@e6tools/client-runtime/work-log/presentatio
 import { formatShortTimestamp } from "../../lib/time";
 import { buildThreadFeed } from "../../lib/threadActivity";
 import { decodeThreadVisit, type ThreadVisit } from "../../persistence/thread-visits";
-import { decideThreadRecap, formatRecapFiles, formatRecapSince } from "./thread-recap";
+import {
+  decideThreadRecap,
+  describeRecapChanges,
+  formatRecapFiles,
+  formatRecapSince,
+} from "./thread-recap";
 
 const at = (minute: number) => `2026-11-11T14:${String(minute).padStart(2, "0")}:00.000Z`;
 
@@ -183,6 +188,20 @@ describe("recap wording", () => {
       formatRecapFiles([{ path: "/repo/notes.md", additions: 0, deletions: 0, counted: false }], 0),
     ).toBe("notes.md");
     expect(formatRecapFiles([], 0)).toBeNull();
+    // A running edit that reported no line counts is named without them.
+    expect(
+      formatRecapFiles([{ path: "src/a.ts", additions: 0, deletions: 0, counted: false }], 0),
+    ).toBe("a.ts");
+  });
+
+  it("reads the file line and the Changes so far count from one list", () => {
+    expect(describeRecapChanges(null)).toEqual({ fileCount: 0, line: null });
+    expect(
+      describeRecapChanges({
+        files: [{ path: "a.ts", additions: 1, deletions: 0 }],
+        moreFiles: 2,
+      }),
+    ).toEqual({ fileCount: 3, line: "a.ts +1 −0 · +2 more" });
   });
 
   it("names a clock time today, in the device's hour cycle, and a day before that", () => {

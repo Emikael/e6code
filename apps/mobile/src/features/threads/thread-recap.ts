@@ -94,12 +94,14 @@ export function formatRecapSince(since: string, nowMs: number): string {
     : sinceDate.toLocaleDateString(undefined, { weekday: "short" });
 }
 
+type RecapFileLine = Pick<ThreadRecapFile, "path" | "additions" | "deletions"> & {
+  /** False when an edit did not report its line counts; older recaps omit it. */
+  readonly counted?: boolean;
+};
+
 /** Board 9's file line: "themePalettes.ts +18 −4 · mobileTheme.ts +6 −2", then "+N more". */
 export function formatRecapFiles(
-  files: ReadonlyArray<
-    Pick<ThreadRecapFile, "path" | "additions" | "deletions"> &
-      Partial<Pick<ThreadRecapFile, "counted">>
-  >,
+  files: ReadonlyArray<RecapFileLine>,
   moreFiles: number,
 ): string | null {
   if (files.length === 0) return null;
@@ -110,4 +112,19 @@ export function formatRecapFiles(
   });
   if (moreFiles > 0) parts.push(`+${moreFiles} more`);
   return parts.join(" · ");
+}
+
+/**
+ * What changed since the visit, read once for the file line and for the
+ * "Changes so far" button, so the two always agree: files a running turn
+ * edited count as soon as the shared recap lists them.
+ */
+export function describeRecapChanges(
+  sinceThen: { readonly files: ReadonlyArray<RecapFileLine>; readonly moreFiles: number } | null,
+): { readonly fileCount: number; readonly line: string | null } {
+  if (sinceThen === null) return { fileCount: 0, line: null };
+  return {
+    fileCount: sinceThen.files.length + sinceThen.moreFiles,
+    line: formatRecapFiles(sinceThen.files, sinceThen.moreFiles),
+  };
 }

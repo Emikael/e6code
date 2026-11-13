@@ -28,6 +28,23 @@ describe("activeWorkFloatingStatus", () => {
     ).toEqual({ kind: "working", startedAt });
   });
 
+  it("opens Run details from the working bar when asked to", () => {
+    const onOpenRunDetails = () => undefined;
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: false,
+        agentState: undefined,
+        activeWorkStartedAt: startedAt,
+        planProgress: { completedSteps: 2, totalSteps: 5 },
+        onOpenRunDetails,
+      }),
+    ).toMatchObject({
+      kind: "working",
+      plan: { label: "Step 3 of 5" },
+      onPress: onOpenRunDetails,
+    });
+  });
+
   it("keeps a requested /compact ahead of what the agent reports", () => {
     expect(
       activeWorkFloatingStatus({

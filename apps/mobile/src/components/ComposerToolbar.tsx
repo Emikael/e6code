@@ -222,7 +222,8 @@ export function ComposerActionButton(props: {
   readonly disabled?: boolean;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
   readonly onPress: () => void;
-  readonly variant?: "primary" | "danger";
+  /** "outline": board 9's Stop, a card circle with an input border and a filled square. */
+  readonly variant?: "primary" | "outline";
 }) {
   return (
     <Pressable
@@ -236,8 +237,8 @@ export function ComposerActionButton(props: {
       <View
         className={cn(
           "size-[30px] items-center justify-center rounded-full",
-          props.variant === "danger"
-            ? "bg-danger"
+          props.variant === "outline"
+            ? "border border-input-border bg-card"
             : props.disabled
               ? // Neutral, not a faded accent: a light accent reads as nearly enabled.
                 "bg-secondary"
@@ -249,8 +250,8 @@ export function ComposerActionButton(props: {
           size={16}
           weight="semibold"
           tintColorClassName={
-            props.variant === "danger"
-              ? "accent-danger-foreground"
+            props.variant === "outline"
+              ? "accent-foreground"
               : props.disabled
                 ? "accent-foreground-muted"
                 : "accent-primary-foreground"

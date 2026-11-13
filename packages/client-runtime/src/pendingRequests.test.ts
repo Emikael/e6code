@@ -1,5 +1,6 @@
 import { EventId, TurnId, type OrchestrationThreadActivity } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import { describeAwarenessAsk } from "@e6tools/shared/agentAwareness";
 import {
   approvalWordingKind,
   derivePendingRequests,
@@ -733,5 +734,40 @@ describe("describeShownApprovalAsk", () => {
     expect(
       describeSubagentUserRequest({ kind: "approval", requestKind: null, detail: "x" }),
     ).toEqual({ text: "is waiting for your approval", code: "x" });
+  });
+});
+
+describe("push wording", () => {
+  it("asks what the clients ask, for every approval kind", () => {
+    for (const approvalKind of [
+      "command",
+      "file-read",
+      "file-change",
+      "mcp-elicitation",
+      "permission",
+      undefined,
+    ]) {
+      const pendingRequestSummary = {
+        approvalCount: 1,
+        ...(approvalKind ? { approvalKind, approvalKindCount: 2 } : {}),
+        userInputCount: 0,
+        questionCount: 0,
+      };
+      expect(
+        describeAwarenessAsk("waiting_for_approval", {
+          session: null,
+          pendingRequestSummary,
+        }),
+      ).toBe(describePendingApprovalAsk("The agent", pendingRequestSummary));
+    }
+    const question = {
+      approvalCount: 0,
+      userInputCount: 1,
+      questionCount: 1,
+      question: "keep it?",
+    };
+    expect(
+      describeAwarenessAsk("waiting_for_input", { session: null, pendingRequestSummary: question }),
+    ).toBe(describePendingQuestionAsk("The agent", question, { withQuestion: false }));
   });
 });

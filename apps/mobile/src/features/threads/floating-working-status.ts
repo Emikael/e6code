@@ -40,6 +40,8 @@ export type FloatingWorkingStatus =
       readonly startedAt: string;
       /** The plan the agent reports, for the step meter (F5); absent without one. */
       readonly plan?: PlanMeter;
+      /** Opens Run details, which leads with the plan's steps (board 9's chevron). */
+      readonly onPress?: () => void;
     }
   | { readonly kind: "syncing"; readonly label: string }
   | { readonly kind: "compacting" }
@@ -106,6 +108,8 @@ export function activeWorkFloatingStatus(input: {
     | { readonly completedSteps: number; readonly totalSteps: number }
     | null
     | undefined;
+  /** Opens Run details, where the plan's steps are. */
+  readonly onOpenRunDetails?: () => void;
 }): FloatingWorkingStatus | null {
   if (input.isCompacting) {
     return { kind: "compacting" };
@@ -117,9 +121,12 @@ export function activeWorkFloatingStatus(input: {
     return { kind: "agent-state", agentState: input.agentState };
   }
   const plan = planMeter(input.planProgress);
-  return plan === null
-    ? { kind: "working", startedAt: input.activeWorkStartedAt }
-    : { kind: "working", startedAt: input.activeWorkStartedAt, plan };
+  return {
+    kind: "working",
+    startedAt: input.activeWorkStartedAt,
+    ...(plan === null ? {} : { plan }),
+    ...(input.onOpenRunDetails ? { onPress: input.onOpenRunDetails } : {}),
+  };
 }
 
 /**

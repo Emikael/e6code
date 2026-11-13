@@ -38,6 +38,7 @@ const NO_ACTIVITIES: never[] = [];
 // Eight 20pt lines plus padding: the longest detail answered here fits whole.
 const DETAIL_MAX_HEIGHT = 180;
 const APPROVAL_RESPONSE_LABEL = "thread approval response";
+const OPEN_THREAD_ACTION = "open-thread";
 
 export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
   readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
@@ -144,20 +145,27 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
         </View>
         <Text className="text-base leading-6 text-foreground">{model.headline}</Text>
         {approval.detail ? (
-          // Every line, wrapped: nobody approves what they did not read. The
-          // model sends anything longer than this shows whole to the thread.
+          // Board 8's well: each line whole on one line, scrolled sideways;
+          // longer details scroll down. The model sends anything too long
+          // to read here to the thread.
           <ScrollView
             nestedScrollEnabled
-            className="rounded-lg bg-subtle"
+            className="rounded-lg bg-secondary"
             style={{ maxHeight: DETAIL_MAX_HEIGHT }}
-            contentContainerClassName="px-3 py-2.5"
           >
-            <Text
-              className="text-[13px] leading-5 text-foreground"
-              style={{ fontFamily: MONO_FONT }}
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              contentContainerClassName="px-3 py-2.5"
             >
-              {approval.detail}
-            </Text>
+              <Text
+                className="text-[13px] leading-5 text-foreground"
+                style={{ fontFamily: MONO_FONT }}
+              >
+                {approval.detail}
+              </Text>
+            </ScrollView>
           </ScrollView>
         ) : null}
         {/* Keyed by request: a press that began on an answered request never
@@ -183,34 +191,39 @@ export const HomeApprovalCard = memo(function HomeApprovalCard(props: {
               <Text className="text-[15px] font-e6-medium text-foreground">Decline</Text>
             </Pressable>
           ) : null}
-          {/* Board 8 always draws More; it is left out when the provider
-              offers nothing for it, as an empty menu helps no one. */}
-          {model.more.length > 0 ? (
-            <ControlPillMenu
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel="More options"
-              title="More options"
-              actions={model.more.map((option) => ({
+          {/* Board 8 always draws More: the provider's other answers, then
+              the thread itself. */}
+          <ControlPillMenu
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            title="More options"
+            actions={[
+              ...model.more.map((option) => ({
                 id: option.decision,
                 title: option.label,
                 ...(option.warning ? { subtitle: option.warning } : {}),
-              }))}
-              onPressAction={({ nativeEvent }) => {
-                const option = model.more.find((entry) => entry.decision === nativeEvent.event);
-                if (option) answer(option.decision);
-              }}
-            >
-              <View className="size-11 items-center justify-center">
-                <SymbolView
-                  name="ellipsis"
-                  size={18}
-                  tintColorClassName="accent-icon-muted"
-                  type="monochrome"
-                />
-              </View>
-            </ControlPillMenu>
-          ) : null}
+              })),
+              { id: OPEN_THREAD_ACTION, title: "Open thread" },
+            ]}
+            onPressAction={({ nativeEvent }) => {
+              if (nativeEvent.event === OPEN_THREAD_ACTION) {
+                props.onSelectThread(thread);
+                return;
+              }
+              const option = model.more.find((entry) => entry.decision === nativeEvent.event);
+              if (option) answer(option.decision);
+            }}
+          >
+            <View className="size-11 items-center justify-center">
+              <SymbolView
+                name="ellipsis"
+                size={18}
+                tintColorClassName="accent-icon-muted"
+                type="monochrome"
+              />
+            </View>
+          </ControlPillMenu>
         </View>
       </View>
     </View>

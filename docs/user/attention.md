@@ -26,7 +26,11 @@ and **Working**; failed threads stay in the sidebar. You can answer the first ap
 approves on the start screen, and a command that is hard to undo still needs
 [Hold to allow](./permission-modes.md).
 
-On mobile, Home shows a **Needs you** section with the threads blocked on you.
+On mobile, Home lists **Needs you**, then **To review**, then the threads still **Working**, each
+thread once; the iPad sidebar shows the same sections above its usual list. The **Earlier** row
+can snooze the failed threads it folds. The line under **Threads** says which machine you are
+connected to and how. Turn the sections or the elapsed minutes off in **Settings → Thread behavior
+→ Attention**.
 
 ## Get notified
 
@@ -64,7 +68,7 @@ threads in focus mode** to let them through. Blocked agents and failures still c
 a pill in the header shows how many other threads need you.
 
 To clear the list for a while, choose **Snooze everything except this thread** in the command
-palette, and **Wake all snoozed threads** to bring them back. A thread waiting for your approval or
+palette (on mobile, in a thread's **…** menu), and **Wake all snoozed threads** to bring them back. A thread waiting for your approval or
 answer cannot be snoozed, so nothing that needs you disappears.
 
 **Agent activity** chooses how a working agent's steps appear: **Summary** keeps its tool calls and
@@ -91,8 +95,9 @@ While a thread is open, the bar under its header says what the agent is doing an
 what it is waiting for, or how long the last turn took.
 
 On mobile, a thread you come back to after a break shows the same **Where you left off** card
-above the composer, with your note when it is saved to an environment. While an agent works, the
-status above the composer shows which step of its plan it is on, such as "Step 3 of 5".
+above the composer, with your note when it is saved to an environment; **Where was I?** in the
+thread's **…** menu shows it again. While an agent works, the status above the composer shows
+which step of its plan it is on, such as "Step 3 of 5"; tap it to see the plan.
 
 ## Set a thought aside
 
