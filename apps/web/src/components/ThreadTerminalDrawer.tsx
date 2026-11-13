@@ -1576,9 +1576,9 @@ export default function ThreadTerminalDrawer({
   }
 
   const activeTerminalLaunchLocation = resolveTerminalLaunchLocation(resolvedActiveTerminalId);
-  // Board 16: each pane in the panel has its own header, the label and its state in words, then
-  // at most two labelled buttons (Split and New on the first pane, Stop where a process runs) and
-  // More.
+  // Boards 14 and 16: each pane in the panel has its own header, the label and its state in words,
+  // then at most two labelled buttons and More. The first pane always shows Split and New, so a
+  // process running there is stopped from More; any other running pane shows Stop.
   const paneHeader = (terminalId: string, index: number) => {
     const label = terminalLabelById.get(terminalId) ?? "Terminal";
     const status = terminalPaneStatus(terminalId, runningTerminalIds, finishedTerminalIds);
@@ -1589,6 +1589,16 @@ export default function ThreadTerminalDrawer({
       });
     const first = index === 0;
     const running = status === "running";
+    const stop = () => {
+      sendInput("\u0003");
+      dispatchStop({ type: "stop-sent", terminalId });
+      const timer = window.setTimeout(() => {
+        stopTimersRef.current.delete(timer);
+        dispatchStop({ type: "grace-elapsed", terminalId });
+      }, TERMINAL_STOP_GRACE_MS);
+      stopTimersRef.current.add(timer);
+    };
+    const stopInMore = first && running;
     return (
       <PanelSurfaceHeader
         actions={
@@ -1618,25 +1628,13 @@ export default function ThreadTerminalDrawer({
                 </MenuPopup>
               </Menu>
             ) : null}
-            {running ? (
-              <Button
-                size="compact"
-                variant="ghost"
-                onClick={() => {
-                  sendInput("\u0003");
-                  dispatchStop({ type: "stop-sent", terminalId });
-                  const timer = window.setTimeout(() => {
-                    stopTimersRef.current.delete(timer);
-                    dispatchStop({ type: "grace-elapsed", terminalId });
-                  }, TERMINAL_STOP_GRACE_MS);
-                  stopTimersRef.current.add(timer);
-                }}
-              >
-                Stop
-              </Button>
-            ) : first ? (
+            {first ? (
               <Button size="compact" variant="ghost" onClick={onNewTerminalAction}>
                 New
+              </Button>
+            ) : running ? (
+              <Button size="compact" variant="ghost" onClick={stop}>
+                Stop
               </Button>
             ) : null}
             <Menu>
@@ -1646,19 +1644,14 @@ export default function ThreadTerminalDrawer({
                     size="icon-xs"
                     variant="ghost"
                     className="sm:size-7"
-                    aria-label={`More for ${label}: clear, close pane`}
+                    aria-label={`More for ${label}: ${stopInMore ? "stop, " : ""}clear, close pane`}
                   />
                 }
               >
                 <MoreHorizontal aria-hidden className="size-4" />
               </MenuTrigger>
               <MenuPopup align="end" className="min-w-44">
-                {first && running ? (
-                  <MenuItem onClick={onNewTerminalAction}>
-                    New terminal
-                    {newShortcutLabel ? <MenuShortcut>{newShortcutLabel}</MenuShortcut> : null}
-                  </MenuItem>
-                ) : null}
+                {stopInMore ? <MenuItem onClick={stop}>Stop</MenuItem> : null}
                 <MenuItem onClick={() => sendInput("\u000c")}>Clear</MenuItem>
                 <MenuItem onClick={() => confirmCloseTerminal(terminalId)}>
                   Close pane
