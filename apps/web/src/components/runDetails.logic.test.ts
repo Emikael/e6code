@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  inlineCodeSegments,
   isRunDetailsSectionOpen,
   modelEffortLabel,
   planLimitReading,
@@ -8,6 +9,8 @@ import {
   planPositionLabel,
   planStepWords,
   pushCommitsLabel,
+  rememberedTurnDuration,
+  runDetailsChangedFiles,
 } from "./runDetails.logic";
 
 const steps = (...statuses: Array<"pending" | "inProgress" | "completed">) =>
@@ -166,5 +169,59 @@ describe("labels", () => {
   it("writes a limit as the share used", () => {
     expect(planLimitUsedPercent(62)).toBe(38);
     expect(planLimitUsedPercent(120)).toBe(0);
+  });
+});
+
+describe("runDetailsChangedFiles", () => {
+  const files = [
+    { path: "src/a.ts", insertions: 4, deletions: 1 },
+    { path: "pnpm-lock.yaml", insertions: 300, deletions: 120 },
+    { path: "src/b.ts", insertions: 2, deletions: 0 },
+  ];
+
+  it("lists and counts what the Diff lists, with generated files folded", () => {
+    expect(runDetailsChangedFiles(files, false)).toEqual({
+      files: [files[0], files[2]],
+      generatedCount: 1,
+      insertions: 6,
+      deletions: 1,
+    });
+  });
+
+  it("brings generated files back once shown", () => {
+    const shown = runDetailsChangedFiles(files, true);
+    expect(shown.files).toEqual(files);
+    expect(shown.insertions).toBe(306);
+  });
+});
+
+describe("inlineCodeSegments", () => {
+  it("marks backtick spans as code", () => {
+    expect(inlineCodeSegments("Running `vp test run src/a.test.ts` now")).toEqual([
+      { text: "Running ", code: false },
+      { text: "vp test run src/a.test.ts", code: true },
+      { text: " now", code: false },
+    ]);
+  });
+
+  it("leaves text without a closed span alone", () => {
+    expect(inlineCodeSegments("Reading the `config")).toEqual([
+      { text: "Reading the `config", code: false },
+    ]);
+  });
+});
+
+describe("rememberedTurnDuration", () => {
+  it("keeps the last finished turn while the next one runs", () => {
+    const memory = new Map<string, number>();
+    expect(rememberedTurnDuration(memory, "thread-a", 220_000)).toBe(220_000);
+    expect(rememberedTurnDuration(memory, "thread-a", null)).toBe(220_000);
+    expect(rememberedTurnDuration(memory, "thread-a", 5_000)).toBe(5_000);
+  });
+
+  it("never lends one thread's turn to another", () => {
+    const memory = new Map<string, number>();
+    rememberedTurnDuration(memory, "thread-a", 220_000);
+    expect(rememberedTurnDuration(memory, "thread-b", null)).toBeNull();
   });
 });

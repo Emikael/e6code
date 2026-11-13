@@ -10,6 +10,7 @@ import {
 } from "@e6tools/shared/model";
 
 import type { RunDetailsSectionId } from "~/uiStateStore";
+import { foldGeneratedFiles } from "./diffs/diffFileRail.logic";
 
 type PlanStepStatus = "pending" | "inProgress" | "completed";
 
@@ -153,4 +154,61 @@ export function modelEffortLabel(descriptor: ProviderOptionDescriptor | undefine
   const segment = segments ? effortSegmentForValue(segments, value) : null;
   if (segment) return EFFORT_SEGMENT_LABELS[segment];
   return descriptor.options.find((option) => option.id === value)?.label ?? null;
+}
+
+/**
+ * Changes lists the working tree as the Diff does: generated files folded until shown, and the
+ * line counts taken from the files listed, so "1 of 2 reviewed" here matches "Diff · 2 files".
+ */
+export function runDetailsChangedFiles<
+  T extends { readonly path: string; readonly insertions: number; readonly deletions: number },
+>(files: readonly T[], showGenerated: boolean) {
+  const { items, generatedCount } = foldGeneratedFiles(files, (file) => file.path, showGenerated);
+  return {
+    files: items,
+    generatedCount,
+    insertions: items.reduce((total, file) => total + file.insertions, 0),
+    deletions: items.reduce((total, file) => total + file.deletions, 0),
+  };
+}
+
+/**
+ * An activity line split at its backtick spans, so a command reads as code: "Running `vp test`"
+ * gives "Running " then the code "vp test". An unclosed backtick stays text.
+ */
+export function inlineCodeSegments(text: string): Array<{ text: string; code: boolean }> {
+  const segments: Array<{ text: string; code: boolean }> = [];
+  let rest = text;
+  for (;;) {
+    const open = rest.indexOf("`");
+    const close = open === -1 ? -1 : rest.indexOf("`", open + 1);
+    if (close === -1) break;
+    if (open > 0) segments.push({ text: rest.slice(0, open), code: false });
+    if (close > open + 1) segments.push({ text: rest.slice(open + 1, close), code: true });
+    rest = rest.slice(close + 1);
+  }
+  if (rest.length > 0) segments.push({ text: rest, code: false });
+  return segments;
+}
+
+const REMEMBERED_TURN_DURATIONS_LIMIT = 64;
+
+/**
+ * The latest finished turn's duration for a thread. The read model times only the latest turn,
+ * which has no duration while it runs, so the last finished one is remembered per thread and
+ * shown until the running turn finishes.
+ */
+export function rememberedTurnDuration(
+  memory: Map<string, number>,
+  threadKey: string,
+  durationMs: number | null,
+): number | null {
+  if (durationMs === null) return memory.get(threadKey) ?? null;
+  memory.delete(threadKey);
+  memory.set(threadKey, durationMs);
+  if (memory.size > REMEMBERED_TURN_DURATIONS_LIMIT) {
+    const oldest = memory.keys().next().value;
+    if (oldest !== undefined) memory.delete(oldest);
+  }
+  return durationMs;
 }
