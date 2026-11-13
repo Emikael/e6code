@@ -24,6 +24,7 @@ import { useEffect, useEffectEvent, useId, useMemo, useState } from "react";
 import { create } from "zustand";
 
 import { useParkedActions } from "../hooks/useParkedActions";
+import { useProjectGroupDisplayNames } from "../hooks/useProjectGroupDisplayName";
 import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { useClientSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -116,15 +117,17 @@ function DoneTodayDialog({ onClose }: { onClose: () => void }) {
       }),
     [archived, startOfDayMs, stillOpen, threads],
   );
+  // Rows name a project as the sidebar does, falling back to its own title.
+  const groupNames = useProjectGroupDisplayNames();
   const projectNames = useMemo(
     () =>
       new Map(
-        projects.map((project) => [
-          scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
-          project.title,
-        ]),
+        projects.map((project) => {
+          const key = scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
+          return [key, groupNames.get(key) ?? project.title];
+        }),
       ),
-    [projects],
+    [groupNames, projects],
   );
   const formatTime = (iso: string) => formatShortTimestamp(iso, timestampFormat);
   const openThread = (thread: EnvironmentThreadShell) => {
