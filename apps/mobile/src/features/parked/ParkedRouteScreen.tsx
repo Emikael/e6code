@@ -160,14 +160,14 @@ export function ParkedRouteScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => setParkedConsent(offer, "accepted")}
-              className="rounded-full bg-subtle-strong px-4 py-2 active:opacity-70"
+              className="min-h-11 justify-center rounded-full bg-subtle-strong px-4 active:opacity-70"
             >
               <Text className="text-sm font-e6-medium text-foreground">Save</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => setParkedConsent(offer, "declined")}
-              className="rounded-full px-4 py-2 active:opacity-70"
+              className="min-h-11 justify-center rounded-full px-4 active:opacity-70"
             >
               <Text className="text-sm text-foreground">Not now</Text>
             </Pressable>
@@ -209,8 +209,8 @@ export function ParkedRouteScreen() {
                   onPress={() => setPicked(environment.environmentId)}
                   className={
                     environment.environmentId === target
-                      ? "rounded-full bg-subtle-strong px-3 py-1.5 active:opacity-70"
-                      : "rounded-full px-3 py-1.5 active:opacity-70"
+                      ? "min-h-11 justify-center rounded-full bg-subtle-strong px-3 active:opacity-70"
+                      : "min-h-11 justify-center rounded-full px-3 active:opacity-70"
                   }
                 >
                   <Text className="text-sm text-foreground">
@@ -238,7 +238,7 @@ export function ParkedRouteScreen() {
               accessibilityLabel="Park"
               disabled={draft.trim().length === 0}
               onPress={park}
-              className="rounded-full bg-subtle-strong px-4 py-2 active:opacity-70 disabled:opacity-40"
+              className="min-h-11 justify-center rounded-full bg-subtle-strong px-4 active:opacity-70 disabled:opacity-40"
             >
               <Text className="text-sm font-e6-medium text-foreground">Park</Text>
             </Pressable>
@@ -255,7 +255,11 @@ export function ParkedRouteScreen() {
       {removed ? (
         <View className="flex-row items-center justify-between gap-3 px-2">
           <Text className="text-sm text-foreground-muted">Thought deleted.</Text>
-          <Pressable accessibilityRole="button" onPress={undoRemove} className="px-2 py-1">
+          <Pressable
+            accessibilityRole="button"
+            onPress={undoRemove}
+            className="min-h-11 justify-center px-3"
+          >
             <Text className="text-sm font-e6-medium text-foreground">Undo</Text>
           </Pressable>
         </View>
@@ -291,7 +295,7 @@ export function ParkedRouteScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Start a task: ${row.entry.text}`}
                     onPress={() => void startTask(row)}
-                    className="rounded-full bg-subtle-strong px-3 py-1.5 active:opacity-70"
+                    className="min-h-11 justify-center rounded-full bg-subtle-strong px-3 active:opacity-70"
                   >
                     <Text className="text-sm font-e6-medium text-foreground">Start task</Text>
                   </Pressable>
@@ -299,7 +303,7 @@ export function ParkedRouteScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Delete: ${row.entry.text}`}
                     onPress={() => remove(row)}
-                    className="flex-row items-center gap-1 rounded-full px-3 py-1.5 active:opacity-70"
+                    className="min-h-11 flex-row items-center gap-1 rounded-full px-3 active:opacity-70"
                   >
                     <SymbolView
                       name="trash"
@@ -335,7 +339,7 @@ export function ParkedRouteScreen() {
               key={environment.environmentId}
               accessibilityRole="button"
               onPress={() => setParkedConsent(environment.environmentId, "declined")}
-              className="py-1 active:opacity-70"
+              className="min-h-11 justify-center active:opacity-70"
             >
               <Text className="text-sm text-foreground">
                 {accepted.length === 1 ? "Stop saving" : `Stop saving on ${environment.label}`}
@@ -350,7 +354,7 @@ export function ParkedRouteScreen() {
             accessibilityRole="button"
             accessibilityHint={parkedOfferDetail(labelOf(environmentId))}
             onPress={() => setParkedConsent(environmentId, "accepted")}
-            className="py-1 active:opacity-70"
+            className="min-h-11 justify-center active:opacity-70"
           >
             <Text className="text-sm text-foreground">{`Save to ${labelOf(environmentId)}`}</Text>
           </Pressable>
