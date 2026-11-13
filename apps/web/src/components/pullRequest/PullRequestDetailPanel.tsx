@@ -2664,7 +2664,7 @@ export function PullRequestDetailPanel({
                             actions={{
                               "resolve-conflicts": (
                                 <Button
-                                  size="xs"
+                                  size="compact"
                                   variant="ghost"
                                   disabled={
                                     handoff !== null ||
@@ -2680,7 +2680,7 @@ export function PullRequestDetailPanel({
                                   ? freshness.methods.map((method) => (
                                       <Button
                                         key={method}
-                                        size="xs"
+                                        size="compact"
                                         variant="ghost"
                                         disabled={actionPending}
                                         onClick={() =>
@@ -2702,7 +2702,7 @@ export function PullRequestDetailPanel({
                                     reference={reference}
                                     allowed
                                     trigger={
-                                      <Button size="xs" variant="ghost">
+                                      <Button size="compact" variant="ghost">
                                         Request review
                                       </Button>
                                     }

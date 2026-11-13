@@ -337,7 +337,7 @@ function Section({
         ref={headingRef}
         className="sticky top-0 z-10 flex w-full items-center bg-background pr-4"
       >
-        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-[13px] leading-[18px] font-semibold text-foreground">
+        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-sm font-semibold text-foreground">
           <span>{title}</span>
           <ChevronRightIcon
             aria-hidden
