@@ -11,6 +11,10 @@
       "types": "./src/brand.ts",
       "import": "./src/brand.ts"
     },
+    "./brandMark": {
+      "types": "./src/brandMark.ts",
+      "import": "./src/brandMark.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"

@@ -9,7 +9,7 @@ import {
   staggerDelay,
 } from "~/lib/motion";
 import { cn } from "~/lib/utils";
-import { E6_GLYPH_PATHS } from "./E6Wordmark";
+import { E6_GLYPH_PATHS } from "@e6tools/shared/brandMark";
 
 // The step meter under the glyph: five 8x4 pills, 12 apart, the first three filled.
 const METER_STEPS = [36, 48, 60, 72, 84] as const;
