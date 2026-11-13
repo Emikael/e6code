@@ -293,21 +293,30 @@ function ThreadHeaderBranch(props: { branch: string }) {
 /**
  * The header's fixed "Changes so far" slot (F5): something bounded to look at
  * while the agent works. It stays in place, disabled as "No changes yet", so
- * the header never shifts when the first file changes.
+ * the header never shifts when the first file changes. A narrow header keeps
+ * the slot as the file glyph and the count.
  */
 function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => void }) {
+  const label =
+    count === 0 ? "No changes yet" : `Changes so far · ${count} ${count === 1 ? "file" : "files"}`;
   return (
     <Button
       size="sm"
       variant="outline"
       disabled={count === 0}
       onClick={onOpen}
-      className="me-1 hidden sm:text-xs @lg/header-actions:inline-flex"
+      aria-label={label}
+      className="me-1 shrink-0 sm:text-xs"
     >
       <FileIcon aria-hidden className="size-3.5" />
-      {count === 0
-        ? "No changes yet"
-        : `Changes so far · ${count} ${count === 1 ? "file" : "files"}`}
+      <span aria-hidden className="hidden @lg/header-actions:inline">
+        {label}
+      </span>
+      {count > 0 ? (
+        <span aria-hidden className="tabular-nums @lg/header-actions:hidden">
+          {count}
+        </span>
+      ) : null}
     </Button>
   );
 }
