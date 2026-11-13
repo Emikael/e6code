@@ -33,6 +33,8 @@ import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus, PlanMeter } from "./floating-working-status";
 import { useMinuteClock } from "../../lib/useMinuteClock";
 import { LiveWorkContent } from "./thread-work-log";
+import { WorkingHaloDot } from "./thread-list-v2-items";
+import { THREAD_LIST_V2_MONO_FONT as MONO_FONT } from "./thread-list-v2-row-appearance";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
 // The collapsed composer capsule starts 6 below its overlay's top edge, so
@@ -134,7 +136,9 @@ export function FloatingWorkingControl(props: {
 
   // Connection and attention labels act as buttons (reconnect or scroll to turn).
   const statusInteractive =
-    props.status?.kind === "connection" || props.status?.kind === "attention";
+    props.status?.kind === "connection" ||
+    props.status?.kind === "attention" ||
+    (props.status?.kind === "working" && props.status.onPress !== undefined);
   const capsuleInteractive = statusInteractive || props.devicePreview !== null;
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
@@ -423,6 +427,7 @@ function FloatingStatusLabel(props: {
       startedAt={props.status.startedAt}
       plan={props.status.plan ?? null}
       onLayout={props.onLayout}
+      {...(props.status.onPress ? { onPress: props.status.onPress } : {})}
     />
   );
 }
@@ -435,6 +440,7 @@ function StatusLabelRow(props: {
   readonly children: ReactNode;
   readonly onLayout: (event: LayoutChangeEvent) => void;
   readonly onPress?: () => void;
+  readonly accessibilityHint?: string;
 }) {
   const rowClassName = `h-11 flex-row items-center px-4 ${props.className ?? ""}`;
   return (
@@ -448,6 +454,7 @@ function StatusLabelRow(props: {
         <Pressable
           accessibilityLabel={props.accessibilityLabel}
           accessibilityRole={props.accessibilityRole}
+          accessibilityHint={props.accessibilityHint}
           className={`${rowClassName} active:opacity-70`}
           onPress={props.onPress}
         >
@@ -465,42 +472,61 @@ function StatusLabelRow(props: {
 /**
  * The working row. Only {@link TickingDuration} updates each second (F5: one
  * ticking element); the dot, label and step meter render when the plan
- * changes, and the spoken label moves by whole minutes.
+ * changes, and the spoken label moves by whole minutes. With `onPress` it
+ * is a button with board 9's chevron, opening Run details and its steps.
  */
 function WorkingDuration(props: {
   readonly startedAt: string;
   readonly plan: PlanMeter | null;
   readonly onLayout: (event: LayoutChangeEvent) => void;
+  readonly onPress?: () => void;
 }) {
   const minuteMs = useMinuteClock(true);
   const spoken = spokenWorkingMinutes(props.startedAt, minuteMs);
+  const chevron = props.onPress ? (
+    <SymbolView
+      name="chevron.right"
+      size={14}
+      tintColorClassName="accent-icon-muted"
+      type="monochrome"
+    />
+  ) : null;
+  const action = props.onPress
+    ? {
+        accessibilityRole: "button" as const,
+        accessibilityHint: "Shows the plan and its steps.",
+        onPress: props.onPress,
+      }
+    : {};
 
   if (props.plan !== null) {
-    // Board 9: "Working", the step meter, "Step 3 of 5", then the elapsed time.
+    // Board 9: "Working", the step meter, "Step 3 of 5", the elapsed time, the chevron.
     return (
       <StatusLabelRow
         accessibilityLabel={`Working, ${props.plan.label}, ${spoken}`}
         className="gap-2"
         onLayout={props.onLayout}
+        {...action}
       >
         <WorkingPlanLabel plan={props.plan} />
-        <TickingDuration startedAt={props.startedAt} className="text-xs text-foreground-muted" />
+        <TickingDuration startedAt={props.startedAt} />
+        {chevron}
       </StatusLabelRow>
     );
   }
 
   return (
-    // Iris dot plus words: the live agent reads the same as the web sidebar.
+    // The halo dot plus words: the live agent reads the same as the list.
     <StatusLabelRow
       accessibilityLabel={`Working for ${spoken}`}
       className="gap-2"
       onLayout={props.onLayout}
+      {...action}
     >
-      <View className="h-2 w-2 rounded-full bg-primary" />
-      <View className="flex-row items-center">
-        <Text className="font-e6-medium text-xs text-primary-text">Working for </Text>
-        <TickingDuration startedAt={props.startedAt} className="text-xs text-primary-text" />
-      </View>
+      <WorkingHaloDot />
+      <Text className="font-e6-medium text-2xs text-primary-text">Working</Text>
+      <TickingDuration startedAt={props.startedAt} />
+      {chevron}
     </StatusLabelRow>
   );
 }
@@ -509,18 +535,24 @@ function WorkingDuration(props: {
 const WorkingPlanLabel = memo(function WorkingPlanLabel(props: { readonly plan: PlanMeter }) {
   return (
     <>
-      <View className="h-2 w-2 rounded-full bg-primary" />
-      <Text className="font-e6-medium text-xs text-primary-text">Working</Text>
+      <WorkingHaloDot />
+      <Text className="font-e6-medium text-2xs text-primary-text">Working</Text>
       {props.plan.segments.length > 0 ? <StepMeter segments={props.plan.segments} /> : null}
-      <Text className="shrink font-e6-medium text-xs text-foreground" numberOfLines={1}>
+      <Text
+        className="shrink font-e6-medium text-[13px] leading-[18px] text-foreground"
+        numberOfLines={1}
+      >
         {props.plan.label}
       </Text>
     </>
   );
 });
 
-/** The one element that ticks each second, in tabular numerals so nothing shifts. */
-function TickingDuration(props: { readonly startedAt: string; readonly className: string }) {
+/**
+ * The one element that ticks each second: board 9's time cue, mono 11/14 in
+ * tabular numerals so nothing shifts.
+ */
+function TickingDuration(props: { readonly startedAt: string }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     setNowMs(Date.now());
@@ -529,8 +561,8 @@ function TickingDuration(props: { readonly startedAt: string; readonly className
   }, [props.startedAt]);
   return (
     <SystemText
-      className={props.className}
-      style={{ fontVariant: ["tabular-nums"], fontWeight: "500" }}
+      className="text-[11px] leading-[14px] text-foreground-muted"
+      style={{ fontFamily: MONO_FONT, fontVariant: ["tabular-nums"] }}
     >
       {formatWorkingDuration(props.startedAt, nowMs)}
     </SystemText>

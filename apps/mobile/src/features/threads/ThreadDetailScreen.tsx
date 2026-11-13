@@ -306,6 +306,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       threadId: props.selectedThread.id,
     });
   }, [navigation, props.environmentId, props.selectedThread.id]);
+  // The now bar's chevron: Run details leads with the plan's steps.
+  const openRunDetails = useCallback(() => {
+    Keyboard.dismiss();
+    navigation.navigate("ThreadInspector", {
+      environmentId: String(props.environmentId),
+      threadId: String(props.selectedThread.id),
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
   const openChanges = useCallback(() => {
     Keyboard.dismiss();
     navigation.navigate("ThreadReview", {
@@ -452,6 +460,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       agentState: props.selectedThread.agentState,
       activeWorkStartedAt: props.activeWorkStartedAt,
       planProgress: props.selectedThread.planProgress,
+      onOpenRunDetails: openRunDetails,
     });
   })();
   const showWorkingControl = floatingStatus !== null;
@@ -1154,7 +1163,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   editorRef={composerEditorRef}
                   draftMessage={props.draftMessage}
                   draftAttachments={props.draftAttachments}
-                  placeholder="Ask the repo agent, or run a command…"
+                  // Board 9: while the agent works, what you send waits its turn.
+                  placeholder={
+                    props.selectedThread.session?.status === "running" ||
+                    props.selectedThread.session?.status === "starting"
+                      ? "Queue a follow-up"
+                      : "Ask the repo agent, or run a command…"
+                  }
                   contentMaxWidth={contentMaxWidth}
                   connectionState={props.connectionStateLabel}
                   environmentLabel={props.environmentLabel}
