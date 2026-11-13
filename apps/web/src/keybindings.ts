@@ -239,6 +239,25 @@ export function shortcutLabelForCommand(
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
 }
 
+/**
+ * The label of the command's earliest declared shortcut that is still in
+ * effect, where {@link shortcutLabelForCommand} names the latest. Commands
+ * with a desktop binding and a browser-safe alternative (`chat.new`: Mod+N,
+ * then Mod+Shift+O) declare the desktop one first.
+ */
+export function firstDeclaredShortcutLabelForCommand(
+  keybindings: ResolvedKeybindingsConfig,
+  command: KeybindingCommand,
+  options?: string | ResolvedShortcutLabelOptions,
+): string | null {
+  const resolvedOptions =
+    typeof options === "string"
+      ? ({ platform: options } satisfies ResolvedShortcutLabelOptions)
+      : options;
+  const shortcut = effectiveShortcutsForCommand(keybindings, command, resolvedOptions).at(-1);
+  return shortcut ? formatShortcutLabel(shortcut, resolvePlatform(resolvedOptions)) : null;
+}
+
 export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {
   return THREAD_JUMP_KEYBINDING_COMMANDS[index] ?? null;
 }

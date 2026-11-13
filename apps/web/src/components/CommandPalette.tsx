@@ -896,6 +896,7 @@ function OpenCommandPaletteDialog(props: {
   }, [activeThreadReferenceCopyTarget]);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const focusMode = useUiStateStore((store) => store.focusMode);
+  const sidebarProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
@@ -1905,6 +1906,49 @@ function OpenCommandPaletteDialog(props: {
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
     });
+
+    // The sidebar's project scope: show one project's threads, or all again.
+    if (projectGroups.length > 1) {
+      const scopeItems: CommandPaletteActionItem[] = [
+        {
+          kind: "action",
+          value: "sidebar-scope:all",
+          searchTerms: ["all projects", "every project", "clear filter"],
+          title: "All projects",
+          ...(sidebarProjectScopeKey === null ? { description: "Showing" } : {}),
+          icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+          run: async () => {
+            useUiStateStore.getState().setSidebarProjectScopeKey(null);
+          },
+        },
+        ...projectGroups.map((group): CommandPaletteActionItem => ({
+          kind: "action",
+          value: `sidebar-scope:${group.projectKey}`,
+          searchTerms: [group.displayName],
+          title: group.displayName,
+          ...(sidebarProjectScopeKey === group.projectKey ? { description: "Showing" } : {}),
+          icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+          run: async () => {
+            useUiStateStore.getState().setSidebarProjectScopeKey(group.projectKey);
+          },
+        })),
+      ];
+      actionItems.push({
+        kind: "submenu",
+        value: "action:sidebar-project-scope",
+        searchTerms: ["filter", "scope", "show threads", "only", "project", "sidebar"],
+        title: "Show threads from...",
+        icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <FolderIcon className={ADDON_ICON_CLASS} />,
+        groups: [
+          {
+            value: "projects",
+            label: "Projects",
+            items: enumerateCommandPaletteItems(scopeItems),
+          },
+        ],
+      });
+    }
   }
 
   if (pullRequestMergeCommand !== null) {

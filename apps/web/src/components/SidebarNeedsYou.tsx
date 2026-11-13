@@ -259,7 +259,7 @@ export function SidebarNeedsYou(props: {
       aria-label="Needs you"
       data-testid="sidebar-needs-you"
       {...sectionProps}
-      className="mx-0.5 mb-1 flex flex-col gap-0.5 border-b border-sidebar-border pb-2"
+      className="flex flex-col gap-0.5"
     >
       <SectionLabel>
         <span className="flex-1">Needs you</span>
@@ -356,6 +356,8 @@ export function SidebarNeedsYou(props: {
           </ul>
         </>
       ) : null}
+      {/* Board 1 `.hr`, 2px in from the sides, spaced so the next header sits where the board puts it. */}
+      <div aria-hidden className="mx-0.5 mt-2 mb-[3px] h-px shrink-0 bg-sidebar-border" />
     </section>
   );
 }
