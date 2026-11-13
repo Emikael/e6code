@@ -171,6 +171,7 @@ import {
   allowsSinglePullRequestMerge,
   resolveBaseFreshness,
   resolveMergeReadiness,
+  hostMergeBlockReason,
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
@@ -1590,13 +1591,18 @@ export function PullRequestDetailPanel({
     !detail.isDraft &&
     !conflicting &&
     allowedMergeMethods.length > 1;
+  // The host's branch rules as of the detail read. A newer rollup than that read may already
+  // have cleared the checks it counts, so a stale read leaves the verdict to the host's refusal.
+  const mergeBlock = checksStale ? undefined : detail?.mergeBlock;
   // The footer's one merge control. Readiness rows do not gate it: the host decides, and says why
-  // when it refuses. Only what makes a merge impossible from here disables it.
+  // when it refuses. Only what makes a merge impossible from here disables it, which includes the
+  // host's own branch rules where it reports them up front (`mergeBlock`).
   const canMergeHere =
     detail?.state === "open" &&
     canMergeSinglePullRequest &&
     can("merge") &&
-    allowedMergeMethods.length > 0;
+    allowedMergeMethods.length > 0 &&
+    mergeBlock === undefined;
   // The pull request number carries this state in the overview and the right-panel tab mirrors
   // it. Conflicts take the action slot while they need a person, but do not change the PR state.
   const statePresentation = detail
@@ -1845,7 +1851,8 @@ export function PullRequestDetailPanel({
   const mergeRefusalReason =
     mergeRefusal?.pullRequestKey === pullRequestKey ? mergeRefusal.reason : null;
   // Why the footer's merge cannot go, or why the host refused it, in the host's own words where it
-  // gave them. Nothing is predicted from the readiness rows: the host decides.
+  // gave them. Nothing is predicted from the readiness rows: the host decides, and its branch
+  // rules are its decision made before anyone asks.
   const footerReason =
     detail?.state !== "open"
       ? null
@@ -1863,7 +1870,7 @@ export function PullRequestDetailPanel({
               ? `${hostName} refused the merge: ${mergeRefusalReason}`
               : autoMergeArmed
                 ? "Merge when ready is on"
-                : null;
+                : hostMergeBlockReason(hostName, mergeBlock);
   const mergeButtonLabel = pendingAction === "merge" ? "Merging..." : selectedMergeMethodLabel;
   // One fill per screen: the merge holds it only once everything is met, and on the Code tab only
   // once the review footer has no step left; until then the card or the review step holds it.
@@ -2580,6 +2587,26 @@ export function PullRequestDetailPanel({
                 </Button>
               </div>
             ) : null}
+            {/* At the end of the tab row rather than floating over the content it would cover. */}
+            {detail.capabilities.comment && detail.viewerPermissions.comment ? (
+              <span className={cn("shrink-0", tab !== "timeline" && "ml-auto")}>
+                <PullRequestCommentComposer
+                  key={JSON.stringify([
+                    environmentId,
+                    reference.projectId,
+                    reference.host,
+                    reference.repository,
+                    reference.number,
+                  ])}
+                  environmentId={environmentId}
+                  reference={reference}
+                  detail={detail}
+                  actionPending={actionPending}
+                  onCommentAction={performCommentAction}
+                  onCommented={refreshDetail}
+                />
+              </span>
+            ) : null}
           </nav>
         ) : null}
       </div>
@@ -2658,7 +2685,7 @@ export function PullRequestDetailPanel({
                             actions={{
                               "resolve-conflicts": (
                                 <Button
-                                  size="xs"
+                                  size="compact"
                                   variant="ghost"
                                   disabled={
                                     handoff !== null ||
@@ -2674,7 +2701,7 @@ export function PullRequestDetailPanel({
                                   ? freshness.methods.map((method) => (
                                       <Button
                                         key={method}
-                                        size="xs"
+                                        size="compact"
                                         variant="ghost"
                                         disabled={actionPending}
                                         onClick={() =>
@@ -2696,7 +2723,7 @@ export function PullRequestDetailPanel({
                                     reference={reference}
                                     allowed
                                     trigger={
-                                      <Button size="xs" variant="ghost">
+                                      <Button size="compact" variant="ghost">
                                         Request review
                                       </Button>
                                     }
@@ -2755,27 +2782,6 @@ export function PullRequestDetailPanel({
               </div>
             ) : null}
           </PullRequestMarkdownContext>
-        ) : null}
-
-        {/* Floats over the content, above the merge footer. */}
-        {detail?.capabilities.comment && detail.viewerPermissions.comment ? (
-          <div className="absolute right-4 bottom-3 z-20">
-            <PullRequestCommentComposer
-              key={JSON.stringify([
-                environmentId,
-                reference.projectId,
-                reference.host,
-                reference.repository,
-                reference.number,
-              ])}
-              environmentId={environmentId}
-              reference={reference}
-              detail={detail}
-              actionPending={actionPending}
-              onCommentAction={performCommentAction}
-              onCommented={refreshDetail}
-            />
-          </div>
         ) : null}
       </div>
 

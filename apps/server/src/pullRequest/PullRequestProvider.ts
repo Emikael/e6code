@@ -16,6 +16,7 @@ import type {
   PullRequestLabel,
   PullRequestListFilters,
   PullRequestListState,
+  PullRequestMergeBlock,
   PullRequestMergeCapabilities,
   PullRequestMergeMethod,
   PullRequestMergeability,
@@ -224,6 +225,8 @@ export interface ProviderChangeRequestDetail extends ProviderChangeRequest {
   readonly autoMergeMethod?: PullRequestMergeMethod;
   /** Workflow runs on this head commit that still need a maintainer's approval. */
   readonly workflowApprovalsRequired?: number;
+  /** What the host's branch rules hold the merge on, where the host reports its rules. */
+  readonly mergeBlock?: PullRequestMergeBlock;
 }
 
 /** The conversation-shaped half of a detail, loaded after the core can already render. */

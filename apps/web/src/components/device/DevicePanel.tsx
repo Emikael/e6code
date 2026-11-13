@@ -410,7 +410,7 @@ export function DevicePanel(props: {
                             />
                             <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
                               {row.device.name}{" "}
-                              <span className="font-normal text-muted-foreground text-xs">
+                              <span className="font-mono font-normal text-[11px] text-muted-foreground tabular-nums">
                                 {row.device.version}
                               </span>
                             </span>

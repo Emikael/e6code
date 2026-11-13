@@ -49,6 +49,8 @@ import {
   shouldRefreshPullRequestActivity,
   resolveBaseFreshness,
   resolveMergeReadiness,
+  hostMergeBlockReason,
+  pullRequestCheckDurationLabel,
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
@@ -1791,6 +1793,55 @@ describe("single-PR merge compatibility during stack discovery", () => {
   );
 });
 
+describe("pullRequestCheckDurationLabel", () => {
+  it("words a finished run's length the way the check row shows it", () => {
+    expect(pullRequestCheckDurationLabel(undefined)).toBeNull();
+    expect(pullRequestCheckDurationLabel(42)).toBe("ran 42s");
+    expect(pullRequestCheckDurationLabel(125)).toBe("ran 2m");
+    expect(pullRequestCheckDurationLabel(3600)).toBe("ran 1h");
+    expect(pullRequestCheckDurationLabel(3900)).toBe("ran 1h 5m");
+  });
+});
+
+describe("hostMergeBlockReason", () => {
+  it("says what the host's rules hold the merge on, before anyone presses Merge", () => {
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 2,
+        pendingRequiredChecks: 0,
+        review: null,
+      }),
+    ).toBe("GitHub is blocking merge: 2 required checks are failing.");
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 1,
+        pendingRequiredChecks: 1,
+        review: "required",
+      }),
+    ).toBe(
+      "GitHub is blocking merge: 1 required check is failing, 1 required check has not finished and a review is required.",
+    );
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 0,
+        pendingRequiredChecks: 0,
+        review: "changes-requested",
+      }),
+    ).toBe("GitHub is blocking merge: a reviewer asked for changes.");
+  });
+
+  it("says nothing where the host reported nothing, so its refusal speaks as before", () => {
+    expect(hostMergeBlockReason("GitLab", undefined)).toBeNull();
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 0,
+        pendingRequiredChecks: 0,
+        review: null,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("merge readiness checklist", () => {
   const check = (status: PullRequestCheck["status"], name: string = status) => ({
     name,
@@ -1825,7 +1876,7 @@ describe("merge readiness checklist", () => {
     ]);
   });
 
-  it("offers the action that clears each unmet row, in words, never Blocked", () => {
+  it("offers the action that clears each unmet row, in the plan's words only", () => {
     const readiness = resolveMergeReadiness({
       ...ready,
       checks: [check("failure", "lint"), check("cancelled", "e2e"), check("success", "unit")],
@@ -1837,11 +1888,14 @@ describe("merge readiness checklist", () => {
     });
     expect(readiness?.rows.map((row) => [row.label, row.word, row.detail, row.action])).toEqual([
       ["Checks: 2 of 3 failing", "Failing", null, null],
-      ["Review", "Changes requested", null, null],
-      ["Conflicts with main", "Conflicts", null, "resolve-conflicts"],
-      ["Behind main", "Behind", "3 commits", "update-branch"],
+      ["Review: changes requested", "Failing", null, null],
+      ["Conflicts with main", "Failing", null, "resolve-conflicts"],
+      ["Behind main", "Waiting on update", "3 commits", "update-branch"],
     ]);
-    expect(readiness?.rows.some((row) => row.word === "Blocked")).toBe(false);
+    const words = new Set(["Met", "Failing", "Not requested", "Checking"]);
+    expect(
+      readiness?.rows.every((row) => words.has(row.word) || row.word.startsWith("Waiting on ")),
+    ).toBe(true);
     expect(readiness).toMatchObject({ met: 0, counted: 4 });
   });
 
@@ -1861,7 +1915,7 @@ describe("merge readiness checklist", () => {
     });
   });
 
-  it("leaves what the host could not report out of the count", () => {
+  it("leaves out what the host will never report, and does not count what it has not yet", () => {
     const readiness = resolveMergeReadiness({
       ...ready,
       checks: [],
@@ -1869,11 +1923,9 @@ describe("merge readiness checklist", () => {
       mergeability: "unknown",
       baseComparison: undefined,
     });
-    expect(readiness?.rows.map((row) => row.word)).toEqual([
-      "None",
-      "Met",
-      "Checking",
-      "Not reported",
+    expect(readiness?.rows.map((row) => [row.key, row.word])).toEqual([
+      ["review", "Met"],
+      ["conflicts", "Checking"],
     ]);
     expect(readiness).toMatchObject({ met: 1, counted: 1 });
   });
@@ -1888,7 +1940,7 @@ describe("merge readiness checklist", () => {
         checks: [check("pending", "e2e"), check("success", "unit")],
         checksState: "pending",
       })?.rows[0],
-    ).toMatchObject({ status: "waiting", label: "Checks: 1 of 2 done", word: "Running" });
+    ).toMatchObject({ status: "waiting", label: "Checks: 1 of 2 done", word: "Checking" });
   });
 
   it("has no checklist once nothing is left to merge", () => {
@@ -1949,15 +2001,13 @@ describe("resolvePullRequestNextStep", () => {
     expect(next({ state: "closed" })).toBeNull();
   });
 
-  it("still names what a reader who cannot merge could act on", () => {
-    expect(next({ canMerge: false, mergeability: "conflicting", ...failing })?.kind).toBe(
-      "conflicts",
-    );
-    expect(next({ canMerge: false, ...failing })?.title).toBe("Next: fix 2 failing checks");
-  });
-
-  it("says this account cannot merge only where the merge itself would be next", () => {
-    for (const overrides of [{}, { autoMergeEnabled: true }]) {
+  it("says this account cannot merge before any other step, as the table's second row", () => {
+    for (const overrides of [
+      {},
+      { autoMergeEnabled: true },
+      { mergeability: "conflicting" as const, ...failing },
+      { reviewDecision: "changes-requested" as const, isDraft: true },
+    ]) {
       const step = next({ canMerge: false, ...overrides });
       expect(step?.kind).toBe("no-permission");
       expect(step?.title).toBe("You cannot merge this pull request");

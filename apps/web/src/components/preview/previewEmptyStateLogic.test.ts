@@ -1,7 +1,11 @@
 import type { PreviewSessionSnapshot, ProjectScript } from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { getConfiguredPreviewUrls, shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
+import {
+  addressFieldLabel,
+  getConfiguredPreviewUrls,
+  shouldShowPreviewEmptyState,
+} from "./previewEmptyStateLogic";
 
 const snapshot = (navStatus: PreviewSessionSnapshot["navStatus"]): PreviewSessionSnapshot => ({
   threadId: "thread-1",
@@ -38,5 +42,19 @@ describe("getConfiguredPreviewUrls", () => {
       "http://localhost:5173",
       "http://localhost:3000",
     ]);
+  });
+});
+
+describe("addressFieldLabel", () => {
+  it("shows a web address without its scheme while the field is at rest", () => {
+    expect(addressFieldLabel("http://localhost:5733/settings/attention")).toBe(
+      "localhost:5733/settings/attention",
+    );
+    expect(addressFieldLabel("https://example.com/?q=1")).toBe("example.com/?q=1");
+  });
+
+  it("keeps any other scheme, which says something the address would not", () => {
+    expect(addressFieldLabel("file:///tmp/index.html")).toBe("file:///tmp/index.html");
+    expect(addressFieldLabel("")).toBe("");
   });
 });

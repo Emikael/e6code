@@ -44,6 +44,7 @@ import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import {
   groupPullRequestChecks,
+  pullRequestCheckDurationLabel,
   latestPullRequestReviewOutcomes,
   orderPullRequestComments,
   pullRequestFindingKey,
@@ -336,7 +337,7 @@ function Section({
         ref={headingRef}
         className="sticky top-0 z-10 flex w-full items-center bg-background pr-4"
       >
-        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-[13px] leading-[18px] font-semibold text-foreground">
+        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-sm font-semibold text-foreground">
           <span>{title}</span>
           <ChevronRightIcon
             aria-hidden
@@ -477,6 +478,7 @@ function PullRequestChecksList({
   const groups = groupPullRequestChecks(checks);
   const row = (check: PullRequestDetailView["checks"][number], index: number) => {
     const failed = check.status === "failure" || check.status === "cancelled";
+    const duration = pullRequestCheckDurationLabel(check.durationSeconds);
     return (
       <li
         // Position too: the host decides how many runs share a name.
@@ -492,9 +494,14 @@ function PullRequestChecksList({
         >
           {pullRequestCheckStatusLabel(check)}
         </span>
+        {duration ? (
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+            {duration}
+          </span>
+        ) : null}
         {check.url ? (
           <Button
-            size="xs"
+            size="compact"
             variant="ghost"
             aria-label={`Log for ${check.name}`}
             onClick={() => onOpenLog(check.url!)}

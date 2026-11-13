@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import type { PreviewSessionSnapshot } from "@e6tools/contracts";
 import type { RightPanelSurface } from "~/rightPanelStore";
 import {
   closeTabKeyShortcuts,
@@ -216,5 +217,43 @@ describe("device tab labels", () => {
     expect(surfaceTitle(device, NO_SESSIONS, NO_LABELS, { deviceRunning: false })).toBe(
       "iPhone 16",
     );
+  });
+});
+
+describe("browser tab labels", () => {
+  const browser: RightPanelSurface = { id: "browser:tab-1", kind: "preview", resourceId: "tab-1" };
+  const session = (url: string, title: string) => ({
+    "tab-1": {
+      threadId: "thread-1",
+      tabId: "tab-1",
+      navStatus: { _tag: "Success", url, title },
+      canGoBack: false,
+      canGoForward: false,
+      updatedAt: "2026-11-13T00:00:00.000Z",
+    } as unknown as PreviewSessionSnapshot,
+  });
+
+  it("names the page by its title and host, so two tabs on one app read apart", () => {
+    expect(
+      surfaceTitle(
+        browser,
+        session("http://localhost:5733/settings/attention", "Settings"),
+        NO_LABELS,
+      ),
+    ).toBe("Settings · localhost");
+    // The host survives a long title being cut.
+    expect(
+      surfaceTitleParts(browser, session("https://example.com/a", "A long page title"), NO_LABELS),
+    ).toMatchObject({ name: "A long page title", state: "example.com" });
+  });
+
+  it("says the host once when there is no title or the title is the host", () => {
+    expect(surfaceTitle(browser, session("http://localhost:5733/", ""), NO_LABELS)).toBe(
+      "localhost:5733",
+    );
+    expect(
+      surfaceTitle(browser, session("http://localhost:5733/", "localhost:5733"), NO_LABELS),
+    ).toBe("localhost:5733");
+    expect(surfaceTitle(browser, NO_SESSIONS, NO_LABELS)).toBe("Browser");
   });
 });
