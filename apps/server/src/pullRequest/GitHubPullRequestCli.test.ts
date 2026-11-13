@@ -3370,6 +3370,91 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect("reads what the branch rules hold the merge on from required checks only", () =>
+    Effect.gen(function* () {
+      const rollup = (nodes: ReadonlyArray<Record<string, unknown>>) => ({
+        nodes: [
+          {
+            commit: {
+              statusCheckRollup: { contexts: { nodes, pageInfo: { hasNextPage: false } } },
+            },
+          },
+        ],
+      });
+      mockedExecute.mockReturnValueOnce(
+        Effect.succeed(
+          output(
+            encodeJson(
+              coreResponse({
+                reviewDecision: "REVIEW_REQUIRED",
+                commits: rollup([
+                  {
+                    __typename: "CheckRun",
+                    name: "lint",
+                    status: "COMPLETED",
+                    conclusion: "FAILURE",
+                    startedAt: "2026-07-02T00:00:00Z",
+                    completedAt: "2026-07-02T00:02:05Z",
+                    isRequired: true,
+                  },
+                  {
+                    __typename: "StatusContext",
+                    context: "deploy",
+                    state: "PENDING",
+                    isRequired: true,
+                  },
+                  // Failing but not required: GitHub would still merge over it.
+                  {
+                    __typename: "CheckRun",
+                    name: "flaky",
+                    status: "COMPLETED",
+                    conclusion: "FAILURE",
+                    isRequired: false,
+                  },
+                ]),
+              }),
+            ),
+          ),
+        ),
+      );
+      mockedExecute.mockReturnValueOnce(
+        Effect.succeed(
+          output(
+            encodeJson(
+              coreResponse({
+                reviewDecision: "APPROVED",
+                commits: rollup([
+                  {
+                    __typename: "CheckRun",
+                    name: "flaky",
+                    status: "COMPLETED",
+                    conclusion: "FAILURE",
+                    isRequired: false,
+                  },
+                ]),
+              }),
+            ),
+          ),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+      const input = { cwd: "/w", repository: "acme/web", host: "github.com", number: 7 };
+
+      const held = yield* cli.getPullRequestDetail(input);
+      const free = yield* cli.getPullRequestDetail(input);
+
+      expect(callAt(0).args.at(-1)).toContain("isRequired(pullRequestNumber: $number)");
+      expect(held.mergeBlock).toEqual({
+        failingRequiredChecks: 1,
+        pendingRequiredChecks: 1,
+        review: "required",
+      });
+      expect(held.checks.find((check) => check.name === "lint")?.durationSeconds).toBe(125);
+      expect(held.checks.find((check) => check.name === "deploy")?.durationSeconds).toBeUndefined();
+      expect(free.mergeBlock).toBeUndefined();
+    }),
+  );
+
   it.effect("reads every check when the combined response has another page", () =>
     Effect.gen(function* () {
       const response = coreResponse({

@@ -13,6 +13,7 @@ import type {
   PullRequestCommit,
   PullRequestFileViewedState,
   PullRequestLabel,
+  PullRequestMergeBlock,
   PullRequestMergeCapabilities,
   PullRequestMergeMethod,
   PullRequestOmittedFileStat,
@@ -93,6 +94,8 @@ const RawCheckSchema = Schema.Struct({
   workflowName: Schema.optional(Schema.NullOr(Schema.String)),
   startedAt: Schema.optional(Schema.NullOr(Schema.String)),
   completedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Whether the base branch's rules require this to pass; only the core GraphQL read asks. */
+  isRequired: Schema.optional(Schema.NullOr(Schema.Boolean)),
 });
 
 const RawListItemSchema = Schema.Struct({
@@ -727,9 +730,12 @@ export const PULL_REQUEST_CORE_GRAPHQL_QUERY = `query($owner: String!, $name: St
         nodes { commit { statusCheckRollup { contexts(first: 100) {
           nodes {
             __typename
-            ... on StatusContext { context state targetUrl createdAt description }
+            ... on StatusContext {
+              context state targetUrl createdAt description isRequired(pullRequestNumber: $number)
+            }
             ... on CheckRun {
               name status conclusion startedAt completedAt detailsUrl
+              isRequired(pullRequestNumber: $number)
               checkSuite { workflowRun { workflow { name } } }
             }
           }
@@ -1446,6 +1452,53 @@ function isNamelessCheck(raw: Schema.Schema.Type<typeof RawCheckSchema>): boolea
   return trimmed(raw.name) === null && trimmed(raw.context) === null;
 }
 
+/** A finished run's length off its own timestamps; a run still going has no length yet. */
+function withDuration(
+  check: PullRequestCheck,
+  raw: Schema.Schema.Type<typeof RawCheckSchema>,
+): PullRequestCheck {
+  const startedAt = realTimestamp(raw.startedAt);
+  const completedAt = realTimestamp(raw.completedAt);
+  if (startedAt === null || completedAt === null || check.status === "pending") return check;
+  const milliseconds = Date.parse(completedAt) - Date.parse(startedAt);
+  return Number.isFinite(milliseconds) && milliseconds >= 0
+    ? { ...check, durationSeconds: Math.round(milliseconds / 1000) }
+    : check;
+}
+
+/**
+ * What the base branch's rules hold the merge on, off the same read as everything else. Only an
+ * open pull request is held by anything. `reviewDecision` is the raw verdict here: GitHub reports
+ * one only where the rules ask for reviews, so it is the rules speaking, not the reviewers.
+ *
+ * A check the rules require but that never reported is not in the rollup at all, so a pull
+ * request can still be held on one this cannot see; the host's refusal covers that case.
+ */
+function toMergeBlock(input: {
+  readonly state: string | null | undefined;
+  readonly reviewDecision: string | null | undefined;
+  readonly contexts: ReadonlyArray<Schema.Schema.Type<typeof RawCheckSchema>>;
+}): PullRequestMergeBlock | undefined {
+  if (toState(input) !== "open") return undefined;
+  const required = toChecks(input.contexts.filter((check) => check.isRequired === true));
+  const failingRequiredChecks = required.filter(
+    (check) => check.status === "failure" || check.status === "cancelled",
+  ).length;
+  const pendingRequiredChecks = required.filter(
+    (check) => check.status === "pending" || check.status === "action-required",
+  ).length;
+  const decision = input.reviewDecision?.trim().toUpperCase();
+  const review =
+    decision === "REVIEW_REQUIRED"
+      ? "required"
+      : decision === "CHANGES_REQUESTED"
+        ? "changes-requested"
+        : null;
+  return failingRequiredChecks === 0 && pendingRequiredChecks === 0 && review === null
+    ? undefined
+    : { failingRequiredChecks, pendingRequiredChecks, review };
+}
+
 /**
  * The rollup as the deduper reads it: a check, the workflow that owns it, and when the run last
  * had something to say. A queued run reports a completion time it has not reached, so the start
@@ -1463,12 +1516,15 @@ function toCheckEntries(
     if (name === null) return [];
     return [
       {
-        check: {
-          name,
-          status: toCheckStatus(check),
-          description: trimmed(check.description),
-          url: trimmed(check.detailsUrl) ?? trimmed(check.targetUrl),
-        },
+        check: withDuration(
+          {
+            name,
+            status: toCheckStatus(check),
+            description: trimmed(check.description),
+            url: trimmed(check.detailsUrl) ?? trimmed(check.targetUrl),
+          },
+          check,
+        ),
         workflowName: trimmed(check.workflowName),
         at: realTimestamp(check.completedAt) ?? realTimestamp(check.startedAt),
       },
@@ -1851,6 +1907,7 @@ export interface GitHubPullRequestCore extends GitHubPullRequestDetail {
   readonly viewerAccess: GitHubViewerAccess & GitHubRepositoryAccess;
   readonly comparison: GitHubBaseComparison | null;
   readonly checksTruncated: boolean;
+  readonly mergeBlock?: PullRequestMergeBlock;
 }
 
 export function decodePullRequestCoreJson(
@@ -1861,6 +1918,11 @@ export function decodePullRequestCoreJson(
   const repository = decoded.success.data.repository;
   const pr = repository.pullRequest;
   const contexts = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts;
+  const mergeBlock = toMergeBlock({
+    state: pr.state,
+    reviewDecision: pr.reviewDecision,
+    contexts: contexts?.nodes ?? [],
+  });
   return Result.succeed({
     ...toDetail({
       ...pr,
@@ -1892,6 +1954,7 @@ export function decodePullRequestCoreJson(
             viewerCanUpdate: pr.viewerCanUpdateBranch,
           },
     checksTruncated: contexts?.pageInfo.hasNextPage === true,
+    ...(mergeBlock === undefined ? {} : { mergeBlock }),
   });
 }
 

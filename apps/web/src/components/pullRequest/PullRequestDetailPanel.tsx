@@ -171,6 +171,7 @@ import {
   allowsSinglePullRequestMerge,
   resolveBaseFreshness,
   resolveMergeReadiness,
+  hostMergeBlockReason,
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
@@ -1590,13 +1591,18 @@ export function PullRequestDetailPanel({
     !detail.isDraft &&
     !conflicting &&
     allowedMergeMethods.length > 1;
+  // The host's branch rules as of the detail read. A newer rollup than that read may already
+  // have cleared the checks it counts, so a stale read leaves the verdict to the host's refusal.
+  const mergeBlock = checksStale ? undefined : detail?.mergeBlock;
   // The footer's one merge control. Readiness rows do not gate it: the host decides, and says why
-  // when it refuses. Only what makes a merge impossible from here disables it.
+  // when it refuses. Only what makes a merge impossible from here disables it, which includes the
+  // host's own branch rules where it reports them up front (`mergeBlock`).
   const canMergeHere =
     detail?.state === "open" &&
     canMergeSinglePullRequest &&
     can("merge") &&
-    allowedMergeMethods.length > 0;
+    allowedMergeMethods.length > 0 &&
+    mergeBlock === undefined;
   // The pull request number carries this state in the overview and the right-panel tab mirrors
   // it. Conflicts take the action slot while they need a person, but do not change the PR state.
   const statePresentation = detail
@@ -1863,7 +1869,7 @@ export function PullRequestDetailPanel({
               ? `${hostName} refused the merge: ${mergeRefusalReason}`
               : autoMergeArmed
                 ? "Merge when ready is on"
-                : null;
+                : hostMergeBlockReason(hostName, mergeBlock);
   const mergeButtonLabel = pendingAction === "merge" ? "Merging..." : selectedMergeMethodLabel;
   // One fill per screen: the merge holds it only once everything is met, and on the Code tab only
   // once the review footer has no step left; until then the card or the review step holds it.

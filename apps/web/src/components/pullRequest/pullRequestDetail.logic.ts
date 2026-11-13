@@ -14,6 +14,7 @@ import {
   type PullRequestContextMetadata,
   type PullRequestDetailView,
   type PullRequestMergeability,
+  type PullRequestMergeBlock,
   type PullRequestMergeMethod,
   type PullRequestReaction,
   type PullRequestRef,
@@ -1450,6 +1451,34 @@ export function joinNames(names: ReadonlyArray<string>, limit = 3): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
+/**
+ * What the host's branch rules hold the merge on, as the footer says it before anyone presses
+ * Merge: "GitHub is blocking merge: 2 required checks are failing." Null where the host reported
+ * nothing holding it, which leaves the verdict to the host's own refusal.
+ */
+export function hostMergeBlockReason(
+  hostName: string,
+  block: PullRequestMergeBlock | undefined,
+): string | null {
+  if (block === undefined) return null;
+  const checks = (count: number) =>
+    `${count.toLocaleString()} required ${plural(count, "check", "checks")}`;
+  const reasons = [
+    block.failingRequiredChecks > 0
+      ? `${checks(block.failingRequiredChecks)} ${plural(block.failingRequiredChecks, "is", "are")} failing`
+      : null,
+    block.pendingRequiredChecks > 0
+      ? `${checks(block.pendingRequiredChecks)} ${plural(block.pendingRequiredChecks, "has", "have")} not finished`
+      : null,
+    block.review === "required"
+      ? "a review is required"
+      : block.review === "changes-requested"
+        ? "a reviewer asked for changes"
+        : null,
+  ].filter((reason): reason is string => reason !== null);
+  return reasons.length === 0 ? null : `${hostName} is blocking merge: ${joinNames(reasons)}.`;
+}
+
 export type PullRequestNextStepKind =
   | "no-permission"
   | "conflicts"
@@ -1759,6 +1788,16 @@ export function resolvePullRequestNextStep(
   }
 
   return step("ready", "Ready to merge", "Every requirement is met.");
+}
+
+/** "ran 2m" beside a finished check, off the run's own length; null where the host gave none. */
+export function pullRequestCheckDurationLabel(seconds: number | undefined): string | null {
+  if (seconds === undefined) return null;
+  if (seconds < 60) return `ran ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `ran ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 === 0 ? `ran ${hours}h` : `ran ${hours}h ${minutes % 60}m`;
 }
 
 /** "Code · 5 files", the pull request's Code tab with its file count. */

@@ -44,6 +44,7 @@ import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import {
   groupPullRequestChecks,
+  pullRequestCheckDurationLabel,
   latestPullRequestReviewOutcomes,
   orderPullRequestComments,
   pullRequestFindingKey,
@@ -477,6 +478,7 @@ function PullRequestChecksList({
   const groups = groupPullRequestChecks(checks);
   const row = (check: PullRequestDetailView["checks"][number], index: number) => {
     const failed = check.status === "failure" || check.status === "cancelled";
+    const duration = pullRequestCheckDurationLabel(check.durationSeconds);
     return (
       <li
         // Position too: the host decides how many runs share a name.
@@ -492,9 +494,14 @@ function PullRequestChecksList({
         >
           {pullRequestCheckStatusLabel(check)}
         </span>
+        {duration ? (
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+            {duration}
+          </span>
+        ) : null}
         {check.url ? (
           <Button
-            size="xs"
+            size="compact"
             variant="ghost"
             aria-label={`Log for ${check.name}`}
             onClick={() => onOpenLog(check.url!)}

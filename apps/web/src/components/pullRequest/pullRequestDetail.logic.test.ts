@@ -49,6 +49,8 @@ import {
   shouldRefreshPullRequestActivity,
   resolveBaseFreshness,
   resolveMergeReadiness,
+  hostMergeBlockReason,
+  pullRequestCheckDurationLabel,
   mergeReadinessCountLabel,
   resolvePullRequestMergeMethod,
   resolvePullRequestNextStep,
@@ -1789,6 +1791,55 @@ describe("single-PR merge compatibility during stack discovery", () => {
       ).toBe(allowed);
     },
   );
+});
+
+describe("pullRequestCheckDurationLabel", () => {
+  it("words a finished run's length the way the check row shows it", () => {
+    expect(pullRequestCheckDurationLabel(undefined)).toBeNull();
+    expect(pullRequestCheckDurationLabel(42)).toBe("ran 42s");
+    expect(pullRequestCheckDurationLabel(125)).toBe("ran 2m");
+    expect(pullRequestCheckDurationLabel(3600)).toBe("ran 1h");
+    expect(pullRequestCheckDurationLabel(3900)).toBe("ran 1h 5m");
+  });
+});
+
+describe("hostMergeBlockReason", () => {
+  it("says what the host's rules hold the merge on, before anyone presses Merge", () => {
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 2,
+        pendingRequiredChecks: 0,
+        review: null,
+      }),
+    ).toBe("GitHub is blocking merge: 2 required checks are failing.");
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 1,
+        pendingRequiredChecks: 1,
+        review: "required",
+      }),
+    ).toBe(
+      "GitHub is blocking merge: 1 required check is failing, 1 required check has not finished and a review is required.",
+    );
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 0,
+        pendingRequiredChecks: 0,
+        review: "changes-requested",
+      }),
+    ).toBe("GitHub is blocking merge: a reviewer asked for changes.");
+  });
+
+  it("says nothing where the host reported nothing, so its refusal speaks as before", () => {
+    expect(hostMergeBlockReason("GitLab", undefined)).toBeNull();
+    expect(
+      hostMergeBlockReason("GitHub", {
+        failingRequiredChecks: 0,
+        pendingRequiredChecks: 0,
+        review: null,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("merge readiness checklist", () => {
