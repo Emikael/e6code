@@ -319,7 +319,7 @@ function DeclineWithMessage({
         // Opened from the menu on purpose, so the field takes focus.
         autoFocus
         onChange={(event) => setText(event.target.value)}
-        className="w-full resize-none rounded-lg border border-input bg-card px-2.5 py-2 text-sm leading-[22px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full resize-none rounded-lg border border-muted-foreground bg-card px-2.5 py-2 text-sm leading-[22px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       {draft.status === "too-long" ? (
         <p className="text-xs leading-4 text-destructive-foreground">
