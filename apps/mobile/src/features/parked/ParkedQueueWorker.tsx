@@ -24,7 +24,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
  * Sends this phone's queued Parked changes, one at a time, to accepted
  * environments whose list has arrived. A change the server refuses, or one
  * that could never be sent (too long, say), leaves the queue so it cannot hold
- * up the rest, and a thought in it is shown back with its text; one that could
+ * up the rest, and a thought or note in it is shown back with its text; one that could
  * not be sent waits for the next time the list arrives. Renders nothing.
  */
 export function ParkedQueueWorker() {
@@ -57,6 +57,8 @@ export function ParkedQueueWorker() {
           progressed = true;
           if (op.kind === "add" || op.kind === "update") {
             Alert.alert("Could not park this thought", `${op.text}\n\n${problem}`);
+          } else if (op.kind === "note" && op.text.length > 0) {
+            Alert.alert("Could not save this note", `${op.text}\n\n${problem}`);
           }
           return;
         }
@@ -69,6 +71,11 @@ export function ParkedQueueWorker() {
         if (result._tag === "Success" || refused) {
           settleParked(op.opId);
           progressed = true;
+        }
+        // A note the server would not take is shown back too; a refused
+        // clear needs nothing (the note changed elsewhere, or is gone).
+        if (refused && op.kind === "note" && op.text.length > 0) {
+          Alert.alert("Could not save this note", op.text);
         }
         // A thought the server would not take is shown back, never dropped unseen.
         if (refused && (op.kind === "add" || op.kind === "update")) {

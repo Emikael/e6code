@@ -27,6 +27,7 @@ import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRo
 import { ParkedQueueWorker } from "./features/parked/ParkedQueueWorker";
 import { ParkedRouteScreen } from "./features/parked/ParkedRouteScreen";
 import { ParkThoughtSheet } from "./features/parked/ParkThoughtSheet";
+import { ThreadNoteSheet } from "./features/parked/ThreadNoteSheet";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
@@ -471,6 +472,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "ThreadReviewComment",
   "ThreadDevicePreview",
   "ThreadInspector",
+  "ThreadNote",
   "ThreadSettingsSheet",
 ]);
 
@@ -680,6 +682,15 @@ const RootStackConfig = createNativeStackNavigator({
     ThreadInspector: createNativeStackScreen({
       screen: ThreadInspectorSheet,
       linking: `${THREAD_LINKING_PREFIX}/inspector`,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.55, 0.92],
+        sheetGrabberVisible: true,
+      },
+    }),
+    ThreadNote: createNativeStackScreen({
+      screen: ThreadNoteSheet,
+      linking: `${THREAD_LINKING_PREFIX}/note`,
       options: {
         ...FORM_SHEET_PRESENTATION_OPTIONS,
         sheetAllowedDetents: [0.55, 0.92],

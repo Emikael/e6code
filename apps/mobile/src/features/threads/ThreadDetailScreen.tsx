@@ -1082,6 +1082,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   }
                   onOpenChanges={openChanges}
                   onRevealAsk={revealRecapAsk}
+                  onEditNote={() =>
+                    navigation.navigate("ThreadNote", {
+                      environmentId: props.environmentId,
+                      threadId: props.selectedThread.id,
+                    })
+                  }
                 />
                 {props.creationState?.kind === "failed" ? (
                   <Animated.View
