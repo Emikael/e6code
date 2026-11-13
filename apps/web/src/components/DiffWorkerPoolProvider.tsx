@@ -53,6 +53,9 @@ function acquireDiffWorkerPool(themeName: DiffThemeName, poolSize: number) {
         preferredHighlighter: PREFERRED_HIGHLIGHTER,
         tokenizeMaxLineLength: 1_000,
         useTokenTransformer: true,
+        // The workers draw the changed lines, so they own the changed-word highlighting too: the
+        // Diff draws whole +/− lines with no words picked out inside them (board 12).
+        lineDiffType: "none",
       },
     ),
     consumers: 0,
