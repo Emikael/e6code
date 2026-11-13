@@ -128,22 +128,33 @@ export function surfaceTitleParts(
         state: state.deviceRunning ? "running" : null,
       };
     case "preview":
-      return { name: previewTitle(surface, sessions), state: null };
+      return previewTitleParts(surface, sessions);
   }
 }
 
-function previewTitle(
+/**
+ * Board 17: the page title and its host, "Settings · localhost", so two tabs on one app read
+ * apart. The host rides in the state slot, which survives truncation of a long title. A page
+ * with no title of its own is named by its host and port alone.
+ */
+function previewTitleParts(
   surface: Extract<RightPanelSurface, { kind: "preview" }>,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
-): string {
+): { readonly name: string; readonly state: string | null } {
   const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
-  if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
-  if (snapshot.navStatus.title.trim().length > 0) return snapshot.navStatus.title;
+  if (!snapshot || snapshot.navStatus._tag === "Idle") return { name: "Browser", state: null };
+  let address: URL | null = null;
   try {
-    return new URL(snapshot.navStatus.url).host || "Browser";
+    address = new URL(snapshot.navStatus.url);
   } catch {
-    return "Browser";
+    address = null;
   }
+  const title = snapshot.navStatus.title.trim();
+  if (title.length === 0) return { name: address?.host || "Browser", state: null };
+  const hostname = address?.hostname ?? "";
+  return hostname.length === 0 || title === hostname || title === address?.host
+    ? { name: title, state: null }
+    : { name: title, state: hostname };
 }
 
 /**
