@@ -312,6 +312,55 @@ function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => vo
   );
 }
 
+/**
+ * Focus (boards 1 and 2). On the start screen it shows with its key caps but
+ * stays disabled: focus mode needs an open thread. A narrow header keeps the
+ * glyph alone.
+ */
+function FocusButton({
+  available,
+  shortcut,
+  onToggle,
+}: {
+  available: boolean;
+  shortcut: string | null;
+  onToggle: () => void;
+}) {
+  const button = (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!available}
+      aria-label="Focus"
+      className="me-1 shrink-0 sm:text-xs"
+      onClick={onToggle}
+    >
+      <FocusIcon aria-hidden className="size-3.5" />
+      <span aria-hidden className="hidden @lg/header-actions:inline">
+        Focus
+      </span>
+      {available ? null : (
+        <ShortcutKeyCaps label={shortcut} className="hidden @lg/header-actions:inline-flex" />
+      )}
+    </Button>
+  );
+  return (
+    <Tooltip>
+      {available ? (
+        <TooltipTrigger render={button} />
+      ) : (
+        // A disabled button gets no pointer events, so the tooltip hangs on its wrapper.
+        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>{button}</TooltipTrigger>
+      )}
+      <TooltipPopup side="bottom">
+        {available
+          ? `One thread, nothing around it${shortcut ? ` (${shortcut})` : ""}`
+          : "Focus mode needs an open thread. Send a message first."}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 /** Board 3: the focus bar names a finished turn the way the now bar does, with its times. */
 function FocusDoneCue({ workedFor, finishedAt }: { workedFor: string | null; finishedAt: string }) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
@@ -885,26 +934,7 @@ export const ChatHeader = memo(function ChatHeader({
         {changedFileCount !== null ? (
           <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
         ) : null}
-        {isServerThread ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="me-1 hidden sm:text-xs @lg/header-actions:inline-flex"
-                  onClick={onToggleFocus}
-                />
-              }
-            >
-              <FocusIcon aria-hidden className="size-3.5" />
-              Focus
-            </TooltipTrigger>
-            <TooltipPopup side="bottom">
-              One thread, nothing around it{focusShortcut ? ` (${focusShortcut})` : ""}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+        <FocusButton available={isServerThread} shortcut={focusShortcut} onToggle={onToggleFocus} />
         {/* Scripts, Open in and the terminal sit in one quiet menu. It stays mounted while closed, so
             their keybindings, command palette entries and open dialogs keep working. */}
         <Menu open={actionsOpen} onOpenChange={setActionsOpen}>
