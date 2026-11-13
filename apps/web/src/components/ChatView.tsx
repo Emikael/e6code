@@ -10897,6 +10897,7 @@ export default function ChatView(props: ChatViewProps) {
                             error={visibleThreadError}
                             failure={nowBar.state.kind === "failed" ? nowBar.state.text : null}
                             checkpointed={(activeThread?.checkpoints.length ?? 0) > 0}
+                            providerMessage={conversationProviderStatus?.message ?? null}
                             onRetry={onRetryFailedTurn}
                             onOpenTerminal={() => setTerminalOpen(true)}
                             onContinue={() => focusComposer()}
