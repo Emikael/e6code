@@ -1000,7 +1000,10 @@ function RightPanelTab(props: RightPanelTabProps) {
                   "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted",
                   TAB_BUTTON_HIT_AREA_CLASS,
                 )}
-                aria-label={audio === "muted" ? `Unmute ${title}` : `Mute ${title}`}
+                // The tab's own name, not its state words: "Mute Local site", not "… · localhost".
+                aria-label={
+                  audio === "muted" ? `Unmute ${props.label.name}` : `Mute ${props.label.name}`
+                }
                 onClick={(event) => {
                   event.stopPropagation();
                   void previewBridge
