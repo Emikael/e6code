@@ -216,9 +216,15 @@ describe("deriveThreadRecap", () => {
         }),
         // The provider did not count this edit's lines.
         edit("e3", 6, { changedFiles: ["/repo/notes.md"] }),
+        // Still running: only its detail names the file.
+        edit("e4", 7, {
+          itemType: "file_change",
+          toolLifecycleStatus: "inProgress",
+          detail: "/repo/apps/web/src/index.css",
+        }),
       ],
     });
-    expect(recap?.sinceThen?.summary).toBe("Claude read 1 file and changed 4 files.");
+    expect(recap?.sinceThen?.summary).toBe("Claude read 1 file and changed 5 files.");
     expect(recap?.sinceThen?.files).toEqual([
       {
         path: "/repo/packages/shared/src/themePalettes.ts",
@@ -245,7 +251,8 @@ describe("deriveThreadRecap", () => {
         counted: true,
       },
     ]);
-    expect(recap?.sinceThen?.moreFiles).toBe(1);
+    // notes.md and index.css, named but not counted.
+    expect(recap?.sinceThen?.moreFiles).toBe(2);
   });
 
   it("adds a running turn's edits to the same file an earlier turn changed", () => {

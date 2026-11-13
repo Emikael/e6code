@@ -1,6 +1,7 @@
 import { formatRunningThreadStatus } from "@e6tools/client-runtime/state/agent-state";
 import { approvalPhrase, approvalWordingKind } from "@e6tools/client-runtime/pending-requests";
 import { toolGroupAction } from "@e6tools/client-runtime/work-log/presentation";
+import { editedFilePaths } from "@e6tools/client-runtime/work-log/thread-recap";
 import type {
   OrchestrationCheckpointSummary,
   ProviderRequestKind,
@@ -314,9 +315,7 @@ export function countChangedFiles(
   let unnamedEdits = 0;
   for (const entry of runningEntries) {
     if (entry.tone === "thinking" || toolGroupAction(entry) !== "edit") continue;
-    const named = entry.changedFiles?.length
-      ? entry.changedFiles
-      : (entry.fileDiffStats ?? []).map((file) => file.path);
+    const named = editedFilePaths(entry);
     if (named.length === 0) unnamedEdits += 1;
     for (const path of named) paths.add(formatWorkspaceRelativePath(path, workspaceRoot));
   }

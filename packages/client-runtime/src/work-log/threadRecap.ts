@@ -141,6 +141,18 @@ export function selectRecapAsk(
   return chosen ? { messageId: chosen.id, text: chosen.text.trim() } : null;
 }
 
+/**
+ * The files an edit step names: its changed files, else the files its line
+ * counts name, else, while a file edit runs, the single path its detail
+ * carries ("packages/shared/src/themePalettes.ts"). Empty when it names none.
+ */
+export function editedFilePaths(entry: WorkLogEntry): ReadonlyArray<string> {
+  if (entry.changedFiles?.length) return entry.changedFiles;
+  if (entry.fileDiffStats?.length) return entry.fileDiffStats.map((file) => file.path);
+  const detail = entry.detail?.trim();
+  return entry.itemType === "file_change" && detail && !/\s/.test(detail) ? [detail] : [];
+}
+
 type MutableRecapFile = { -readonly [Key in keyof ThreadRecapFile]: ThreadRecapFile[Key] };
 
 /** An edit's counts for one of its files, when the provider reported them. */
@@ -193,11 +205,9 @@ function changedFilesSince(
     if (!step.turnId || checkpointedTurns.has(step.turnId) || toolGroupAction(step) !== "edit") {
       continue;
     }
-    // An edit that names its files only through its counts still lists them.
-    const paths = step.changedFiles?.length
-      ? step.changedFiles
-      : (step.fileDiffStats ?? []).map((file) => file.path);
-    for (const path of paths) add(path, editCounts(step, path), step.turnId, true);
+    for (const path of editedFilePaths(step)) {
+      add(path, editCounts(step, path), step.turnId, true);
+    }
   }
   return files.sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions));
 }
