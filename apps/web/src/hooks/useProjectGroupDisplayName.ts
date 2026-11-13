@@ -9,29 +9,36 @@ import type { Project } from "../types";
 import { useClientSettings } from "./useSettings";
 
 /**
- * The name the sidebar and the draft hero show for `project`: its logical
- * project group's display name, which can differ from the project's own title
- * when grouping combines checkouts of one repository. Null without a project.
+ * The names the sidebar and the draft hero show for every project, keyed by
+ * scoped project key: each project's logical group display name, which can
+ * differ from the project's own title when grouping combines checkouts of one
+ * repository. Lists that name projects per row read from this map so one
+ * screen uses one name per project.
  */
-export function useProjectGroupDisplayName(project: Project | null): string | null {
+export function useProjectGroupDisplayNames(): ReadonlyMap<string, string> {
   const projects = useProjects();
   const settings = useClientSettings(selectProjectGroupingSettings);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { environments } = useEnvironments();
-  const projectKey = project
-    ? scopedProjectKey(scopeProjectRef(project.environmentId, project.id))
-    : null;
   return useMemo(() => {
-    if (projectKey === null) return null;
     const labels = new Map(environments.map((entry) => [entry.environmentId, entry.label]));
-    const group = buildSidebarProjectSnapshots({
+    const names = new Map<string, string>();
+    for (const group of buildSidebarProjectSnapshots({
       projects,
       settings,
       primaryEnvironmentId,
       resolveEnvironmentLabel: (id) => labels.get(id) ?? null,
-    }).find((snapshot) =>
-      snapshot.memberProjectRefs.some((ref) => scopedProjectKey(ref) === projectKey),
-    );
-    return group?.displayName ?? null;
-  }, [environments, primaryEnvironmentId, projectKey, projects, settings]);
+    })) {
+      for (const ref of group.memberProjectRefs)
+        names.set(scopedProjectKey(ref), group.displayName);
+    }
+    return names;
+  }, [environments, primaryEnvironmentId, projects, settings]);
+}
+
+/** The name the sidebar and the draft hero show for `project`. Null without a project. */
+export function useProjectGroupDisplayName(project: Project | null): string | null {
+  const names = useProjectGroupDisplayNames();
+  if (!project) return null;
+  return names.get(scopedProjectKey(scopeProjectRef(project.environmentId, project.id))) ?? null;
 }

@@ -6417,8 +6417,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               ref={setComposerMenuAnchor}
               data-chat-composer-body="true"
               className={cn(
-                "relative px-3 pb-2 transition-[padding] duration-150 sm:px-4",
-                "pt-3.5 sm:pt-4",
+                // Board 1/2 composer: 12px above the input, the footer right under it, 8px below.
+                "relative px-3 pb-2 transition-[padding] duration-150 sm:px-4 sm:pb-0",
+                "pt-3.5 sm:pt-3",
                 isComposerApprovalState && "pb-3 sm:pb-4",
                 isComposerCollapsedMobile && "hidden",
                 isComposerResting && "py-2 sm:py-2",
@@ -6971,7 +6972,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                 className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-2.5 transition-[padding] duration-150 sm:px-4 sm:pb-3",
+                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-2.5 transition-[padding] duration-150 sm:px-4 sm:pb-2",
                   pendingUserInputs.length > 0 && "pt-2",
                   isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                   showMobilePendingAnswerActions && "hidden sm:flex",
