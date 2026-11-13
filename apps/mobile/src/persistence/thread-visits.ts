@@ -29,7 +29,26 @@ const markLoaded = () => {
   if (loaded) return;
   loaded = true;
   for (const listener of loadedListeners) listener();
+  notifyVisitsChanged();
 };
+// Bumped whenever a visit is recorded or the stored ones arrive, so lists that
+// read visits (the To review tier) recompute.
+let visitsVersion = 0;
+const visitsListeners = new Set<() => void>();
+function notifyVisitsChanged() {
+  visitsVersion += 1;
+  for (const listener of visitsListeners) listener();
+}
+
+/** Changes whenever a visit changes; for `useSyncExternalStore`. */
+export function threadVisitsVersion(): number {
+  return visitsVersion;
+}
+
+export function subscribeThreadVisits(listener: () => void): () => void {
+  visitsListeners.add(listener);
+  return () => visitsListeners.delete(listener);
+}
 
 /** Whether stored visits have been read; for `useSyncExternalStore`. */
 export function threadVisitsLoaded(): boolean {
@@ -98,8 +117,20 @@ export function readThreadVisit(
   return visits.get(visitKey(environmentId, threadId)) ?? null;
 }
 
+/**
+ * When you last saw a thread, by its scoped key (`environmentId:threadId`),
+ * for "done and unseen": the newest activity you had on screen (the server's
+ * clock, like a turn's end), else when you were last here. Null when you have
+ * never opened it on this device.
+ */
+export function readThreadVisitSeenAt(key: string): string | null {
+  const visit = visits.get(key);
+  return visit ? (visit.seenActivityAt ?? visit.visitedAt) : null;
+}
+
 export function recordThreadVisit(visit: ThreadVisit): void {
   visits.set(visitKey(visit.environmentId, visit.threadId), visit);
+  notifyVisitsChanged();
   if (!database) return;
   void Effect.runPromise(
     database.saveCache(

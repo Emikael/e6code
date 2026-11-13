@@ -22,7 +22,7 @@ import {
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, FlatList, Platform, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,6 +36,11 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
+import {
+  readThreadVisitSeenAt,
+  subscribeThreadVisits,
+  threadVisitsVersion,
+} from "../../persistence/thread-visits";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { usePendingThreadOrder } from "../../state/thread-order";
@@ -53,7 +58,9 @@ import {
   ThreadListV2NeedsYouEarlierRow,
   ThreadListV2NeedsYouHeader,
   ThreadListV2NeedsYouRow,
+  ThreadListV2ReviewRow,
   ThreadListV2Row,
+  ThreadListV2SectionHeader,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
@@ -65,7 +72,9 @@ import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  describeThreadListV2SnoozeEarlier,
   NO_NEEDS_YOU,
+  selectThreadListV2SnoozableEarlier,
   reuseThreadListV2NeedsYou,
   selectThreadListV2NeedsYou,
   type ThreadListV2NeedsYou,
@@ -786,6 +795,9 @@ export function HomeScreen(props: HomeScreenProps) {
   // day old moves to Earlier without waiting for new data; a tick that changes
   // nothing keeps the previous lists, so the list items are not rebuilt.
   const { needsYouSectionEnabled } = useAttentionPreferences();
+  // To review needs this device's visits; a visit recorded on leaving a
+  // thread recomputes the section.
+  const threadVisitsVersionValue = useSyncExternalStore(subscribeThreadVisits, threadVisitsVersion);
   const previousNeedsYou = useRef<ThreadListV2NeedsYou>(NO_NEEDS_YOU);
   const threadListV2NeedsYou = useMemo(() => {
     const next =
@@ -796,6 +808,7 @@ export function HomeScreen(props: HomeScreenProps) {
             projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
             searchQuery: props.searchQuery,
             now: new Date().toISOString(),
+            lastVisitedAt: readThreadVisitSeenAt,
           })
         : NO_NEEDS_YOU;
     const kept = reuseThreadListV2NeedsYou(previousNeedsYou.current, next);
@@ -804,6 +817,7 @@ export function HomeScreen(props: HomeScreenProps) {
   }, [
     nowMinute,
     needsYouSectionEnabled,
+    threadVisitsVersionValue,
     props.searchQuery,
     props.selectedEnvironmentId,
     props.threads,
@@ -820,6 +834,9 @@ export function HomeScreen(props: HomeScreenProps) {
       buildThreadListV2ListItems({
         needsYou: threadListV2NeedsYou,
         needsYouEarlierExpanded,
+        // Board 8: each thread once, working ones under "Working". A search
+        // shows plain results.
+        sections: props.searchQuery.trim().length === 0,
         items: threadListV2Layout.items,
         pendingTasks: v2PendingTasks,
         snoozedCount: threadListV2Layout.snoozedCount,
@@ -836,8 +853,26 @@ export function HomeScreen(props: HomeScreenProps) {
       threadListV2Layout,
       threadListV2NeedsYou,
       needsYouEarlierExpanded,
+      props.searchQuery,
       v2PendingTasks,
     ],
+  );
+  // "Snooze 2 failed" on the Earlier row: what in it can be snoozed.
+  const snoozableEarlier = useMemo(
+    () =>
+      selectThreadListV2SnoozableEarlier(threadListV2NeedsYou.earlier, {
+        now: new Date().toISOString(),
+        snoozeEnvironmentIds,
+      }),
+    [nowMinute, snoozeEnvironmentIds, threadListV2NeedsYou.earlier],
+  );
+  const snoozeEarlierLabel = describeThreadListV2SnoozeEarlier(snoozableEarlier);
+  const onSnoozeThread = props.onSnoozeThread;
+  const snoozeEarlier = useCallback(
+    (snoozedUntil: string) => {
+      for (const thread of snoozableEarlier) void onSnoozeThread(thread, snoozedUntil);
+    },
+    [onSnoozeThread, snoozableEarlier],
   );
 
   useThreadJumpShortcuts(
@@ -860,8 +895,17 @@ export function HomeScreen(props: HomeScreenProps) {
             count={item.count}
             expanded={item.expanded}
             onToggle={toggleNeedsYouEarlier}
+            snoozeLabel={snoozeEarlierLabel}
+            onSnooze={snoozeEarlier}
+            snoozePresetMinute={nowMinute}
           />
         );
+      }
+      if (item.type === "v2-section-header") {
+        return <ThreadListV2SectionHeader label={item.label} />;
+      }
+      if (item.type === "v2-review") {
+        return <ThreadListV2ReviewRow item={item.item} onSelectThread={props.onSelectThread} />;
       }
       if (item.type === "v2-needs-you") {
         return item.expanded ? (
@@ -928,6 +972,7 @@ export function HomeScreen(props: HomeScreenProps) {
           snoozePresetMinute={nowMinute}
           snoozeWakeLabelText={item.snoozeWakeLabelText}
           showTrailingDivider={showTrailingDivider}
+          working={item.working}
           project={
             projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null
           }
@@ -979,6 +1024,8 @@ export function HomeScreen(props: HomeScreenProps) {
     [
       handleDeleteThread,
       toggleNeedsYouEarlier,
+      snoozeEarlierLabel,
+      snoozeEarlier,
       activeReorderEnvironmentIds,
       threadMovePlanners,
       pendingOrder,

@@ -38,6 +38,9 @@ import {
   resolveThreadListV2WorkingSince,
   reuseThreadListV2NeedsYou,
   selectThreadListV2NeedsYou,
+  describeThreadListV2SnoozeEarlier,
+  formatThreadListV2WorkingCaption,
+  selectThreadListV2SnoozableEarlier,
   sortThreadsForListV2,
 } from "./threadListV2";
 
@@ -1652,7 +1655,7 @@ describe("Needs you section", () => {
         searchQuery: "tunnel",
         now: NOW,
       }),
-    ).toEqual({ blocked: [], earlier: [] });
+    ).toEqual({ blocked: [], earlier: [], review: [] });
   });
 
   it("leads the list with a counted header, and the threads keep their own rows", () => {
@@ -1683,7 +1686,7 @@ describe("Needs you section", () => {
     expect(items.filter((item) => item.type === "v2-thread")).toHaveLength(3);
     expect(
       buildThreadListV2ListItems({
-        needsYou: { blocked: [], earlier: [] },
+        needsYou: { blocked: [], earlier: [], review: [] },
         items: layout.items,
         pendingTasks: [],
       })[0]?.type,
@@ -1777,6 +1780,172 @@ describe("Needs you section", () => {
       status: "Failed",
       detail: "the CLI is not signed in",
     });
+  });
+});
+
+describe("Home sections (board 8)", () => {
+  const session = (threadId: string, status: "running" | "ready" | "error") =>
+    ({
+      threadId: ThreadId.make(threadId),
+      status,
+      providerName: "codex",
+      runtimeMode: "full-access",
+      activeTurnId: null,
+      lastError: status === "error" ? "the CLI is not signed in" : null,
+      updatedAt: NOW,
+    }) as EnvironmentThreadShell["session"];
+  const approval = makeThread({
+    id: ThreadId.make("approval"),
+    title: "Fix tunnel reconnect loop",
+    hasPendingApprovals: true,
+    pendingRequestSince: "2026-06-01T23:56:00.000Z",
+  });
+  const working = makeThread({
+    id: ThreadId.make("working"),
+    title: "Remodel the theme tokens",
+    session: session("working", "running"),
+    planProgress: { step: "Updating the token map", completedSteps: 2, totalSteps: 5 },
+  });
+  const idle = makeThread({ id: ThreadId.make("idle"), title: "Idle" });
+  const finished = makeThread({
+    id: ThreadId.make("finished"),
+    title: "Relay heartbeat tests",
+    session: session("finished", "ready"),
+    latestTurn: {
+      turnId: TurnId.make("turn-1"),
+      state: "completed",
+      requestedAt: "2026-06-01T23:00:00.000Z",
+      startedAt: "2026-06-01T23:00:00.000Z",
+      completedAt: "2026-06-01T23:30:00.000Z",
+      assistantMessageId: null,
+    },
+  });
+  const threads = [approval, working, idle, finished];
+  const layout = buildThreadListV2Items({
+    threads,
+    environmentId: null,
+    searchQuery: "",
+    now: NOW,
+  });
+  const build = (lastVisitedAt?: (key: string) => string | null) =>
+    buildThreadListV2ListItems({
+      needsYou: selectThreadListV2NeedsYou({
+        threads,
+        environmentId: null,
+        searchQuery: "",
+        now: NOW,
+        ...(lastVisitedAt ? { lastVisitedAt } : {}),
+      }),
+      sections: true,
+      items: layout.items,
+      pendingTasks: [],
+    });
+  const shape = (items: ReturnType<typeof build>) =>
+    items.map((item) =>
+      item.type === "v2-section-header"
+        ? item.label
+        : item.type === "v2-thread"
+          ? `${item.item.thread.id}${item.working ? " (working)" : ""}`
+          : item.type === "v2-needs-you" || item.type === "v2-review"
+            ? `${item.type}:${item.item.thread.id}`
+            : item.type,
+    );
+
+  it("lists a blocked thread once and gathers working threads under Working", () => {
+    expect(shape(build())).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you:approval",
+      "Working",
+      "working (working)",
+      "Other threads",
+      "finished",
+      "idle",
+    ]);
+  });
+
+  it("lists a finished turn you have not seen under To review, and only there", () => {
+    const visits = new Map([[`${environmentId}:finished`, "2026-06-01T23:10:00.000Z"]]);
+    expect(shape(build((key) => visits.get(key) ?? null))).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you:approval",
+      "To review",
+      "v2-review:finished",
+      "Working",
+      "working (working)",
+      "Other threads",
+      "idle",
+    ]);
+    // Seen after it finished, or never opened on this device: not to review.
+    const seen = new Map([[`${environmentId}:finished`, "2026-06-01T23:40:00.000Z"]]);
+    expect(shape(build((key) => seen.get(key) ?? null))).not.toContain("To review");
+  });
+
+  it("keeps a plain list without headings, and the sidebar keeps every row", () => {
+    expect(
+      shape(
+        buildThreadListV2ListItems({
+          sections: true,
+          items: buildThreadListV2Items({
+            threads: [idle],
+            environmentId: null,
+            searchQuery: "",
+            now: NOW,
+          }).items,
+          pendingTasks: [],
+        }),
+      ),
+    ).toEqual(["idle"]);
+    const sidebar = buildThreadListV2ListItems({
+      needsYou: selectThreadListV2NeedsYou({
+        threads,
+        environmentId: null,
+        searchQuery: "",
+        now: NOW,
+      }),
+      expandFirstApproval: false,
+      items: layout.items,
+      pendingTasks: [],
+    });
+    expect(sidebar.filter((item) => item.type === "v2-thread")).toHaveLength(4);
+    expect(sidebar.some((item) => item.type === "v2-needs-you" && item.expanded)).toBe(false);
+  });
+
+  it("words a working row as board 8 does, with a fallback for agents without a plan", () => {
+    expect(formatThreadListV2WorkingCaption(working)).toBe("Step 3 of 5 · Updating the token map");
+    expect(formatThreadListV2WorkingCaption({ agentState: undefined, planProgress: null })).toBe(
+      "Working",
+    );
+    expect(
+      formatThreadListV2WorkingCaption({
+        agentState: { kind: "retrying", attempt: 2, maxAttempts: 10 },
+        planProgress: working.planProgress,
+      }),
+    ).toBe("Retrying · attempt 2 of 10");
+  });
+
+  it("offers to snooze only the folded threads that can be snoozed, and names them", () => {
+    const failed = makeThread({
+      id: ThreadId.make("failed"),
+      title: "Failed",
+      session: session("failed", "error"),
+    });
+    const earlier = selectThreadListV2NeedsYou({
+      threads: [
+        { ...approval, pendingRequestSince: "2026-05-30T00:00:00.000Z" },
+        { ...failed, updatedAt: "2026-05-30T00:00:00.000Z" },
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    }).earlier;
+    expect(earlier.map((item) => item.kind)).toEqual(["approval", "failed"]);
+    const snoozable = selectThreadListV2SnoozableEarlier(earlier, { now: NOW });
+    expect(snoozable.map((thread) => thread.id)).toEqual(["failed"]);
+    expect(describeThreadListV2SnoozeEarlier(snoozable)).toBe("Snooze 1 failed");
+    expect(
+      selectThreadListV2SnoozableEarlier(earlier, { now: NOW, snoozeEnvironmentIds: new Set() }),
+    ).toEqual([]);
+    expect(describeThreadListV2SnoozeEarlier([])).toBeNull();
   });
 });
 
