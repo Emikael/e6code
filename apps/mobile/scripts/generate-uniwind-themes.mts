@@ -3,12 +3,14 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import tailwindColors from "tailwindcss/colors";
+import { DEFAULT_STOCK_ACCENT } from "@e6tools/contracts/settings";
 import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@e6tools/shared/themePalettes";
 
 import {
   createMobileThemeVariables,
   getMobileThemeColors,
   getMobileThemeVariables,
+  stockAccentVariables,
   DEFAULT_MOBILE_THEME_ID,
   type MobileThemeAppearance,
   type MobileThemeVariables,
@@ -153,11 +155,15 @@ const variablesFor = (themeId: BuiltInThemeId, appearance: MobileThemeAppearance
 // Clerk's native screens use one build-time palette per appearance. Custom
 // profile pages must match it even when the rest of the app uses a named theme.
 const clerkColorsFor = (appearance: MobileThemeAppearance) => {
-  // Native authentication uses plain cards, rather than tonal settings groups.
-  const variables = createMobileThemeVariables(
-    getMobileThemeColors(DEFAULT_MOBILE_THEME_ID, appearance),
-    appearance,
-  );
+  // Native authentication uses plain cards, rather than tonal settings groups,
+  // in the default accent the rest of the app starts with.
+  const variables = {
+    ...createMobileThemeVariables(
+      getMobileThemeColors(DEFAULT_MOBILE_THEME_ID, appearance),
+      appearance,
+    ),
+    ...stockAccentVariables(DEFAULT_STOCK_ACCENT, appearance),
+  };
   return {
     primary: variables["--color-primary"],
     background: variables["--color-sheet-solid"],

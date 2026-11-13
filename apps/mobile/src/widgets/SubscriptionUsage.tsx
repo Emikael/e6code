@@ -32,14 +32,14 @@ function SubscriptionUsage(
   // Written by scripts/generate-uniwind-themes.mts from the stock palette.
   const statusColors = {
     light: {
-      primary: "#4a3ad0",
+      primary: "#2a2d35",
       warning: "#92400e",
       update: "#1d4ed8",
       success: "#096b5f",
       error: "#b42318",
     },
     dark: {
-      primary: "#b9afff",
+      primary: "#e6e8ec",
       warning: "#fcd34d",
       update: "#93c5fd",
       success: "#5eead4",

@@ -1,7 +1,7 @@
 <!-- Phase tints shared with the web sidebar and the iOS Live Activity. Written by apps/mobile/scripts/generate-uniwind-themes.mts from the stock palette. -->
 <resources>
     <!-- <generated android-colors> -->
-    <color name="agent_activity_working">#4a3ad0</color>
+    <color name="agent_activity_working">#2a2d35</color>
     <color name="agent_activity_attention">#92400e</color>
     <color name="agent_activity_input">#1d4ed8</color>
     <color name="agent_activity_waiting">#5a606d</color>
