@@ -90,7 +90,9 @@ export const ThreadNowBar = memo(function ThreadNowBar({
             {state.startedAt ? (
               <ElapsedCue startedAt={state.startedAt} earlierTurns={earlierTurns} />
             ) : null}
-            <WatchToggle watchKey={watchKey} />
+            {/* F5 and the Components board: the watch toggle rides with a known plan; without
+                one the bar keeps to the action and the time. */}
+            {state.progress ? <WatchToggle watchKey={watchKey} /> : null}
           </>
         ) : state.kind === "blocked" ? (
           <>
