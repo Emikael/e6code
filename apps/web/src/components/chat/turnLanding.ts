@@ -5,8 +5,8 @@ import {
   createMomentRegistry,
   EASE_OUT,
   MOTION_MS,
+  motionQuiet,
   playTransient,
-  prefersReducedMotion,
   staggerDelay,
 } from "~/lib/motion";
 
@@ -85,7 +85,7 @@ export function playTurnLanding(
   label: HTMLElement,
   onPlayed: () => void,
 ): () => void {
-  const motion = turnLandingMotion(prefersReducedMotion());
+  const motion = turnLandingMotion(motionQuiet());
   if (motion.kind === "settle") {
     onPlayed();
     return () => {};
